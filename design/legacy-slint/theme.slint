@@ -5,10 +5,12 @@ export global Theme {
     in-out property <bool> dark: true;
     // Settings > Accessibility > Contrast "More" (Bulwark data-contrast="more")
     in-out property <bool> more-contrast: false;
-    // Settings > Appearance > Style: 0 Bento (every panel its own tile), 1 Nordic (one surface, pills and circles)
+    // Settings > Appearance > Style: 0 Bento (every panel its own tile), 1 Nordic (one surface, pills and circles),
+    // 2 Bulwark (the default: a native clone of Bulwark 1.21.2; its palette is the `Bulwark` global below, its shape is read here)
     in-out property <int> style: 0;
-    out property <bool> bento: style != 1;
+    out property <bool> bento: style == 0;
     out property <bool> nordic: style == 1;
+    out property <bool> bulwark: style == 2;
 
     // ---- palette (design/mockups BNTokens: one palette, dark first) ----
     out property <color> ground: dark ? #0a0a0a : #f4f4f5;
@@ -68,24 +70,80 @@ export global Theme {
     out property <color> ring: more-contrast ? (dark ? #ffffff : #000000) : accent;
     out property <string> icons: "Segoe Fluent Icons";
 
+    // ---- semantic colours (Bulwark app/globals.css:31-125). The legacy styles keep their own palette, so they only
+    // get the Bulwark status colours; accent-fill is the legacy selection pair. ----
+    out property <color> destructive: dark ? #ef4444 : #dc2626;
+    out property <color> destructive-fg: dark ? #0a0a0a : #ffffff;
+    out property <color> success: dark ? #16a34a : #22c55e;
+    out property <color> success-fg: #ffffff;
+    out property <color> warning: dark ? #ca8a04 : #eab308;
+    out property <color> warning-fg: #ffffff;
+    out property <color> info: dark ? #60a5fa : #3b82f6;
+    out property <color> info-fg: #ffffff;
+    out property <color> secondary: dark ? #262626 : #f8fafc;
+    out property <color> secondary-fg: dark ? #fafafa : #0f172a;
+    out property <color> input: dark ? #262626 : #e2e8f0;
+    out property <color> popover-fg: text;
+    // Bulwark --accent / --accent-foreground (not the primary colour, which is `accent` here)
+    out property <color> accent-fill: sel;
+    out property <color> accent-fill-fg: sel-text;
+    out property <color> unread: accent;
+    out property <color> chart-1: dark ? #60a5fa : #3b82f6;
+    out property <color> chart-2: dark ? #4ade80 : #22c55e;
+    out property <color> chart-3: dark ? #fbbf24 : #f59e0b;
+    out property <color> chart-4: dark ? #f87171 : #ef4444;
+    out property <color> chart-5: dark ? #a78bfa : #8b5cf6;
+
+    // ---- feedback states: the one set every control state reads (Styles/Feedback.xaml) ----
+    // neutral hover and pressed: list rows, menu items, buttons without a fill
+    out property <color> feedback-hover: hover;
+    out property <color> feedback-pressed: pressed;
+    // icon buttons and ghost buttons: Bulwark tints them with --accent; the legacy styles keep the grey hover
+    out property <color> feedback-icon-hover: hover;
+    out property <color> feedback-icon-pressed: pressed;
+    out property <color> feedback-icon-hover-fg: text;
+    // a toggle that is on (toolbar.tsx TOOLBAR_ACTIVE: primary/10, hover primary/15) and its pressed state
+    out property <color> feedback-active: sel;
+    out property <color> feedback-active-hover: sel;
+    out property <color> feedback-active-pressed: pressed;
+    out property <color> feedback-active-fg: sel-text;
+    // selected list row (thread-list-item.tsx: bg-accent, still bg-accent on hover)
+    out property <color> feedback-selected: tile2;
+    out property <color> feedback-selected-fg: text;
+    // the filled (primary) button: Bulwark primary/90 on hover, primary/80 pressed; legacy keeps its colour and dims on press
+    out property <color> feedback-primary-hover: accent;
+    out property <color> feedback-primary-pressed: more-contrast ? (dark ? #93c5fde0 : #1d4ed8e0) : (dark ? #f0577ae0 : #c8234ae0);
+    // a destructive menu row on hover (context-menu.tsx: bg-destructive/10)
+    out property <color> feedback-destructive-hover: dark ? #ef44441a : #dc26261a;
+    // the one keyboard focus ring colour (Bulwark --focus-ring-color)
+    out property <color> feedback-focus: ring;
+
     // ---- shape and spacing (style dependent) ----
     // window ground padding and the gap between tiles (Nordic: rail and folders sit on the ground)
-    out property <length> pad: nordic ? 0px : 14px;
-    out property <length> gap: nordic ? 0px : 12px;
+    out property <length> pad: nordic || bulwark ? 0px : 14px;
+    out property <length> gap: nordic || bulwark ? 0px : 12px;
     // rail column width, and where an app's content starts (x of everything right of the rail)
-    out property <length> rail-w: nordic ? 76px : 64px;
-    out property <length> shell-x: nordic ? 76px : 14px + 64px + 12px;
+    out property <length> rail-w: bulwark ? 56px : (nordic ? 76px : 64px);
+    out property <length> shell-x: bulwark ? 56px : (nordic ? 76px : 14px + 64px + 12px);
     // tiles: side panels (rail, folders), panes (list, reader, context; the Nordic surface), summary tiles
-    out property <length> r-tile: 24px;
-    out property <length> r-pane: nordic ? 28px : 26px;
-    out property <length> r-summary: 22px;
-    // controls (Nordic: every control is a pill, so use min(height / 2, r-…))
-    out property <length> r-button: nordic ? 999px : 12px;
-    out property <length> r-field: nordic ? 999px : 14px;
-    out property <length> r-row: nordic ? 0px : 18px;
-    out property <length> r-nav: nordic ? 22px : 14px;
+    // Bulwark panes are flush (radius 0), cards are rounded-lg (8)
+    out property <length> r-tile: bulwark ? 8px : 24px;
+    out property <length> r-pane: bulwark ? 0px : (nordic ? 28px : 26px);
+    out property <length> r-summary: bulwark ? 8px : 22px;
+    // controls (Nordic: every control is a pill, so use min(height / 2, r-…)); Bulwark rounded-md = 6
+    out property <length> r-button: bulwark ? 6px : (nordic ? 999px : 12px);
+    out property <length> r-field: bulwark ? 6px : (nordic ? 999px : 14px);
+    out property <length> r-row: bulwark ? 0px : (nordic ? 0px : 18px);
+    out property <length> r-nav: bulwark ? 6px : (nordic ? 22px : 14px);
     out property <length> r-chip: 99px;
-    out property <length> r-popup: nordic ? 16px : 14px;
+    // dialogs and popovers are rounded-lg (8) in Bulwark; the legacy popup radius is kept
+    out property <length> r-popup: bulwark ? 8px : (nordic ? 16px : 14px);
+    out property <length> r-dialog: bulwark ? 8px : 16px;
+    // the context menu panel is rounded-md (6); its rows are square (context-menu.tsx:663-667)
+    out property <length> r-menu: bulwark ? 6px : 12px;
+    out property <length> r-menu-item: bulwark ? 0px : 8px;
+    // toasts are rounded-md (toast.tsx:92)
+    out property <length> r-toast: bulwark ? 6px : 12px;
     // squircle (Bento) or circle (Nordic) for an avatar or icon button of this size
     public pure function round(size: length) -> length {
         return nordic ? size / 2 : size * 0.37;
@@ -125,6 +183,18 @@ export global Motion {
     // where an entering popup starts from, and how far a toast slides in
     out property <float> pop-scale: reduce ? 1 : 0.96;
     out property <length> rise: reduce ? 0px : 8px;
+    // ---- feedback transitions: the colour of a state change eases over one of these (Styles/Feedback.xaml, Motion/FeedbackTransition.cs) ----
+    // Bulwark `transition-colors` (150 ms, 371 uses): rows, icon buttons, toggles, anything that only recolours
+    out property <duration> color: 150ms * k;
+    // Bulwark `transition-all duration-200` on every Button (components/ui/button.tsx:42)
+    out property <duration> button: 200ms * k;
+    // Bulwark menu rows `transition-colors duration-150` (components/ui/context-menu.tsx:663)
+    out property <duration> menu: 150ms * k;
+    // non-motion feedback numbers kept with the durations: the opacity of a disabled control (Bulwark disabled:opacity-50)
+    // and the keyboard focus ring (accessibility.css:115-136: 2 px outline, 2 px offset; the Accessibility setting widens it)
+    out property <float> disabled-opacity: 0.5;
+    out property <length> focus-width: 2px;
+    out property <length> focus-offset: 2px;
 }
 
 /// Motion curves (kept out of `Motion`: easing properties cannot cross into Rust). `enter`
@@ -133,6 +203,98 @@ export global Motion {
 export global Ease {
     out property <easing> enter: cubic-bezier(0.2, 0, 0, 1);
     out property <easing> exit: cubic-bezier(0.4, 0, 1, 1);
+}
+
+/// The Bulwark palette: the default style's colours, authored once here (Bulwark 1.21.2 app/globals.css:46-93,127-187 and
+/// app/accessibility.css:290-329). gen-tokens evaluates it for dark/light and normal/more contrast, and requires it to define
+/// exactly the colour properties of `Theme`, so a token cannot exist for the legacy styles only. Derived names follow the
+/// native brush names (ground = --background, tile = --card, tile2 = --muted/secondary, accent = --primary, sel = --selection ...).
+export global Bulwark {
+    in-out property <bool> dark: true;
+    in-out property <bool> more-contrast: false;
+
+    out property <color> ground: dark ? #0a0a0a : #ffffff;
+    out property <color> tile: dark ? #141414 : #ffffff;
+    out property <color> tile2: dark ? #262626 : #f8fafc;
+    out property <color> line: more-contrast ? (dark ? #9ca3af : #4b5563) : (dark ? #8080804d : #e2e8f0);
+    out property <color> track: dark ? #262626 : #f1f5f9;
+    out property <color> text: more-contrast ? (dark ? #ffffff : #000000) : (dark ? #fafafa : #0f172a);
+    out property <color> body: text;
+    out property <color> dim: more-contrast ? (dark ? #e5e7eb : #1f2937) : (dark ? #adadad : #59687c);
+    out property <color> faint: dim;
+    out property <color> accent: more-contrast ? (dark ? #93c5fd : #1d4ed8) : (dark ? #fafafa : #185aea);
+    out property <color> on-accent: more-contrast ? (dark ? #000000 : #ffffff) : (dark ? #171717 : #ffffff);
+    out property <color> sel: dark ? #3b82f640 : #dbeafe;
+    out property <color> sel-text: more-contrast ? (dark ? #dbeafe : #1e3a8a) : (dark ? #93c5fd : #1e40af);
+    out property <color> popup: dark ? #1c1c1c : #ffffff;
+    // the sender tint pairs stay the legacy ones until the avatars are redesigned
+    out property <color> rose-bg: dark ? #f0577a24 : #fde4ea;
+    out property <color> rose-fg: dark ? #ffb3c4 : #8c1733;
+    out property <color> mint-bg: dark ? #34d39921 : #dcf5e8;
+    out property <color> mint-fg: dark ? #86efc4 : #17603f;
+    out property <color> sky-bg: dark ? #60a5fa24 : #dfeafd;
+    out property <color> sky-fg: dark ? #a8cbff : #1e3f8a;
+    out property <color> amber-bg: dark ? #fbbf2421 : #fdf1d3;
+    out property <color> amber-fg: dark ? #fcd679 : #7a4a06;
+
+    out property <color> bg: ground;
+    out property <color> rail: dark ? #0a0a0a : #f8fafc;
+    out property <color> side: rail;
+    // hover:bg-muted (275 uses) is #262626 in dark, #f1f5f9 in light; pressed is one step stronger in both, so the order
+    // is rest < hover < pressed in light and dark (Bulwark itself has no pressed state)
+    out property <color> hover: dark ? #262626 : #f1f5f9;
+    out property <color> pressed: dark ? #333333 : #e2e8f0;
+    out property <color> chip: tile2;
+    out property <color> raised: tile2;
+    out property <color> zebra: ground;
+    out property <color> bubble: tile2;
+    out property <color> reader: ground;
+    out property <color> muted-day: dim;
+    out property <color> ring: more-contrast ? (dark ? #ffffff : #000000) : (dark ? #d4d4d4 : #2563eb);
+
+    // semantic colours (globals.css:31-125)
+    out property <color> destructive: dark ? #ef4444 : #dc2626;
+    out property <color> destructive-fg: dark ? #0a0a0a : #ffffff;
+    out property <color> success: dark ? #16a34a : #22c55e;
+    out property <color> success-fg: #ffffff;
+    out property <color> warning: dark ? #ca8a04 : #eab308;
+    out property <color> warning-fg: #ffffff;
+    out property <color> info: dark ? #60a5fa : #3b82f6;
+    out property <color> info-fg: #ffffff;
+    out property <color> secondary: dark ? #262626 : #f8fafc;
+    out property <color> secondary-fg: dark ? #fafafa : #0f172a;
+    out property <color> input: dark ? #262626 : #e2e8f0;
+    out property <color> popover-fg: text;
+    out property <color> accent-fill: dark ? #1e3a8a : #dbeafe;
+    out property <color> accent-fill-fg: dark ? #dbeafe : #1e40af;
+    out property <color> unread: dark ? #60a5fa : #3b82f6;
+    out property <color> chart-1: dark ? #60a5fa : #3b82f6;
+    out property <color> chart-2: dark ? #4ade80 : #22c55e;
+    out property <color> chart-3: dark ? #fbbf24 : #f59e0b;
+    out property <color> chart-4: dark ? #f87171 : #ef4444;
+    out property <color> chart-5: dark ? #a78bfa : #8b5cf6;
+
+    // feedback states (see Theme for what each is for)
+    // button.tsx:49 ghost / outline hover is bg-accent; the icon keeps --foreground (toolbar.tsx: hover:text-foreground)
+    out property <color> feedback-hover: hover;
+    out property <color> feedback-pressed: pressed;
+    out property <color> feedback-icon-hover: accent-fill;
+    out property <color> feedback-icon-pressed: dark ? #1e40af : #bfdbfe;
+    out property <color> feedback-icon-hover-fg: text;
+    // toolbar.tsx:16 bg-primary/10 text-primary hover:bg-primary/15 (the pressed step is primary/20)
+    out property <color> feedback-active: more-contrast ? (dark ? #93c5fd1a : #1d4ed81a) : (dark ? #fafafa1a : #185aea1a);
+    out property <color> feedback-active-hover: more-contrast ? (dark ? #93c5fd26 : #1d4ed826) : (dark ? #fafafa26 : #185aea26);
+    out property <color> feedback-active-pressed: more-contrast ? (dark ? #93c5fd33 : #1d4ed833) : (dark ? #fafafa33 : #185aea33);
+    out property <color> feedback-active-fg: accent;
+    // thread-list-item.tsx:731: a selected row is bg-accent, and stays bg-accent on hover
+    out property <color> feedback-selected: accent-fill;
+    out property <color> feedback-selected-fg: accent-fill-fg;
+    // button.tsx:48 hover:bg-primary/90 (e6); pressed primary/80 (cc)
+    out property <color> feedback-primary-hover: more-contrast ? (dark ? #93c5fde6 : #1d4ed8e6) : (dark ? #fafafae6 : #185aeae6);
+    out property <color> feedback-primary-pressed: more-contrast ? (dark ? #93c5fdcc : #1d4ed8cc) : (dark ? #fafafacc : #185aeacc);
+    // context-menu.tsx:726 hover:bg-destructive/10
+    out property <color> feedback-destructive-hover: dark ? #ef44441a : #dc26261a;
+    out property <color> feedback-focus: ring;
 }
 
 /// A surface that fades in and grows from `Motion.pop-scale` when it is created (menus, popups,

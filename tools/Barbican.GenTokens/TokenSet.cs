@@ -9,6 +9,7 @@ namespace Barbican.GenTokens;
 /// <param name="ShapeKeys">Shape and type-scale keys (PascalCase) in source order.</param>
 /// <param name="ShapeBento">Shape values for Bento, in px.</param>
 /// <param name="ShapeNordic">Shape values for Nordic, in px.</param>
+/// <param name="ShapeBulwark">Shape values for Bulwark, in px.</param>
 /// <param name="Motion">Motion tokens at reduce = false, rapid = false: key → (value, unit suffix).</param>
 /// <param name="Ease">Easing curves: key → control points.</param>
 /// <param name="Icons">Line-icon path data (24 × 24 box): key → SVG path.</param>
@@ -18,6 +19,7 @@ public sealed record TokenSet(
     IReadOnlyList<string> ShapeKeys,
     IReadOnlyDictionary<string, double> ShapeBento,
     IReadOnlyDictionary<string, double> ShapeNordic,
+    IReadOnlyDictionary<string, double> ShapeBulwark,
     IReadOnlyList<(string Key, double Value, string Unit)> Motion,
     IReadOnlyList<(string Key, EasingValue Curve)> Ease,
     IReadOnlyList<(string Key, string Path)> Icons)
@@ -43,6 +45,8 @@ public sealed record TokenSet(
         var colorProps = OutputsOfType(theme, "color");
         var lengthProps = OutputsOfType(theme, "length");
         var (palettes, bento, nordic) = EvaluateTheme(theme, colorProps, lengthProps);
+        AddBulwarkPalettes(Need(globals, "Bulwark"), colorProps.Select(p => Pascal(p.Name)).ToList(), palettes);
+        var bulwarkShape = EvaluateBulwarkShape(theme, lengthProps);
 
         var ease = Need(globals, "Ease");
         var easeEval = new SlintEvaluator(ease, NoInputs);
@@ -62,6 +66,7 @@ public sealed record TokenSet(
             lengthProps.Select(p => Pascal(p.Name)).ToList(),
             bento,
             nordic,
+            bulwarkShape,
             EvaluateMotion(Need(globals, "Motion")),
             easeTokens,
             iconTokens);
@@ -101,50 +106,46 @@ public sealed record TokenSet(
             }
         }
 
-        AddBulwarkPalettes(palettes);
         return (palettes, shapes[false], shapes[true]);
     }
 
-    private static void AddBulwarkPalettes(List<IReadOnlyDictionary<string, uint>> palettes)
+    /// <summary>The shape tokens of the Bulwark style (style = 2); its palette is the Bulwark global, so the other inputs are irrelevant.</summary>
+    private static Dictionary<string, double> EvaluateBulwarkShape(SlintGlobal theme, List<SlintProperty> lengthProps)
     {
-        // Bulwark 1.21.2 app/globals.css:46-93,127-170 and
-        // app/accessibility.css:290-329. Semantic mappings onto the existing native
-        // brush names; legacy sender tint pairs remain unchanged until redesigned.
-        foreach (var (dark, more) in new[] { (true, false), (true, true), (false, false), (false, true) })
-        {
-            var p = new Dictionary<string, uint>(palettes[(dark ? 0 : 4) + (more ? 2 : 0)], StringComparer.Ordinal);
-            void Set(string key, uint d, uint l) => p[key] = dark ? d : l;
-            Set("Ground", 0xFF0A0A0A, 0xFFFFFFFF);
-            Set("Tile", 0xFF141414, 0xFFFFFFFF);
-            Set("Tile2", 0xFF262626, 0xFFF8FAFC);
-            Set("Line", more ? 0xFF9CA3AF : 0x4D808080, more ? 0xFF4B5563 : 0xFFE2E8F0);
-            Set("Track", 0xFF262626, 0xFFF1F5F9);
-            Set("Text", more ? 0xFFFFFFFF : 0xFFFAFAFA, more ? 0xFF000000 : 0xFF0F172A);
-            p["Body"] = p["Text"];
-            Set("Dim", more ? 0xFFE5E7EB : 0xFFADADAD, more ? 0xFF1F2937 : 0xFF59687C);
-            p["Faint"] = p["Dim"];
-            Set("Accent", more ? 0xFF93C5FD : 0xFFFAFAFA, more ? 0xFF1D4ED8 : 0xFF185AEA);
-            Set("OnAccent", more ? 0xFF000000 : 0xFF171717, 0xFFFFFFFF);
-            Set("Sel", 0x403B82F6, 0xFFDBEAFE);
-            Set("SelText", more ? 0xFFDBEAFE : 0xFF93C5FD, more ? 0xFF1E3A8A : 0xFF1E40AF);
-            Set("Popup", 0xFF1C1C1C, 0xFFFFFFFF);
-            p["Bg"] = p["Ground"];
-            Set("Rail", 0xFF0A0A0A, 0xFFF8FAFC);
-            p["Side"] = p["Rail"];
-            Set("Hover", 0xFF1A1A1A, 0xFFF1F5F9);
-            p["Pressed"] = p["Tile2"];
-            p["Chip"] = p["Tile2"];
-            p["Raised"] = p["Tile2"];
-            p["Zebra"] = p["Ground"];
-            p["Bubble"] = p["Tile2"];
-            p["Reader"] = p["Ground"];
-            p["MutedDay"] = p["Dim"];
-            Set("Ring", more ? 0xFFFFFFFF : 0xFFD4D4D4, more ? 0xFF000000 : 0xFF2563EB);
-            palettes.Add(p);
-        }
-
+        var inputs = ThemeInputs(Variant.All[0]).ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.Ordinal);
+        inputs["style"] = new NumberValue(2);
+        var eval = new SlintEvaluator(theme, inputs);
+        return lengthProps.ToDictionary(
+            p => Pascal(p.Name),
+            p => eval.Get(p.Name) is LengthValue l ? l.Px : throw new FormatException($"Theme.{p.Name} is not a length for Bulwark"),
+            StringComparer.Ordinal);
     }
 
+    private static void AddBulwarkPalettes(SlintGlobal bulwark, IReadOnlyList<string> colorKeys, List<IReadOnlyDictionary<string, uint>> palettes)
+    {
+        // The Bulwark palette is authored in theme.slint (`export global Bulwark`); it must define exactly the colours of `Theme`.
+        var own = OutputsOfType(bulwark, "color").Select(p => Pascal(p.Name)).ToList();
+        var missing = colorKeys.Except(own, StringComparer.Ordinal).ToList();
+        var extra = own.Except(colorKeys, StringComparer.Ordinal).ToList();
+        if (missing.Count > 0 || extra.Count > 0)
+        {
+            throw new FormatException($"Bulwark and Theme define different colours: missing [{string.Join(", ", missing)}], extra [{string.Join(", ", extra)}]");
+        }
+
+        // Variant order after the eight legacy ones: dark, dark more-contrast, light, light more-contrast (ThemeVariant.Index).
+        foreach (var (dark, more) in new[] { (true, false), (true, true), (false, false), (false, true) })
+        {
+            var eval = new SlintEvaluator(bulwark, new Dictionary<string, SlintValue>(StringComparer.Ordinal)
+            {
+                ["dark"] = new BoolValue(dark),
+                ["more-contrast"] = new BoolValue(more),
+            });
+            palettes.Add(OutputsOfType(bulwark, "color").ToDictionary(
+                p => Pascal(p.Name),
+                p => eval.Get(p.Name) is ColorValue c ? c.Argb : throw new FormatException($"Bulwark.{p.Name} is not a colour"),
+                StringComparer.Ordinal));
+        }
+    }
     private static List<(string Key, double Value, string Unit)> EvaluateMotion(SlintGlobal motion)
     {
         var eval = new SlintEvaluator(motion, new Dictionary<string, SlintValue>(StringComparer.Ordinal)

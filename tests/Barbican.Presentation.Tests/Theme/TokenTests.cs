@@ -147,6 +147,35 @@ public sealed partial class TokenTests
         Assert.Equal(nordic, Tokens.Shape(nordic: true)[key]);
     }
 
+    // Bulwark tailwind radii: rounded-md 6 (controls, menus, toasts), rounded-lg 8 (dialogs, popovers), rows and panes are flush.
+    [Theory]
+    [InlineData("RButton", 6)]
+    [InlineData("RField", 6)]
+    [InlineData("RNav", 6)]
+    [InlineData("RPopup", 8)]
+    [InlineData("RDialog", 8)]
+    [InlineData("RMenu", 6)]
+    [InlineData("RMenuItem", 0)]
+    [InlineData("RToast", 6)]
+    [InlineData("RRow", 0)]
+    [InlineData("RPane", 0)]
+    [InlineData("RChip", 99)]
+    [InlineData("RailW", 56)]
+    [InlineData("Pad", 0)]
+    public void Bulwark_shape_follows_the_tailwind_radii(string key, double expected)
+    {
+        Assert.Equal(expected, Tokens.Shape(ThemeVariant.Default)[key]);
+        Assert.Equal(expected, Tokens.Shape(ThemeVariant.Default with { Dark = false })[key]);
+    }
+
+    [Fact]
+    public void Legacy_styles_keep_their_shape_next_to_bulwark()
+    {
+        Assert.Equal(12, Tokens.Shape(new ThemeVariant(true, false, false))["RButton"]);
+        Assert.Equal(999, Tokens.Shape(new ThemeVariant(true, false, true))["RButton"]);
+        Assert.Equal(16, Tokens.Shape(new ThemeVariant(true, false, false))["RDialog"]);
+    }
+
     [Fact]
     public void Motion_and_ease_match_theme_slint()
     {
@@ -157,6 +186,13 @@ public sealed partial class TokenTests
         Assert.Equal(350, Tokens.Motion.TipDelayMs);
         Assert.Equal(0.96, Tokens.Motion.PopScale);
         Assert.Equal(8, Tokens.Motion.RisePx);
+        // feedback transitions: Bulwark transition-colors 150 ms, buttons transition-all duration-200, menu rows 150 ms
+        Assert.Equal(150, Tokens.Motion.ColorMs);
+        Assert.Equal(200, Tokens.Motion.ButtonMs);
+        Assert.Equal(150, Tokens.Motion.MenuMs);
+        Assert.Equal(0.5, Tokens.Motion.DisabledOpacity);
+        Assert.Equal(2, Tokens.Motion.FocusWidthPx);
+        Assert.Equal(2, Tokens.Motion.FocusOffsetPx);
         Assert.Equal((0.2, 0d, 0d, 1d), Tokens.Ease.Enter);
         Assert.Equal((0.4, 0d, 1d, 1d), Tokens.Ease.Exit);
         Assert.Equal("M4 4h16v16H4z M22 6l-10 7L2 6", Tokens.Icons["Mail"]);
@@ -196,7 +232,12 @@ public sealed partial class TokenTests
     public void Shape_xaml_matches_the_style_tables()
     {
         XNamespace x = "http://schemas.microsoft.com/winfx/2006/xaml";
-        foreach (var (path, nordic) in new[] { (Emitters.ShapeBentoXamlPath, false), (Emitters.ShapeNordicXamlPath, true) })
+        foreach (var (path, variant) in new[]
+        {
+            (Emitters.ShapeBentoXamlPath, new ThemeVariant(true, false, false)),
+            (Emitters.ShapeNordicXamlPath, new ThemeVariant(true, false, true)),
+            (Emitters.ShapeBulwarkXamlPath, ThemeVariant.Default),
+        })
         {
             var doc = XDocument.Parse(ReadRepoFile(path));
             var values = doc.Root!.Elements().ToDictionary(
@@ -206,7 +247,7 @@ public sealed partial class TokenTests
             Assert.Equal(Tokens.ShapeKeys.Count, values.Count);
             foreach (var key in Tokens.ShapeKeys)
             {
-                Assert.Equal(Tokens.Shape(nordic)[key], values[key]);
+                Assert.Equal(Tokens.Shape(variant)[key], values[key]);
             }
         }
     }

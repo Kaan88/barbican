@@ -32,8 +32,8 @@
   <SolidColorBrush x:Key="Bg" Color="#FF0A0A0A" />
   <SolidColorBrush x:Key="Rail" Color="#FF0A0A0A" />
   <SolidColorBrush x:Key="Side" Color="#FF0A0A0A" />
-  <SolidColorBrush x:Key="Hover" Color="#FF1A1A1A" />
-  <SolidColorBrush x:Key="Pressed" Color="#FF262626" />
+  <SolidColorBrush x:Key="Hover" Color="#FF262626" />
+  <SolidColorBrush x:Key="Pressed" Color="#FF333333" />
   <SolidColorBrush x:Key="Chip" Color="#FF262626" />
   <SolidColorBrush x:Key="Raised" Color="#FF262626" />
   <SolidColorBrush x:Key="Zebra" Color="#FF0A0A0A" />
@@ -41,6 +41,41 @@
   <SolidColorBrush x:Key="Reader" Color="#FF0A0A0A" />
   <SolidColorBrush x:Key="MutedDay" Color="#FFADADAD" />
   <SolidColorBrush x:Key="Ring" Color="#FFD4D4D4" />
+  <SolidColorBrush x:Key="Destructive" Color="#FFEF4444" />
+  <SolidColorBrush x:Key="DestructiveFg" Color="#FF0A0A0A" />
+  <SolidColorBrush x:Key="Success" Color="#FF16A34A" />
+  <SolidColorBrush x:Key="SuccessFg" Color="#FFFFFFFF" />
+  <SolidColorBrush x:Key="Warning" Color="#FFCA8A04" />
+  <SolidColorBrush x:Key="WarningFg" Color="#FFFFFFFF" />
+  <SolidColorBrush x:Key="Info" Color="#FF60A5FA" />
+  <SolidColorBrush x:Key="InfoFg" Color="#FFFFFFFF" />
+  <SolidColorBrush x:Key="Secondary" Color="#FF262626" />
+  <SolidColorBrush x:Key="SecondaryFg" Color="#FFFAFAFA" />
+  <SolidColorBrush x:Key="Input" Color="#FF262626" />
+  <SolidColorBrush x:Key="PopoverFg" Color="#FFFAFAFA" />
+  <SolidColorBrush x:Key="AccentFill" Color="#FF1E3A8A" />
+  <SolidColorBrush x:Key="AccentFillFg" Color="#FFDBEAFE" />
+  <SolidColorBrush x:Key="Unread" Color="#FF60A5FA" />
+  <SolidColorBrush x:Key="Chart1" Color="#FF60A5FA" />
+  <SolidColorBrush x:Key="Chart2" Color="#FF4ADE80" />
+  <SolidColorBrush x:Key="Chart3" Color="#FFFBBF24" />
+  <SolidColorBrush x:Key="Chart4" Color="#FFF87171" />
+  <SolidColorBrush x:Key="Chart5" Color="#FFA78BFA" />
+  <SolidColorBrush x:Key="FeedbackHover" Color="#FF262626" />
+  <SolidColorBrush x:Key="FeedbackPressed" Color="#FF333333" />
+  <SolidColorBrush x:Key="FeedbackIconHover" Color="#FF1E3A8A" />
+  <SolidColorBrush x:Key="FeedbackIconPressed" Color="#FF1E40AF" />
+  <SolidColorBrush x:Key="FeedbackIconHoverFg" Color="#FFFAFAFA" />
+  <SolidColorBrush x:Key="FeedbackActive" Color="#1AFAFAFA" />
+  <SolidColorBrush x:Key="FeedbackActiveHover" Color="#26FAFAFA" />
+  <SolidColorBrush x:Key="FeedbackActivePressed" Color="#33FAFAFA" />
+  <SolidColorBrush x:Key="FeedbackActiveFg" Color="#FFFAFAFA" />
+  <SolidColorBrush x:Key="FeedbackSelected" Color="#FF1E3A8A" />
+  <SolidColorBrush x:Key="FeedbackSelectedFg" Color="#FFDBEAFE" />
+  <SolidColorBrush x:Key="FeedbackPrimaryHover" Color="#E6FAFAFA" />
+  <SolidColorBrush x:Key="FeedbackPrimaryPressed" Color="#CCFAFAFA" />
+  <SolidColorBrush x:Key="FeedbackDestructiveHover" Color="#1AEF4444" />
+  <SolidColorBrush x:Key="FeedbackFocus" Color="#FFD4D4D4" />
   <!-- Motion (values with motion on; reduce motion sets durations to 0 at runtime) -->
   <x:Double x:Key="Motion.Fast">100</x:Double>
   <x:Double x:Key="Motion.List">100</x:Double>
@@ -51,4 +86,10 @@
   <x:Double x:Key="Motion.TipDelay">350</x:Double>
   <x:Double x:Key="Motion.PopScale">0.96</x:Double>
   <x:Double x:Key="Motion.Rise">8</x:Double>
+  <x:Double x:Key="Motion.Color">150</x:Double>
+  <x:Double x:Key="Motion.Button">200</x:Double>
+  <x:Double x:Key="Motion.Menu">150</x:Double>
+  <x:Double x:Key="Motion.DisabledOpacity">0.5</x:Double>
+  <x:Double x:Key="Motion.FocusWidth">2</x:Double>
+  <x:Double x:Key="Motion.FocusOffset">2</x:Double>
 </ResourceDictionary>

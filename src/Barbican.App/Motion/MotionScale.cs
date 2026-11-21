@@ -15,6 +15,15 @@ public readonly record struct MotionScale(bool Reduce, bool Rapid)
     /// <summary>Hover, press, focus, selection highlight.</summary>
     public double FastMs => Tokens.Motion.FastMs * K;
 
+    /// <summary>Colour transitions of rows, icon buttons and toggles (Bulwark transition-colors, 150 ms).</summary>
+    public double ColorMs => Tokens.Motion.ColorMs * K;
+
+    /// <summary>Colour transitions of buttons (Bulwark transition-all duration-200).</summary>
+    public double ButtonMs => Tokens.Motion.ButtonMs * K;
+
+    /// <summary>Colour transitions of menu rows (Bulwark transition-colors duration-150).</summary>
+    public double MenuMs => Tokens.Motion.MenuMs * K;
+
     /// <summary>Row feedback of the message list; 0 while the selection moves faster than an animation.</summary>
     public double ListMs => Rapid ? 0 : Tokens.Motion.ListMs * K;
 

@@ -120,7 +120,7 @@ public sealed class ThemeController : IDisposable
         // one UI turn: every brush, the shape and the requested theme change before the next frame
         var palette = Tokens.Palette(variant);
         PaletteApplier.Apply(variant);
-        AppResources.UseShape(variant.Nordic);
+        AppResources.UseShape(variant);
         _style.SetStyle(variant.Bulwark ? ShellStyle.Bulwark : variant.Nordic ? ShellStyle.Nordic : ShellStyle.Bento);
         if (_root is not null)
         {
