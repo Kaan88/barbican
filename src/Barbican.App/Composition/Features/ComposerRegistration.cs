@@ -63,12 +63,7 @@ public static class ComposerRegistration
         services.AddSingleton<IPluginApiMethod>(sp => sp.GetRequiredService<Barbican.App.Plugins.PluginActionRegistration>());
         services.AddSingleton<IPluginApiMethod>(sp => PluginComposerMethods.GetSnapshot(sp.GetRequiredService<PluginComposerAccess>()));
         AddComposerAddOnApi(services);
-        _ = services.AddCalendarAddOnApi();
-        _ = services.AddContactsFilesAddOnApi();
-        _ = services.AddRulesSettingsAddOnApi();
-        _ = services.AddAppUserAddOnApi();
-        _ = services.AddMailActionsAddOnApi();
-        _ = services.AddNavigationAddOnApi();
+        AddFamilyAddOnApis(services);
 #endif
 
         // a mailto: link clicked in a message opens the composer, never the OS handler (B-COMP-034); everything else keeps the reader's link check
@@ -83,6 +78,17 @@ public static class ComposerRegistration
     }
 
 #if WINDOWS
+    // one line per add-on API family; each family owns its Composition/Features/*AddOnApiRegistration.cs
+    private static void AddFamilyAddOnApis(IServiceCollection services)
+    {
+        _ = services.AddCalendarAddOnApi();
+        _ = services.AddContactsFilesAddOnApi();
+        _ = services.AddRulesSettingsAddOnApi();
+        _ = services.AddAppUserAddOnApi();
+        _ = services.AddMailActionsAddOnApi();
+        _ = services.AddNavigationAddOnApi();
+    }
+
     private static void AddComposerAddOnApi(IServiceCollection services)
     {
         // one edit budget (60 a minute per add-on) across setSubject, replaceBody, replaceSelection and attach
