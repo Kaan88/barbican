@@ -25,7 +25,8 @@ internal static class MailActionsAddOnApiRegistration
     internal static IServiceCollection AddMailActionsAddOnApi(this IServiceCollection services)
     {
         services.TryAddSingleton(sp => new PluginTagDefinitions(sp.GetRequiredService<IPrefsStore>(), sp.GetRequiredService<IPrefsEditor>()));
-        services.AddSingleton<IPluginMailUndoHistory>(sp => new Barbican.App.Plugins.PluginMailUndoHistory(sp.GetRequiredService<IUndoService>()));
+        services.AddSingleton<IPluginMailUndoHistory>(sp => new Barbican.App.Plugins.PluginMailUndoHistory(sp.GetRequiredService<IUndoService>(),
+            sp.GetRequiredService<TimeProvider>()));
         services.AddSingleton<IPluginComposeLauncher>(sp => new Barbican.App.Plugins.PluginComposeLauncher(sp.GetRequiredService<IComposerService>(),
             sp.GetRequiredService<ReaderViewModel>(), sp.GetRequiredService<IDispatcher>()));
         services.AddSingleton(sp => new PluginMailActionHost(sp.GetRequiredService<IPluginMailReaders>(), sp.GetRequiredService<IMailWriterFactory>(),
