@@ -117,6 +117,7 @@ public static class ReaderRegistration
         services.TryAddSingleton<Barbican.Presentation.Common.IClipboardService, SystemClipboard>();
         services.AddSingleton<Barbican.App.Views.Dialogs.IDialogContent, Barbican.App.Views.Dialogs.SourceDialogContent>();
         services.AddSingleton<Barbican.App.Views.Dialogs.IDialogContent, Barbican.App.Views.Dialogs.AttachmentPreviewDialogContent>();
+        services.AddSingleton<Barbican.App.Views.Dialogs.IDialogContent, Barbican.App.Views.Dialogs.RenameAttachmentDialogContent>();
         services.TryAddSingleton<Barbican.App.Views.Reader.ReaderMenuOpener>();
         services.AddSingleton(sp => new Barbican.Presentation.Reader.ReaderCommands(
             sp.GetRequiredService<IAttachmentSaver>(),
@@ -125,7 +126,8 @@ public static class ReaderRegistration
             sp.GetRequiredService<Barbican.Presentation.Dialogs.IDialogService>(),
             sp.GetService<Barbican.Presentation.Actions.IToastService>(),
             sp.GetRequiredService<IPrefsStore>(),
-            () => sp.GetRequiredService<IActiveMail>().AccountKey));
+            () => sp.GetRequiredService<IActiveMail>().AccountKey,
+            sp.GetRequiredService<ReaderViewModel>()));
         foreach (var i in Enumerable.Range(0, Barbican.Presentation.Reader.ReaderCommands.Count))
         {
             var index = i;

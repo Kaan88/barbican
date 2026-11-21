@@ -21,6 +21,8 @@ public sealed class ReaderViewModel : ObservableObject, IDisposable
     private bool _disposed;
     private readonly Dictionary<string, ConversationExpansion> _expanded = new(StringComparer.Ordinal);
     private bool _showOlderConversationHeaders;
+    private readonly Dictionary<int, string> _renamed = [];
+    private string? _renamedEmailId;
 
     public ReaderViewModel(IPrefsStore? prefs = null, IVerificationCodeFinder? finder = null, TimeProvider? time = null, IDispatcher? dispatcher = null)
     {
@@ -173,7 +175,14 @@ public sealed class ReaderViewModel : ObservableObject, IDisposable
         ListSync.SyncBy(Conversation, snapshot.Conversation, c => c.Id, EqualityComparer<ConversationItem>.Default.Equals);
         SyncConversationHeaders(snapshot.Conversation);
         ListSync.SyncBy(Banners, snapshot.Banners, b => b.Id, EqualityComparer<Reader.ReaderBanner>.Default.Equals);
-        ListSync.SyncBy(Attachments, snapshot.Attachments, a => a.Index.ToString(System.Globalization.CultureInfo.InvariantCulture), AttachmentCardsEqual);
+        if (!string.Equals(_renamedEmailId, snapshot.EmailId, StringComparison.Ordinal))
+        {
+            // another message: its attachments have their own names (email-viewer.tsx:3101-3105)
+            _renamed.Clear();
+            _renamedEmailId = snapshot.EmailId;
+        }
+
+        ListSync.SyncBy(Attachments, Named(snapshot.Attachments), a => a.Index.ToString(System.Globalization.CultureInfo.InvariantCulture), AttachmentCardsEqual);
         OnPropertyChanged(nameof(Current));
         if (emailChanged)
         {
@@ -271,4 +280,47 @@ public sealed class ReaderViewModel : ObservableObject, IDisposable
         && string.Equals(a.Size, b.Size, StringComparison.Ordinal)
         && string.Equals(a.BlobId, b.BlobId, StringComparison.Ordinal)
         && ReferenceEquals(a.Thumbnail, b.Thumbnail);
+
+    /// <summary>
+    /// The name the user gave attachment <paramref name="index"/> while this message is open, or null when it keeps its own
+    /// (Bulwark email-viewer.tsx:3101-3123: the rename is for saving a copy, the message is not changed, and another message shows the original names).
+    /// </summary>
+    public string? RenamedAttachment(int index) =>
+        string.Equals(_renamedEmailId, _current.EmailId, StringComparison.Ordinal) && _renamed.TryGetValue(index, out var name) ? name : null;
+
+    /// <summary>Renames one attachment of the open message: its tile and every save under it follow the new name until another message opens.</summary>
+    public void RenameAttachment(int index, string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        // index is the attachment's own Index (inline parts may be left out of the tiles, so it is not the tile position)
+        var position = -1;
+        for (var i = 0; i < Attachments.Count; i++)
+        {
+            if (Attachments[i].Index == index)
+            {
+                position = i;
+                break;
+            }
+        }
+
+        if (_current.BodyState == BodyState.Empty || position < 0)
+        {
+            return;
+        }
+
+        if (!string.Equals(_renamedEmailId, _current.EmailId, StringComparison.Ordinal))
+        {
+            _renamed.Clear();
+            _renamedEmailId = _current.EmailId;
+        }
+
+        _renamed[index] = name;
+        Attachments[position] = Attachments[position] with { Stem = Core.Mail.Attachments.AttachmentNames.Split(name).Stem };
+    }
+
+    // the cards of the snapshot with the names the user gave them in this reader
+    private IReadOnlyList<AttachmentCard> Named(IReadOnlyList<AttachmentCard> cards) =>
+        _renamed.Count == 0
+            ? cards
+            : [.. cards.Select(c => _renamed.TryGetValue(c.Index, out var name) ? c with { Stem = Core.Mail.Attachments.AttachmentNames.Split(name).Stem } : c)];
 }

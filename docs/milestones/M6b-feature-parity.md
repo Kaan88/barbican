@@ -60,7 +60,7 @@ Feature work comes before further UI polish. Linux (M9) is deferred indefinitely
 | open | RD-05 | Retention notice banner | reader | S | `src/Barbican.Presentation/Reader/ReceiptBannerSource.cs` | server retention data |
 | open | RD-03 | Read-aloud bar and reader-view dialog | reader | M | `src/Barbican.App/Views/Reader/ReaderView.xaml.cs`, `src/Barbican.App/Views/Reader/ReaderMenuOpener.cs` | speech service |
 | open | RD-11 | Reading mask overlay | reader | M | `src/Barbican.App/MailBody/BodyShell.cs`, `src/Barbican.Core/Settings/Accessibility/A11y.cs` | body JS |
-| open | RD-06 | Rename an attachment | reader | S | `src/Barbican.App/Views/Reader/ReaderView.xaml.cs` | attachment rename command |
+| done (pending merge) | RD-06 | Rename an attachment | reader | S | `src/Barbican.Presentation/Reader/ReaderCommands.cs`, `src/Barbican.Presentation/Mail/ReaderViewModel.cs`, `src/Barbican.App/Views/Dialogs/RenameAttachmentDialogContent.cs` | name kept while the message is open, as in Bulwark (no JMAP write) |
 | open | G-056 | Fetch the full body when truncated | reader | M | `src/Barbican.Presentation/Mail/Loading/MessageLoader.cs`, `src/Barbican.Core/Mail/Model/EmailBody.cs` | body refetch |
 | done (7ba8630) | SR-02 | Search filter "has words" and Size fields | search | S | `src/Barbican.App/Views/Search/SearchBoxView.xaml.cs`, `src/Barbican.Presentation/Search/SearchCommands.cs` | search operators |
 | done (pending merge) | SR-03 | Global search facets, scope chips, preview | search | L | `src/Barbican.App/Views/Palette/PaletteView.xaml.cs`, `src/Barbican.Presentation/Search/GlobalSearchPaletteProvider.cs` | search backend |

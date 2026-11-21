@@ -67,11 +67,13 @@ public sealed class ReaderMenusTests
     public void An_attachment_menu_saves_copies_the_name_and_offers_the_zip_only_for_several()
     {
         var one = ReaderMenus.Attachment(Reader([Target("m1")], 0, MenuIds.Attachment), Body("a.pdf"));
-        Assert.Equal(["Save as…", "—", "Copy file name"], Labels(one));
+        Assert.Equal(["Save as…", "Rename…", "—", "Copy file name"], Labels(one));
         Assert.Equal("0", one[0].Argument);
+        Assert.Equal(CommandIds.RenameAttachment, one[1].CommandId);
+        Assert.Equal("0", one[1].Argument);
 
         var two = ReaderMenus.Attachment(Reader([Target("m1")], 1, MenuIds.Attachment), Body("a.pdf", "b.pdf"));
-        Assert.Equal(["Save as…", "Download all (.zip)", "—", "Copy file name"], Labels(two));
+        Assert.Equal(["Save as…", "Rename…", "Download all (.zip)", "—", "Copy file name"], Labels(two));
         Assert.Equal("1", two[0].Argument);
     }
 
