@@ -1,6 +1,6 @@
 // Mirrors: spec/menus.md MENU-READER and MENU-ATT rows; Rust reader.rs save_eml :803, download_all :824, the source banner :252; Bulwark components/email/view-source-dialog.tsx,
-// reader-attachments.tsx. The commands behind "View source", "Download (.eml)", "Download all attachments (.zip)", "Save as…" and "Copy file name"; they run on the
-// message in Targets (the reader's menu and the list's "More actions" both pass it). I-183, I-200, I-226, I-227, I-288. Owner reader.
+// reader-attachments.tsx, rename-attachment-dialog.tsx. The commands behind "View source", "Download (.eml)", "Download all attachments (.zip)", "Save as…", "Copy file name"
+// and "Rename…"; they run on the message in Targets (the reader's menu and the list's "More actions" both pass it). A rename is kept for the open message only. I-183, I-200, I-226, I-227, I-288. Owner reader.
 
 using System.Text;
 using Barbican.Core.Common;
@@ -18,12 +18,12 @@ using Barbican.Presentation.Files;
 namespace Barbican.Presentation.Reader;
 
 /// <summary>The reader and attachment commands.</summary>
-public sealed class ReaderCommands(IAttachmentSaver saver, Func<EmailBody?> open, IClipboardService clipboard, IDialogService dialogs, IToastService? toasts = null, IPrefsStore? prefs = null, Func<string?>? activeAccount = null)
+public sealed class ReaderCommands(IAttachmentSaver saver, Func<EmailBody?> open, IClipboardService clipboard, IDialogService dialogs, IToastService? toasts = null, IPrefsStore? prefs = null, Func<string?>? activeAccount = null, Mail.ReaderViewModel? reader = null)
 {
     /// <summary>How many commands <see cref="Create"/> returns (the registration adds one per index).</summary>
-    public const int Count = 6;
+    public const int Count = 7;
 
-    /// <summary>The commands: view source, download .eml, download all (.zip), save one attachment, copy an attachment's name.</summary>
+    /// <summary>The commands: view source, download .eml, download all (.zip), save one attachment, open one, copy its name, rename it.</summary>
     public IReadOnlyList<IAppCommand> Create() =>
     [
         new DelegateAppCommand(CommandIds.ViewSource, One, ViewSourceAsync),
@@ -34,9 +34,10 @@ public sealed class ReaderCommands(IAttachmentSaver saver, Func<EmailBody?> open
         new DelegateAppCommand(CommandIds.CopyAttachmentName, c => Pick(c) is not null, (c, _) =>
         {
             if (Pick(c) is not { } attachment) return Task.FromResult(Result<Unit>.Fail(new ValidationError("The attachment is no longer open.")));
-            clipboard.SetText(attachment.Attachment.Name ?? "attachment");
+            clipboard.SetText(Shown(attachment));
             return Task.FromResult(Result<Unit>.Ok(default));
         }),
+        new DelegateAppCommand(CommandIds.RenameAttachment, c => One(c) && Pick(c) is not null, RenameAttachmentAsync),
     ];
 
     /// <summary>The open reader's account-scoped attachment command context.</summary>
@@ -72,7 +73,34 @@ public sealed class ReaderCommands(IAttachmentSaver saver, Func<EmailBody?> open
     {
         if (Pick(context) is not { Attachment.BlobId: not null } attachment)
             return Result<Unit>.Fail(new ValidationError("The attachment is no longer open."));
-        return Saved(await saver.SaveAsync(context.Targets[0], attachment, ct).ConfigureAwait(false));
+        return Saved(await saver.SaveAsync(context.Targets[0], Named(attachment), ct).ConfigureAwait(false));
+    }
+
+    // The name the reader shows for it: the one the user typed in this open message, or its own (email-viewer.tsx:3101-3123).
+    private string Shown(AttachmentRef attachment) => reader?.RenamedAttachment(attachment.Index) ?? AttachmentNames.Display(attachment.Attachment.Name);
+
+    // The attachment as a save sees it: a renamed one downloads under the typed name, with only what a file system cannot take replaced
+    // (download-filename.ts:224-231 renamedAttachmentFilename, no template or transforms).
+    private AttachmentRef Named(AttachmentRef attachment) =>
+        reader?.RenamedAttachment(attachment.Index) is { } name
+            ? attachment with { Attachment = attachment.Attachment with { Name = AttachmentNames.DownloadName(name) } }
+            : attachment;
+
+    // Rename (reader-attachments.tsx:193-197, :307-309; rename-attachment-dialog.tsx): the reader and the saves follow the new name until another
+    // message opens; the message itself is not written back.
+    private async Task<Result<Unit>> RenameAttachmentAsync(CommandContext context, CancellationToken ct)
+    {
+        if (Pick(context, out var originalBody) is not { } pick)
+            return Result<Unit>.Fail(new ValidationError("The attachment is no longer open."));
+        if (reader is null) return Result<Unit>.Ok(default);
+        var current = Shown(pick);
+        var (stem, extension) = AttachmentNames.Split(current);
+        var answer = await dialogs.ShowAsync(new RenameAttachmentDialogRequest(stem, extension), ct).ConfigureAwait(true);
+        if (answer is null || string.Equals(answer, current, StringComparison.Ordinal)) return Result<Unit>.Ok(default);
+        // the message or the account changed while the dialog was open: the new name has no attachment to belong to
+        if (!AccountMatches(context) || !ReferenceEquals(open(), originalBody)) return Result<Unit>.Ok(default);
+        reader.RenameAttachment(pick.Index, answer);
+        return Result<Unit>.Ok(default);
     }
 
     // Preview: the attachment is downloaded under the preview cap and shown in a dialog (an image, text or .eml); a plugin may take it over (onAttachmentPreview); I-228
@@ -82,14 +110,15 @@ public sealed class ReaderCommands(IAttachmentSaver saver, Func<EmailBody?> open
             return Result<Unit>.Fail(new ValidationError("The attachment is no longer open."));
         var target = c.Targets[0];
         var kind = FilesPreviewRules.KindOf(pick.Attachment.Type, pick.Attachment.Name ?? string.Empty);
+        var named = Named(pick);
         if (string.Equals(prefs?.Current.Str("mailAttachmentAction", "preview"), "download", StringComparison.Ordinal)
             || kind is not (FilesPreviewKind.Image or FilesPreviewKind.Text or FilesPreviewKind.Eml)
             || pick.Attachment.Size > AttachmentSaver.MaxPreviewBytes)
         {
-            return Saved(await saver.SaveAsync(target, pick, ct).ConfigureAwait(false));
+            return Saved(await saver.SaveAsync(target, named, ct).ConfigureAwait(false));
         }
 
-        var bytes = await saver.ReadForPreviewAsync(target, pick, ct).ConfigureAwait(true);
+        var bytes = await saver.ReadForPreviewAsync(target, named, ct).ConfigureAwait(true);
         if (!AccountMatches(c) || !ReferenceEquals(open(), originalBody)) return Result<Unit>.Ok(default);
         if (!bytes.IsOk)
         {
@@ -98,7 +127,7 @@ public sealed class ReaderCommands(IAttachmentSaver saver, Func<EmailBody?> open
 
         if (bytes.Value is { } content)
         {
-            _ = await dialogs.ShowAsync(new AttachmentPreviewDialogRequest(pick.Attachment.Name ?? "attachment", kind, content, async token => _ = Saved(await saver.SaveAsync(target, pick, token).ConfigureAwait(false))), ct).ConfigureAwait(true);
+            _ = await dialogs.ShowAsync(new AttachmentPreviewDialogRequest(named.Attachment.Name ?? "attachment", kind, content, async token => _ = Saved(await saver.SaveAsync(target, named, token).ConfigureAwait(false))), ct).ConfigureAwait(true);
         }
 
         return Result<Unit>.Ok(default);

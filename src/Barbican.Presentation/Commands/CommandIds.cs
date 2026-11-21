@@ -90,6 +90,7 @@ public static class CommandIds
     public const string SaveAttachment = "attachment.save";
     public const string SaveAttachmentToFiles = "attachment.save-to-files";
     public const string CopyAttachmentName = "attachment.copy-name";
+    public const string RenameAttachment = "attachment.rename";
     public const string Unsubscribe = "mail.unsubscribe";
     public const string SendReadReceipt = "mail.send-receipt";
     public const string CopyVerificationCode = "mail.copy-code";

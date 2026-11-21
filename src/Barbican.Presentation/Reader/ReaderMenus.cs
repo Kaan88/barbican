@@ -1,5 +1,5 @@
 // Mirrors: spec/menus.md MENU-READER (the reader's More menu) and MENU-ATT (an attachment chip); Bulwark components/email/email-viewer.tsx:5159 (the "More" menu:
-// view source, forward as attachment, download .eml, download all) and reader-attachments.tsx (open, download, copy). I-200, I-183, I-226, I-227. Owner reader.
+// view source, forward as attachment, download .eml, download all) and reader-attachments.tsx (open, save as, rename, copy). I-200, I-183, I-226, I-227. Owner reader.
 // Rows are data. "Open message" (an attached message), "Save to Files" and "Open" are not rows yet: Email/parse has no reader UI, there is no Files client in the
 // reader, and opening an untrusted file with the system handler is a security question (docs/FABLE-REVIEW.md, m2-close-b).
 
@@ -50,6 +50,7 @@ public static class ReaderMenus
         var items = new List<MenuItemSpec>
         {
             Item(MenuGlyphs.Download, "Save as…", CommandIds.SaveAttachment, argument: arg, enabled: a.BlobId is not null),
+            Item(MenuGlyphs.Rename, "Rename…", CommandIds.RenameAttachment, argument: arg),
         };
         if (a.BlobId is not null && FilesPreviewRules.KindOf(a.Type, a.Name ?? string.Empty) is FilesPreviewKind.Image or FilesPreviewKind.Text or FilesPreviewKind.Eml)
         {
