@@ -1,5 +1,5 @@
-// Mirrors: Bulwark components/email/email-composer.tsx :5760 (drop files overlay), :6515 (Attach files), paste of files; I-242, I-253. Files reach the composer by the picker, by a drop on the pane, or by a paste.
-// The bytes are read here (the platform's StorageFile) and handed to the view model as AttachmentUpload; nothing here touches the real mouse or keyboard.
+// Mirrors: Bulwark components/email/email-composer.tsx :5760 (drop files overlay), :6450-6478 (the Attach toolbar menu: "Upload from this device", "Attach from Files"), :6515 (the hidden file input behind it), paste of files; I-242, I-253. Files reach the composer by the picker, by Files, by a drop on the pane, or by a paste.
+// The bytes of a device file are read here (the platform's StorageFile) and handed to the view model as AttachmentUpload; a Files node goes through the view model's picker, which attaches it by blob id; nothing here touches the real mouse or keyboard.
 
 using Barbican.App.Shell;
 using Barbican.Core.Compose;
@@ -47,8 +47,8 @@ public sealed partial class ComposerView
         }
     }
 
-    /// <summary>The Attach button: the system file picker (never opened by an automation run, which attaches through the compose-attach command).</summary>
-    private async void OnAttachClick(object sender, RoutedEventArgs e)
+    /// <summary>The Attach menu's "Upload from this device": the system file picker (never opened by an automation run, which attaches through the compose-attach command).</summary>
+    private async void OnAttachFromDevice(object sender, RoutedEventArgs e)
     {
         if (_pickingAttachments || _vm is null || (DetachedWindow ?? ActiveWindow.Current) is not { } window)
         {
@@ -78,6 +78,9 @@ public sealed partial class ComposerView
             _pickingAttachments = false;
         }
     }
+
+    /// <summary>The Attach menu's "Attach from Files": the composer's picker over the login's Files (Bulwark email-composer.tsx:6467-6475, 6735-6741).</summary>
+    private void OnAttachFromFiles(object sender, RoutedEventArgs e) => _ = _vm?.OpenFilesPickerAsync();
 
     // Ctrl+V with files on the clipboard attaches them; text and pictures go to the field or the editor that has the focus (true when files were taken)
     private bool TryPasteFiles()

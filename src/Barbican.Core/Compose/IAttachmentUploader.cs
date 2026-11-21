@@ -9,4 +9,10 @@ public interface IAttachmentUploader
 {
     /// <summary>Uploads one file; the result carries the blob id. <paramref name="existing"/> is what the draft already holds (for the total-size gate).</summary>
     Task<Result<DraftAttachment>> UploadAsync(string accountId, AttachmentUpload upload, IReadOnlyList<DraftAttachment> existing, CancellationToken ct);
+
+    /// <summary>
+    /// Attaches a file the server already stores (a Files node): the same gates and plugin hooks as <see cref="UploadAsync"/>, no request, the blob id reused.
+    /// Bulwark components/email/email-composer.tsx:3182-3225 (onBeforeAttachmentUpload, maxSizeAttachmentsPerEmail, then the node's blobId).
+    /// </summary>
+    Task<Result<DraftAttachment>> AttachExistingAsync(string accountId, DraftAttachment attachment, IReadOnlyList<DraftAttachment> existing, CancellationToken ct);
 }

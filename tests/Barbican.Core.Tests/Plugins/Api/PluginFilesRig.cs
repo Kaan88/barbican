@@ -87,6 +87,8 @@ internal sealed class PluginFilesRig : IDisposable
 
         public Task<Result<FileSnapshot>> LoadAsync(string accountKey, CancellationToken ct) => inner.LoadAsync(accountKey, ct);
 
+        public bool Supports(string accountKey) => inner.Supports(accountKey);
+
         public FileSnapshot? Snapshot(string accountKey)
         {
             OnSnapshot?.Invoke();

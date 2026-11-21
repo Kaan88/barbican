@@ -60,23 +60,30 @@ public static class M3PresentationRegistration
         services.Replace(ServiceDescriptor.Singleton<IRecipientSources>(sp => sp.GetService<IAccountManager>() is { } accounts
             ? new SentRecipientSources(accounts, sp.GetRequiredService<TimeProvider>())
             : new EmptyRecipientSources()));
-        services.TryAddSingleton(sp => new ComposerServices(
-            sp.GetRequiredService<IComposeSeeder>(),
-            sp.GetRequiredService<IIdentityService>(),
-            sp.GetRequiredService<IDraftService>(),
-            sp.GetRequiredService<IAttachmentUploader>(),
-            sp.GetRequiredService<IComposerSender>(),
-            sp.GetRequiredService<IEditorViewModelFactory>(),
-            sp.GetRequiredService<IRecipientSources>(),
-            sp.GetRequiredService<IHookBus>(),
-            sp.GetRequiredService<TimeProvider>(),
-            sp.GetRequiredService<IPrefsStore>(),
-            sp.GetService<IDispatcher>() ?? new InlineDispatcher())
+        services.TryAddSingleton(sp =>
         {
-            Toasts = sp.GetService<IToastService>(),
-            Templates = sp.GetService<ITemplateStore>(),
-            TemplatePickers = () => sp.GetService<TemplatePickerViewModel>() ?? throw new InvalidOperationException("The send pipeline view models are not registered."),
-            MessageOpen = () => sp.GetService<ReaderViewModel>() is { } reader && reader.Current.EmailId.Length > 0,
+            var prefs = sp.GetRequiredService<IPrefsStore>();
+            return new ComposerServices(
+                sp.GetRequiredService<IComposeSeeder>(),
+                sp.GetRequiredService<IIdentityService>(),
+                sp.GetRequiredService<IDraftService>(),
+                sp.GetRequiredService<IAttachmentUploader>(),
+                sp.GetRequiredService<IComposerSender>(),
+                sp.GetRequiredService<IEditorViewModelFactory>(),
+                sp.GetRequiredService<IRecipientSources>(),
+                sp.GetRequiredService<IHookBus>(),
+                sp.GetRequiredService<TimeProvider>(),
+                prefs,
+                sp.GetService<IDispatcher>() ?? new InlineDispatcher())
+            {
+                Toasts = sp.GetService<IToastService>(),
+                Templates = sp.GetService<ITemplateStore>(),
+                TemplatePickers = () => sp.GetService<TemplatePickerViewModel>() ?? throw new InvalidOperationException("The send pipeline view models are not registered."),
+                MessageOpen = () => sp.GetService<ReaderViewModel>() is { } reader && reader.Current.EmailId.Length > 0,
+                Files = sp.GetService<Barbican.Core.Files.IFileStore>(),
+                Dialogs = sp.GetService<Barbican.Presentation.Dialogs.IDialogService>(),
+                ShowHiddenFiles = Barbican.Presentation.Files.FilesSettings.Read(prefs.Current).ShowHidden,
+            };
         });
         services.Replace(ServiceDescriptor.Singleton<IComposerService>(sp => new ComposerService(sp.GetRequiredService<ComposerServices>())));
         services.TryAddSingleton(sp => new MailtoRouter(

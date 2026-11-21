@@ -13,6 +13,9 @@ public interface IFileStore
     /// <summary>Loads every node of the login and its shared accounts (FileNode/query paged, FileNode/get in chunks of maxObjectsInGet; the parent filter is client side, J-075); empty without the filenode capability.</summary>
     Task<Result<FileSnapshot>> LoadAsync(string accountKey, CancellationToken ct);
 
+    /// <summary>The login's server advertises the filenode capability: the Files app and the composer's "Attach from Files" are offered only then (Bulwark's supportsFiles).</summary>
+    bool Supports(string accountKey);
+
     FileSnapshot? Snapshot(string accountKey);
 
     /// <summary>/changes for FileNode after a push state change; a full load on cannotCalculateChanges.</summary>

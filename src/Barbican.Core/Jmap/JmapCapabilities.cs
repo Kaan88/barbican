@@ -14,6 +14,9 @@ public static class JmapCapabilities
 
     public const string Quota = "urn:ietf:params:jmap:quota";
 
+    /// <summary>JMAP File Storage (draft-ietf-jmap-filenode; Stalwart crates/jmap-proto/src/object/file_node.rs); the Files app and the composer's attach-from-Files entry need it.</summary>
+    public const string FileNode = "urn:ietf:params:jmap:filenode";
+
     public const string Stalwart = "urn:stalwart:jmap";
 
     /// <summary>JMAP Calendars (draft-ietf-jmap-calendars; Stalwart crates/jmap/src/calendar*); added by M4 cal-data.</summary>

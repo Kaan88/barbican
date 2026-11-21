@@ -13,6 +13,13 @@ namespace Barbican.Core.Files;
 public sealed partial class FileStore
 {
     /// <inheritdoc/>
+    public bool Supports(string accountKey)
+    {
+        ArgumentNullException.ThrowIfNull(accountKey);
+        return _accounts.SessionFor(accountKey)?.Client.Session.Has(FileAccounts.Capability) == true;
+    }
+
+    /// <inheritdoc/>
     public async Task<Result<FileSnapshot>> LoadAsync(string accountKey, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(accountKey);

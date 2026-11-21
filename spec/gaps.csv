@@ -74,10 +74,10 @@ G-072,P2,S,i18n,Time zone picker (Barbican uses the OS time zone),time-zone-pick
 G-073,P2,M,message-list,"Message list extras: list tabs, list columns, hover tag picker, verification-code copy, $pinned, structured-mail cards",message-list-tabs.tsx; list-columns.tsx; structured-mail/,GAPS P2-4,"M2 (part), M10",open
 G-074,P2,S/M,printing,"Printing: conversation, contact and calendar print; print settings (Barbican prints one message)",printing-settings.tsx,GAPS P2-5,M10,open
 G-075,P2,S/M,composer-extras,Composer: @mentions of recipients,recipient-mention.tsx,GAPS P2-6,M3 (mentions) / M10,open
-G-076,P2,S/M,composer-extras,Composer: attach from Files,file-picker-dialog.tsx,GAPS P2-6,M3,open
+G-076,P2,S/M,composer-extras,Composer: attach from Files,file-picker-dialog.tsx,GAPS P2-6,M3,done (Attach menu / picker over IFileStore; attach by blob id; Presentation tests ComposerFilesPickerTests + ComposerAttachFilesTests; core gates AttachmentUploaderTests; live not run)
 G-077,P2,S/M,composer-extras,Composer: message priority and classification labels,lib/message-priority.ts; classification-label-picker.tsx,GAPS P2-6,M10,open
 G-078,P2,S/M,composer-extras,Composer: proofreading (next and previous issue; proofreadingPlugins),proofreading/,GAPS P2-6,M10,open
-G-079,P2,S/M,composer-extras,Composer: link to Files,n/a,GAPS P2-6,M10,open
+G-079,P2,S/M,composer-extras,Composer: link to Files,n/a,GAPS P2-6,M10,open (no Bulwark 1.21.2 feature and no Stalwart public file URL; attach only until a share-link API exists)
 G-080,P3,L,admin,"Admin writes: create and edit accounts, groups, lists, domains (DKIM and DNS), API keys, OAuth clients, settings editor, spam training, queue retry",admin/; Stalwart WebUI,GAPS P3 (Admin),M7,open
 G-081,P3,L,plugins,"Plugins: web plugin runtime (slots, hooks, sandbox, OAuth, secrets, settings); Rust has native DLL plugins with two hooks",lib/plugin-*.ts,GAPS P3 (Plugins),later (after M10),open
 G-082,P3,L,offline,Offline mode and outbox,offline/; lib/offline,GAPS P3,later (after M10),open

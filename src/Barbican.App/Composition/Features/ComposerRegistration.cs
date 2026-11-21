@@ -24,6 +24,7 @@ public static class ComposerRegistration
         services.AddSingleton<IDialogContent, AccountPickDialogContent>();
         services.AddSingleton<IDialogContent, ScheduleDialogContent>();
         services.AddSingleton<IDialogContent, ComposerQuestionContent>();
+        services.AddSingleton<IDialogContent, ComposerFilesDialogContent>();
         services.AddSingleton<IDialogContent, EditorDialogContent>();
     }
 

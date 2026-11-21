@@ -30,6 +30,15 @@ public sealed record ComposerServices(
 
     public Func<Pipeline.TemplatePickerViewModel>? TemplatePickers { get; init; }
 
+    /// <summary>The file nodes of the logins, for "Attach from Files" (null: no Files data).</summary>
+    public Barbican.Core.Files.IFileStore? Files { get; init; }
+
+    /// <summary>The shared dialog host that draws the attach-from-Files picker.</summary>
+    public Barbican.Presentation.Dialogs.IDialogService? Dialogs { get; init; }
+
+    /// <summary>The Files setting <c>showHiddenFiles</c>.</summary>
+    public bool ShowHiddenFiles { get; init; }
+
     /// <summary>A message is open in the reader (a reply docks under it, <see cref="ComposerDock"/>).</summary>
     public Func<bool> MessageOpen { get; init; } = () => false;
 }
