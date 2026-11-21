@@ -7,7 +7,8 @@ using Barbican.Core.Plugins.Protocol;
 
 namespace Barbican.Core.Plugins.Api.MailActions;
 
-internal sealed class PluginComposeOpen(PluginMailActionHost host) : PluginMailActionMethod("compose.open", "compose:open", host, true)
+internal sealed class PluginComposeOpen(PluginMailActionHost host) : PluginMailActionMethod("compose.open", "compose:open", host, true,
+    argumentLimits: PluginComposeInput.Limits)
 {
     internal const int ComposePerMinute = 5;
 

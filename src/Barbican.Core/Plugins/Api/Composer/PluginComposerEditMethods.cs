@@ -1,5 +1,6 @@
 // Mirrors: lib/plugin-sandbox/host-api-composer.ts:1-97,132-151 (getBody, getSelection, replaceSelection, replaceBody, attach; 512 KiB content, 60 edits a minute, expectedRevision),
 // host-api.ts:358-367 (compose:read, compose:write, email:blob-write), host-api-input.ts (readObject/readString/readId). Edits are single editor transactions in the host.
+// The argument budget of an edit is MAX_CONTENT (host-api-composer.ts:26) in characters, so it is this method's own cap and not the shared default.
 using System.Globalization;
 using Barbican.Core.Plugins.Bridge;
 using Barbican.Core.Plugins.Protocol;
@@ -10,6 +11,11 @@ namespace Barbican.Core.Plugins.Api.Composer;
 public static class PluginComposerEditMethods
 {
     private const int MaxContent = 512 * 1024;
+
+    // Two bytes per UTF-16 unit (PluginValueCodec.cs:224) plus the composer id and options; the wire
+    // budget doubles that for JSON escaping of the text.
+    private static readonly PluginValueLimits ContentLimits = new(
+        MaxWireBytes: (4 * MaxContent) + (1024 * 1024), MaxStringBytes: (2 * MaxContent) + (64 * 1024));
 
     public static IPluginApiMethod GetBody(IPluginComposerAccess access) => new Method(access, Op.GetBody, null);
 
@@ -45,7 +51,10 @@ public static class PluginComposerEditMethods
                 _ => ("composer.attach", "email:blob-write"),
             };
             Permission = permission;
-            Descriptor = new(name, [[permission]], TimeSpan.FromSeconds(30), mayMutate: _limiter is not null);
+            Descriptor = new(name, [[permission]], TimeSpan.FromSeconds(30), mayMutate: _limiter is not null)
+            {
+                ArgumentLimits = op is Op.ReplaceBody or Op.ReplaceSelection ? ContentLimits : null,
+            };
         }
 
         public PluginApiDescriptor Descriptor { get; }

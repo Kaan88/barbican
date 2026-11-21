@@ -14,6 +14,13 @@ internal static class PluginContactInput
     internal const int MaxDepth = 12;
     internal const int MaxStringChars = 64 * 1024;
 
+    // host-api.ts:1035-1051 hands the card to the writers without a size check of its own, so the
+    // budget covers the free-text maps a person fills in (notes, personalInfo, organizations, titles,
+    // addresses) at the 64 KB each cap: two bytes per UTF-16 unit, doubled again for JSON escaping.
+    private const int MaxTextFields = 8;
+    internal static readonly PluginValueLimits Limits = new(
+        MaxWireBytes: (4 * MaxTextFields * MaxStringChars) + (64 * 1024), MaxStringBytes: 2 * MaxTextFields * MaxStringChars);
+
     /// <summary>Read back from list and get, and ignored when a plugin hands them in again (contact-wire.ts CLIENT_ONLY_KEYS and the server's own fields).</summary>
     private static readonly string[] Ignored = ["id", "originalId", "accountId", "accountName", "isShared", "localAccountId", "created", "updated", "@type", "version"];
 

@@ -12,7 +12,15 @@ public sealed class PluginPrint(TimeProvider time,
     private readonly Lock _gate = new();
     private readonly Dictionary<(string Profile, string Plugin), Queue<long>> _recent = [];
 
-    public PluginApiDescriptor Descriptor { get; } = new("ui.print", [], Timeout.InfiniteTimeSpan, mayMutate: true);
+    // host-api-print.ts:24 allows MAX_HTML of HTML and 25 MiB of PDF; the PDF crosses as base64 and
+    // the HTML counts two bytes per UTF-16 unit (PluginValueCodec.cs:224).
+    private static readonly PluginValueLimits PageLimits = new(
+        MaxWireBytes: (4 * MaxPdf / 3) + (1024 * 1024), MaxStringBytes: (2 * MaxHtml) + (64 * 1024), MaxBinaryBytes: MaxPdf);
+
+    public PluginApiDescriptor Descriptor { get; } = new("ui.print", [], Timeout.InfiniteTimeSpan, mayMutate: true)
+    {
+        ArgumentLimits = PageLimits,
+    };
     public PluginErrorCode? ValidateArguments(PluginValue arguments) => Read(arguments) is null ? PluginErrorCode.InvalidArguments : null;
 
     public async Task<PluginCallOutcome> InvokeAsync(IPluginInvocationContext context, PluginValue arguments, CancellationToken ct)

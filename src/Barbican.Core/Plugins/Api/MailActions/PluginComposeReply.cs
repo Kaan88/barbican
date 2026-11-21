@@ -7,7 +7,8 @@ using Barbican.Core.Plugins.Protocol;
 
 namespace Barbican.Core.Plugins.Api.MailActions;
 
-internal sealed class PluginComposeReply(PluginMailActionHost host) : PluginMailActionMethod("compose.reply", "compose:open", host, true)
+internal sealed class PluginComposeReply(PluginMailActionHost host) : PluginMailActionMethod("compose.reply", "compose:open", host, true,
+    argumentLimits: PluginComposeInput.Limits)
 {
     private static readonly string[] Allowed = ["text", "all"];
 

@@ -2,6 +2,7 @@
 // the user's own drive, outside the trash, never in a folder shared with someone), lib/files-trash.ts. Stalwart crates/jmap/src/file/get.rs. Reads come from the store the Files view shows (loaded first when it never was).
 using Barbican.Core.Accounts;
 using Barbican.Core.Files;
+using Barbican.Core.Plugins.Protocol;
 
 namespace Barbican.Core.Plugins.Api.Files;
 
@@ -19,6 +20,11 @@ internal static class PluginFilesData
 
     /// <summary>The longest text files.create writes, in characters (d.ts:79).</summary>
     internal const int MaxCreateChars = 512 * 1024;
+
+    // files.create's content is its only large argument; two bytes per UTF-16 unit plus the name and
+    // type fields, with the wire budget doubled for JSON escaping (PluginValueCodec.cs:224).
+    internal static readonly PluginValueLimits CreateLimits = new(
+        MaxWireBytes: (4 * MaxCreateChars) + (1024 * 1024), MaxStringBytes: (2 * MaxCreateChars) + (64 * 1024));
 
     /// <summary>The largest file read for its text or picture (lib/attachment-text/types.ts MAX_TEXT_SOURCE_BYTES).</summary>
     internal const int MaxReadBytes = 20 * 1024 * 1024;

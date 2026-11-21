@@ -10,11 +10,15 @@ internal abstract class PluginContactsMethod : IPluginApiMethod
 {
     private static readonly TimeSpan Deadline = TimeSpan.FromSeconds(60);
 
-    protected PluginContactsMethod(string name, string permission, IPluginContactsHost host, bool mutates)
+    protected PluginContactsMethod(string name, string permission, IPluginContactsHost host, bool mutates,
+        PluginValueLimits? argumentLimits = null)
     {
         Host = host ?? throw new ArgumentNullException(nameof(host));
         Permission = permission;
-        Descriptor = new(name, [[permission]], Deadline, mayMutate: mutates);
+        Descriptor = new(name, [[permission]], Deadline, mayMutate: mutates)
+        {
+            ArgumentLimits = argumentLimits,
+        };
     }
 
     public PluginApiDescriptor Descriptor { get; }

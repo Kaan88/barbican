@@ -16,6 +16,10 @@ internal static class PluginComposeInput
     internal const int MaxSubject = 998;
     internal const int MaxBody = 512 * 1024;
     private const long MaxAttachmentSize = 1L << 31;
+    // The body is the largest argument (host-api-compose.ts:26 MAX_BODY characters); the recipient,
+    // subject and blob fields add only a few KB on top of its two bytes per UTF-16 unit.
+    internal static readonly PluginValueLimits Limits = new(
+        MaxWireBytes: (4 * MaxBody) + (1024 * 1024), MaxStringBytes: (2 * MaxBody) + (64 * 1024));
     private static readonly string[] Allowed = ["to", "cc", "bcc", "subject", "body", "isHtml", "attachments"];
     private static readonly string[] AllowedBlob = ["blobId", "name", "type", "size"];
 

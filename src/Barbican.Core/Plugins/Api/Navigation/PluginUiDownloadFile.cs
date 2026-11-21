@@ -10,10 +10,17 @@ using Barbican.Core.Plugins.Protocol;
 
 namespace Barbican.Core.Plugins.Api.Navigation;
 
-internal sealed class PluginUiDownloadFile(PluginNavigationHost host) : PluginNavigationMethod("ui.downloadFile", [["ui:download-file"]], host, mutates: true, deadline: TimeSpan.FromMinutes(10))
+internal sealed class PluginUiDownloadFile(PluginNavigationHost host) : PluginNavigationMethod("ui.downloadFile", [["ui:download-file"]], host, mutates: true, deadline: TimeSpan.FromMinutes(10),
+    argumentLimits: ContentLimits)
 {
     internal const int MaxBytes = 25 * 1024 * 1024;
     private static readonly string[] Keys = ["content", "filename", "contentType"];
+
+    // content is text of at most MaxBytes of UTF-8 or bytes of at most MaxBytes (host-api.ts:1371-1411):
+    // two bytes per UTF-16 unit for text, 4/3 of the bytes in base64, and the wire form never exceeds
+    // twice the text bound once JSON escapes it.
+    private static readonly PluginValueLimits ContentLimits = new(
+        MaxWireBytes: (2 * MaxBytes) + (1024 * 1024), MaxStringBytes: 2 * MaxBytes, MaxBinaryBytes: MaxBytes);
 
     private static readonly HashSet<string> BlockedExtensions = new(StringComparer.Ordinal)
     {

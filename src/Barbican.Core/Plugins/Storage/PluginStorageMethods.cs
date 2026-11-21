@@ -23,8 +23,13 @@ public static class PluginStorageMethods
 
     private sealed class StorageMethod(PluginScopedStorage storage, Operation operation, string name) : IPluginApiMethod
     {
+        // One entry is at most PluginStorageSnapshot.Quota of JSON (host-api.ts:407-447), so its value
+        // may hold a string of up to 2 * Quota bytes; storage.get keeps the 1 MiB the transport also applies.
         public PluginApiDescriptor Descriptor { get; } = new(name, [], TimeSpan.FromSeconds(10),
-            mayMutate: operation is Operation.Set or Operation.Remove);
+            mayMutate: operation is Operation.Set or Operation.Remove)
+        {
+            ArgumentLimits = operation == Operation.Set ? PluginStorageSnapshot.ValueLimits : null,
+        };
 
         public PluginErrorCode? ValidateArguments(PluginValue args)
         {

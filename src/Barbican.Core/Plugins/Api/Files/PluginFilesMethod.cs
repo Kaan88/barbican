@@ -11,11 +11,15 @@ internal abstract class PluginFilesMethod : IPluginApiMethod
     private static readonly TimeSpan ReadDeadline = TimeSpan.FromSeconds(60);
     private static readonly TimeSpan ContentDeadline = TimeSpan.FromSeconds(120);
 
-    protected PluginFilesMethod(string name, string permission, IPluginFilesHost host, bool mutates, bool content = false)
+    protected PluginFilesMethod(string name, string permission, IPluginFilesHost host, bool mutates, bool content = false,
+        PluginValueLimits? argumentLimits = null)
     {
         Host = host ?? throw new ArgumentNullException(nameof(host));
         Permission = permission;
-        Descriptor = new(name, [[permission]], content || mutates ? ContentDeadline : ReadDeadline, mayMutate: mutates);
+        Descriptor = new(name, [[permission]], content || mutates ? ContentDeadline : ReadDeadline, mayMutate: mutates)
+        {
+            ArgumentLimits = argumentLimits,
+        };
     }
 
     public PluginApiDescriptor Descriptor { get; }

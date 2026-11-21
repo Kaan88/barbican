@@ -11,11 +11,15 @@ internal abstract class PluginNavigationMethod : IPluginApiMethod
     private static readonly TimeSpan Deadline = TimeSpan.FromSeconds(30);
     private readonly bool _needsLogin;
 
-    protected PluginNavigationMethod(string name, IEnumerable<IEnumerable<string>> alternatives, PluginNavigationHost host, bool needsLogin = true, bool mutates = false, TimeSpan? deadline = null)
+    protected PluginNavigationMethod(string name, IEnumerable<IEnumerable<string>> alternatives, PluginNavigationHost host, bool needsLogin = true, bool mutates = false, TimeSpan? deadline = null,
+        PluginValueLimits? argumentLimits = null)
     {
         Host = host ?? throw new ArgumentNullException(nameof(host));
         _needsLogin = needsLogin;
-        Descriptor = new(name, alternatives, deadline ?? Deadline, mayMutate: mutates);
+        Descriptor = new(name, alternatives, deadline ?? Deadline, mayMutate: mutates)
+        {
+            ArgumentLimits = argumentLimits,
+        };
     }
 
     public PluginApiDescriptor Descriptor { get; }

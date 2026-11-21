@@ -7,6 +7,7 @@ using Barbican.Core.Jmap;
 using Barbican.Core.Jmap.Json;
 using Barbican.Core.Jmap.Requests;
 using Barbican.Core.Jmap.Transport;
+using Barbican.Core.Net;
 using Barbican.Core.Plugins.Api.Account;
 using Barbican.Core.Plugins.Api.Mail;
 using Barbican.Core.Plugins.Bridge;
@@ -15,8 +16,15 @@ using Barbican.Core.Sieve;
 
 namespace Barbican.Core.Plugins.Api.MailRules;
 
-internal sealed class PluginSieveValidateScript(IPluginMailRateLimiter limiter) : PluginScopedMethod("sieve.validateScript", "filters:write", limiter: limiter)
+internal sealed class PluginSieveValidateScript(IPluginMailRateLimiter limiter)
+    : PluginScopedMethod("sieve.validateScript", "filters:write", limiter: limiter, argumentLimits: ScriptLimits)
 {
+    // host-api.ts:2408 takes any string and uploads it as a blob, so no smaller cap exists; the
+    // bridge's ceiling for an add-on-supplied body is GuardedHttp.PluginBodyLimit, counted at two
+    // bytes per UTF-16 unit on the graph.
+    private static readonly PluginValueLimits ScriptLimits = new(
+        MaxWireBytes: 4 * GuardedHttp.PluginBodyLimit, MaxStringBytes: 2 * GuardedHttp.PluginBodyLimit);
+
     protected override string? RateKind => "sieve.validate";
 
     protected override int RateLimit => 30;

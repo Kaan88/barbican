@@ -16,11 +16,15 @@ internal abstract class PluginScopedMethod : IPluginApiMethod
     private readonly IPluginMailRateLimiter? _limiter;
 
     // permission: the one permission Bulwark requires, or null for a method with no static gate (host-api.ts:200-202).
-    protected PluginScopedMethod(string name, string? permission, bool mayMutate = false, bool slow = false, IPluginMailRateLimiter? limiter = null)
+    protected PluginScopedMethod(string name, string? permission, bool mayMutate = false, bool slow = false, IPluginMailRateLimiter? limiter = null,
+        PluginValueLimits? argumentLimits = null)
     {
         _permission = permission;
         _limiter = limiter;
-        Descriptor = new(name, permission is null ? [] : [[permission]], slow ? SlowDeadline : ReadDeadline, mayMutate: mayMutate);
+        Descriptor = new(name, permission is null ? [] : [[permission]], slow ? SlowDeadline : ReadDeadline, mayMutate: mayMutate)
+        {
+            ArgumentLimits = argumentLimits,
+        };
     }
 
     public PluginApiDescriptor Descriptor { get; }

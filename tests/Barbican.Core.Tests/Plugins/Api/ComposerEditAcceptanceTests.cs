@@ -131,6 +131,19 @@ public sealed class ComposerEditAcceptanceTests
     }
 
     [Fact]
+    public async Task ReplaceBodyCarriesTheWholeHalfMebibyteBodyAndRefusesOneCharacterMore()
+    {
+        var access = new Access(); var write = Grant("compose:write");
+        var method = PluginComposerEditMethods.ReplaceBody(access, Limiter());
+        Assert.NotNull(method.Descriptor.ArgumentLimits);
+        Assert.True(2L * 512 * 1024 > PluginApiDescriptor.DefaultArgumentLimits.MaxStringBytes);
+        Assert.True((await CallAsync(method, write, access, $"[\"host-handle\",{{\"text\":\"{new string('x', 512 * 1024)}\"}}]")).Value!.BooleanValue);
+        Assert.Single(access.Handle.Calls);
+        Assert.Equal(PluginErrorCode.InvalidArguments, (await CallAsync(method, write, access, $"[\"host-handle\",{{\"text\":\"{new string('x', (512 * 1024) + 1)}\"}}]")).Error);
+        Assert.Single(access.Handle.Calls);
+    }
+
+    [Fact]
     public async Task StaleExpectedRevisionIsRefusedBeforeTheEditAndTheCurrentOneIsAccepted()
     {
         var access = new Access(); var write = Grant("compose:write");

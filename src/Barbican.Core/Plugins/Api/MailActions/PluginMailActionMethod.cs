@@ -10,8 +10,9 @@ using Barbican.Core.Plugins.Protocol;
 
 namespace Barbican.Core.Plugins.Api.MailActions;
 
-internal abstract class PluginMailActionMethod(string name, string permission, PluginMailActionHost host, bool mutates, bool slow = false)
-    : PluginScopedMethod(name, permission, mutates, slow)
+internal abstract class PluginMailActionMethod(string name, string permission, PluginMailActionHost host, bool mutates, bool slow = false,
+    PluginValueLimits? argumentLimits = null)
+    : PluginScopedMethod(name, permission, mutates, slow, argumentLimits: argumentLimits)
 {
     /// <summary>Most moves (email.move, email.archive, a moving email.batch) an add-on may start per minute (host-api-mail.ts:251).</summary>
     protected const int MovesPerMinute = 20;

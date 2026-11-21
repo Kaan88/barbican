@@ -10,7 +10,8 @@ using Barbican.Core.Plugins.Protocol;
 
 namespace Barbican.Core.Plugins.Api.Contacts;
 
-internal sealed class PluginContactUpdate(IPluginContactsHost host) : PluginContactsMethod("contact.update", "contacts:write", host, true)
+internal sealed class PluginContactUpdate(IPluginContactsHost host) : PluginContactsMethod("contact.update", "contacts:write", host, true,
+    argumentLimits: PluginContactInput.Limits)
 {
     public override PluginErrorCode? ValidateArguments(PluginValue arguments) =>
         PluginMailArgs.IsId(PluginMailArgs.At(arguments, 0)) && PluginContactInput.TryParse(PluginMailArgs.At(arguments, 1), false, out _) ? null : PluginErrorCode.InvalidArguments;

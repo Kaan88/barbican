@@ -10,6 +10,11 @@ public sealed class PluginHttpFetch : IPluginApiMethod
 {
     private static readonly PluginValueLimits ResultLimits = new(MaxWireBytes: 40 * 1024 * 1024,
         MaxBinaryBytes: GuardedHttp.PluginBodyLimit, MaxStringBytes: 50 * 1024 * 1024);
+    // The request body is text of at most PluginBodyLimit UTF-8 bytes or bytes of at most that many
+    // (BodyFits, host-api.ts http.fetch): two bytes per UTF-16 unit, and the binary form is base64.
+    private static readonly PluginValueLimits FetchLimits = new(
+        MaxWireBytes: (2 * GuardedHttp.PluginBodyLimit) + (1024 * 1024),
+        MaxStringBytes: 2 * GuardedHttp.PluginBodyLimit, MaxBinaryBytes: GuardedHttp.PluginBodyLimit);
     private readonly IPluginDeliveryAuthority _authority;
     private readonly Func<PluginFetchRequest, CancellationToken, Task<PluginFetchReply?>> _send;
     private readonly Storage.IPrefsStore _prefs;
@@ -26,7 +31,10 @@ public sealed class PluginHttpFetch : IPluginApiMethod
         _prefs = prefs;
     }
 
-    public PluginApiDescriptor Descriptor { get; } = new("http.fetch", [[ "http:fetch" ]], TimeSpan.FromSeconds(120), mayMutate: true);
+    public PluginApiDescriptor Descriptor { get; } = new("http.fetch", [[ "http:fetch" ]], TimeSpan.FromSeconds(120), mayMutate: true)
+    {
+        ArgumentLimits = FetchLimits,
+    };
 
 #if AUTOMATION
     /// <summary>Fixed response-only transport for the private WebView test.</summary>

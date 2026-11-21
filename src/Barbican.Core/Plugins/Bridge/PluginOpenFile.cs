@@ -14,7 +14,14 @@ public sealed class PluginOpenFile(
     private readonly Dictionary<(string Profile, string Plugin), Queue<long>> _opens = [];
     private int _presenting;
 
-    public PluginApiDescriptor Descriptor { get; } = new("ui.openFile", [], TimeSpan.FromSeconds(30), mayMutate: true);
+    // host-api-file-viewer.ts:19-118 presents content of at most 25 MiB; on the wire it is base64.
+    private static readonly PluginValueLimits FileLimits = new(
+        MaxWireBytes: (4 * MaxBytes / 3) + (1024 * 1024), MaxBinaryBytes: MaxBytes);
+
+    public PluginApiDescriptor Descriptor { get; } = new("ui.openFile", [], TimeSpan.FromSeconds(30), mayMutate: true)
+    {
+        ArgumentLimits = FileLimits,
+    };
 
     public PluginErrorCode? ValidateArguments(PluginValue arguments) =>
         Read(arguments) is null ? PluginErrorCode.InvalidArguments : null;

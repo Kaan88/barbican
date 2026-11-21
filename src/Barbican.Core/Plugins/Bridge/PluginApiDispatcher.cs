@@ -1,6 +1,7 @@
-// Mirrors: Bulwark lib/plugin-sandbox/host-api.ts:2067-2087 and api-timeouts.ts.
+// Mirrors: Bulwark lib/plugin-sandbox/host-api.ts:2067-2087 and api-timeouts.ts; each argument budget is the adapter's own input cap (host-api-input.ts:57-70, host-api-composer.ts:26).
 // Host-native caller supplies the authenticated binding. Adapters retain per-method validation, projection and resource routing.
 using Barbican.Core.Plugins.Permissions;
+using Barbican.Core.Plugins.Protocol;
 using Barbican.Core.Plugins.Runtime;
 
 namespace Barbican.Core.Plugins.Bridge;
@@ -70,6 +71,7 @@ public sealed class PluginApiDispatcher : IPluginApiDispatcher
             var descriptor = method.Descriptor;
             if (descriptor.PrivilegedOnly && grant.Tier == PluginExecutionTier.Untrusted) return Fail(PluginErrorCode.PermissionDenied);
             if (!descriptor.PermissionAlternatives.IsEmpty && !descriptor.PermissionAlternatives.Any(group => group.All(grant.Permissions.Contains))) return Fail(PluginErrorCode.PermissionDenied);
+            if (!ArgumentFits(request.Arguments, descriptor.ArgumentLimits ?? PluginApiDescriptor.DefaultArgumentLimits)) return Fail(PluginErrorCode.InvalidArguments);
             if (method.ValidateArguments(request.Arguments) is { } invalid) return Fail(invalid);
             var context = new PluginInvocationContext(binding, grant, _authority, _sessions, descriptor.MayMutate, stop.Token);
             if (!state.SetContext(context)) return Fail(PluginErrorCode.Cancelled);
@@ -89,6 +91,20 @@ public sealed class PluginApiDispatcher : IPluginApiDispatcher
             state.Close();
             stop.Dispose();
             Release(binding.InstanceId);
+        }
+    }
+    // The frame is decoded under the transport budget; the method's own budget is then applied to the
+    // already-decoded graph before the adapter sees a value (PluginValueCodec.cs:215-246).
+    private static bool ArgumentFits(PluginValue arguments, PluginValueLimits limits)
+    {
+        try
+        {
+            PluginValueCodec.Validate(arguments.Nodes, arguments.Id, limits);
+            return true;
+        }
+        catch (PluginValueFormatException)
+        {
+            return false;
         }
     }
     private bool Reserve(Guid id)

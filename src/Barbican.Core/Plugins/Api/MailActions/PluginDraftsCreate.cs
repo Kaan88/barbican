@@ -10,7 +10,8 @@ using Barbican.Core.Plugins.Protocol;
 
 namespace Barbican.Core.Plugins.Api.MailActions;
 
-internal sealed class PluginDraftsCreate(PluginMailActionHost host) : PluginMailActionMethod("drafts.create", "email:write", host, true)
+internal sealed class PluginDraftsCreate(PluginMailActionHost host) : PluginMailActionMethod("drafts.create", "email:write", host, true,
+    argumentLimits: PluginComposeInput.Limits)
 {
     private const int DraftsPerMinute = 10;
 

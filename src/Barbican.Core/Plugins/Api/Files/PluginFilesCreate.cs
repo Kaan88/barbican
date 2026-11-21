@@ -8,7 +8,8 @@ using Barbican.Core.Plugins.Protocol;
 
 namespace Barbican.Core.Plugins.Api.Files;
 
-internal sealed class PluginFilesCreate(IPluginFilesHost host) : PluginFilesMethod("files.create", "files:write", host, true)
+internal sealed class PluginFilesCreate(IPluginFilesHost host) : PluginFilesMethod("files.create", "files:write", host, true,
+    argumentLimits: PluginFilesData.CreateLimits)
 {
     private static readonly string[] Allowed = ["folderId", "name", "content", "type", "replace"];
     private static readonly string[] Types = ["text/markdown", "text/plain"];
