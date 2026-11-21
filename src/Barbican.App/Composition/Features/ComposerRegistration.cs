@@ -45,6 +45,7 @@ public static class ComposerRegistration
             services.AddSingleton<IPluginApiMethod>(sp => Barbican.Core.Plugins.Api.Mail.PluginMailMethods.Create(
                 sp.GetRequiredService<Barbican.Core.Plugins.Api.Mail.IPluginMailReaders>(), sp.GetRequiredService<Barbican.Core.Plugins.Api.Mail.IPluginMailRateLimiter>())[method]);
         }
+        _ = services.AddBarbicanPluginAccountApi();
         services.AddSingleton<PluginComposerAccess>();
         services.AddSingleton<PluginCheckerRegistry>();
         for (var index = 0; index < 4; index++)

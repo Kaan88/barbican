@@ -3086,3 +3086,12 @@ candidate and portable still require final approval.
 - Deviation: `jmap.getKeywords` walks `Email/query` pages (up to 25,000 messages) through `IMailService.QueryAsync`; Bulwark's Keyword/get extension does not exist on Stalwart.
 - Uncertainty: `email.getThreadCount` reads the message with a one-byte body-value limit to find its thread id; check the Stalwart behaviour of `maxBodyValueBytes: 1`.
 - Model note: `EmailBody` list properties can be null after deserialization of a real FakeJmap message; the projection guards every list. The cause was not investigated.
+
+## M6b account, tag and template methods (m6b/api-account)
+
+- Review `src/Barbican.Core/Plugins/Api/Account/**`, `App/**`, `MailTags/**` and `Templates/**` against Bulwark `host-api.ts:188-202,1560-1870,2217-2436`, `host-api-account.ts` and `host-api-settings.ts`. All share `PluginScopedMethod`: the active login is captured at call time, the permission is demanded for that login, authority is rechecked after every backend await, and a write checks authority immediately before it is issued and calls `MarkMutationIssued` (a later stale check is `UnknownOutcome`).
+- Judgement call: tag writes use a Core class (`PluginTagDefinitions`) over `IPrefsStore`/`IPrefsEditor` with the same `emailKeywords` key and `TagRules` as the UI's `TagService`, not `TagService` itself (Presentation is not visible to Core, and `TagService` cannot add a tag with a chosen id or reorder). The sidebar reads that setting, so it updates when an add-on writes. Please confirm this counts as the "same service".
+- Judgement call: Bulwark stores `addedBy` inside each definition; Barbican's tag parser drops unknown fields, so ownership and `visibility` live in a separate `pluginKeywordMeta` setting. If a user deletes a tag and re-creates one with the same id between two add-on calls, the old owner entry stays until the next write prunes it.
+- Judgement call: `user.getAccounts` lists only the logins the add-on's grant names (Bulwark lists every browser account). `user.logout`, `user.returnToOwnAccount` and `user.findPeople` were not built (not read-only, and no scoped directory service).
+- Namespace note: the tag folder is `Api/MailTags`, not `Api/Keywords`, because a namespace called `Keywords` shadows the `Keywords` model type inside `Plugins.Api.Mail`.
+- Not verified: the template methods run over an in-memory `ITemplateAdmin`; the real Inbox-metadata store was not exercised through the add-on API. `PluginAccountApiRegistration` builds on the Windows head but has not been run in the app.
