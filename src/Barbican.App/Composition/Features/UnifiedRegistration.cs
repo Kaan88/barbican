@@ -55,7 +55,7 @@ public static class UnifiedRegistration
         // a hidden run never opens a dialog: picks are queued answers only (CLAUDE.md: never touch the user's screen)
         services.TryAddSingleton(_ => new TransferPicks());
 #else
-        services.TryAddSingleton(_ => new TransferPicks(SystemFilePicker.PickAsync));
+        services.TryAddSingleton(_ => new TransferPicks(SystemFilePicker.PickAsync, SystemFilePicker.PickSaveFileAsync));
 #endif
         services.TryAddSingleton(sp => new MailTransfer(sp.GetRequiredService<IMailImport>(), sp.GetRequiredService<MailExportService>(), sp.GetRequiredService<TransferPicks>(), sp.GetRequiredService<IDispatcher>()));
         foreach (var i in Enumerable.Range(0, TransferCommands.Count))

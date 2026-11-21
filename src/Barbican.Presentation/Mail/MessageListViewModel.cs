@@ -460,6 +460,40 @@ public sealed partial class MessageListViewModel : ObservableObject, IDisposable
         }
     }
 
+    /// <summary>
+    /// Asks onEmailListItemRender again for the rows on screen (ui.refreshRowBadges, Bulwark row-badges.ts:34). The old badges stay until the new ones are ready; a list that
+    /// changed meanwhile keeps its own.
+    /// </summary>
+    public async Task RefreshBadgesAsync()
+    {
+        var generation = _generation;
+        var fresh = new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal);
+        if (_hooks.HasHandlers(HookNames.OnEmailListItemRender))
+        {
+            foreach (var email in _loaded.Emails.Take(50))
+            {
+                var payload = await _hooks.ShapeAsync(HookNames.OnEmailListItemRender, new ListItemRenderPayload(email, []), CancellationToken.None).ConfigureAwait(true);
+                if (payload.Badges.Count > 0)
+                {
+                    fresh[email.Id] = payload.Badges;
+                }
+            }
+        }
+
+        if (generation != _generation || _disposed)
+        {
+            return;
+        }
+
+        _badges.Clear();
+        foreach (var (id, badges) in fresh)
+        {
+            _badges[id] = badges;
+        }
+
+        RebuildRows();
+    }
+
     public void Dispose()
     {
         _disposed = true;

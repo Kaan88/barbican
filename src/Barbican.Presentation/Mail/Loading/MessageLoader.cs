@@ -138,6 +138,18 @@ public sealed class MessageLoader : IMessageOpener, IConversationOpener, IDispos
         OpenCore(row);
     }
 
+    /// <summary>Opens the message the reader shows once more, so onRenderEmailBody runs again for it (ui.rerenderEmail, Bulwark host-api.ts:2310); false when the reader shows none.</summary>
+    public bool ReopenShown()
+    {
+        if (_currentRow is not { } row || !string.Equals(_shownId, row.Id, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        OpenCore(row);
+        return true;
+    }
+
     public bool OpenConversationMessage(string emailId)
     {
         var summary = _thread?.Emails.FirstOrDefault(e => string.Equals(e.Id, emailId, StringComparison.Ordinal));

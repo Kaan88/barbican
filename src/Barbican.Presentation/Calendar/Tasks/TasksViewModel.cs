@@ -263,6 +263,9 @@ public sealed class TasksViewModel : ObservableObject, IDisposable
 
     public void Select(string? id) => SelectedId = id;
 
+    /// <summary>Whether the view has loaded the task, whatever its filter hides (an add-on's ui.openTask opens only a task the calendar has, Bulwark open-task.ts:45-50).</summary>
+    public bool Contains(string id) => _all.Exists(t => string.Equals(t.Id, id, StringComparison.Ordinal));
+
     /// <summary>Moves the selection by <paramref name="delta"/> rows (Up and Down keys).</summary>
     public void MoveSelection(int delta)
     {
