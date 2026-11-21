@@ -63,12 +63,14 @@ Plain-text view only: Copy (Ctrl+C), Select all (Ctrl+A), —. Always: Copy mess
 (In the HTML body, the shell catches `contextmenu` and posts `ctx:X,Y`; the host opens this menu: `src/Barbican.App/Assets/mail/shell.js`, ADR 0005.)
 
 ## MENU-FOLDER: a mailbox in the sidebar, or a folder row on the Organize settings page [M2]
-header (folder name); Mark folder as read; Refresh; —; New subfolder; Rename [off: not a role folder]; Import messages (.eml, .mbox)… [off: the account cannot write]; Export as mbox…; Export as .eml files… (a folder pick; both read only, so they stay on for a read-only account); Rules ›;
+header (folder name); Mark folder as read; —; New subfolder (not in Trash or Junk); Rename [off: not a role folder]; Rules ›; —; Import messages (.eml, .mbox)… [off: the account cannot write; not in Trash or Junk]; Export as mbox…; Export as .eml files… (a folder pick; both read only, so they stay on for a read-only account); Refresh;
 Trash or Junk only: —, danger Empty trash / Empty spam (asks); custom folders only: —, danger Delete folder (asks). Virtual folders (`__…`) have no menu.
+- **Order follows Bulwark 1.21.2** `components/layout/mailbox-context-menu.tsx:345-466` (SB-07 re-audit, WP-8). Not built (need commands or data): "Mark folder and subfolders as read" (folders with children), Share, Mute notifications, and the shared-account "New folder"; Bulwark has no header row and hides Rename for system folders (Barbican shows it disabled).
 
 ## MENU-TAG: a tag in the sidebar [M2]
 Show messages; Mark all as read; —; New tag…; New tag inside… (only with nested tags and a valid child id); Rename…; Colour ›; danger Delete tag (asks; messages keep the keyword); —; Manage tags….
 - **Colour ›**: the tag palette, each in its colour, the current one checked.
+- **Bulwark parity (SB-07 re-audit, WP-8):** Bulwark 1.21.2 has no context menu on a sidebar tag row (`components/layout/sidebar.tsx:1160-1180`: the row only selects; tags are managed in Settings > Tags, `components/settings/keyword-settings.tsx`). This menu is a Barbican addition kept from the Rust app; it takes the same menu look as every other menu.
 
 ## UNIFIED-ROW: the "All inboxes" row of the sidebar [M2]
 header "All inboxes"; Refresh. Bulwark `components/layout/mailbox-context-menu.tsx:285-306` (`unified-mailbox`) adds danger "Empty trash in all accounts" for a unified Trash row only; Barbican's unified view is the Inbox row alone, so that item arrives with a unified Trash row (not before M10).

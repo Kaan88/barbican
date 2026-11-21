@@ -14,7 +14,8 @@
               Background="{StaticResource Popup}" BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="16"
               AutomationProperties.AutomationId="shortcuts.card" AutomationProperties.Name="Keyboard shortcuts">
         <Grid RowDefinitions="Auto,Auto,*,Auto">
-          <TextBlock Grid.Row="0" Text="Keyboard shortcuts" FontSize="16" FontWeight="SemiBold" Foreground="{StaticResource Text}" Margin="20,0,20,10" />
+          <TextBlock x:Name="TitleText" Grid.Row="0" Text="Keyboard shortcuts" FontSize="16" FontWeight="SemiBold" Foreground="{StaticResource Text}" Margin="20,0,20,10" />
+          <Border x:Name="TabRule" Grid.Row="1" Height="1" VerticalAlignment="Bottom" Margin="24,0,24,8" Background="{StaticResource Line}" Visibility="Collapsed" />
           <StackPanel x:Name="Tabs" Grid.Row="1" Orientation="Horizontal" Spacing="6" Margin="20,0,20,8" AutomationProperties.AutomationId="shortcuts.tabs" />
           <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" AutomationProperties.AutomationId="shortcuts.scroll">
             <StackPanel x:Name="Rows" Margin="20,0,20,0" AutomationProperties.AutomationId="shortcuts.rows" />

@@ -5,7 +5,7 @@ namespace Barbican.Presentation.Menus;
 /// <summary>One list of rows in an open menu (the menu itself, or a flyout) and its highlighted row.</summary>
 public sealed class MenuLevel(IReadOnlyList<MenuItemSpec> items, int parentIndex)
 {
-    public const double RowHeight = 30;
+    public static double RowHeight { get; set; } = 30;
     public const double SeparatorHeight = 9;
     public const double HeaderHeight = 24;
 

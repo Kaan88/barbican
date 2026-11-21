@@ -1,3 +1,5 @@
+// Bulwark 1.21.2 default theme: the attribution is a 12 px muted line with the Puzzle icon (plugin-dialog-host.tsx:317-322), the message text-sm muted (:324-328), the buttons gap-3 h-10 with a solid
+// destructive confirm (:459-466 with ui/button.tsx:52), and the header carries the options button whose menu holds "Turn off <name>" (:583-621). The title is the host's 18 px one.
 // Mirrors Bulwark components/plugins/plugin-dialog-host.tsx:117-160,236-296,306-325,440-515: a host-written "From" line under the title, the message that scrolls, prompt fields
 // (required blocks submit, password masks), Cancel and OK, a destructive confirm that starts on Cancel and is not answered by Enter, Escape cancels. Drawn inside the in-window dialog host.
 #if WINDOWS
@@ -22,10 +24,43 @@ internal sealed class PluginDialogContent : IDialogContent
 
     public UIElement Create(ActiveDialog dialog) => new Form((PluginDialogHostRequest)dialog.Request, dialog).Build();
 
+    // Bulwark PluginDialogMenu: a vertical-ellipsis button ("Options for <name>") whose menu has one destructive entry, "Turn off <name>"; it disables the add-on, which closes the dialog
+    public UIElement? CreateHeaderAction(ActiveDialog dialog)
+    {
+        var host = (PluginDialogHostRequest)dialog.Request;
+        if (host.TurnOff is null)
+        {
+            return null;
+        }
+
+        var turnOff = new MenuFlyoutItem { Text = $"Turn off {host.Source}", Foreground = AppResources.Brush("Destructive") };
+        AutomationProperties.SetAutomationId(turnOff, "plugin.dialog.turn-off");
+        turnOff.Click += (_, _) => _ = TurnOffAsync(host, dialog);
+        var flyout = new MenuFlyout { ShouldConstrainToRootBounds = true, Placement = Microsoft.UI.Xaml.Controls.Primitives.FlyoutPlacementMode.BottomEdgeAlignedRight };
+        flyout.Items.Add(turnOff);
+        var icon = new Controls.SIcon { Kind = "More", Size = 20, RenderTransformOrigin = new Windows.Foundation.Point(0.5, 0.5), RenderTransform = new RotateTransform { Angle = 90 } };
+        var button = new Button { Style = (Style)Application.Current.Resources["Button.Icon"], Width = 32, Height = 32, CornerRadius = new CornerRadius(StyleState.Current.Metrics.ButtonRadius), Content = icon, Flyout = flyout };
+        AutomationProperties.SetAutomationId(button, "plugin.dialog.menu");
+        AutomationProperties.SetName(button, $"Options for {host.Source}");
+        return button;
+    }
+
 #if AUTOMATION
     /// <summary>The form of the dialog on screen, for the synthetic dialog probe (AUTOMATION builds only).</summary>
     internal static Form? Current { get; private set; }
 #endif
+
+    private static async Task TurnOffAsync(PluginDialogHostRequest host, ActiveDialog dialog)
+    {
+        try
+        {
+            await host.TurnOff!().ConfigureAwait(true);
+        }
+        finally
+        {
+            dialog.Complete(null);
+        }
+    }
 
     internal sealed class Form(PluginDialogHostRequest host, ActiveDialog dialog)
     {
@@ -44,7 +79,10 @@ internal sealed class PluginDialogContent : IDialogContent
 #if AUTOMATION
             _source = source;
 #endif
-            panel.Children.Add(source);
+            var attribution = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4, Margin = new Thickness(0, DialogStyles.Bulwark ? -10 : 0, 0, 0) };
+            attribution.Children.Add(AddonGlyph.Create(12, AppResources.Brush("Dim")));
+            attribution.Children.Add(source);
+            panel.Children.Add(attribution);
             if (_request.Message.Length > 0)
             {
                 panel.Children.Add(new ScrollViewer
@@ -123,7 +161,7 @@ internal sealed class PluginDialogContent : IDialogContent
 
         private StackPanel BuildButtons()
         {
-            var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Spacing = 8 };
+            var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Spacing = DialogStyles.ButtonGap, Margin = new Thickness(0, DialogStyles.Bulwark ? 12 : 0, 0, 0) };
             if (_request.Kind != PluginDialogKind.Alert)
             {
                 _cancel = MakeButton(_request.CancelLabel ?? "Cancel", "Button.Action", "plugin.dialog.cancel");
@@ -132,11 +170,19 @@ internal sealed class PluginDialogContent : IDialogContent
             }
 
             _ok = MakeButton(_request.ConfirmLabel ?? _request.Kind switch { PluginDialogKind.Alert => "OK", PluginDialogKind.Prompt => "Submit", _ => "Confirm" },
-                _request.Danger ? "Button.Action" : "Button.Primary", "plugin.dialog.ok");
+                _request.Danger && !DialogStyles.Bulwark ? "Button.Action" : "Button.Primary", "plugin.dialog.ok");
             if (_request.Danger)
             {
-                _ok.Background = AppResources.Brush("RoseBg");
-                _ok.Foreground = AppResources.Brush("RoseFg");
+                if (DialogStyles.Bulwark)
+                {
+                    _ok.Style = DialogStyles.Destructive;
+                    DialogStyles.Dress(_ok);
+                }
+                else
+                {
+                    _ok.Background = AppResources.Brush("RoseBg");
+                    _ok.Foreground = AppResources.Brush("RoseFg");
+                }
             }
 
             _ok.Click += (_, _) => Accept();
@@ -150,10 +196,8 @@ internal sealed class PluginDialogContent : IDialogContent
             {
                 Style = (Style)Application.Current.Resources[style],
                 Content = label,
-                CornerRadius = new CornerRadius(14),
-                Height = 32,
-                Padding = new Thickness(16, 0, 16, 0),
             };
+            DialogStyles.Dress(button);
             AutomationProperties.SetAutomationId(button, id);
             return button;
         }
@@ -253,7 +297,7 @@ internal sealed class PluginDialogContent : IDialogContent
     // Bulwark plugin-dialog-host.tsx:44-72: text between ** pairs is bold, up to 64 delimiters; the rest shows as written.
     private static TextBlock MessageText(string message)
     {
-        var block = new TextBlock { FontSize = 13, Foreground = AppResources.Brush("Body"), TextWrapping = TextWrapping.Wrap };
+        var block = new TextBlock { FontSize = DialogStyles.Bulwark ? 14 : 13, Foreground = AppResources.Brush(DialogStyles.Bulwark ? "Dim" : "Body"), TextWrapping = TextWrapping.Wrap };
         AutomationProperties.SetAutomationId(block, "plugin.dialog.message");
         var segments = new List<string>();
         var from = 0;

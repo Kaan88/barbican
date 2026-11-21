@@ -105,8 +105,8 @@ public static class RuleMenus
             return folder;
         }
 
-        // after "Import messages", before the danger rows; a folder menu without that row gets it at the end
-        var at = folder.ToList().FindLastIndex(i => string.Equals(i.CommandId, CommandIds.ImportMessages, StringComparison.Ordinal) || string.Equals(i.CommandId, CommandIds.ExportEml, StringComparison.Ordinal));
+        // after "Rename" (Bulwark mailbox-context-menu.tsx:386-392 puts Rules between Rename and the import and export rows); a folder menu without that row gets it at the end
+        var at = folder.ToList().FindLastIndex(i => string.Equals(i.CommandId, CommandIds.RenameFolder, StringComparison.Ordinal));
         var rules = Sub(Icon, "Rules", FolderRules);
         return at < 0 ? [.. folder, rules] : [.. folder.Take(at + 1), rules, .. folder.Skip(at + 1)];
     }

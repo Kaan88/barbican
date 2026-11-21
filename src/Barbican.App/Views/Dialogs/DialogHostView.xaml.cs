@@ -1,3 +1,6 @@
+// Bulwark 1.21.2 reference (default theme): components/ui/dialog.tsx:131-134 (title text-lg font-semibold, description mt-2 text-sm muted, footer gap-3 px-6 pb-6), :181 (card
+// bg-background rounded-lg shadow-xl, p-6 body; zoom-in-95 duration-200), :231 (scrim bg-black/50 fade-in duration-150), ui/confirm-dialog.tsx:143-170 (destructive variant: 40 px circle
+// bg-destructive/10 with a 20 px triangle beside the text column, solid destructive button, Cancel is the outline button; no close X: showClose false). Bento and Nordic keep the older look.
 // Mirrors: PORT-PLAN section 3.7 (a custom host: Scrim + PopIn, focus trapped and restored, Esc cancels and Enter accepts, never ContentDialog); design/MOTION.md (Scrim fades in over
 // Motion.enter, PopIn on the card, closing is instant); M1.md section 5 ("no caller" of IBodyOverlayStrategy: Linux covers the WebKit body with a stand-in before a scrim shows).
 // The model is DialogService (Presentation); this draws the current dialog. Owner menus.
@@ -5,6 +8,7 @@
 using Barbican.App.MailBody;
 using Barbican.App.Motion;
 using Barbican.App.Shell;
+using Barbican.App.Theme;
 using Barbican.Presentation.Dialogs;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml.Input;
@@ -47,16 +51,26 @@ public sealed partial class DialogHostView : UserControl
         MessageText.Visibility = Visibility.Collapsed;
         Field.Visibility = Visibility.Collapsed;
         CustomContent.Content = null;
+        HeaderAction.Content = null;
         Buttons.Visibility = Visibility.Visible;
         Card.MaxWidth = 440;
         OkButton.Content = "OK";
         OkButton.Style = (Style)Application.Current.Resources["Button.Primary"];
+        WarnIcon.Visibility = Visibility.Collapsed;
+        ApplyLook();
         switch (dialog.Request)
         {
             case ConfirmDialogRequest confirm:
                 MessageText.Text = confirm.Message;
                 MessageText.Visibility = Visibility.Visible;
                 OkButton.Content = confirm.ConfirmLabel;
+                if (confirm.Danger && DialogStyles.Bulwark)
+                {
+                    WarnIcon.Visibility = Visibility.Visible;
+                    OkButton.Style = DialogStyles.Destructive;
+                    DialogStyles.Dress(OkButton);
+                }
+
                 break;
             case PromptDialogRequest prompt:
                 MessageText.Text = prompt.Label;
@@ -66,22 +80,45 @@ public sealed partial class DialogHostView : UserControl
                 OkButton.Content = prompt.ConfirmLabel;
                 break;
             default:
-                // an owner's own dialog: its content comes from an IDialogContent registered for the request type
-                foreach (var factory in ViewHost.Services.GetServices<IDialogContent>())
-                {
-                    if (factory.CanDraw(dialog.Request))
-                    {
-                        CustomContent.Content = factory.Create(dialog);
-                        Buttons.Visibility = factory.OwnButtons ? Visibility.Collapsed : Visibility.Visible;
-                        Card.MaxWidth = factory.MaxWidth;
-                        break;
-                    }
-                }
-
+                DrawCustom(dialog);
                 break;
         }
 
+        CustomContent.Visibility = CustomContent.Content is null ? Visibility.Collapsed : Visibility.Visible;
         Show();
+    }
+
+    // an owner's own dialog: its content comes from an IDialogContent registered for the request type
+    private void DrawCustom(ActiveDialog dialog)
+    {
+        foreach (var factory in ViewHost.Services.GetServices<IDialogContent>())
+        {
+            if (factory.CanDraw(dialog.Request))
+            {
+                CustomContent.Content = factory.Create(dialog);
+                HeaderAction.Content = factory.CreateHeaderAction(dialog);
+                Buttons.Visibility = factory.OwnButtons ? Visibility.Collapsed : Visibility.Visible;
+                Card.MaxWidth = factory.MaxWidth;
+                break;
+            }
+        }
+    }
+
+    // Bulwark metrics when that style is on (read at each open, so a style flip applies to the next dialog), the older ones otherwise
+    private void ApplyLook()
+    {
+        var bulwark = DialogStyles.Bulwark;
+        Backdrop.Background = new SolidColorBrush(global::Windows.UI.Color.FromArgb(bulwark ? (byte)0x80 : (byte)0x66, 0, 0, 0));
+        Card.CornerRadius = StyleState.Current.DialogRadius;
+        Card.Padding = new Thickness(bulwark ? 24 : 20);
+        TitleText.FontSize = bulwark ? 18 : 16;
+        MessageText.FontSize = bulwark ? 14 : 13;
+        MessageText.Foreground = AppResources.Brush(bulwark ? "Dim" : "Body");
+        MessageText.Margin = new Thickness(0, bulwark ? -4 : 0, 0, 0);
+        Buttons.Spacing = DialogStyles.ButtonGap;
+        Buttons.Margin = new Thickness(0, bulwark ? 24 : 12, 0, 0);
+        DialogStyles.Dress(CancelButton);
+        DialogStyles.Dress(OkButton);
     }
 
     private void Show()
