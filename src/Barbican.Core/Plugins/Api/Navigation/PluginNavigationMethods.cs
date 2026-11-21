@@ -8,7 +8,7 @@ namespace Barbican.Core.Plugins.Api.Navigation;
 public static class PluginNavigationMethods
 {
     /// <summary>How many methods <see cref="Create"/> returns.</summary>
-    public const int Count = 9;
+    public const int Count = 10;
 
     public static IReadOnlyList<IPluginApiMethod> Create(PluginNavigationHost host)
     {
@@ -17,7 +17,7 @@ public static class PluginNavigationMethods
         [
             new PluginUiOpenEmail(host), new PluginUiOpenCalendar(host), new PluginUiOpenTask(host),
             new PluginUiRefresh(host, PluginUiRefresh.Kind.RowBadges), new PluginUiRefresh(host, PluginUiRefresh.Kind.RerenderEmail), new PluginUiRefresh(host, PluginUiRefresh.Kind.RerenderFetchedEmails),
-            new PluginUiDownloadFile(host), new PluginUiSetPages(host), new PluginUiOpenPage(host),
+            new PluginUiDownloadFile(host), new PluginUiSetPages(host), new PluginUiOpenPage(host), new PluginUiSetDayLabels(host),
         ];
     }
 }

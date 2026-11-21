@@ -19,6 +19,11 @@ public sealed partial class PluginSandboxSession(PluginRuntimeBinding binding, I
     private bool _ready, _initQueued, _initIssued, _disposed;
     private bool _activationFailed;
     private Task? _cleanup;
+    private double _slotHeight = -1, _slotWidth = -1;
+    /// <summary>Slot frames only: the sandbox measured its content (Bulwark runtime.tsx:1584 slot-resize). Raised on a background thread.</summary>
+    public event EventHandler<PluginSlotSizeEventArgs>? SlotResized;
+    /// <summary>The last size the slot reported, (-1, -1) until it reported one.</summary>
+    public (double Height, double Width) LastSlotSize { get { lock (_gate) return (_slotHeight, _slotWidth); } }
     public PluginRuntimeBinding Binding { get; } = binding;
     public IPluginSandboxWebView View { get; } = view;
     public IPluginApiDispatcher Dispatcher { get; } = dispatcher;
@@ -63,8 +68,25 @@ public sealed partial class PluginSandboxSession(PluginRuntimeBinding binding, I
             var id = value.Property("id").StringValue;
             lock (_gate) return Active && _hookReplies.TryComplete(Binding, id, value);
         }
+        if (string.Equals(type, "slot-resize", StringComparison.Ordinal)) return ReceiveSlotResize(value);
         if (!string.Equals(type,"api-request",StringComparison.Ordinal)) return false;
         return await DispatchRequestAsync(value,bytes.Length,ct).ConfigureAwait(false);
+    }
+    private bool ReceiveSlotResize(PluginValue value)
+    {
+        var height = double.Parse(value.Property("height").NumberText, System.Globalization.CultureInfo.InvariantCulture);
+        double? width = value.PropertyNames.Contains("width", StringComparer.Ordinal) && value.Property("width").Kind == PluginValueKind.Number
+            ? double.Parse(value.Property("width").NumberText, System.Globalization.CultureInfo.InvariantCulture) : null;
+        if (!double.IsFinite(height) || height < 0 || (width is { } w && (!double.IsFinite(w) || w < 0))) return false;
+        lock (_gate)
+        {
+            // Only a slot frame draws, and only after the host issued its init.
+            if (!Active || !_initIssued || Binding.Kind != PluginFrameKind.Slot) return false;
+            _slotHeight = height;
+            if (width is { } known) _slotWidth = known;
+        }
+        SlotResized?.Invoke(this, new PluginSlotSizeEventArgs(height, width));
+        return true;
     }
     /// <summary>Waits for authenticated readiness or cancellation of the caller or binding.</summary>
     public async Task WaitForReadyAsync(CancellationToken ct)

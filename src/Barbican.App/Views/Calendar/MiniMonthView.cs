@@ -3,6 +3,7 @@
 // Bulwark (mini-calendar.tsx:176-300): the header is [prev][month year and a chevron][next] with the title button text-sm medium; weekday initials text-[0.625rem] muted; days are 28 px circles, today filled primary,
 // the selected day tinted primary/15 with primary text, other months muted, a hover band on the rest, a 4 px primary dot for a day with events. Bento and Nordic keep the month they had.
 
+using Barbican.App.Shell;
 using Microsoft.UI.Xaml.Automation;
 using System.Globalization;
 using Barbican.Presentation.Calendar.Grid;
@@ -22,15 +23,22 @@ public sealed class MiniMonthView : UserControl
     private bool _picking;
     private int _pickYear;
 
+    private readonly Barbican.Core.Plugins.Calendar.PluginDayLabelRegistry _labels = ViewHost.Get<Barbican.Core.Plugins.Calendar.PluginDayLabelRegistry>();
+
     public MiniMonthView()
     {
         Content = _host;
+        // an add-on's day labels (ui.setDayLabels) redraw the month: a dot marks the days it set one on (Bulwark mini-calendar.tsx plugin marks)
+        Loaded += (_, _) => _labels.Changed += OnLabelsChanged;
+        Unloaded += (_, _) => _labels.Changed -= OnLabelsChanged;
         IsTabStop = true;
         KeyDown += OnKeyDown;
         AutomationProperties.SetAutomationId(this, "cal.mini");
         AutomationProperties.SetName(this, "Mini calendar");
         Render();
     }
+
+    private void OnLabelsChanged(object? sender, EventArgs e) => DispatcherQueue.TryEnqueue(Render);
 
     public void Render()
     {
@@ -153,6 +161,7 @@ public sealed class MiniMonthView : UserControl
             var d = days[i];
             var label = new Grid { HorizontalAlignment = HorizontalAlignment.Stretch, VerticalAlignment = VerticalAlignment.Stretch };
             var selectedDay = (_bulwark ? d.Day == _vm.Anchor : d.Selected) && !d.Today;
+            var marked = d.Busy || _labels.On(d.Day).Any(l => l.Label.Dot);
             label.Children.Add(new TextBlock
             {
                 Text = d.Day.Day.ToString(CultureInfo.InvariantCulture),
@@ -163,9 +172,9 @@ public sealed class MiniMonthView : UserControl
                     : CalendarVisuals.Palette(d.Today ? "OnAccent" : d.InMonth ? "Body" : "Faint"),
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(0, 0, 0, d.Busy && !d.Today ? 5 : 0),
+                Margin = new Thickness(0, 0, 0, marked && !d.Today ? 5 : 0),
             });
-            if (d.Busy && !d.Today && !(_bulwark && selectedDay))
+            if (marked && !d.Today && !(_bulwark && selectedDay))
             {
                 label.Children.Add(new Border { Width = 4, Height = 4, CornerRadius = new CornerRadius(2), Background = CalendarVisuals.Palette("Accent"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(0, 0, 0, 3) });
             }

@@ -1,13 +1,16 @@
-// Mirrors: Bulwark app/[locale]/apps/[pluginId]/[pageId] (the route of an add-on page, lib/plugin-sandbox/pages.ts:1-4: the add-on's `app-page` slot fills the content area beside the navigation rail).
-// The page surface is the smallest one that fits the other app screens: rail | one surface that names the page, the add-on and the path it was opened with. The add-on's own frame (the `app-page` slot, catalogue
-// plugin-slot-catalog.ts:64) is not mounted by any host yet (the slot mounts of M6b are open), so the surface says so instead of staying blank. It owns no add-on code and no input of its own.
-using Barbican.App.Controls;
+// Mirrors: Bulwark app/[locale]/apps/[pluginId]/[pageId] and components/plugins/plugin-page-app.tsx (the route of an add-on page, lib/plugin-sandbox/pages.ts:1-4: the add-on's `app-page` slot fills the content area beside the navigation rail,
+// props { pageId, path }, catalogue plugin-slot-catalog.ts:64).
+// The surface is rail | the add-on's own sandboxed frame (PluginPageFrameHost mounts it). While the frame loads, or when the add-on is not running or does not draw the page, the area says so instead of staying blank.
+// Builds without the Windows WebView draw only that message. It owns no add-on code and no input of its own.
 using Barbican.App.Shell;
 using Barbican.App.Theme;
 using Barbican.App.Views.Rail;
 using Barbican.Core.Plugins.Pages;
-using Barbican.Presentation.Shell;
 using Microsoft.UI.Xaml.Automation;
+
+#if !WINDOWS
+#pragma warning disable CA1822 // builds without the Windows WebView keep the same members and draw only the fixed message
+#endif
 
 namespace Barbican.App.Views.Plugins;
 
@@ -16,12 +19,12 @@ public sealed class PluginPageScreen : UserControl
 {
     private readonly PluginPageRegistry _pages = ViewHost.Get<PluginPageRegistry>();
     private readonly StyleState _look = ViewHost.Get<StyleState>();
+#if WINDOWS
+    private readonly PluginPageFrameHost _frame = new();
+#else
     private readonly Border _surface = new();
-    private readonly SIcon _icon = new() { Size = 40 };
-    private readonly TextBlock _title = new() { FontSize = 20, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis };
-    private readonly TextBlock _from = new() { FontSize = 13, TextTrimming = TextTrimming.CharacterEllipsis };
-    private readonly TextBlock _path = new() { FontSize = 12, TextTrimming = TextTrimming.CharacterEllipsis };
     private readonly TextBlock _note = new() { FontSize = 13, TextWrapping = TextWrapping.Wrap, TextAlignment = TextAlignment.Center, MaxWidth = 420 };
+#endif
 
     public PluginPageScreen()
     {
@@ -29,27 +32,22 @@ public sealed class PluginPageScreen : UserControl
         root.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         root.Children.Add(new RailView());
-        var stack = new StackPanel { Spacing = 8, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Padding = new Thickness(24) };
-        stack.Children.Add(_icon);
-        stack.Children.Add(_title);
-        stack.Children.Add(_from);
-        stack.Children.Add(_path);
-        stack.Children.Add(_note);
-        _icon.HorizontalAlignment = HorizontalAlignment.Center;
-        _title.HorizontalAlignment = HorizontalAlignment.Center;
-        _from.HorizontalAlignment = HorizontalAlignment.Center;
-        _path.HorizontalAlignment = HorizontalAlignment.Center;
+#if WINDOWS
+        var surface = _frame.Surface;
+        AutomationProperties.SetAutomationId(_frame.Note, "plugin-page.note");
+        AutomationProperties.SetAutomationId(surface, "plugin-page.frame");
+#else
         _note.HorizontalAlignment = HorizontalAlignment.Center;
-        _note.Text = "This page is drawn by the add-on. Add-on page frames are not available in this build yet.";
-        _surface.Child = stack;
-        Grid.SetColumn(_surface, 1);
-        root.Children.Add(_surface);
+        _note.VerticalAlignment = VerticalAlignment.Center;
+        _note.Text = "This page is drawn by the add-on. Add-on page frames are not available in this build.";
+        _surface.Child = _note;
+        var surface = _surface;
+        AutomationProperties.SetAutomationId(_note, "plugin-page.note");
+#endif
+        Grid.SetColumn(surface, 1);
+        root.Children.Add(surface);
         Content = root;
         AutomationProperties.SetAutomationId(this, "plugin-page.screen");
-        AutomationProperties.SetAutomationId(_title, "plugin-page.title");
-        AutomationProperties.SetAutomationId(_from, "plugin-page.addon");
-        AutomationProperties.SetAutomationId(_path, "plugin-page.path");
-        AutomationProperties.SetAutomationId(_note, "plugin-page.note");
         _look.PropertyChanged += (_, _) => ApplyLook();
         ApplyLook();
     }
@@ -57,26 +55,39 @@ public sealed class PluginPageScreen : UserControl
     /// <summary>Shows the page behind <paramref name="key"/> ("package/page") opened with <paramref name="path"/>.</summary>
     public void Show(string key, string path)
     {
-        var page = _pages.All.FirstOrDefault(p => string.Equals(p.Key, key, StringComparison.Ordinal));
-        _icon.Kind = PluginPageIcons.KindFor(page?.Page.Icon);
-        _title.Text = page?.Page.Title ?? string.Empty;
-        _from.Text = page is null ? string.Empty : "From " + page.PackageName;
-        _path.Text = path.Length == 0 ? string.Empty : "/" + path;
-        _path.Visibility = path.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
+#if WINDOWS
+        if (_pages.All.FirstOrDefault(p => string.Equals(p.Key, key, StringComparison.Ordinal)) is { } page)
+        {
+            _frame.Show(page.PackageId, page.Page.Id, path);
+        }
+        else
+        {
+            _frame.Stop();
+            _frame.Note.Text = string.Empty;
+        }
+#endif
+    }
+
+    /// <summary>The page was left: its frame is removed (Bulwark unmounts the iframe).</summary>
+    public void Hide()
+    {
+#if WINDOWS
+        _frame.Stop();
+#endif
     }
 
     private void ApplyLook()
     {
+#if WINDOWS
+        _frame.ApplyLook(_look);
+#else
         var bento = _look.IsBento && !_look.IsBulwark;
         _surface.Background = _look.SurfaceBrush;
         _surface.BorderBrush = bento || _look.IsBulwark ? AppResources.Brush("Line") : null;
         _surface.BorderThickness = _look.IsBulwark ? new Thickness(0) : _look.PaneBorder;
         _surface.CornerRadius = _look.PaneRadius;
         _surface.Margin = bento ? new Thickness(4) : new Thickness(0);
-        _icon.Foreground = AppResources.Brush("Faint");
-        _title.Foreground = AppResources.Brush("Text");
-        _from.Foreground = AppResources.Brush("Faint");
-        _path.Foreground = AppResources.Brush("Faint");
         _note.Foreground = AppResources.Brush("Faint");
+#endif
     }
 }

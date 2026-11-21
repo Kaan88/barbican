@@ -50,6 +50,7 @@ public static class MailPresentationRegistration
         // SH-10: the pages add-ons put in the rail (ui.setPages); the names come from the manifests of the started add-ons
         services.TryAddSingleton<Barbican.Core.Plugins.Pages.PluginAddOnNames>();
         services.TryAddSingleton(sp => new Barbican.Core.Plugins.Pages.PluginPageRegistry(sp.GetRequiredService<Barbican.Core.Plugins.Pages.PluginAddOnNames>().Resolve));
+        services.TryAddSingleton(sp => new Barbican.Core.Plugins.Calendar.PluginDayLabelRegistry(sp.GetRequiredService<Barbican.Core.Plugins.Pages.PluginAddOnNames>().Resolve));
         services.TryAddSingleton<RailViewModel>();
         services.TryAddSingleton<GlanceTilesViewModel>();
         services.TryAddSingleton<ReaderRowFollower>();

@@ -158,7 +158,7 @@ public sealed class PluginSandboxFactory(IPluginPackageManager packages, IPlugin
             return null;
 
         // The activation request takes package metadata from the authenticated store.
-        return new PluginRuntimeStart(item, grant, request.Profile, request.Kind, request.Slot, request.Props, request.HostState);
+        return new PluginRuntimeStart(item, grant, request.Profile, request.Kind, request.Slot, request.Props, request.HostState, request.Fill);
     }
 
     private static Result<IPluginRuntimeInstance> Fail() =>

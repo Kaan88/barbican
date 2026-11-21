@@ -4,7 +4,7 @@ using Barbican.Core.Plugins.Packages;
 using Barbican.Core.Plugins.Permissions;
 namespace Barbican.Core.Plugins.Runtime;
 public sealed class PluginRuntimeStart(PluginInstallation installation, PluginGrantSnapshot grant, string profile,
-    PluginFrameKind kind, string? slot, PluginValue props, PluginHostState hostState)
+    PluginFrameKind kind, string? slot, PluginValue props, PluginHostState hostState, bool fill = false)
 {
     public PluginInstallation Installation { get; } = installation;
     public PluginGrantSnapshot Grant { get; } = grant;
@@ -13,4 +13,6 @@ public sealed class PluginRuntimeStart(PluginInstallation installation, PluginGr
     public string? Slot { get; } = slot;
     public PluginValue Props { get; } = props ?? throw new ArgumentNullException(nameof(props));
     public PluginHostState HostState { get; } = hostState;
+    /// <summary>Slot frames only: the add-on's slot offer asked to fill its container (Bulwark protocol.ts InitMsg.fill, runtime.tsx:1522).</summary>
+    public bool Fill { get; } = fill;
 }

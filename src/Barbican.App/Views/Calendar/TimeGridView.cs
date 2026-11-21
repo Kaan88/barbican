@@ -4,6 +4,7 @@
 // text-[0.625rem] muted on the right of the gutter, hairlines between the hours at half strength, and the now line is the destructive colour: a 12 px dot and a 2 px rule. Chips and blocks are rounded-xs (event-card.tsx:470).
 // One pointer handler on the hour surface does the hit test itself (the cards draw but are not hit-testable), so a click, a double click, a right click, a move, a resize and a create all take the same road as the automation commands (CalendarUi, ICalendarGestures).
 
+using Barbican.App.Shell;
 using Microsoft.UI.Xaml.Automation;
 using System.Globalization;
 using Barbican.Presentation.Calendar.Grid;
@@ -59,8 +60,13 @@ public sealed class TimeGridView : UserControl
         Create,
     }
 
+    private readonly Barbican.Core.Plugins.Calendar.PluginDayLabelRegistry _dayLabels = ViewHost.Get<Barbican.Core.Plugins.Calendar.PluginDayLabelRegistry>();
+
     public TimeGridView()
     {
+        // ui.setDayLabels redraws the heads
+        Loaded += (_, _) => _dayLabels.Changed += OnDayLabelsChanged;
+        Unloaded += (_, _) => _dayLabels.Changed -= OnDayLabelsChanged;
         var root = new Grid { RowDefinitions = { new RowDefinition { Height = GridLength.Auto }, new RowDefinition { Height = GridLength.Auto }, new RowDefinition { Height = new GridLength(1, GridUnitType.Star) } } };
         root.Children.Add(_head);
         _stripBox.Child = _strip;
@@ -89,6 +95,8 @@ public sealed class TimeGridView : UserControl
         AutomationProperties.SetAutomationId(_head, "cal.heads");
     }
 
+    private void OnDayLabelsChanged(object? sender, EventArgs e) => DispatcherQueue.TryEnqueue(RenderHead);
+
     /// <summary>The pointer rests on an event card (the hover preview): the occurrence and the point in this view's coordinates.</summary>
     public event EventHandler<HoverRequestedEventArgs>? HoverRequested;
 
@@ -114,7 +122,9 @@ public sealed class TimeGridView : UserControl
     private void RenderHead()
     {
         var bulwark = CalendarVisuals.Bulwark;
-        _head.Height = bulwark ? 76 : 44;
+        // a day an add-on labelled makes the head one line taller per label line (at most two)
+        var extra = _columns.Count == 0 ? 0 : _columns.Max(d => Math.Min(2, _dayLabels.On(d).Count(l => l.Label.Text is not null))) * 14;
+        _head.Height = (bulwark ? 76 : 44) + extra;
         var head = new Grid();
         head.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(Gutter) });
         var today = _vm.TodayDate;
@@ -152,6 +162,19 @@ public sealed class TimeGridView : UserControl
                 },
             };
             label.Children.Add(number);
+            // an add-on's label of the day (ui.setDayLabels, Bulwark plugin-day-label.tsx) sits under the date, at most two (the head is a fixed height)
+            var plugin = _dayLabels.On(day).Where(l => l.Label.Text is not null).Take(2).ToList();
+            foreach (var p in plugin)
+            {
+                var text = CalendarVisuals.Text(p.Label.Text!, 10, FontWeights.Normal, CalendarVisuals.Palette("Dim"));
+                text.HorizontalAlignment = HorizontalAlignment.Center;
+                text.TextTrimming = TextTrimming.CharacterEllipsis;
+                text.MaxWidth = 120;
+                AutomationProperties.SetAutomationId(text, "cal.head.label." + day.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+                AutomationProperties.SetName(text, p.Label.Title ?? p.Label.Text!);
+                label.Children.Add(text);
+            }
+
             var button = new Button { Style = (Style)Application.Current.Resources["Button.Icon"], HorizontalAlignment = HorizontalAlignment.Stretch, VerticalAlignment = VerticalAlignment.Stretch, Content = label, CornerRadius = bulwark ? new CornerRadius(0) : new CornerRadius(10), Tag = day };
             if (bulwark)
             {

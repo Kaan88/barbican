@@ -68,6 +68,7 @@ public static class SettingsUiRegistration
             sp.GetRequiredService<Views.Plugins.PluginFilePresenter>().ShowAsync));
 #endif
         services.AddSingleton<PluginBackgroundRuntimes>();
+        services.AddSingleton<PluginSlotFrames>();
         services.AddSingleton<IPluginSessionSource, PluginSessionSource>();
         services.AddSingleton<ISettingsPageFactory, AddonsPageFactory>();
         services.AddSingleton<IDialogContent, AccessibilityQuickContent>();

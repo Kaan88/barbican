@@ -273,6 +273,21 @@ internal sealed partial class PluginBackgroundRuntimes(
 
     private PluginRuntimeStart Request(PluginInstallation installation)
     {
+        var value = new PluginValueBuilder();
+        return new PluginRuntimeStart(installation, installation.Grant!, paths.Profile, PluginFrameKind.Background, null,
+            value.Build(value.Object()), HostState(null));
+    }
+
+    /// <summary>The slot-frame start of <paramref name="slot"/> for an installed add-on, with the host's current settings and theme (Bulwark runtime.tsx:1495-1603).</summary>
+    internal PluginRuntimeStart SlotRequest(PluginInstallation installation, string slot, PluginValue props, bool fill, JsonElement theme) =>
+        new(installation, installation.Grant!, paths.Profile, PluginFrameKind.Slot, slot, props, HostState(theme), fill);
+
+    /// <summary>The offers the add-on's running background instance made at activation, or null while it is not running.</summary>
+    internal PluginActivation? ActivationOf(string packageId) =>
+        _active.TryGetValue(packageId, out var active) && active.Instance.Binding.IsAlive ? active.Instance.Activation : null;
+
+    private PluginHostState HostState(JsonElement? theme)
+    {
         var settings = prefs.Current;
         var culture = CultureInfo.CurrentCulture;
         var locale = string.IsNullOrWhiteSpace(culture.Name) ? "en" : culture.Name;
@@ -293,10 +308,7 @@ internal sealed partial class PluginBackgroundRuntimes(
             externalRecipientWarning = false,
             noThirdPartyTraffic = PluginNetworkPolicy.IsBlocked(prefs),
         });
-        var state = new PluginHostState(locale, regional, empty.RootElement, empty.RootElement, features);
-        var value = new PluginValueBuilder();
-        return new PluginRuntimeStart(installation, installation.Grant!, paths.Profile, PluginFrameKind.Background, null,
-            value.Build(value.Object()), state);
+        return new PluginHostState(locale, regional, theme ?? empty.RootElement, empty.RootElement, features);
     }
 
     private static Result<Unit> Failed(string message) => Result<Unit>.Fail(new ValidationError(message));
