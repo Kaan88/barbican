@@ -101,6 +101,7 @@ Extraction confidence: all 186 literal permission entries matched case labels in
 | `toast.dismiss`, `toast.error`, `toast.info`, `toast.progress`, `toast.success`, `toast.warning` | [Toast method tests](../../tests/Barbican.Core.Tests/Plugins/Notifications/PluginToastMethodsTests.cs) cover payload handling, progress and dismissal, rate budgets and refused host operations. |
 | `ui.alert`, `ui.confirm`, `ui.prompt` | [Dialog method tests](../../tests/Barbican.Core.Tests/Plugins/Api/Dialogs/PluginDialogMethodsTests.cs) cover Bulwark's options-object reads, cut limits, results (undefined, boolean, name-to-value map or null), one open dialog per add-on, 20 per minute, and closing with a stale-context failure when the call goes stale. The in-window presenter builds on both heads; it has not yet been replayed in a hidden Automation run. |
 | `ui.setActions`, `ui.openFile`, `ui.print` | The unchanged API probe exercised the composer and reader buttons, the constrained PDF preview and a simulated print. Provider withdrawal during a second print prevented delivery. [Fixture walkthrough](M6b-solo-parity.md#unchanged-bulwark-fixtures) |
+| `email.get`, `email.list`, `email.search`, `email.getThread`, `email.getThreadCount`, `mailboxes.list`, `jmap.getKeywords` | [Scoped mail tests](../../tests/Barbican.Core.Tests/Plugins/Api/PluginMailMethodsTests.cs) run the real dispatcher over FakeJmap: `email:read` is required for each (denied calls reach no server), results are projected through named fields only (read view, summary and mailbox shapes), limits and positions are bounded (list 100, search 50, thread 50 messages, 60 thread reads and 120 counts a minute, keyword scan 25,000), an unknown account gets null or "unavailable", and a login switch, a revoked or disabled add-on or a generation change before delivery drops the result as a stale-context error. Deviations: `auth` is not produced; shared-account folders are not listed (shared accounts are reachable by `accountId` for get, thread and thread count only, and FakeJmap cannot serve them, so that path has refusal tests only); `jmap.getKeywords` always walks messages (Stalwart has no Keyword/get extension); `email.getThreadCount` reads the message with a one-byte body limit because `IMailService` has no summary-only get. |
 
 The managed Windows sample rendered the `composer-header-actions` contribution. The unchanged API probe also invoked that slot and the `reader-actions` slot, including its compact overflow menu, and Disable removed the actions. The `sidebar-widget` bootstrap probe exercises renderer output in an isolated mount. Production evidence for the other catalogue slots remains open in the owning areas listed under [Slot projection](#slot-projection).
 
@@ -108,7 +109,7 @@ The unchanged fixture observed `onComposeFromLink`, `onBeforeEmailSend` and `onT
 
 ### Methods still requiring executable evidence
 
-The unchanged proofreading fixture now activates and receives typing checks under the current account's consent and policy. Registration, update, recheck and unregister are covered by the host registry and focused tests. [Typing checker walkthrough](M6b-solo-parity.md#typing-checker-on-windows) The PDF preview and print flows leave the generic dialog APIs open. The reader action carried the current email ID. Scoped reads such as `email.get`, `email.list` and `email.search` still need verified authorization and result evidence.
+The unchanged proofreading fixture now activates and receives typing checks under the current account's consent and policy. Registration, update, recheck and unregister are covered by the host registry and focused tests. [Typing checker walkthrough](M6b-solo-parity.md#typing-checker-on-windows) The PDF preview and print flows leave the generic dialog APIs open. The reader action carried the current email ID. The scoped reads `email.get`, `email.list`, `email.search`, `email.getThread`, `email.getThreadCount`, `mailboxes.list` and `jmap.getKeywords` now have FakeJmap-backed evidence (table above); their remaining deviations are listed there.
 
 | Owning surface | Open method names |
 |---|---|
@@ -122,15 +123,14 @@ The unchanged proofreading fixture now activates and receives typing checks unde
 | Contacts | `contact.create`, `contact.delete`, `contact.get`, `contact.list`, `contact.search`, `contact.update` |
 | Account and cryptography | `crypto.createPublicKey`, `crypto.createWebAuthn`, `crypto.getEncryptionAtRest`, `crypto.getPublicKeyFromWKD`, `crypto.getPublicKeys`, `crypto.getWebAuthn`, `crypto.removePublicKey`, `crypto.setEncryptionAtRest` |
 | Composer and drafts | `drafts.create` |
-| Mail reader, search and message actions | `email.archive`, `email.batch`, `email.forward`, `email.get`, `email.getAttachment`, `email.getAttachmentImage`, `email.getAttachmentText`, `email.getRaw`, `email.getThread`, `email.getThreadCount`, `email.list`, `email.move`, `email.removeKeyword`, `email.search`, `email.setKeyword`, `email.undoBatch`, `email.updateKeywords` |
+| Mail reader, search and message actions | `email.archive`, `email.batch`, `email.forward`, `email.getAttachment`, `email.getAttachmentImage`, `email.getAttachmentText`, `email.getRaw`, `email.move`, `email.removeKeyword`, `email.setKeyword`, `email.undoBatch`, `email.updateKeywords` |
 | Files | `files.attach`, `files.create`, `files.createFolder`, `files.find`, `files.getImage`, `files.getText`, `files.list`, `files.move`, `files.rename`, `files.saveAttachments` |
 | Mail rules | `filters.create`, `filters.list`, `filters.undo` |
 | Add-on network mediation | `http.post` |
 | Accounts and composer | `identities.update` |
-| Scoped JMAP mail mediation | `jmap.fetchBlob`, `jmap.getKeywords`, `jmap.importRaw`, `jmap.removeKeyword`, `jmap.setKeyword`, `jmap.setKeywords`, `jmap.uploadBlob` |
+| Scoped JMAP mail mediation | `jmap.fetchBlob`, `jmap.importRaw`, `jmap.removeKeyword`, `jmap.setKeyword`, `jmap.setKeywords`, `jmap.uploadBlob` |
 | Cryptography and consent | `keystore.agree`, `keystore.decrypt`, `keystore.list`, `keystore.sign` |
 | Mail tags | `keywords.add`, `keywords.discover`, `keywords.getCounts`, `keywords.list`, `keywords.refreshCounts`, `keywords.remove`, `keywords.reorder`, `keywords.update` |
-| Mail folders | `mailboxes.list` |
 | Notifications | `notifications.show` |
 | Add-on settings | `plugin.getConfig` |
 | Add-on network mediation | `proxy.accounts`, `proxy.cancel`, `proxy.connect`, `proxy.disconnect`, `proxy.fetch` |

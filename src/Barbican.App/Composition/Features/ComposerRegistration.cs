@@ -37,6 +37,14 @@ public static class ComposerRegistration
             sp.GetRequiredService<Barbican.Core.Plugins.Api.RawSend.IPluginRawSendHost>()));
         services.AddSingleton<IPluginApiMethod>(sp => Barbican.Core.Plugins.Api.RawSend.PluginRawSendMethods.SubmitRaw(
             sp.GetRequiredService<Barbican.Core.Plugins.Api.RawSend.IPluginRawSendHost>()));
+        services.AddSingleton<Barbican.Core.Plugins.Api.Mail.IPluginMailReaders>(sp => new Barbican.Core.Plugins.Api.Mail.PluginMailReaders(sp.GetRequiredService<TimeProvider>()));
+        services.AddSingleton<Barbican.Core.Plugins.Api.Mail.IPluginMailRateLimiter>(sp => new Barbican.Core.Plugins.Api.Mail.PluginMailRateLimiter(sp.GetRequiredService<TimeProvider>()));
+        for (var index = 0; index < 7; index++)
+        {
+            var method = index;
+            services.AddSingleton<IPluginApiMethod>(sp => Barbican.Core.Plugins.Api.Mail.PluginMailMethods.Create(
+                sp.GetRequiredService<Barbican.Core.Plugins.Api.Mail.IPluginMailReaders>(), sp.GetRequiredService<Barbican.Core.Plugins.Api.Mail.IPluginMailRateLimiter>())[method]);
+        }
         services.AddSingleton<PluginComposerAccess>();
         services.AddSingleton<PluginCheckerRegistry>();
         for (var index = 0; index < 4; index++)
