@@ -18,6 +18,9 @@ public sealed class FileConflictDialogContent : IDialogContent
     public bool OwnButtons => true;
 
     /// <inheritdoc />
+    public double MaxWidth => 520;
+
+    /// <inheritdoc />
     public Control? InitialFocus(UIElement content) => DialogStyles.TaggedFocus(content);
 
     /// <inheritdoc />

@@ -175,13 +175,30 @@ public sealed partial class DialogHostView : UserControl
                 && (_factory?.InitialFocus(drawn) ?? FocusManager.FindFirstFocusableElement(CustomContent) as Control) is { } custom)
             {
                 // a content that draws its own buttons says where the focus starts (a text field, or the safe button of a question)
-                _ = custom.Focus(FocusState.Keyboard);
+                FocusWhenReady(custom);
             }
             else
             {
                 _ = OkButton.Focus(FocusState.Programmatic);
             }
         });
+    }
+
+    // a content built in code may not be in the tree yet on the first turn: focus on its Loaded then (a first Focus on an unloaded control returns false)
+    private static void FocusWhenReady(Control target)
+    {
+        if (target.IsLoaded && target.Focus(FocusState.Keyboard))
+        {
+            return;
+        }
+
+        void OnLoaded(object sender, RoutedEventArgs e)
+        {
+            target.Loaded -= OnLoaded;
+            _ = target.Focus(FocusState.Keyboard);
+        }
+
+        target.Loaded += OnLoaded;
     }
 
     private void Hide()

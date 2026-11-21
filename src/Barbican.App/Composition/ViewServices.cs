@@ -70,6 +70,7 @@ public static class ViewServices
 
         services.AddSingleton<Barbican.Automation.IAutomationCommand, Shell.Automation.KeyCommand>();
         services.AddSingleton<Barbican.Automation.IAutomationCommand, Shell.Automation.UiCommand>();
+        services.AddSingleton<Barbican.Automation.IAutomationCommand, Shell.Automation.DialogProbeCommand>();
 #if WINDOWS
         services.AddSingleton<Barbican.Automation.IAutomationCommand, Shell.Automation.CaptionCommand>();
 #endif

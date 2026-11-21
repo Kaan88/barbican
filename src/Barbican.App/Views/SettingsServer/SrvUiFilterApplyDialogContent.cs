@@ -35,7 +35,7 @@ public sealed class SrvUiFilterApplyDialogContent : IDialogContent
     {
         host.Children.Clear();
         host.Children.Add(SrvUiKit.Strong(m.RuleName.Length == 0 ? "Rule" : m.RuleName));
-        var text = SrvUiKit.Dim(m.Text);
+        var text = Barbican.App.Views.Dialogs.DialogStyles.Description(m.Text);
         AutomationProperties.SetAutomationId(text, "srv.rule-apply.text");
         host.Children.Add(text);
         if (m.Phase is SrvUiApplyPhase.Scanning or SrvUiApplyPhase.Applying)

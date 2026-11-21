@@ -122,7 +122,7 @@ public sealed class PluginContactsMethodsTests
         Assert.DoesNotContain("created", Rig.Keys(view));
         var names = rig.Accounts.Hooks.Names;
         Assert.Contains(HookNames.OnBeforeContactCreate, names);
-        Assert.Contains(HookNames.OnAfterContactCreate, names);
+        _ = await rig.Accounts.Hooks.PayloadAsync(HookNames.OnAfterContactCreate);
         var work = await rig.CallAsync("contact.create", """[{"name":{"full":"Work Person"},"addressBookIds":{"ab2":true}}]""");
         Assert.True(work.IsSuccess);
         Assert.Contains("ab2", Card(rig, work.Value!.Property("id").StringValue)["addressBookIds"]!.AsObject().Select(p => p.Key));
@@ -173,7 +173,7 @@ public sealed class PluginContactsMethodsTests
         Assert.Null(ada["phones"]);
         Assert.NotNull(ada["emails"]);
         Assert.Contains(HookNames.OnBeforeContactUpdate, rig.Accounts.Hooks.Names);
-        Assert.Contains(HookNames.OnAfterContactUpdate, rig.Accounts.Hooks.Names);
+        _ = await rig.Accounts.Hooks.PayloadAsync(HookNames.OnAfterContactUpdate);
         Assert.True((await rig.CallAsync("contact.update", $$$"""["cc-ada",{"uid":"{{{FakeSeed.ContactAdaUid}}}","addressBookIds":{"ab1":true}}]""")).IsSuccess);
         Assert.Equal(PluginErrorCode.InvalidArguments, (await rig.CallAsync("contact.update", """["cc-ada",{"uid":"urn:uuid:other"}]""")).Error);
         Assert.Equal(PluginErrorCode.InvalidArguments, (await rig.CallAsync("contact.update", """["cc-ada",{"addressBookIds":{"ab2":true}}]""")).Error);
@@ -205,7 +205,7 @@ public sealed class PluginContactsMethodsTests
         var rig = await Rig.StartAsync();
         Assert.True((await rig.CallAsync("contact.delete", """["cc-babbage"]""")).IsSuccess);
         Assert.DoesNotContain(rig.Contacts.Cards(), c => (string?)c["id"] == "cc-babbage");
-        Assert.Contains(HookNames.OnAfterContactDelete, rig.Accounts.Hooks.Names);
+        _ = await rig.Accounts.Hooks.PayloadAsync(HookNames.OnAfterContactDelete);
         Assert.Equal(PluginErrorCode.Unavailable, (await rig.CallAsync("contact.delete", """["cc-babbage"]""")).Error);
         Assert.Equal(PluginErrorCode.InvalidArguments, (await rig.CallAsync("contact.delete", "[]")).Error);
         Assert.Equal(["cc-ada", "cc-anna", "cc-anna2", "cc-friends", "cc-photo"], Rig.Ids((await rig.CallAsync("contact.list", "[]")).Value!));
