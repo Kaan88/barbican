@@ -36,7 +36,8 @@ Coordinator follow-ups not yet owned by a package:
 - The `assistant` Settings nav entry is static and `set-ask` hardcodes its id; the composer bridge decoder caps strings at 256 KiB while the methods allow 512 KiB; the composer handle's `AttachAsync` has no test.
 - A hidden click on the attachments message threw a COMException once during the WP-6 light capture.
 - The rail's storage Free row is derived from text until Presentation exposes the quota bytes.
-- Add-on mail actions (`c1375e1`): `PluginMailUndoHistory` never prunes its id map (entries outlive the 30-minute token); `compose.open` passes HTML bodies as text and drops attachment references; `drafts.create` uses the first identity, not the preferred one; the App adapters (`PluginComposeLauncher`, `PluginMailUndoHistory`) have no tests or hidden run. Still open in this family: `email.forward` (needs the send-approval pipeline), `email.getAttachmentImage` (JPEG/WebP decode), `search.*`, `tabs.*`, `ui.*` (need a navigation service).
+- Add-on mail actions (`c1375e1`): `PluginMailUndoHistory` never prunes its id map (entries outlive the 30-minute token); `compose.open` passes HTML bodies as text and drops attachment references; `drafts.create` uses the first identity, not the preferred one; the App adapters (`PluginComposeLauncher`, `PluginMailUndoHistory`) have no tests or hidden run. Still open in this family: `email.forward` (needs the send-approval pipeline), `email.getAttachmentImage` (JPEG/WebP decode), `search.*`, `tabs.*`.
+- Add-on navigation (`3fe0786`): `ui.openPage` waits for `ui.setPages`; `search.run`/`search.clear` need a JMAP filter normaliser, plugin-filter state and a search-box chip; `ui.rerenderEmail` reopens the row through `MessageLoader` (counts as an open, may restart the mark-read timer); a revoked grant while the Windows save dialog is open leaves the picked empty file; `PluginAppNavigator`/`PluginFileSaver` have no tests or hidden run.
 
 ### Working on a flow
 
