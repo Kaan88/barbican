@@ -1,6 +1,6 @@
 // Mirrors: Bulwark components/search/ (search-box.tsx, search-suggestions.tsx, search-chips.tsx, search-filter-panel.tsx, filter-panel-host.tsx), components/ui/toolbar.tsx:36-120 (ToolbarSearch, ToolbarSearchAction), Rust search_ui.rs.
 // I-023, I-146 (Enter searches, Escape clears), I-272 (type, Enter, empty Enter), I-273 (clear X), I-274 (suggestions), I-275 (chips), I-276 (filter toggle with count), I-277..I-280 (filter panel: live search, presets,
-// read filter, starred, attachment, "Search in", Clear all).
+// read filter, starred, attachment, "Has the words", Size (presets and custom KB bounds), "Search in", Clear all).
 // Bulwark metrics matched in the default theme: field h-8 rounded-md border-input (hover muted-foreground, focus ring), key cap hidden while focused, filter toggle active tint and 16 px count badge (mail-app.tsx:6649-6672),
 // chips (search-chips.tsx:78-110), dropdown rows px-3 py-2 text-sm with hover / active fill and hover-only remove and "To" buttons (search-suggestions.tsx:70-195), in-flow filter panel (search-filter-panel.tsx:97-274).
 // The model (SearchBoxModel) holds the behaviour; this view only draws it: chips, suggestions and the panel states are redrawn from the model when it changes, and the field's own text is never rewritten while the
@@ -24,6 +24,7 @@ namespace Barbican.App.Views.Search;
 public sealed partial class SearchBoxView : UserControl
 {
     private static readonly Brush ClearBrush = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
+    private static readonly int[] SizePresetsMb = [1, 5, 10, 25];
     private static readonly TimeSpan FieldDebounce = TimeSpan.FromMilliseconds(350);
 
     private readonly MessageListViewModel _list;
@@ -31,11 +32,13 @@ public sealed partial class SearchBoxView : UserControl
     private readonly List<(string Token, Button Button, string Label, string Icon)> _toggles = [];
     private readonly List<(int Days, Button Button)> _dates = [];
     private readonly List<(string Value, Button Button)> _places = [];
+    private readonly List<(int Mb, Button Button)> _sizes = [];
     private readonly Microsoft.UI.Dispatching.DispatcherQueueTimer _fieldTimer;
     private bool _syncing;
     private bool _redrawQueued;
     private bool _focused;
     private bool _hover;
+    private bool _customSize;
 
     public SearchBoxView()
     {
@@ -435,8 +438,8 @@ public sealed partial class SearchBoxView : UserControl
         row.Children.Add(trailing);
     }
 
-    // search-filter-panel.tsx:97-258: the toggle pills, From / To / Subject fields, the date and place choices, Clear all and Search. Built once (the fields keep their focus while the search runs live); Redraw only
-    // refreshes the states. "Has words" and Size need operators the search syntax does not have (GlobalSearch.Operators): not drawn. The two selects are in-window choice rows (a ComboBox popup is out of window, ADR 0007).
+    // search-filter-panel.tsx:97-258: the toggle pills, From / To / Subject / "Has the words" fields, the date and size choices, the place choices, Clear all and Search. Built once (the fields keep
+    // their focus while the search runs live); Redraw only refreshes the states. The two selects are in-window choice rows (a ComboBox popup is out of window, ADR 0007).
     private void DrawFilterPanel()
     {
         FilterPanel.Visibility = _model.FilterOpen ? Visibility.Visible : Visibility.Collapsed;
@@ -454,6 +457,9 @@ public sealed partial class SearchBoxView : UserControl
         SetFieldText(FromBox, _model.GetOperator("from"));
         SetFieldText(ToBox, _model.GetOperator("to"));
         SetFieldText(SubjectBox, _model.GetOperator("subject"));
+        SetFieldText(BodyBox, _model.GetOperator("body"));
+        SetFieldText(MinSizeBox, _model.GetOperator("larger"));
+        SetFieldText(MaxSizeBox, _model.GetOperator("smaller"));
         _syncing = false;
         foreach (var (token, button, label, icon) in _toggles)
         {
@@ -467,6 +473,19 @@ public sealed partial class SearchBoxView : UserControl
             Pill(button, days switch { 7 => "Past week", 30 => "Past month", 365 => "Past year", _ => "Any time" }, null, on);
         }
 
+        // search-filter-panel.tsx:180-227: Any size / Larger than 1, 5, 10 or 25 MB / Custom size with the two KB fields behind it.
+        var minSize = _model.GetOperator("larger");
+        var maxSize = _model.GetOperator("smaller");
+        var sizePreset = _customSize ? "custom" : SizePresetOf(minSize, maxSize);
+        var custom = string.Equals(sizePreset, "custom", StringComparison.Ordinal);
+        foreach (var (mb, button) in _sizes)
+        {
+            var id = mb switch { 0 => "any", < 0 => "custom", _ => $"mb{mb}" };
+            Pill(button, mb switch { 0 => "Any size", < 0 => "Custom size", _ => $"Larger than {mb} MB" }, null, string.Equals(sizePreset, id, StringComparison.Ordinal));
+        }
+
+        CustomSize.Visibility = custom ? Visibility.Visible : Visibility.Collapsed;
+
         var place = _model.GetOperator("in");
         foreach (var (value, button) in _places)
         {
@@ -475,6 +494,30 @@ public sealed partial class SearchBoxView : UserControl
 
         FilterClearAll.Visibility = _model.FilterCount > 0 ? Visibility.Visible : Visibility.Collapsed;
     }
+
+    /// <summary>Any size, the MB presets, else custom (Bulwark sizePresetOf, search-filter-panel.tsx:51-58).</summary>
+    private static string SizePresetOf(string minSize, string maxSize)
+    {
+        if (minSize.Length == 0 && maxSize.Length == 0)
+        {
+            return "any";
+        }
+
+        if (maxSize.Length == 0)
+        {
+            foreach (var mb in SizePresetsMb)
+            {
+                if (string.Equals(minSize, Kb(mb), StringComparison.Ordinal))
+                {
+                    return $"mb{mb}";
+                }
+            }
+        }
+
+        return "custom";
+    }
+
+    private static string Kb(int mb) => (mb * 1024).ToString(System.Globalization.CultureInfo.InvariantCulture);
 
     private static void SetFieldText(TextBox box, string value)
     {
@@ -517,6 +560,28 @@ public sealed partial class SearchBoxView : UserControl
             PlaceChoices.Children.Add(b);
             _places.Add((value, b));
         }
+
+        // search-filter-panel.tsx:180-199: a preset sets the minimum and clears the maximum; Custom shows the two KB fields.
+        foreach (var (mb, id) in new List<(int Mb, string Id)> { (0, "any") }.Concat(SizePresetsMb.Select(m => (m, $"mb{m}"))).Append((-1, "custom")))
+        {
+            var b = PillButton($"list.search.filter.size.{id}");
+            b.Click += (_, _) => OnSizeChoice(mb);
+            SizeChoices.Children.Add(b);
+            _sizes.Add((mb, b));
+        }
+    }
+
+    private void OnSizeChoice(int mb)
+    {
+        if (mb < 0)
+        {
+            _customSize = true;
+            QueueRedraw();
+            return;
+        }
+
+        _customSize = false;
+        _ = _model.SetOperatorsAsync(("larger", mb == 0 ? string.Empty : Kb(mb)), ("smaller", string.Empty));
     }
 
     // Chip (search-filter-panel.tsx:259-274): inline-flex gap-1.5 h-7 px-2.5 rounded-full text-xs border; on: bg-primary/10 border-primary/40 text-primary with a check in place of the icon; off: bg-background border-border
@@ -563,13 +628,25 @@ public sealed partial class SearchBoxView : UserControl
 
     private async Task RunFieldsAsync()
     {
-        foreach (var (key, box) in new[] { ("from", FromBox), ("to", ToBox), ("subject", SubjectBox) })
+        foreach (var (key, box) in new[] { ("from", FromBox), ("to", ToBox), ("subject", SubjectBox), ("body", BodyBox) })
         {
             if (!string.Equals(box.Text.Trim(), _model.GetOperator(key), StringComparison.Ordinal))
             {
                 var v = box.Text.Trim();
                 await _model.SetOperatorAsync(key, v.Any(char.IsWhiteSpace) ? $"\"{v}\"" : v);
             }
+        }
+
+        // A size is a positive KB number: anything else sets no condition, as Bulwark's sizeFilterBytes ignores it (search-utils.ts:98-102).
+        foreach (var (key, box) in new[] { ("larger", MinSizeBox), ("smaller", MaxSizeBox) })
+        {
+            var v = box.Text.Trim();
+            if (string.Equals(v, _model.GetOperator(key), StringComparison.Ordinal) || (v.Length > 0 && GlobalSearch.SizeBytes(v) is null))
+            {
+                continue;
+            }
+
+            await _model.SetOperatorAsync(key, v);
         }
     }
 
@@ -597,9 +674,13 @@ public sealed partial class SearchBoxView : UserControl
     private void OnClearAllClick(object sender, RoutedEventArgs e)
     {
         _fieldTimer.Stop();
+        _customSize = false;
         FromBox.Text = string.Empty;
         ToBox.Text = string.Empty;
         SubjectBox.Text = string.Empty;
+        BodyBox.Text = string.Empty;
+        MinSizeBox.Text = string.Empty;
+        MaxSizeBox.Text = string.Empty;
         _ = _model.RemoveChipAsync(string.Empty);
     }
 

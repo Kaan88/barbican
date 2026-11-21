@@ -7,14 +7,15 @@ using Barbican.Core.Mail.Model;
 using Barbican.Core.Mail.Service;
 using Barbican.Core.Search;
 using Barbican.Core.Tests.Jmap;
+using Barbican.FakeJmap;
 
 namespace Barbican.Core.Tests.Search;
 
 public sealed class SearchFlowTests
 {
-    private static async Task<(Fake Fake, MailService Mail, string Inbox)> StartAsync()
+    private static async Task<(Fake Fake, MailService Mail, string Inbox)> StartAsync(FakeJmapOptions? options = null)
     {
-        var f = await Fake.StartAsync();
+        var f = await Fake.StartAsync(options);
         var mail = new MailService(f.Client, TimeProvider.System);
         var tree = await mail.GetMailboxesAsync(TestContext.Current.CancellationToken);
         var inbox = tree.Value!.All.First(m => m.Role == MailboxRole.Inbox).Id;
@@ -96,6 +97,30 @@ public sealed class SearchFlowTests
         // no text: the query is unchanged (M1 behaviour)
         var plain = new ListQuery { MailboxId = inbox };
         Assert.Same(plain, ShaperFor(mail).Shape(plain));
+    }
+
+    [Fact]
+    public async Task Has_the_words_and_the_size_bounds_filter_on_the_server()
+    {
+        var (_, mail, inbox) = await StartAsync(new FakeJmapOptions { SeedM2 = true });
+        var shaper = ShaperFor(mail);
+        var shaped = shaper.Shape(new ListQuery { MailboxId = inbox, SearchText = "body:winmail larger:100" });
+        var expected = JsonNode.Parse($$"""{"operator": "AND", "conditions": [{"inMailbox": "{{inbox}}"}, {"body": "winmail"}, {"minSize": 102400}]}""")!;
+        Assert.True(JsonNode.DeepEquals(expected, shaped.Filter), shaped.Filter?.ToJsonString());
+
+        // the word is in the body (not in the subject), and the server applies it
+        var page = (await mail.QueryAsync(shaper.Shape(new ListQuery { MailboxId = inbox, SearchText = "body:winmail" }), null, TestContext.Current.CancellationToken)).Value!;
+        Assert.Equal([FakeSeed.TnefSubject], page.Items.Select(m => m.Subject).ToArray());
+
+        // minSize is inclusive, maxSize exclusive (RFC 8621 §4.4.1): the 1.6 MB message falls out of maxSize but not of minSize
+        var smaller = shaper.Shape(new ListQuery { MailboxId = inbox, SearchText = "smaller:1000" });
+        var small = (await mail.QueryAsync(smaller, null, TestContext.Current.CancellationToken)).Value!;
+        Assert.DoesNotContain(small.Items, m => string.Equals(m.Subject, FakeSeed.HeavyHtmlSubject, StringComparison.Ordinal));
+        Assert.Contains(small.Items, m => string.Equals(m.Subject, FakeSeed.TnefSubject, StringComparison.Ordinal));
+        var larger = shaper.Shape(new ListQuery { MailboxId = inbox, SearchText = "larger:1000" });
+        var big = (await mail.QueryAsync(larger, null, TestContext.Current.CancellationToken)).Value!;
+        Assert.Contains(big.Items, m => string.Equals(m.Subject, FakeSeed.HeavyHtmlSubject, StringComparison.Ordinal));
+        Assert.DoesNotContain(big.Items, m => string.Equals(m.Subject, FakeSeed.TnefSubject, StringComparison.Ordinal));
     }
 
     [Fact]

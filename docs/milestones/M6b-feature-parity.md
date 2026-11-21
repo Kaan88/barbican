@@ -62,7 +62,7 @@ Feature work comes before further UI polish. Linux (M9) is deferred indefinitely
 | open | RD-11 | Reading mask overlay | reader | M | `src/Barbican.App/MailBody/BodyShell.cs`, `src/Barbican.Core/Settings/Accessibility/A11y.cs` | body JS |
 | open | RD-06 | Rename an attachment | reader | S | `src/Barbican.App/Views/Reader/ReaderView.xaml.cs` | attachment rename command |
 | open | G-056 | Fetch the full body when truncated | reader | M | `src/Barbican.Presentation/Mail/Loading/MessageLoader.cs`, `src/Barbican.Core/Mail/Model/EmailBody.cs` | body refetch |
-| open | SR-02 | Search filter "has words" and Size fields | search | S | `src/Barbican.App/Views/Search/SearchBoxView.xaml.cs`, `src/Barbican.Presentation/Search/SearchCommands.cs` | search operators |
+| done (pending merge) | SR-02 | Search filter "has words" and Size fields | search | S | `src/Barbican.App/Views/Search/SearchBoxView.xaml.cs`, `src/Barbican.Presentation/Search/SearchCommands.cs` | search operators |
 | open | SR-03 | Global search facets, scope chips, preview | search | L | `src/Barbican.App/Views/Palette/PaletteView.xaml.cs`, `src/Barbican.Presentation/Search/GlobalSearchPaletteProvider.cs` | search backend |
 | open | G-070 | Built-in themes, accent colours, custom themes | settings | L | `src/Barbican.App/Theme/StyleState.cs`, `src/Barbican.App/Views/Settings/SetUiScreenFactory.cs`, `design/legacy-slint/theme.slint` | theme compiler |
 | open | G-071 | Language selection and localisation | settings | L | `src/Barbican.Core/Settings/Pages/SettingsCatalog.cs`, `src/Barbican.App/Views/Settings/SetUiScreen.cs` | i18n service |

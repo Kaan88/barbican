@@ -72,17 +72,27 @@
     <local:WrapRow x:Name="ChipsPanel" Visibility="Collapsed" Margin="0,8,0,0" HorizontalSpacing="8" VerticalSpacing="6" AutomationProperties.AutomationId="list.search.chips" />
     <StackPanel x:Name="FilterPanel" Visibility="Collapsed" Spacing="12" Padding="0,10,0,4" AutomationProperties.AutomationId="list.search.filter-panel">
       <local:WrapRow x:Name="FilterToggles" HorizontalSpacing="6" VerticalSpacing="6" />
-      <Grid ColumnDefinitions="72,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" ColumnSpacing="12" RowSpacing="8">
+      <Grid ColumnDefinitions="96,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="12" RowSpacing="8">
         <TextBlock Grid.Row="0" Text="From" Style="{StaticResource FilterLabel}" />
         <TextBox Grid.Row="0" Grid.Column="1" x:Name="FromBox" Style="{StaticResource FilterField}" PlaceholderText="Name or address" TextChanged="OnFieldChanged" KeyDown="OnFieldKeyDown" AutomationProperties.AutomationId="list.search.filter.from" AutomationProperties.Name="From" />
         <TextBlock Grid.Row="1" Text="To" Style="{StaticResource FilterLabel}" />
         <TextBox Grid.Row="1" Grid.Column="1" x:Name="ToBox" Style="{StaticResource FilterField}" PlaceholderText="Name or address" TextChanged="OnFieldChanged" KeyDown="OnFieldKeyDown" AutomationProperties.AutomationId="list.search.filter.to" AutomationProperties.Name="To" />
         <TextBlock Grid.Row="2" Text="Subject" Style="{StaticResource FilterLabel}" />
         <TextBox Grid.Row="2" Grid.Column="1" x:Name="SubjectBox" Style="{StaticResource FilterField}" TextChanged="OnFieldChanged" KeyDown="OnFieldKeyDown" AutomationProperties.AutomationId="list.search.filter.subject" AutomationProperties.Name="Subject" />
-        <TextBlock Grid.Row="3" Text="Date within" Style="{StaticResource FilterLabel}" VerticalAlignment="Top" Margin="0,7,0,0" />
-        <local:WrapRow Grid.Row="3" Grid.Column="1" x:Name="DateChoices" HorizontalSpacing="6" VerticalSpacing="6" />
-        <TextBlock Grid.Row="4" Text="Search in" Style="{StaticResource FilterLabel}" VerticalAlignment="Top" Margin="0,7,0,0" />
-        <local:WrapRow Grid.Row="4" Grid.Column="1" x:Name="PlaceChoices" HorizontalSpacing="6" VerticalSpacing="6" />
+        <TextBlock Grid.Row="3" Text="Has the words" Style="{StaticResource FilterLabel}" />
+        <TextBox Grid.Row="3" Grid.Column="1" x:Name="BodyBox" Style="{StaticResource FilterField}" TextChanged="OnFieldChanged" KeyDown="OnFieldKeyDown" AutomationProperties.AutomationId="list.search.filter.body" AutomationProperties.Name="Has the words" />
+        <TextBlock Grid.Row="4" Text="Date within" Style="{StaticResource FilterLabel}" VerticalAlignment="Top" Margin="0,7,0,0" />
+        <local:WrapRow Grid.Row="4" Grid.Column="1" x:Name="DateChoices" HorizontalSpacing="6" VerticalSpacing="6" />
+        <TextBlock Grid.Row="5" Text="Size" Style="{StaticResource FilterLabel}" VerticalAlignment="Top" Margin="0,7,0,0" />
+        <StackPanel Grid.Row="5" Grid.Column="1" Spacing="6">
+          <local:WrapRow x:Name="SizeChoices" HorizontalSpacing="6" VerticalSpacing="6" />
+          <Grid x:Name="CustomSize" ColumnDefinitions="*,*" ColumnSpacing="8" Visibility="Collapsed">
+            <TextBox x:Name="MinSizeBox" Style="{StaticResource FilterField}" PlaceholderText="Larger than (KB)" InputScope="Number" TextChanged="OnFieldChanged" KeyDown="OnFieldKeyDown" AutomationProperties.AutomationId="list.search.filter.min-size" AutomationProperties.Name="Larger than (KB)" />
+            <TextBox Grid.Column="1" x:Name="MaxSizeBox" Style="{StaticResource FilterField}" PlaceholderText="Smaller than (KB)" InputScope="Number" TextChanged="OnFieldChanged" KeyDown="OnFieldKeyDown" AutomationProperties.AutomationId="list.search.filter.max-size" AutomationProperties.Name="Smaller than (KB)" />
+          </Grid>
+        </StackPanel>
+        <TextBlock Grid.Row="6" Text="Search in" Style="{StaticResource FilterLabel}" VerticalAlignment="Top" Margin="0,7,0,0" />
+        <local:WrapRow Grid.Row="6" Grid.Column="1" x:Name="PlaceChoices" HorizontalSpacing="6" VerticalSpacing="6" />
       </Grid>
       <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
         <Button x:Name="FilterClearAll" Style="{StaticResource Button.Icon}" Height="32" Padding="10,0" CornerRadius="{x:Bind Look.ButtonRadius, Mode=OneWay}" Click="OnClearAllClick"

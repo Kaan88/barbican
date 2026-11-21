@@ -1,7 +1,9 @@
 // Mirrors: Rust gsearch.rs:72 valid_date, :133 parse, :181 with_scope, :190 without_operator, :195 matches_terms, :206 split_search_text, :242 text_conditions,
 // :283 mailbox_search_filter, :296 global_mail_filter, :308 has_remote_query, :314 chips, :332 has_snippet_terms, :339 snippet_filter, :365 snippet_segments,
 // :387 has_marked, :390 snippet_markdown, :445 score, :460 rank, :473 hit_folder, :572 filter_files; Bulwark lib/search-syntax.ts, lib/jmap/search-utils.ts,
-// lib/search-snippet.ts; RFC 8621 section 4.4.1 (Email/query filter), RFC 8621 section 5 (SearchSnippet/get); Stalwart crates/jmap/src/email/{query,snippet}.rs.
+// lib/search-snippet.ts; RFC 8621 section 4.4.1 (Email/query filter: minSize inclusive, maxSize exclusive), RFC 8621 section 5 (SearchSnippet/get);
+// Stalwart crates/jmap/src/email/{query,snippet}.rs. body:, larger: and smaller: (KB) carry Bulwark's filter panel fields body / minSizeKb / maxSizeKb
+// (lib/jmap/search-utils.ts:98-102 sizeFilterBytes, :200-202 body, :237-245 minSize/maxSize).
 
 #pragma warning disable MA0051 // ported parsers and generators read top to bottom in the order of the Rust source
 
@@ -20,7 +22,7 @@ public static class GlobalSearch
     private static readonly string[] TrashAndJunk = ["trash", "junk"];
     private static readonly string[] SnippetKeys = ["text", "subject", "body"];
 
-    private static readonly string[] Operators = ["in", "account", "from", "to", "subject", "has", "is", "after", "before"];
+    private static readonly string[] Operators = ["in", "account", "from", "to", "subject", "body", "has", "is", "after", "before", "larger", "smaller"];
 
     private static SearchScope? ScopeAlias(string s) => s switch
     {
@@ -46,6 +48,19 @@ public static class GlobalSearch
     /// <summary>A yyyy-MM-dd that names a real day.</summary>
     public static bool ValidDate(string v) =>
         v.Length == 10 && DateTime.TryParseExact(v, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out _);
+
+    /// <summary>The KB size field as a positive byte count, or null when unset or invalid (Bulwark sizeFilterBytes, search-utils.ts:98-102).</summary>
+    public static long? SizeBytes(string? kb)
+    {
+        if (string.IsNullOrWhiteSpace(kb) ||
+            !double.TryParse(kb.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var v) ||
+            !double.IsFinite(v) || v <= 0)
+        {
+            return null;
+        }
+
+        return (long)Math.Round(v * 1024, MidpointRounding.AwayFromZero);
+    }
 
     /// <summary>The preferred folder of a hit: the open folder, else the Inbox, else the smallest id; empty without mailboxIds.</summary>
     public static string HitFolder(JsonNode message, IReadOnlyList<string> prefer)
@@ -167,7 +182,7 @@ public static class GlobalSearch
         string? role = null;
         var anything = false;
         var hasOps = false;
-        string? from = null, to = null, subject = null, after = null, before = null;
+        string? from = null, to = null, subject = null, body = null, after = null, before = null, minSizeKb = null, maxSizeKb = null;
         bool? hasAtt = null, unread = null, starred = null;
 
         void Push(string v, bool quoted)
@@ -236,6 +251,15 @@ public static class GlobalSearch
                 case "subject":
                     if (value.Length == 0) { used = false; } else { subject = value; }
                     break;
+                case "body":
+                    if (value.Length == 0) { used = false; } else { body = value; }
+                    break;
+                case "larger":
+                    if (SizeBytes(value) is null) { used = false; } else { minSizeKb = value; }
+                    break;
+                case "smaller":
+                    if (SizeBytes(value) is null) { used = false; } else { maxSizeKb = value; }
+                    break;
                 case "has":
                     if (lower is "attachment" or "attachments" or "file") { hasAtt = true; } else { used = false; }
                     break;
@@ -279,7 +303,7 @@ public static class GlobalSearch
             Terms = terms,
             Scope = scope,
             Account = account,
-            Mail = new MailSearchFilters { From = from, To = to, Subject = subject, HasAttachment = hasAtt, Unread = unread, Starred = starred, After = after, Before = before },
+            Mail = new MailSearchFilters { From = from, To = to, Subject = subject, Body = body, HasAttachment = hasAtt, Unread = unread, Starred = starred, After = after, Before = before, MinSizeKb = minSizeKb, MaxSizeKb = maxSizeKb },
             MailboxRole = role,
             IncludeTrashAndJunk = anything,
             HasOperators = hasOps,
@@ -442,11 +466,16 @@ public static class GlobalSearch
         if (m.From is not null) { c.AddRange(TextConditions(m.From, "from")); }
         if (m.To is not null) { c.AddRange(TextConditions(m.To, "to")); }
         if (m.Subject is not null) { c.AddRange(TextConditions(m.Subject, "subject")); }
+        if (m.Body is not null) { c.AddRange(TextConditions(m.Body, "body")); }
         if (m.HasAttachment is { } a) { c.Add(new JsonObject { ["hasAttachment"] = a }); }
         if (m.After is not null && DayBound(m.After, false) is { } af) { c.Add(Prop("after", af)); }
         if (m.Before is not null && DayBound(m.Before, true) is { } bf) { c.Add(Prop("before", bf)); }
         if (m.Unread is { } u) { c.Add(Prop(u ? "notKeyword" : "hasKeyword", "$seen")); }
         if (m.Starred is { } s) { c.Add(Prop(s ? "hasKeyword" : "notKeyword", "$flagged")); }
+
+        // minSize is inclusive, maxSize exclusive (RFC 8621 §4.4.1; Bulwark search-utils.ts:237-245).
+        if (SizeBytes(m.MinSizeKb) is { } minSize) { c.Add(new JsonObject { ["minSize"] = minSize }); }
+        if (SizeBytes(m.MaxSizeKb) is { } maxSize) { c.Add(new JsonObject { ["maxSize"] = maxSize }); }
         return c;
     }
 
@@ -507,7 +536,7 @@ public static class GlobalSearch
         return scope == SearchScope.Mail && (parsed.Mail != new MailSearchFilters() || parsed.MailboxRole is not null);
     }
 
-    /// <summary>The removable chips for the operators in force, in order from, to, subject, has, after, before, is, in.</summary>
+    /// <summary>The removable chips for the operators in force, in order from, to, subject, body, has, after, before, is, larger, smaller, in.</summary>
     public static IReadOnlyList<SearchChip> Chips(ParsedSearch parsed)
     {
         var m = parsed.Mail;
@@ -515,11 +544,17 @@ public static class GlobalSearch
         if (m.From is not null) { v.Add(new("from", "From", m.From)); }
         if (m.To is not null) { v.Add(new("to", "To", m.To)); }
         if (m.Subject is not null) { v.Add(new("subject", "Subject", m.Subject)); }
+        if (m.Body is not null) { v.Add(new("body", "Body", m.Body)); }
         if (m.HasAttachment == true) { v.Add(new("has", "Attachments", "Yes")); }
         if (m.After is not null) { v.Add(new("after", "After", m.After)); }
         if (m.Before is not null) { v.Add(new("before", "Before", m.Before)); }
         if (m.Unread is { } u) { v.Add(new("is", u ? "Unread" : "Read", string.Empty)); }
         if (m.Starred is { } s) { v.Add(new("is", "Starred", s ? "Yes" : "No")); }
+
+        // Bulwark search-chips.tsx:65-70: "Larger than (KB): 100 KB" while the size is a real bound.
+        if (SizeBytes(m.MinSizeKb) is not null) { v.Add(new("larger", "Larger than (KB)", $"{m.MinSizeKb} KB")); }
+        if (SizeBytes(m.MaxSizeKb) is not null) { v.Add(new("smaller", "Smaller than (KB)", $"{m.MaxSizeKb} KB")); }
+
         if (parsed.MailboxRole is { } r) { v.Add(new("in", "In", r is "trash" ? "Trash" : "Spam")); }
         return v;
     }
