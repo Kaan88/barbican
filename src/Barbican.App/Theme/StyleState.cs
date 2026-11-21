@@ -16,7 +16,7 @@ namespace Barbican.App.Theme;
 /// The look of the shell as typed XAML values: corner radii, paddings, widths and which of two shapes a region takes. One singleton; it raises
 /// "all properties changed" once when the style (or the window width) changes, so a style flip is one binding pass and nothing is rebuilt.
 /// </summary>
-public sealed class StyleState : ObservableObject
+public sealed partial class StyleState: ObservableObject
 {
     private StyleMetrics _m = StyleMetrics.Bento;
     private double _windowWidth = 1400;
