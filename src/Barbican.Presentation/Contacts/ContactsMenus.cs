@@ -10,7 +10,7 @@ namespace Barbican.Presentation.Contacts;
 public static class ContactsMenus
 {
     /// <summary>How many providers <see cref="Create"/> returns.</summary>
-    public const int Count = 7;
+    public const int Count = 8;
 
     public static IReadOnlyList<IMenuProvider> Create(IContactsViewModel vm)
     {
@@ -24,6 +24,7 @@ public static class ContactsMenus
             new DelegateMenuProvider(ContactsMenuIds.GroupSend, GroupSend),
             new DelegateMenuProvider(ContactsMenuIds.Category, Category),
             new DelegateMenuProvider(ContactsMenuIds.Book, c => Book(c, vm)),
+            new DelegateMenuProvider(ContactsMenuIds.New, _ => New()),
         ];
     }
 
@@ -192,4 +193,14 @@ public static class ContactsMenus
             Danger(MenuGlyphs.Delete, "Delete address book", ContactsCommandIds.BookDelete, argument: id, enabled: !book.IsDefault),
         ];
     }
+
+    /// <summary>MENU-CONTACTS-NEW: the + button of the sidebar header (Bulwark contacts-sidebar.tsx:292-317): new contact, new group, new address book, a separator, import.</summary>
+    public static IReadOnlyList<MenuItemSpec> New() =>
+    [
+        Item(MenuGlyphs.Contact, "New contact", ContactsCommandIds.New),
+        Item(MenuGlyphs.Contact, "New group", ContactsCommandIds.NewGroup),
+        Item(MenuGlyphs.Folder, "New address book", ContactsCommandIds.BookNew),
+        Sep(),
+        Item(MenuGlyphs.Upload, "Import contacts", ContactsCommandIds.Import),
+    ];
 }

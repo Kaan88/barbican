@@ -15,7 +15,7 @@ public sealed class ContactsEditors(IContactsViewModel vm, Barbican.Core.Contact
     {
         await EnsureLoadedAsync(ct).ConfigureAwait(true);
         LastForm = new ContactsFormModel(vm, writer, picker, null, bookId, seed, email) { Photos = photos };
-        _ = await dialogs.ShowAsync(new ContactsFormRequest(LastForm), ct).ConfigureAwait(true);
+        await ShowFormAsync(LastForm, ct).ConfigureAwait(true);
     }
 
     public async Task<bool> OpenEditAsync(string cardId, CancellationToken ct)
@@ -28,8 +28,20 @@ public sealed class ContactsEditors(IContactsViewModel vm, Barbican.Core.Contact
         }
 
         LastForm = new ContactsFormModel(vm, writer, picker, cardId, null) { Photos = photos };
-        _ = await dialogs.ShowAsync(new ContactsFormRequest(LastForm), ct).ConfigureAwait(true);
+        await ShowFormAsync(LastForm, ct).ConfigureAwait(true);
         return true;
+    }
+
+    // CT-02: while the Contacts app is on screen (and in the Bulwark style) the form is a panel of its pane, not a dialog card; anywhere else (the reader's "Add to contacts") the dialog
+    private async Task ShowFormAsync(ContactsFormModel form, CancellationToken ct)
+    {
+        if (vm is ContactsViewModel { FormHost: { } host } && host(form) is { } inPane)
+        {
+            _ = await inPane.ConfigureAwait(true);
+            return;
+        }
+
+        _ = await dialogs.ShowAsync(new ContactsFormRequest(form), ct).ConfigureAwait(true);
     }
 
     private async Task EnsureLoadedAsync(CancellationToken ct)

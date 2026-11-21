@@ -27,6 +27,7 @@ public sealed class ContactsViewModel : ObservableObject, IContactsViewModel, ID
     private ContactsPlace _place = ContactsPlace.All;
     private string? _placeId;
     private string _search = string.Empty;
+    private ContactsFilters _filters = ContactsFilters.None;
     private bool _byLast;
     private bool _byLetter = true;
     private bool _showDirectory = true;
@@ -91,6 +92,26 @@ public sealed class ContactsViewModel : ObservableObject, IContactsViewModel, ID
             }
 
             _search = next;
+            Rebuild();
+        }
+    }
+
+    /// <summary>Set by the Contacts screen: shows a contact form in its pane and answers when it ends, or returns null when the pane is not on screen (the form then opens as a dialog).</summary>
+    public Func<ContactsFormModel, Task<bool>?>? FormHost { get; set; }
+
+    /// <summary>The filters of the list panel (Bulwark contact-list.tsx:34-90); the list and its empty state follow them.</summary>
+    public ContactsFilters Filters
+    {
+        get => _filters;
+        set
+        {
+            var next = value ?? ContactsFilters.None;
+            if (next == _filters)
+            {
+                return;
+            }
+
+            _filters = next;
             Rebuild();
         }
     }
@@ -484,12 +505,12 @@ public sealed class ContactsViewModel : ObservableObject, IContactsViewModel, ID
             _ => _contacts,
         };
         var rows = new List<ContactsRow>();
-        foreach (var card in source.Where(c => ContactsListRules.Matches(c, _search)))
+        foreach (var card in source.Where(c => ContactsListRules.Matches(c, _search) && _filters.Matches(c)))
         {
             var name = ContactsListRules.FullName(card);
             var sort = ContactsListRules.SortName(card, _byLast);
             var email = ContactsJson.Emails(card).FirstOrDefault();
-            rows.Add(new ContactsRow(_source.AccountKey ?? string.Empty, ContactsJson.Id(card), name, sort, ContactsListRules.LetterOf(sort), ContactsListRules.Initials(name, email ?? string.Empty), email, ContactsJson.PhotoUri(card), ContactsJson.IsGroup(card)));
+            rows.Add(new ContactsRow(_source.AccountKey ?? string.Empty, ContactsJson.Id(card), name, sort, ContactsListRules.LetterOf(sort), ContactsListRules.Initials(name, email ?? string.Empty), email, ContactsJson.PhotoUri(card), ContactsJson.IsGroup(card), ContactsJson.FirstOf(card["organizations"], "name")));
         }
 
         rows.Sort((a, b) => string.CompareOrdinal(ContactsListRules.Fold(a.SortKey), ContactsListRules.Fold(b.SortKey)));

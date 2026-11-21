@@ -1,4 +1,4 @@
-// Mirrors: Bulwark components/contacts/contact-avatar.tsx; B-CON-027 (avatars without a photo show initials); B-CON-030 (squircle in Bento, circle in Nordic: the corner radius is the caller's); Rust cal_editor.rs:69 initials.
+// Mirrors: Bulwark components/ui/avatar.tsx:339-345 (sm 32, lg 48), :274-279 initialsColor, :416-420 (circle, semibold initials), lib/account-utils.ts:25-45 generateAvatarColor (12 hues from the address, Bulwark style); Bulwark components/contacts/contact-avatar.tsx; B-CON-027 (avatars without a photo show initials); B-CON-030 (squircle in Bento, circle in Nordic: the corner radius is the caller's); Rust cal_editor.rs:69 initials.
 // A photo is a data: URI the card holds (blob photos are fetched by con-data later); an image that cannot be decoded shows the initials instead. Brushes are cached, the cache never holds more than a few hundred.
 
 using Barbican.App.Theme;
@@ -25,6 +25,32 @@ internal static class ContactsAvatar
 
         var family = Families[Math.Abs(hash % Families.Length)];
         return (AppResources.Brush(family + "Bg"), AppResources.Brush(family + "Fg"));
+    }
+
+    // lib/account-utils.ts:31-43: the 12 hues of an avatar, picked from the address (the name when there is none)
+    private static readonly uint[] BulwarkHues = [0x2563eb, 0x7c3aed, 0xdb2777, 0xdc2626, 0xea580c, 0xd97706, 0x65a30d, 0x16a34a, 0x0d9488, 0x0891b2, 0x6366f1, 0x9333ea];
+
+    /// <summary>The Bulwark avatar colours: a hue from the address (or name) and white or black initials, whichever contrasts more (avatar.tsx:274-279).</summary>
+    public static (Brush Background, Brush Foreground) BulwarkTint(string name, string? email)
+    {
+        var key = string.IsNullOrWhiteSpace(email) ? (name ?? string.Empty).Trim() : email.Trim().ToLowerInvariant();
+        var hash = 0;
+        foreach (var ch in key)
+        {
+            hash = unchecked((hash << 5) - hash + ch);
+        }
+
+        var rgb = BulwarkHues[(int)(Math.Abs((long)hash) % BulwarkHues.Length)];
+        var (r, g, b) = ((byte)(rgb >> 16), (byte)(rgb >> 8), (byte)rgb);
+        var l = (0.2126 * Linear(r)) + (0.7152 * Linear(g)) + (0.0722 * Linear(b));
+        var white = 1.05 / (l + 0.05) >= (l + 0.05) / 0.05;
+        return (new SolidColorBrush(Windows.UI.Color.FromArgb(255, r, g, b)), new SolidColorBrush(white ? Microsoft.UI.Colors.White : Microsoft.UI.Colors.Black));
+    }
+
+    private static double Linear(byte channel)
+    {
+        var c = channel / 255.0;
+        return c <= 0.03928 ? c / 12.92 : Math.Pow((c + 0.055) / 1.055, 2.4);
     }
 
     /// <summary>The brush of a data: URI photo, or null when there is none or it cannot be shown.</summary>

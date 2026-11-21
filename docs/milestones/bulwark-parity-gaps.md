@@ -378,6 +378,22 @@ Legend for each row: **B** = Bulwark, **N** = Barbican now.
 | CT-04 | Detail view, activity tiles (G-011), duplicates view, merge, directory browser | `contact-detail.tsx`, `contact-activity.tsx`, `contact-duplicates-view.tsx` | `ContactsDetailView.cs` (activity tiles deferred) | feature | M | M10 |
 | CT-05 | Context menu, print, export | `contact-context-menu.tsx`, `contact-print.ts` | `ContactsPrintDialogContent.cs` (G-010) | feature | S | M10 |
 
+**WP-13 status (branch m6b/wp13-contacts, Bulwark style; Bento and Nordic keep their rounded rows, title row and tiles):**
+
+| ID | Status | Note |
+|---|---|---|
+| CT-01 | closed | the sidebar head is Bulwark's: h-14 with the title and a `+` that opens `MENU-CONTACTS-NEW` (new contact, new group, new address book, import; `contacts-sidebar.tsx:283-317`). Rows are flat, full width, 32 px, 16 px icon, muted count, selected = `FeedbackSelected` with `FeedbackSelectedFg` and medium weight (`:322-370`), headings text-xs medium muted with a `+` |
+| CT-02 | partly | in Bulwark, while the Contacts app is on screen, the form is a panel of the detail pane (header with title and close, scrolling sections divided by a hairline with a 16 px icon, address book first, footer with Cancel and Save; `contact-form.tsx:237-262,868-975`) through `ContactsViewModel.FormHost`; the reader's "Add to contacts" and Bento/Nordic still open the same panel in the dialog card. Not done: the Person / Organization switch, collapsible sections, the more-fields group (anniversaries, personal info, gender, calendar links) and the category combo box |
+| CT-03 | closed | rows use `ListItem.Row` (FM-02: hover, pressed, selected from `Feedback*`, no scale, no fade): full width, px 16 py 12, border-b, 32 px circular avatar in the 12 address hues with white/black initials, name text-sm medium, email text-xs muted; the check boxes show while rows are ticked (select mode or Ctrl/Shift on several) with no `scale-110`; letter headers px-4 text-[0.6875rem] medium muted on the background (`contact-list-item.tsx:75-133`, `contact-list.tsx:337-339`, `avatar.tsx:339-345,416-420`). The organization line (comfortable density) is not drawn: density is M10 |
+| CT-04 | partly | the contact pane is Bulwark's: border-b header with a 48 px avatar, text-xl semibold name, nickname and organization, outline Send email / Call / Edit, print and more (MENU-CONTACT or MENU-GROUP); sections divided by a hairline with icon rows, mail and phone in the primary colour, chips as primary tint (`contact-detail.tsx:112-235,237-550`). Activity tiles (G-011), the duplicates view and the merge dialog keep their existing look |
+| CT-05 | partly | the list toolbar has Bulwark's print button (prints the list as on screen); export is in the bulk bar; the context menu is unchanged (`MENU-CONTACT`) |
+| (toolbar) | closed | h-14 row: select toggle (`ToggleButton.Icon`, tinted while ticking), a 32 px search field with the clear button and the filter toggle with its count (`contact-list.tsx:408-440`, `ui/toolbar.tsx`), the filter panel (company, job title, location, email domain, birthday month, has email / phone / photo tri-state chips; `ContactsFilters`, `contact-list.tsx:34-90,164-243`). The sort-by chips are not drawn (the setting is read-only here: Settings > Contacts). The month field steps through the months (a drop-down opens a popup: ADR 0007) |
+| (bulk bar) | closed | accent wash 30 %, border-b, select-all box, `N selected`, ghost Add to group (MENU-CONTACT>groups at the button) / Export / Delete and a clear button (`contact-list.tsx:522-600`). Move to address book and Merge selected have no command here |
+| (empty) | closed | `ui/empty-state.tsx`: a 56 px muted circle with a 28 px icon, 16 px medium title, 14 px muted line, New contact and Import (all empty), Clear search / Clear (nothing matches) |
+| FM-02 (contacts) | closed | contact rows take `ListItem.Row`; sidebar rows draw `FeedbackHover` / `FeedbackSelected` in their own pointer handlers |
+
+Shared files touched: `spec/menus.md` (the `MENU-CONTACTS-NEW` entry). Layout: the list is 384 wide with a hairline after it, the surface is the page background (`contacts-app.tsx:1461-1510`).
+
 ### 4.10 Files
 
 | ID | Gap | B | N | Impact | Size | MS |
