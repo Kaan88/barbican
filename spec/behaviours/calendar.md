@@ -73,4 +73,4 @@ Status column: `pending (M<n>)` is the milestone that owns the row (PORT-PLAN §
 | B-CAL-059 | Past events are dimmed; the selected chip gets a tint-fg outline; more-contrast uses the blue accent family. | commit 08199d2 | calendar grid | pending (M4) |
 | B-CAL-060 | The grid has no scrollbar (Flickable) and the summary tiles are equal width. | commit 08199d2 | calendar grid | pending (M4) |
 | B-CAL-061 | Webcal and calendar subscription fetches are bounded and report failures. | commit cbaa64a | calendar-subscription-sync.ts | pending (M4) |
-| B-CAL-062 | A calendar's own alert more than 8 days ahead is not covered when its defaults do not reach that far. | PARITY-ROUND2 "Not done" (calendar) | n/a | open: G-005 |
+| B-CAL-062 | An event's own alert fires however far before its start it is set: the scheduler reads events a year ahead, Bulwark's own limit for an alert's offset. | PARITY-ROUND2 "Not done" (calendar) | lib/store/calendar/reminders.ts:63 `LONGEST_OFFSET_MS`, :175-196 (an alert is found by its fire time) | ported: `ReminderSchedulerTests.An_own_alert_a_hundred_days_before_its_event_fires_at_once` |

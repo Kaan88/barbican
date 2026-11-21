@@ -1,6 +1,8 @@
 // Mirrors: Rust reminders.rs:373 fetch (the events whose reminders can come due soon: Calendar/get for the default alerts, CalendarEvent/query between the last check and the window's end, get_all with 19 properties; every account with
 // calendars, the user's own and the ones shared with them; a shared account that fails must not hide the user's own reminders). G-005: Rust's window ended at fetch_ahead (8 days or the longest calendar default alert), so an
-// event's own alert longer than that never fired; the window here is at least OwnAlertHorizon (35 days) so an event 9 days out with a 9 day alert is read. Owner cal-data.
+// event's own alert longer than that never fired; here the window reaches OwnAlertHorizon (a year, the longest offset Bulwark honours) because an event's own alert can be that far before its start. Bulwark has no such
+// window at all: its store keeps every future event (lib/store/calendar/sync.ts:96-99 bounds only the past) and an alert is found by when it fires, not by how far off the event is (lib/store/calendar/reminders.ts:175-196).
+// Owner cal-data.
 
 using System.Globalization;
 using System.Text.Json.Nodes;
@@ -11,8 +13,9 @@ namespace Barbican.Core.Calendar.Reminders;
 
 public sealed partial class ReminderScheduler
 {
-    /// <summary>How far ahead events are read at least: five weeks, so an alert an event set for itself (weeks before) is found (G-005).</summary>
-    public static readonly TimeSpan OwnAlertHorizon = TimeSpan.FromDays(35);
+    /// <summary>How far ahead events are read at least: a year, so an alert an event set for itself (days or weeks before) is found however far off the event is (G-005).</summary>
+    /// <remarks>One year is Bulwark's own limit for an alert's offset: anything further off is treated as a typing error (lib/store/calendar/reminders.ts:63 LONGEST_OFFSET_MS), so no reminder Bulwark would show is left out.</remarks>
+    public static readonly TimeSpan OwnAlertHorizon = TimeSpan.FromDays(366);
 
     private static readonly JsonArray CalendarProps = new("id", "name", "defaultAlertsWithTime", "defaultAlertsWithoutTime");
 

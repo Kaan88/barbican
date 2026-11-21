@@ -3,7 +3,7 @@
 namespace Barbican.Core.Calendar.Reminders;
 
 /// <summary>
-/// Fires reminders for every signed-in login (not only the active one): reads events <see cref="ReminderRules.FetchAhead(IReadOnlyList{System.Text.Json.Nodes.JsonNode})"/> ahead, refetches every 300 s and on a calendar change, checks every
+/// Fires reminders for every signed-in login (not only the active one): reads events <see cref="ReminderScheduler.OwnAlertHorizon"/> (a year) ahead, so an event's own alert fires however far off the event is, refetches every 300 s and on a calendar change, checks every
 /// 15 s on <see cref="TimeProvider"/>, and raises <see cref="Due"/> once per key. Shown reminders are not repeated after Dismiss or Snooze; calendar notifications and sound follow the settings (the notification
 /// service of M7 subscribes; until then the popup of cal-ui does).
 /// </summary>

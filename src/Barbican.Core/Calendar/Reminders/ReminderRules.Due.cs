@@ -1,5 +1,5 @@
 // Mirrors: Rust reminders.rs:176 trigger_time, :186 instant, :220 due_between, :273 when_label, :320 missed; RFC 8984 4.5.2 (OffsetTrigger relativeTo start or end, AbsoluteTrigger; a task's start is its start, its end its due);
-// Bulwark hooks/use-calendar-alerts.ts (stale threshold, missed list). G-005: alerts of an event more than 8 days ahead are caught by the occurrence margin below (the longest alert plus two days). Owner cal-data.
+// Bulwark hooks/use-calendar-alerts.ts (stale threshold, missed list). G-005: alerts of an event far ahead are caught by the occurrence margin below (the longest alert plus two days), and the scheduler reads the event a year ahead. Owner cal-data.
 
 using System.Globalization;
 using System.Text.Json.Nodes;

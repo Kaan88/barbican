@@ -1,4 +1,4 @@
-// M4 cal-data acceptance tests of the reminder scheduler over FakeJmap on a virtual clock: an own alert 9 days ahead (G-005), a series once per occurrence, two logins, state across a restart, snooze, stale and missed, settings, hooks, a push refetch (M4 plan 6.1).
+// M4 cal-data acceptance tests of the reminder scheduler over FakeJmap on a virtual clock: an own alert 9 days ahead and one a hundred days ahead (G-005), a series once per occurrence, two logins, state across a restart, snooze, stale and missed, settings, hooks, a push refetch (M4 plan 6.1).
 
 using System.Text.Json.Nodes;
 using Barbican.Core.Calendar.Reminders;
@@ -112,6 +112,60 @@ public sealed class ReminderSchedulerTests : IDisposable
         Assert.Equal("far", due.Event);
         Assert.Equal(new DateTimeOffset(2026, 11, 18, 9, 10, 0, TimeSpan.Zero).ToUnixTimeMilliseconds(), due.FireMs);
         Assert.False(seen[0].Missed);
+    }
+
+    [Fact]
+    public async Task An_own_alert_a_hundred_days_before_its_event_fires_at_once()
+    {
+        var cals = new FakeCalendars();
+        var work = cals.AddCalendar("Work", isDefault: true);
+
+        // an alert may be as far before its event as any offset Bulwark honours (a year): this one fires now, for an event 100 days out
+        cals.AddEvent(work, Event("far-off", "2027-02-26T09:00:00", "-P100D"));
+        var rig = CalendarRig.Create(_clock);
+        _ = await rig.AddAsync("user@example.org", new FakeJmapOptions { Calendars = cals });
+        using var sched = Make(rig);
+        var seen = Record(sched);
+        await sched.CheckNowAsync(Ct);
+        var due = Assert.Single(Assert.Single(seen).Reminders);
+        Assert.Equal("far-off", due.Event);
+        Assert.Equal(new DateTimeOffset(2026, 11, 18, 9, 0, 0, TimeSpan.Zero).ToUnixTimeMilliseconds(), due.FireMs);
+    }
+
+    [Fact]
+    public async Task An_own_alert_eight_days_out_fires_once_when_the_clock_passes_it()
+    {
+        var cals = new FakeCalendars();
+        var work = cals.AddCalendar("Work", isDefault: true);
+
+        // the event starts 60 days from now and alerts 52 days before it: it fires on the eighth day, while the event is still 52 days ahead
+        cals.AddEvent(work, Event("far-off", "2027-01-17T09:00:00", "-P52D"));
+        var rig = CalendarRig.Create(_clock);
+        _ = await rig.AddAsync("user@example.org", new FakeJmapOptions { Calendars = cals });
+        using var sched = Make(rig);
+        var seen = Record(sched);
+        await sched.CheckNowAsync(Ct);
+        Assert.Empty(seen);
+
+        for (var day = 1; day <= 8; day++)
+        {
+            _clock.Advance(TimeSpan.FromDays(1));
+            await sched.CheckNowAsync(Ct);
+        }
+
+        var due = Assert.Single(Assert.Single(seen).Reminders);
+        Assert.Equal("far-off", due.Event);
+        Assert.Equal(new DateTimeOffset(2026, 11, 26, 9, 0, 0, TimeSpan.Zero).ToUnixTimeMilliseconds(), due.FireMs);
+        Assert.False(seen[0].Missed);
+
+        // a clock that keeps going does not show it a second time
+        for (var i = 0; i < 3; i++)
+        {
+            _clock.Advance(TimeSpan.FromMinutes(1));
+            await sched.CheckNowAsync(Ct);
+        }
+
+        Assert.Single(seen);
     }
 
     [Fact]

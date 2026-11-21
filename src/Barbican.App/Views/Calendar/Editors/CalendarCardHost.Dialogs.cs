@@ -82,9 +82,14 @@ public sealed partial class CalendarCardHost
         }
 
         panel.Children.Add(new ScrollViewer { Content = list, MaxHeight = 220 });
-        var alerts = Check("cal.import.alerts", "Keep the alerts from the file", m.KeepAlerts, v => m.KeepAlerts = v);
+
+        // G-004: the file's alerts are kept only when the user says so here; the box starts on, as Bulwark's import keeps them (D-M4-09)
+        var alerts = Check("cal.import.alerts", "Keep the alerts this file carries?", m.KeepAlerts, v => m.KeepAlerts = v);
+        var alertsHint = Body("Off: the events are imported without their alerts.");
         alerts.Visibility = m.ShowAlertsPrompt ? Visibility.Visible : Visibility.Collapsed;
+        alertsHint.Visibility = alerts.Visibility;
         panel.Children.Add(alerts);
+        panel.Children.Add(alertsHint);
         var error = ErrorLine(m.Error);
         var status = Body(m.Status);
         m.PropertyChanged += (_, _) => DispatcherQueue.TryEnqueue(() =>
@@ -93,6 +98,7 @@ public sealed partial class CalendarCardHost
             status.Text = m.Status;
             info.Text = m.FileName;
             alerts.Visibility = m.ShowAlertsPrompt ? Visibility.Visible : Visibility.Collapsed;
+            alertsHint.Visibility = alerts.Visibility;
         });
         panel.Children.Add(error);
         panel.Children.Add(status);
