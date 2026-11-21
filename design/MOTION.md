@@ -74,6 +74,51 @@ from `ShellViewModel` (`ReduceMotion`, `IsRapid`). It is pure, so the rules are 
 - Body cross-fade (`Assets/mail/shell.js` `reveal(seq, ms)`): the finished page fades in over the one on screen over `ViewMs`.
   The old page is dropped when the fade ends, or at once when anything else happens. `BodyShell` sends 0 while keys repeat.
 
+## Feedback (one shared system: `src/Barbican.App/Styles/Feedback.xaml`)
+
+Button presses, hovers, focus and disabled look are one system (user decision, 2026-11-21): every control of one kind gives the same
+feedback, with the same timing, from state brushes and durations that the token generator writes for every style. A view never names a
+state colour or a duration; it takes a style from `Feedback.xaml` and, where it draws its own state, a `Feedback*` brush.
+
+State brushes (palette keys of `Tokens.xaml`, rewritten in place on a theme flip; Bulwark values from `design/legacy-slint/theme.slint` `Bulwark`,
+legacy values from `Theme`). Dark / light for the Bulwark style:
+
+| brush | Bulwark | legacy (Bento, Nordic) | use |
+|---|---|---|---|
+| `FeedbackHover` | `#262626` / `#f1f5f9` (muted) | `Hover` | neutral hover: menu rows, rows, buttons without a fill |
+| `FeedbackPressed` | `#333333` / `#e2e8f0` | `Pressed` | pressed, one step stronger than hover in dark and light |
+| `FeedbackIconHover` / `FeedbackIconHoverFg` | `#1e3a8a` / `#dbeafe` (accent), text | `Hover`, `Text` | icon, ghost, outline buttons (`button.tsx:49`) |
+| `FeedbackIconPressed` | `#1e40af` / `#bfdbfe` | `Pressed` | the same, pressed |
+| `FeedbackActive` / `Hover` / `Pressed` / `Fg` | primary at 10 / 15 / 20 %, primary text | `Sel`, `Sel`, `Pressed`, `SelText` | a toggle that is on (`toolbar.tsx:16`) |
+| `FeedbackSelected` / `Fg` | `#1e3a8a` / `#dbeafe` (accent), accent-foreground | `Tile2`, `Text` | the selected row, still this on hover (`thread-list-item.tsx:731`) |
+| `FeedbackPrimaryHover` / `Pressed` | primary at 90 % / 80 % | accent, accent at 88 % | the filled button (`button.tsx:48`) |
+| `FeedbackDestructiveHover` | destructive at 10 % | the same | a destructive menu row (`context-menu.tsx:726`) |
+| `FeedbackFocus` | `#d4d4d4` / `#2563eb` (ring) | ring | the focus ring colour |
+
+The semantic colours of `globals.css` are tokens too (`Destructive`, `Success`, `Warning`, `Info`, `Secondary`, `Input`, `PopoverFg`, `AccentFill`,
+`AccentFillFg`, `Unread`, `Chart1`..`Chart5`, each with a `Fg` where Bulwark has one).
+
+Shared styles: `Button.Icon`, `Button.Action`, `Button.Chip`, `Button.Primary`, `ToggleButton.Icon`, `Button.MenuItem`, `Button.MenuItem.Destructive`,
+`Button.HoverAction`, `ListItem.Row` (plain lists), plus the message and folder row styles in `Controls.xaml` (same brushes).
+
+- **Hover and press ease the colour; lists snap.** A button, toggle or menu row changes its Background through the system brush transition
+  (`Motion/FeedbackTransition.cs`, attached `Kind` on the template's Border): `Button` 200 ms, `Menu` 150 ms, `Color` 150 ms, `Fast` 100 ms (hover actions over a row).
+  The state itself is applied at once by the VisualStateManager; the transition only softens the paint and never gates input. Rows
+  (message, folder, agenda ...) have no transition (rule 3; Bulwark animates only a row's shadow). The system transition has a fixed curve, so there is
+  no easing token for it; the foreground colour of a control snaps (WinUI has no foreground transition). On the Uno Skia heads the transition is not applied.
+- **Reduce motion** zeroes `ColorMs/ButtonMs/MenuMs` (`MotionScale`), removes the transitions (`FeedbackTransition.Refresh`) and sets the stock controls' own
+  durations (`ControlFasterAnimationDuration` etc., `Motion/FluentMotion.cs`) to 0; those pick the value up when their template is created.
+- **One focus ring.** `SystemControlFocusVisualPrimaryBrush` is the live `Ring` brush and the secondary brush is transparent, so every control with
+  `UseSystemFocusVisuals` draws one 2 px ring (rows inset it, `FocusVisualMargin` 2: `accessibility.css:130`). `Theme/FocusRing.cs` widens it to the Accessibility
+  setting (3 / 5) on any control that gets focus; a control whose thickness is bound keeps its binding.
+- **Fluent accent.** The stock controls' accent fill (`AccentFillColorDefaultBrush` and friends) is the primary brush, not the Windows accent colour.
+- **Motion that Bulwark does not have** goes through `MotionRuntime.DecorationMs(ms)`, which is 0 in the Bulwark style: a list refresh rise, the reader switch rise
+  and body fade, a tooltip fade, the shell rise on a style switch (their owners call it, see the ledger). A menu entering passes `PopInKind.Menu` to `PopIn.Run`
+  (instant in Bulwark); a dialog, palette or sheet keeps its 150 ms zoom and fade (Bulwark animates it, `dialog.tsx:181,231`). The dialog scrim is black at 50 %.
+
+Changed with this system (2026-11-21): disabled opacity 0.45 to 0.5; the pressed border change on buttons is gone (Bulwark has none); the Bulwark dark hover is
+`#262626` (was `#1A1A1A`) and its light pressed is `#e2e8f0` (was lighter than hover); Bulwark radii are 6 (controls, menus, toasts) and 8 (dialogs, popovers);
+`Round()` of the Bulwark style is a circle (avatars and the rail account only).
 ## How to animate
 
 Feedback on a control: put the state change in the `VisualStateManager` (setters, no transition), so the new colour is there on

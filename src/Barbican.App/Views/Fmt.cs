@@ -10,7 +10,7 @@ using Windows.UI.Text;
 namespace Barbican.App.Views;
 
 /// <summary>Small pure functions used from x:Bind expressions (colours come from the live palette brushes, so a theme flip needs no rebinding).</summary>
-public static class Fmt
+public static partial class Fmt
 {
     private static readonly string[] TintBgKeys = ["RoseBg", "SkyBg", "MintBg", "AmberBg"];
     private static readonly string[] TintFgKeys = ["RoseFg", "SkyFg", "MintFg", "AmberFg"];

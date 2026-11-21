@@ -4,6 +4,7 @@
 // (pad, gap, r-*) for the rest; design/README.md. UI-free numbers only (the XAML-typed values are StyleState).
 
 using Barbican.Presentation.Shell;
+using Barbican.Presentation.Theme;
 
 namespace Barbican.App.Theme;
 
@@ -76,17 +77,27 @@ public sealed record StyleMetrics(bool Nordic, bool Bulwark = false)
 
     public double PaneRadius => Nordic ? 28 : 26;
 
-    public double SummaryRadius => 22;
+    public double SummaryRadius => Bulwark ? Shape("RSummary") : 22;
 
-    public double ButtonRadius => Nordic ? 19 : 12;
+    /// <summary>Bulwark rounded-md (6) comes from the generated Shape.Bulwark tokens; Bento and Nordic keep their values.</summary>
+    public double ButtonRadius => Bulwark ? Shape("RButton") : Nordic ? 19 : 12;
 
-    public double FieldRadius => Nordic ? 20 : 14;
+    public double FieldRadius => Bulwark ? Shape("RField") : Nordic ? 20 : 14;
 
-    public double RowRadius => Nordic ? 0 : 18;
+    public double RowRadius => Bulwark ? Shape("RRow") : Nordic ? 0 : 18;
 
-    public double NavRadius => Nordic ? 22 : 14;
+    public double NavRadius => Bulwark ? Shape("RNav") : Nordic ? 22 : 14;
 
-    public double PopupRadius => Nordic ? 16 : 14;
+    public double PopupRadius => Bulwark ? Shape("RPopup") : Nordic ? 16 : 14;
+
+    /// <summary>Dialog cards (Bulwark rounded-lg 8), context-menu panels (6), their rows (square) and toasts (6): the generated Shape tokens of the style.</summary>
+    public double DialogRadius => Shape("RDialog");
+
+    public double MenuRadius => Shape("RMenu");
+
+    public double MenuItemRadius => Shape("RMenuItem");
+
+    public double ToastRadius => Shape("RToast");
 
     public double ComposeHeight => Nordic ? 50 : 46;
 
@@ -103,7 +114,7 @@ public sealed record StyleMetrics(bool Nordic, bool Bulwark = false)
     public double AvatarSize => 38;
 
     /// <summary>Squircle (Bento) or circle (Nordic) of an avatar or icon button (prototype: 38 → 13 or 19).</summary>
-    public double Round(double size) => Nordic ? size / 2 : Math.Round(size * 0.34);
+    public double Round(double size) => Nordic || Bulwark ? size / 2 : Math.Round(size * 0.34);
 
     public double ReaderPadTop => Bulwark ? 0 : Nordic ? 30 : 22;
 
@@ -126,6 +137,8 @@ public sealed record StyleMetrics(bool Nordic, bool Bulwark = false)
     public double ActionButtonHeight => Nordic ? 38 : 36;
 
     public double ReaderMinWidth => 240;
+
+    private double Shape(string key) => Tokens.Shape(new ThemeVariant(Dark: true, MoreContrast: false, Nordic: Nordic, Bulwark: Bulwark))[key];
 
     /// <summary>A hairline between list and reader (Nordic) instead of a gap between tiles.</summary>
     public bool Hairlines => Nordic;

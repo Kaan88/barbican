@@ -160,6 +160,32 @@ Storyboard helper; `Controls.xaml` templates, hand-set hover sites and Fluent ov
 come from one place (Fast 100, Enter 150, Exit 90, nothing over 200, no scale/overshoot), animation removed per
 FM-09/12/14/15/16, reduce motion applied to the overrides.
 
+### 3.5 WP-1 status (422181d, branch m6b/wp1-feedback)
+
+| ID | Status | Note |
+|---|---|---|
+| FM-01 | closed | `Button.Icon/Action/Chip` hover with the accent tint (Bulwark) and `ToggleButton.Icon` has the primary-tint active state (`FeedbackActive*`). Screens must switch their toolbar toggles to `ToggleButton.Icon` |
+| FM-05 | closed for every control that takes the shared styles | one ring colour (`SystemControlFocusVisualPrimaryBrush` = live `Ring`, secondary transparent), 2 px, widened by the Accessibility setting through `Theme/FocusRing.cs`; rows inset it. Text boxes, toggles, check boxes still draw the Fluent focus line: WP-2 |
+| FM-06 | closed | no pressed border change; pressed is one brush step stronger than hover; accent button dims through `FeedbackPrimaryPressed` |
+| FM-07 | closed | selected row = `FeedbackSelected` (Bulwark accent), the same on hover |
+| FM-18 | closed | policy: buttons 200 ms, toggles/rows-that-recolour 150 ms, menu rows 150 ms, hover actions 100 ms (system brush transition); list rows snap. `FastMs` is now used (hover actions). `ListMs`, `LateMs`, `ExitMs`, `RisePx` remain unread (WP-5: selection highlight, WP-8: toast exit/slide) |
+| FM-20 | closed for Fluent brushes | `AccentFillColor{Default,Secondary,Tertiary}Brush`, `TextOnAccentFillColor*`, `AccentTextFillColorPrimaryBrush` are the primary palette brushes (live). The `SystemAccentColor*` Colour keys are not overridden |
+| FM-21 | partly | `ControlFaster/Fast/NormalAnimationDuration` follow the tokens and reduce motion (`Motion/FluentMotion.cs`); a template already on screen keeps its length until rebuilt. WP-2 finishes it when it re-templates the controls |
+| TH-01 | closed | `Destructive`, `Success`, `Warning`, `Info`, `Secondary`, `Input`, `PopoverFg`, `AccentFill`, `AccentFillFg`, `Unread`, `Chart1..5` (+ `Fg`) in every variant; `selection-foreground` is `SelText` |
+| TH-02 | closed | Bulwark dark `Hover` = `#262626` |
+| TH-03 | closed | Bulwark light `Pressed` = `#e2e8f0`, below `Hover` `#f1f5f9`; test: pressed is stronger than hover in dark and light for every style |
+| TH-04 | closed for tokens, partly for screens | `Shape.Bulwark.xaml` (6 / 8), `StyleMetrics` reads it for Bulwark (`ButtonRadius`, `FieldRadius`, `NavRadius`, `RowRadius`, `PopupRadius`, `SummaryRadius`, new `DialogRadius`, `MenuRadius`, `MenuItemRadius`, `ToastRadius`; `Round()` is a circle). Literal `new CornerRadius(...)` in views and `Style` setters (`Button.Chip` 15) are for the screen packages |
+| TH-09 | closed | the Bulwark palette lives in `theme.slint` (`export global Bulwark`); gen-tokens requires it to define exactly the colours of `Theme` |
+| AX-01 | partly | one ring and the width setting; `focus-always` (ring on pointer focus) is not implemented |
+
+**Adopt in the screen packages (after WP-1):**
+
+- Buttons: use `Button.Icon`, `Button.Action`, `Button.Primary`, `Button.Chip`; toolbar toggles `ToggleButton.Icon` bound to their state; hover actions over a row `Button.HoverAction`. Set the corner radius from `StyleState` (`ButtonRadius`), not a literal.
+- Menus and popups (WP-8): menu rows `Button.MenuItem` / `Button.MenuItem.Destructive` (`StyleState.MenuItemStyle`, `MenuItemRadius`, panel `MenuRadius`, dialog card `DialogRadius`, toast `ToastRadius`); remove the hand-set hover in `MenuHostView.xaml.cs:253`, `PaletteView.xaml.cs:190`, `SearchBoxView.xaml.cs:164`; pass `PopInKind.Menu` to `PopIn.Run` for menus and flyouts (FM-14, instant in Bulwark); drop the `Tip` fade in Bulwark with `MotionRuntime.DecorationMs` (FM-15).
+- Lists: agenda, tasks, contacts, files rows take `ListItem.Row` (FM-02: WP-12, 13, 14; replaces the stock template and `FilesListView.cs:146` hand-set selection). Use the `FeedbackHover/Selected/Pressed` brushes for any state a template draws itself (`Fmt.cs:193-195`, calendar pointer handlers, caption buttons `ShellPage.xaml.cs:375-380`).
+- Motion Bulwark does not have, to switch off with `MotionRuntime.DecorationMs(ms)` (0 in the Bulwark style, unchanged in Bento and Nordic): list folder-change rise (`MessageListView.xaml.cs:141`, FM-12, WP-5), reader subject/sender rise and body cross-fade (`ReaderView.xaml.cs:193`, `BodyShell.cs:450`, FM-09, WP-6), shell rise on a style switch (`ShellPage.xaml.cs:191`, FM-16, WP-10). The compact-navigation rise (`ShellPage.xaml.cs:244`) stays (FM-10, FM-17).
+- Focus: set `UseSystemFocusVisuals="True"` on custom focusable elements and remove per-control `FocusVisualPrimaryThickness` bindings; the global ring supplies colour and width.
+- Do not edit `Styles/Controls.xaml` or `Styles/Feedback.xaml`; ask WP-1 or define a local style in your own `Styles/<Area>.xaml` that is `BasedOn` a shared one.
 ## 4. Gap ledger by area
 
 Legend for each row: **B** = Bulwark, **N** = Barbican now.
@@ -374,7 +400,7 @@ Packages marked "after WP-1" need the brush/token names WP-1 publishes first (ag
 | # | Package | Gaps | Owned files | Size | Order |
 |---|---|---|---|---|---|
 | WP-0 | Make shared singletons partial | prerequisite | `Theme/StyleState.cs`, `Views/Fmt.cs` (partial keyword only) | S | 0 |
-| WP-1 | Shared state tokens and feedback | FM-01, 05, 06, 07, 18, 20, 21; TH-01, 02, 03, 04, 09; AX-01 | `design/legacy-slint/theme.slint`, `tools/Barbican.GenTokens/**`, `src/Barbican.Presentation/Theme/**`, `Themes/Tokens.xaml`, `Themes/Shape.*.xaml`, `Styles/Controls.xaml`, new `Styles/Feedback.xaml`, `Motion/MotionRuntime.cs`, `MotionScale.cs`, `PopIn.cs`, `Rise.cs`, `Scrim.cs`, `design/MOTION.md`, `Theme/AppResources.cs`, `Theme/PaletteWriter.cs`, `tests/**/MotionScaleTests*`, token tests | L | 1 |
+| WP-1 | Shared state tokens and feedback (done, see 3.5) | FM-01, 05, 06, 07, 18, 20, 21; TH-01, 02, 03, 04, 09; AX-01 | `design/legacy-slint/theme.slint`, `tools/Barbican.GenTokens/**`, `src/Barbican.Presentation/Theme/**`, `Themes/Tokens.xaml`, `Themes/Shape.*.xaml`, `Styles/Controls.xaml`, new `Styles/Feedback.xaml`, `Motion/MotionRuntime.cs`, `MotionScale.cs`, `PopIn.cs`, `Rise.cs`, `Scrim.cs`, `design/MOTION.md`, `Theme/AppResources.cs`, `Theme/PaletteWriter.cs`, `tests/**/MotionScaleTests*`, token tests | L | 1 |
 | WP-2 | Fluent control overrides | FM-19, 20, 21; ST-03; TH-07 | new `Styles/FluentOverrides.xaml` (ToggleSwitch, CheckBox, RadioButton, TextBox, PasswordBox, ScrollBar, Expander, MenuFlyout presenter, ProgressBar), `App.xaml`, `Theme/AppResources.cs` merge line (after WP-1) | M | 2 |
 | WP-3 | Rail and navigation | SH-01..04, 06, 07, 09, 10 | `Views/Rail/**`, `Controls/StorageRing.cs`, new `Theme/StyleState.Rail.cs`, `Views/Accounts/**` | M | 2 |
 | WP-4 | Sidebar, folders, tags | SB-01..09 | `Views/Sidebar/**`, `Views/Unified/**`, `Presentation/Tags/**`, new `Theme/StyleState.Sidebar.cs` | M | 2 |

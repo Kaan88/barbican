@@ -9,16 +9,23 @@ public sealed class MotionScaleTests
     public void NothingAnimatesOverTheCeiling()
     {
         var m = new MotionScale(false, false);
-        Assert.All(new[] { m.FastMs, m.ListMs, m.EnterMs, m.ExitMs, m.ViewMs }, d => Assert.InRange(d, 0, MotionScale.CeilingMs));
+        Assert.All(new[] { m.FastMs, m.ListMs, m.EnterMs, m.ExitMs, m.ViewMs, m.ColorMs, m.ButtonMs, m.MenuMs }, d => Assert.InRange(d, 0, MotionScale.CeilingMs));
     }
 
     [Fact]
     public void ReduceMotionZeroesEveryDuration()
     {
         var m = new MotionScale(true, false);
-        Assert.Equal(new[] { 0.0, 0, 0, 0, 0 }, new[] { m.FastMs, m.ListMs, m.EnterMs, m.ExitMs, m.ViewMs });
+        Assert.Equal(new[] { 0.0, 0, 0, 0, 0, 0, 0, 0 }, new[] { m.FastMs, m.ListMs, m.EnterMs, m.ExitMs, m.ViewMs, m.ColorMs, m.ButtonMs, m.MenuMs });
         Assert.Equal(1, m.PopScale);
         Assert.Equal(0, m.RisePx);
+    }
+
+    [Fact]
+    public void FeedbackDurationsAreBulwarksTransitionLengths()
+    {
+        var m = new MotionScale(false, false);
+        Assert.Equal(new[] { 150.0, 200, 150 }, new[] { m.ColorMs, m.ButtonMs, m.MenuMs });
     }
 
     [Fact]
