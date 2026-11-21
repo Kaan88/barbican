@@ -314,6 +314,17 @@ Legend for each row: **B** = Bulwark, **N** = Barbican now.
 | SR-03 | Global search palette: scope chips, facets, preview, tabs; Barbican palette is a command list | `components/global-search/*`, `command-palette/command-palette.tsx` | `Views/Palette/PaletteView.xaml(.cs)` (G-103/104 marked done: verify scope chips and preview) | power users | L | M10 |
 | SR-04 | Search results count line and snippets highlighting | `email/search-result-count.tsx`, `search-snippet-text.tsx` | `Views/List/Snippet.cs` (exists) | verify | S | M10 |
 
+**WP-9 status (branch m6b/wp9-search, Bulwark style; Bento and Nordic keep their hairline field):**
+
+| ID | Status | What matches |
+|---|---|---|
+| SR-01 | closed (Bulwark) | field `Input h-8 rounded-md border-input` (hover muted-foreground, focus ring), magnifier 16 px, `/` key cap only while empty and unfocused, clear X 24 px, filter toggle is a `ToggleButton.Icon` that tints while the panel is open or filters are active, 16 px primary count badge at the top end corner, text-sm 14 (`ui/toolbar.tsx:36-120`, `mail-app.tsx:6649-6672`, `ui/input.tsx:13-18`). The list header's select-all and folder buttons are top-aligned so the panel does not centre them (`MessageListView.xaml`, shared file, 3 attributes) |
+| SR-02 | closed except two fields | in-flow panel (no card): pills Unread / Read / Starred / Attachment with check when on, From / To / Subject fields (live, 350 ms debounce, Enter closes), date and place choices, Clear all, Search (`search-filter-panel.tsx:97-274`). Not drawn: "Has words" and Size (no `body:` / size operator in `GlobalSearch.Operators`, Core); the two `<select>`s are in-window choice rows because a ComboBox popup is out of window (ADR 0007) |
+| SR-03 | not in this package | global search palette stays M10 (Palette is another package) |
+| SR-04 | open | results count line lives in the message list (WP-5 area) |
+
+Also matched: chips (`search-chips.tsx:78-110`, wrapping row, primary tint, X hit area), suggestion dropdown as an in-window Popup under the field (`search-suggestions.tsx:70-195`: rows px-3 py-2, hover/active fill, hover-only remove and "To" buttons, People rows with avatar, name, address and a "From" badge, match in semibold, closes on blur). New: `SearchBoxModel.PickPersonToAsync`, `GetOperator`; `WrapRow` panel. Feedback: one-frame colour swaps and the shared button/toggle styles, no fades or scaling.
+
 ### 4.7 Context menus and keyboard shortcuts
 
 | ID | Gap | B | N | Impact | Size | MS |

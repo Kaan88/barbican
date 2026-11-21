@@ -2,44 +2,99 @@
     x:Class="Barbican.App.Views.Search.SearchBoxView"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    xmlns:controls="using:Barbican.App.Controls">
-  <!-- The list's search box (stage F moved it out of MessageListView; stream search owns it): the field with its clear X and filter toggle, the removable chips, the suggestions and the filter panel.
-       Suggestions and the panel are in-flow elements of this control (in-window, constrained to it; never an AutoSuggestBox, never a popup window). The AutomationId list.search is unchanged. -->
-  <StackPanel Spacing="6">
-    <Border Height="{x:Bind Look.ListSearchHeight, Mode=OneWay}" CornerRadius="{x:Bind Look.FieldRadius, Mode=OneWay}" Background="Transparent" BorderBrush="{StaticResource Line}" BorderThickness="1" Padding="12,0,6,0">
-      <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto" ColumnSpacing="8">
-        <controls:SIcon Kind="Search" Size="15" StrokeWidth="2" Foreground="{StaticResource Faint}" VerticalAlignment="Center" />
-        <TextBox Grid.Column="1" x:Name="SearchBox" Style="{StaticResource TextBox.Bare}" PlaceholderText="Search mail" KeyDown="OnSearchKeyDown" TextChanged="OnTextChanged" GotFocus="OnBoxFocused"
+    xmlns:win="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:not_win="http://uno.ui/not_win"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:local="using:Barbican.App.Views.Search"
+    xmlns:theme="using:Barbican.App.Theme"
+    xmlns:controls="using:Barbican.App.Controls"
+    mc:Ignorable="not_win">
+  <UserControl.Resources>
+    <!-- search-filter-panel.tsx:77-83 (label: text-xs text-muted-foreground) and :87-93 (Input h-8 text-sm); the Fluent field template is WP-2's, the height is local -->
+    <Style x:Key="FilterLabel" TargetType="TextBlock">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="Foreground" Value="{StaticResource Dim}" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+    <Style x:Key="FilterField" TargetType="TextBox">
+      <Setter Property="Template" Value="{StaticResource Template.FluentTextBox}" />
+      <Setter Property="CornerRadius" Value="{ThemeResource Fluent.FieldRadius}" />
+      <Setter Property="Foreground" Value="{StaticResource Text}" />
+      <Setter Property="Background" Value="{StaticResource Bg}" />
+      <Setter Property="BorderBrush" Value="{StaticResource Input}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="FontSize" Value="14" />
+      <Setter Property="Padding" Value="12,6,12,6" />
+      <Setter Property="MinHeight" Value="32" />
+      <Setter Property="Height" Value="32" />
+      <Setter Property="UseSystemFocusVisuals" Value="False" />
+    </Style>
+  </UserControl.Resources>
+  <!-- The list's search box. Bulwark 1.21.2 matched in the default theme: the field is ToolbarSearch (components/ui/toolbar.tsx:74-120: Input h-8 rounded-md border-input, magnifier w-4 at start-2.5, ps-8, the "/" key cap
+       while empty and unfocused (group-focus-within:invisible), clear button p-1 rounded-md after the text, trailing filter toggle ToolbarSearchAction with the 16 px primary count badge, mail/mail-app.tsx:6649-6672);
+       the removable chips (search/search-chips.tsx:78-110); the suggestion dropdown (search/search-suggestions.tsx:70-195); the in-flow filter panel (search/search-filter-panel.tsx:97-258, filter-panel-host.tsx:35).
+       Bento and Nordic keep their hairline field (FieldRadius 14 / 20, Line border). Suggestions are an in-window Popup (ADR 0007), anchored under the field, so the list below does not move (absolute top-full mt-1).
+       Never an AutoSuggestBox. The AutomationIds are unchanged. -->
+  <StackPanel Spacing="0">
+    <Grid x:Name="FieldHost" Height="{x:Bind Look.ListSearchHeight, Mode=OneWay}" PointerEntered="OnFrameEnter" PointerExited="OnFrameExit">
+      <Border x:Name="Frame" CornerRadius="{x:Bind Look.FieldRadius, Mode=OneWay}" BorderThickness="1" />
+      <Grid Padding="10,0,4,0" ColumnDefinitions="Auto,*,Auto,Auto,Auto" ColumnSpacing="6">
+        <controls:SIcon Kind="Search" Size="16" StrokeWidth="2" Foreground="{StaticResource Dim}" VerticalAlignment="Center" IsHitTestVisible="False" />
+        <TextBox Grid.Column="1" x:Name="SearchBox" Style="{StaticResource TextBox.Bare}" PlaceholderText="Search mail" FontSize="{x:Bind local:SearchBoxView.FieldFont(theme:StyleState.Current.IsBulwark), Mode=OneWay}" KeyDown="OnSearchKeyDown" TextChanged="OnTextChanged" GotFocus="OnBoxFocused" LostFocus="OnBoxLostFocus"
                  AutomationProperties.AutomationId="list.search" AutomationProperties.Name="Search mail" />
-        <Button Grid.Column="2" x:Name="ClearButton" Style="{StaticResource Button.Icon}" Width="22" Height="22" Visibility="Collapsed" Click="OnClearClick"
+        <Border Grid.Column="2" x:Name="KeyCap" Height="18" MinWidth="18" CornerRadius="4" BorderBrush="{StaticResource Line}" BorderThickness="1" Padding="6,0" Margin="4,0" VerticalAlignment="Center" IsHitTestVisible="False">
+          <TextBlock Text="/" FontSize="11" Foreground="{StaticResource Dim}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+        </Border>
+        <Button Grid.Column="3" x:Name="ClearButton" Style="{StaticResource Button.Icon}" Width="24" Height="24" CornerRadius="{x:Bind Look.ButtonRadius, Mode=OneWay}" Visibility="Collapsed" Click="OnClearClick"
                 AutomationProperties.AutomationId="list.search.clear" AutomationProperties.Name="Clear search">
-          <TextBlock Text="&#x2715;" FontSize="11" />
+          <controls:SIcon Kind="Close" Size="16" StrokeWidth="2" />
         </Button>
-        <Button Grid.Column="3" x:Name="FilterButton" Style="{StaticResource Button.Icon}" MinWidth="22" Height="22" Padding="4,0" Click="OnFilterClick"
-                AutomationProperties.AutomationId="list.search.filter" AutomationProperties.Name="Search filters">
-          <StackPanel Orientation="Horizontal" Spacing="4">
-            <controls:SIcon Kind="Opt" Size="14" StrokeWidth="2" />
-            <TextBlock x:Name="FilterCount" FontSize="11" FontWeight="Bold" Foreground="{StaticResource Accent}" Visibility="Collapsed" />
+        <Grid Grid.Column="4">
+          <ToggleButton x:Name="FilterButton" Style="{StaticResource ToggleButton.Icon}" Width="24" Height="24" CornerRadius="{x:Bind Look.ButtonRadius, Mode=OneWay}" Click="OnFilterClick"
+                        AutomationProperties.AutomationId="list.search.filter" AutomationProperties.Name="Search filters">
+            <controls:SIcon Kind="Filter" Size="16" StrokeWidth="2" />
+          </ToggleButton>
+          <Border x:Name="FilterBadge" Width="16" Height="16" CornerRadius="8" Background="{StaticResource Accent}" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,-4,-4,0" Visibility="Collapsed" IsHitTestVisible="False">
+            <TextBlock x:Name="FilterCount" FontSize="10" FontWeight="Bold" Foreground="{StaticResource OnAccent}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+          </Border>
+        </Grid>
+      </Grid>
+      <Popup x:Name="SuggestPopup" win:ShouldConstrainToRootBounds="True" AutomationProperties.AutomationId="list.search.suggestions.popup">
+        <Border x:Name="SuggestPanel" CornerRadius="{x:Bind Look.FieldRadius, Mode=OneWay}" Background="{StaticResource Bg}" BorderBrush="{StaticResource Line}" BorderThickness="1" MaxHeight="288" Padding="0,4"
+                AutomationProperties.AutomationId="list.search.suggestions">
+          <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <StackPanel x:Name="SuggestList" />
+          </ScrollViewer>
+        </Border>
+      </Popup>
+    </Grid>
+    <local:WrapRow x:Name="ChipsPanel" Visibility="Collapsed" Margin="0,8,0,0" HorizontalSpacing="8" VerticalSpacing="6" AutomationProperties.AutomationId="list.search.chips" />
+    <StackPanel x:Name="FilterPanel" Visibility="Collapsed" Spacing="12" Padding="0,10,0,4" AutomationProperties.AutomationId="list.search.filter-panel">
+      <local:WrapRow x:Name="FilterToggles" HorizontalSpacing="6" VerticalSpacing="6" />
+      <Grid ColumnDefinitions="72,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" ColumnSpacing="12" RowSpacing="8">
+        <TextBlock Grid.Row="0" Text="From" Style="{StaticResource FilterLabel}" />
+        <TextBox Grid.Row="0" Grid.Column="1" x:Name="FromBox" Style="{StaticResource FilterField}" PlaceholderText="Name or address" TextChanged="OnFieldChanged" KeyDown="OnFieldKeyDown" AutomationProperties.AutomationId="list.search.filter.from" AutomationProperties.Name="From" />
+        <TextBlock Grid.Row="1" Text="To" Style="{StaticResource FilterLabel}" />
+        <TextBox Grid.Row="1" Grid.Column="1" x:Name="ToBox" Style="{StaticResource FilterField}" PlaceholderText="Name or address" TextChanged="OnFieldChanged" KeyDown="OnFieldKeyDown" AutomationProperties.AutomationId="list.search.filter.to" AutomationProperties.Name="To" />
+        <TextBlock Grid.Row="2" Text="Subject" Style="{StaticResource FilterLabel}" />
+        <TextBox Grid.Row="2" Grid.Column="1" x:Name="SubjectBox" Style="{StaticResource FilterField}" TextChanged="OnFieldChanged" KeyDown="OnFieldKeyDown" AutomationProperties.AutomationId="list.search.filter.subject" AutomationProperties.Name="Subject" />
+        <TextBlock Grid.Row="3" Text="Date within" Style="{StaticResource FilterLabel}" VerticalAlignment="Top" Margin="0,7,0,0" />
+        <local:WrapRow Grid.Row="3" Grid.Column="1" x:Name="DateChoices" HorizontalSpacing="6" VerticalSpacing="6" />
+        <TextBlock Grid.Row="4" Text="Search in" Style="{StaticResource FilterLabel}" VerticalAlignment="Top" Margin="0,7,0,0" />
+        <local:WrapRow Grid.Row="4" Grid.Column="1" x:Name="PlaceChoices" HorizontalSpacing="6" VerticalSpacing="6" />
+      </Grid>
+      <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+        <Button x:Name="FilterClearAll" Style="{StaticResource Button.Icon}" Height="32" Padding="10,0" CornerRadius="{x:Bind Look.ButtonRadius, Mode=OneWay}" Click="OnClearAllClick"
+                AutomationProperties.AutomationId="list.search.filter.clear" AutomationProperties.Name="Clear all">
+          <StackPanel Orientation="Horizontal" Spacing="6">
+            <controls:SIcon Kind="Undo" Size="14" StrokeWidth="2" />
+            <TextBlock Text="Clear all" FontSize="12" VerticalAlignment="Center" />
           </StackPanel>
         </Button>
-        <Border Grid.Column="4" Height="17" MinWidth="18" CornerRadius="5" BorderBrush="{StaticResource Line}" BorderThickness="1" Padding="5,0" VerticalAlignment="Center" IsHitTestVisible="False">
-          <TextBlock Text="/" FontSize="11" Foreground="{StaticResource Faint}" HorizontalAlignment="Center" VerticalAlignment="Center" />
-        </Border>
-      </Grid>
-    </Border>
-    <ScrollViewer x:Name="ChipsScroller" Visibility="Collapsed" HorizontalScrollBarVisibility="Hidden" HorizontalScrollMode="Auto" VerticalScrollMode="Disabled" VerticalScrollBarVisibility="Disabled"
-                  AutomationProperties.AutomationId="list.search.chips">
-      <StackPanel x:Name="ChipsPanel" Orientation="Horizontal" Spacing="6" />
-    </ScrollViewer>
-    <Border x:Name="SuggestPanel" Visibility="Collapsed" MaxHeight="260" CornerRadius="{x:Bind Look.FieldRadius, Mode=OneWay}" Background="{StaticResource Raised}" BorderBrush="{StaticResource Line}" BorderThickness="1"
-            Padding="4" AutomationProperties.AutomationId="list.search.suggestions">
-      <ScrollViewer VerticalScrollBarVisibility="Auto">
-        <StackPanel x:Name="SuggestList" Spacing="1" />
-      </ScrollViewer>
-    </Border>
-    <Border x:Name="FilterPanel" Visibility="Collapsed" CornerRadius="{x:Bind Look.FieldRadius, Mode=OneWay}" Background="{StaticResource Raised}" BorderBrush="{StaticResource Line}" BorderThickness="1"
-            Padding="10" AutomationProperties.AutomationId="list.search.filter-panel">
-      <StackPanel x:Name="FilterRows" Spacing="8" />
-    </Border>
+        <Button Style="{StaticResource Button.Primary}" Height="32" FontSize="12" FontWeight="Medium" Padding="16,0" CornerRadius="{x:Bind Look.ButtonRadius, Mode=OneWay}" Content="Search" Click="OnDoneClick"
+                AutomationProperties.AutomationId="list.search.filter.done" AutomationProperties.Name="Search" />
+      </StackPanel>
+    </StackPanel>
   </StackPanel>
 </UserControl>

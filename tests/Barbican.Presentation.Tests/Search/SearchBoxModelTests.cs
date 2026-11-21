@@ -116,4 +116,16 @@ public sealed class SearchBoxModelTests
         Assert.Empty(m.Chips);
         Assert.Empty(_ran);
     }
+
+    [Fact]
+    public async Task The_to_button_of_a_person_searches_the_recipient_and_the_panel_reads_operators_back()
+    {
+        var m = Model(null, ("Alice Smith", "alice@example.com"));
+        m.Edited("ali");
+        Assert.True(m.SuggestionsOpen);
+        await m.PickPersonToAsync(0);
+        Assert.Equal("to:alice@example.com", _ran[^1]);
+        Assert.Equal("alice@example.com", m.GetOperator("to"));
+        Assert.Equal(string.Empty, m.GetOperator("from"));
+    }
 }

@@ -130,6 +130,22 @@ public sealed class SearchBoxModel : ObservableObject
         await SearchAsync().ConfigureAwait(true);
     }
 
+    /// <summary>The "To" button of a person suggestion (search-suggestions.tsx:170-190): the mail sent to the address, as to:address.</summary>
+    public async Task PickPersonToAsync(int index)
+    {
+        if (index < 0 || index >= _suggestions.Count || _suggestions[index] is not SearchSuggestion.Person p)
+        {
+            return;
+        }
+
+        Text = "to:" + SearchHistory.PersonQuery(p.Email)["from:".Length..];
+        await SearchAsync().ConfigureAwait(true);
+    }
+
+    /// <summary>The value of the first operator of a key in the text (from:alice gives alice), or empty; the filter panel's fields show it.</summary>
+    public string GetOperator(string key) =>
+        GlobalSearch.Tokenize(_text).FirstOrDefault(t => string.Equals(t.Key, key, StringComparison.Ordinal))?.Value ?? string.Empty;
+
     /// <summary>Takes a recent search out of the history.</summary>
     public void RemoveRecent(int index)
     {
