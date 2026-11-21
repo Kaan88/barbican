@@ -193,6 +193,26 @@
    "rows": [
     {
      "kind": "section",
+     "label": "Images & external content",
+     "desc": "Remote images can tell the sender that you opened the mail."
+    },
+    {
+     "kind": "select",
+     "label": "External content",
+     "desc": "How to handle images and external content",
+     "key": "externalContentPolicy",
+     "options": [["ask", "Always ask"], ["block", "Always block"], ["allow", "Always allow"]],
+     "default": "ask"
+    },
+    {
+     "kind": "button",
+     "label": "Trusted senders",
+     "desc": "Manage senders whose images load automatically",
+     "key": "trustedSenders",
+     "text": "Manage"
+    },
+    {
+     "kind": "section",
      "label": "Sender pictures",
      "desc": ""
     },

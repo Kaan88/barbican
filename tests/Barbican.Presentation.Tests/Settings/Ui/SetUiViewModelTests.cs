@@ -31,7 +31,7 @@ public sealed class SetUiViewModelTests
     {
         var pages = SetUiCatalog.FromSchema();
         Assert.Equal(21, pages.Count);
-        Assert.Equal(276, pages.Sum(p => p.Rows.Count));
+        Assert.Equal(279, pages.Sum(p => p.Rows.Count));
         Assert.Contains(pages.SelectMany(p => p.Rows), r => string.Equals(r.Id, "S-uiStyle", StringComparison.Ordinal));
         Assert.Contains(pages.SelectMany(p => p.Rows), r => string.Equals(r.Id, "S-keyless-001", StringComparison.Ordinal));
     }

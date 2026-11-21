@@ -1,7 +1,8 @@
 // Mirrors: PORT-PLAN.md §3.6 (the mail body view: WebView2 on Windows, WebKitGTK on Linux); Rust mailview.rs (the view), app.slint r_loading
-// (the thin loading bar), images_blocked (the external-content banner); Bulwark components/email/email-viewer.tsx:6418 (Load external
-// content, spec I-209) and :6528 ("Shown as plain text" › Show formatted, spec I-214). shell-ui places this type in ReaderView.xaml's body
-// slot. M2: the reader banner stack (IReaderBannerSource, applied with the snapshot) and "Always for this sender" (I-209). Owner reader (M2).
+// (the thin loading bar), images_blocked (the external-content banner); Bulwark components/email/email-viewer.tsx:6343-6392 (the External
+// Content notice: the label, the blocked message, "Load images" and "Always trust this sender", spec I-209) and :6528 ("Shown as plain text"
+// › Show formatted, spec I-214). shell-ui places this type in ReaderView.xaml's body slot. M2: the reader banner stack (IReaderBannerSource,
+// applied with the snapshot). Owner reader (M2).
 //
 // The view holds the one warm WebView2 of BodyShell (it is never re-created: a second MailBodyView takes it over), the loading bar over its
 // top edge (no layout shift) and the banners above it. The banners change in the same turn as the page they belong to is revealed.
@@ -11,6 +12,7 @@ using Barbican.App.Theme;
 using Barbican.Core.Mail.Trust;
 using Barbican.Presentation.Commands;
 using Barbican.Presentation.Mail;
+using Barbican.Presentation.Mail.Loading;
 using Barbican.Presentation.Menus;
 using Barbican.Presentation.Reader;
 using Microsoft.UI.Xaml.Automation;
@@ -25,6 +27,10 @@ public sealed partial class MailBodyView : UserControl
     private readonly Grid _host = new();
     private readonly Rectangle _loading = new() { Height = 2, VerticalAlignment = VerticalAlignment.Top, IsHitTestVisible = false, Visibility = Visibility.Collapsed };
     private readonly Border _remoteBanner;
+    private readonly TextBlock _remoteLabel;
+    private readonly TextBlock _remoteMessage;
+    private readonly StackPanel _remoteActions = new() { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center };
+    private string? _noticeKey;
     private readonly Border _plainBanner;
     private readonly StackPanel _readerBanners = new() { Spacing = 8 };
     private readonly ReaderViewModel? _reader;
@@ -37,23 +43,15 @@ public sealed partial class MailBodyView : UserControl
         _reader = ViewHost.Find<ReaderViewModel>();
         _actions = ViewHost.Find<ReaderBannerActions>();
         _trusted = ViewHost.Find<ITrustedSenders>();
-        _remoteBanner = Banner("External content is blocked.", "Load external content", "reader.load-external", () => _shell?.LoadExternalContent());
-        if (_trusted is not null && _remoteBanner.Child is Grid remoteGrid)
-        {
-            // I-209: "Always for this sender" trusts the sender (kept locally) and loads the content now
-            var always = ActionButton("Always for this sender", "reader.trust-sender", () => _ = TrustSenderAsync());
-            remoteGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            Grid.SetColumn(always, 2);
-            remoteGrid.Children.Add(always);
-        }
-
+        (_remoteBanner, _remoteLabel, _remoteMessage) = RemoteBanner();
         _plainBanner = Banner("Shown as plain text.", "Show formatted", "reader.show-formatted", () => _shell?.ShowFormatted());
         var root = new Grid { RowSpacing = 8 };
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-        Grid.SetRow(_remoteBanner, 1);
+        Grid.SetRow(_remoteBanner, 0);
+        Grid.SetRow(_readerBanners, 1);
         Grid.SetRow(_plainBanner, 2);
         Grid.SetRow(_host, 3);
         AutomationProperties.SetAutomationId(_readerBanners, "reader.banners");
@@ -159,15 +157,15 @@ public sealed partial class MailBodyView : UserControl
 
     private async Task TrustSenderAsync()
     {
-        if (_trusted is null || _reader?.Current.Body is not { From: [var from, ..] })
+        if (_trusted is null || _shell?.SenderAddress is not { Length: > 0 } address)
         {
             return;
         }
 
-        var r = await _trusted.AddAsync(from.Email, CancellationToken.None).ConfigureAwait(true);
+        var r = await _trusted.AddAsync(address, CancellationToken.None).ConfigureAwait(true);
         if (r.IsOk)
         {
-            _shell?.LoadExternalContent();
+            _shell.TrustSender();
         }
     }
 
@@ -234,9 +232,67 @@ public sealed partial class MailBodyView : UserControl
 
     private void Sync(BodyShell shell)
     {
-        _remoteBanner.Visibility = shell.RemoteBlocked ? Visibility.Visible : Visibility.Collapsed;
+        SyncRemote(shell);
         _plainBanner.Visibility = shell.ShownAsPlainText ? Visibility.Visible : Visibility.Collapsed;
         _loading.Visibility = shell.IsLoading ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    // Bulwark: the "External Content" label, the blocked message, then "Load images" (ask mode) and "Always trust this sender" (email-viewer.tsx:6343-6392)
+    private void SyncRemote(BodyShell shell)
+    {
+        if (shell.RemoteContent is not { } notice)
+        {
+            _remoteBanner.Visibility = Visibility.Collapsed;
+            _noticeKey = null;
+            return;
+        }
+
+        _remoteLabel.Text = notice.Label;
+        _remoteMessage.Text = notice.Message;
+        var key = notice.Message + "|" + string.Join("|", notice.Actions.Select(a => a.ActionId + ":" + a.Label));
+        if (!string.Equals(key, _noticeKey, StringComparison.Ordinal))
+        {
+            _noticeKey = key;
+            _remoteActions.Children.Clear();
+            foreach (var (actionId, label) in notice.Actions)
+            {
+                var automationId = string.Equals(actionId, RemoteContentNotice.Trust, StringComparison.Ordinal) ? "reader.trust-sender" : "reader.load-external";
+                _remoteActions.Children.Add(ActionButton(label, automationId, () => RunRemote(actionId)));
+            }
+        }
+
+        _remoteBanner.Visibility = Visibility.Visible;
+    }
+
+    private void RunRemote(string actionId)
+    {
+        if (string.Equals(actionId, RemoteContentNotice.Trust, StringComparison.Ordinal))
+        {
+            _ = TrustSenderAsync();
+        }
+        else if (string.Equals(actionId, RemoteContentNotice.Load, StringComparison.Ordinal))
+        {
+            _shell?.LoadExternalContent();
+        }
+    }
+
+    private (Border Banner, TextBlock Label, TextBlock Message) RemoteBanner()
+    {
+        var label = new TextBlock { FontSize = 11.5, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = Brush("Muted") };
+        var message = new TextBlock { FontSize = 12.5, TextWrapping = TextWrapping.Wrap, Foreground = Brush("Body") };
+        var text = new StackPanel { Spacing = 2, VerticalAlignment = VerticalAlignment.Center };
+        text.Children.Add(label);
+        text.Children.Add(message);
+        var grid = new Grid { ColumnSpacing = 10 };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.Children.Add(text);
+        Grid.SetColumn(_remoteActions, 1);
+        grid.Children.Add(_remoteActions);
+        var border = new Border { CornerRadius = new CornerRadius(14), Padding = new Thickness(14, 6, 6, 6), Background = Brush("Tile2"), Child = grid, Visibility = Visibility.Collapsed };
+        AutomationProperties.SetAutomationId(border, "reader.load-external-banner");
+        AutomationProperties.SetName(border, RemoteContentNotice.Heading);
+        return (border, label, message);
     }
 
     private static Border Banner(string text, string action, string automationId, Action click)

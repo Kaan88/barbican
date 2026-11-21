@@ -51,7 +51,7 @@ G-049,P1,M,reader-safety,Link mismatch warnings,lib/phishing-links.ts,GAPS P1-12
 G-050,P1,M,reader-safety,Phishing report,phishing-mark-banner.tsx; phishing-report*,GAPS P1-12,M10,open
 G-051,P1,S/M,reader-safety,External sender chip,external-sender-chip.tsx,GAPS P1-12,M10,open
 G-052,P1,S/M,reader-safety,BIMI verified badge,brand-verified-badge.tsx; lib/bimi,GAPS P1-12,M10,open
-G-053,P1,M,reader-safety,"Per-sender trust for remote content (trustedSenders, externalContentPolicy)",trusted-senders-modal.tsx,GAPS P1-12,M10,open
+G-053,P1,M,reader-safety,"Per-sender trust for remote content (trustedSenders, externalContentPolicy)",trusted-senders-modal.tsx,GAPS P1-12,M10,done
 G-054,P1,S,composer,Confirm before sending to external recipients,external-recipient-confirm.tsx,GAPS P1-12,M3,done (SendWarnings + SendCoordinator; dialog is composer-ui)
 G-055,P1,M,popout,Pop-out windows: message and composer in their own windows,popout/,GAPS P1-13,M10,open
 G-056,P1,S,jmap,"Truncated bodies: a notice shows, but the full body is never fetched",lib/email (isTruncated),GAPS P1-14,M2,open

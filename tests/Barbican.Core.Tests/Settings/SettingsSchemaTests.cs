@@ -17,7 +17,8 @@ public sealed class SettingsSchemaTests
         var hash = Convert.ToHexStringLower(SHA256.HashData(bytes));
 
         // Rust-final schema plus the Barbican row and reviewed corrections of extracted
-        // dynamic/template choices (D-M6-A14) and Bulwark style and folder-icon defaults; LF-normalized so changes are deliberate.
+        // dynamic/template choices (D-M6-A14), Bulwark style and folder-icon defaults, and the G-053 remote content rows
+        // (externalContentPolicy, trustedSenders); LF-normalized so changes are deliberate.
         Assert.Equal(ReviewedSha256, hash);
     }
 
@@ -29,9 +30,9 @@ public sealed class SettingsSchemaTests
         var tabs = doc.RootElement.GetProperty("tabs");
 
         Assert.Equal(21, tabs.GetArrayLength());
-        Assert.Equal(276, tabs.EnumerateArray().Sum(t => t.GetProperty("rows").GetArrayLength()));
+        Assert.Equal(279, tabs.EnumerateArray().Sum(t => t.GetProperty("rows").GetArrayLength()));
         Assert.Equal("account", tabs[0].GetProperty("id").GetString());
     }
 
-    private const string ReviewedSha256 = "96d649821ae721ebcf7ee6ac5d7119cc93c3d90732061a15ee78a3e0d2bfaa70";
+    private const string ReviewedSha256 = "84b29985bfef6acd9bb7574478ccf040b5c88acbb24a171ee0902dd5aed46a3a";
 }

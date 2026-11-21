@@ -13,7 +13,7 @@ streams m0-cat-a, m0-cat-b and m0-cat-c, then completed and sample-reviewed by m
 | `interactions.csv` (+ `interactions.md`) | I-001..I-476 | 476 | the parity checklist, re-baselined against Rust `main` |
 | `jmap.csv` | J-001..J-077 | 77 | JMAP-COMPLIANCE.md, one row per requirement |
 | `gaps.csv` | G-001..G-110 | 110 | GAPS.md (P0-P3) plus round-2 items kept for traceability |
-| `settings.csv` | S-<key>, S-keyless-### | 200 | 136 schema keys (wired or unwired in Rust) and 64 keyless rows |
+| `settings.csv` | S-<key>, S-keyless-### | 200 | 138 schema keys (wired or unwired in Rust, plus the Barbican remote-content rows) and 64 keyless rows |
 | `menus.md` | MENU-<name> | 24 | every context menu item by item, with enable rules and confirmations |
 | `behaviours/shortcuts.md`, `behaviours/palette.md` | B-KEY, B-PAL | 28, 21 | shortcuts and the command palette (under behaviours/; PORT-PLAN lists `shortcuts.md` at the root) |
 | `plugins/hooks.csv`, `plugins/slots.csv` | | 218, 58 | the plugin hook and slot catalogues from Bulwark's `lib/plugin-hook-catalog.ts` and `lib/plugin-slot-catalog.ts`, with milestone, owner and call site (`plugins/README.md`) |

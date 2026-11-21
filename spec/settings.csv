@@ -125,9 +125,11 @@ S-pushRelayUrl,unwired,notifications,select,Push relay,"""""",,,inert (D-M6-A03)
 S-unreadBadgeAllAccounts,wired,notifications,toggle,Count unread mail in all accounts,true,mail.rs;main.rs;unified.rs,src/mail.rs:189,storage only: SettingValues; runtime deferred(M8),Windows notification/badge runtime is not implemented yet; SetUiRowsView.Note labels the stored preference as future use.
 S-nestedTags,wired,organize,toggle,Nested tags,null,main.rs;tags.rs,src/main.rs:1025,SidebarViewModel,
 S-avatars.refresh,wired,privacy,button,Refresh sender icons,null,main.rs,src/main.rs:1100,SetUiRowsView.RefreshAvatarsAsync; AvatarService.RefreshAsync,Clears profile-local avatar image cache and invalidates in-flight fetches.
+S-externalContentPolicy,wired,privacy,select,External content,"""ask""",,,RemoteContentRules (Presentation/Mail/Loading); BodyShell,Remote content in a message: always ask (load for this message or trust the sender) / always block (trust only) / always allow. Bulwark stores/settings-store.ts:1118 and email-viewer.tsx:3129-3146.
 S-gravatarAvatars,wired,privacy,toggle,Gravatar photos,false,avatars.rs,src/avatars.rs:33,src/Barbican.App/Composition/Features/ReaderRegistration.cs,
 S-senderFavicons,wired,privacy,toggle,Sender pictures from the web,false,avatars.rs,src/avatars.rs:33,src/Barbican.App/Composition/Features/ReaderRegistration.cs,
 S-showAvatarsInJunk,wired,privacy,toggle,Show avatars in the Junk folder,false,avatars.rs,src/avatars.rs:33,src/Barbican.App/Composition/Features/ReaderRegistration.cs,
+S-trustedSenders,wired,privacy,button,Trusted senders,null,,,TrustedSendersViewModel; SetUiRowsView; TrustedSendersDialogContent,The senders whose remote content loads (trusted-senders.json): view and remove in the dialog; add manually with the same address test. Bulwark components/trusted-senders-modal.tsx.
 S-attachmentImagePreviewsEnabled,wired,reading,toggle,Show image previews in attachments,true,attachments.rs,src/attachments.rs:60,MailListSettings,
 S-emailAlwaysLightMode,wired,reading,toggle,Always show emails in light mode,false,main.rs,src/main.rs:233,BodyAppearance,
 S-hideInlineImageAttachments,wired,reading,toggle,Hide inline images from attachments,true,mail.rs;msgload.rs;reader.rs,src/mail.rs:73,MailListSettings,
