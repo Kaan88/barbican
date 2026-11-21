@@ -31,7 +31,6 @@ Earlier approvals cover only the revisions they name; they do not approve curren
 
 Coordinator follow-ups not yet owned by a package:
 
-- The `SpamScore.dll` CS2012 lock: the bundled add-on projects intermittently build twice in parallel (fix in progress on `m6b/plugin-build-race`).
 - `SrvUiViewModelTests.The_filters_page_lists_enables_and_deletes_a_rule` failed once in a worker run and passed on rerun; treat as flaky until explained.
 - `FeedbackTransition` keeps weak references until Reduce motion is toggled; prune them on unload.
 - Reader actions give add-ons 30 s (`ReaderView.AddOns.cs`); an add-on dialog left open longer is untested.
