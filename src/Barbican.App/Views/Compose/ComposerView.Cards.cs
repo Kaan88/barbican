@@ -241,11 +241,11 @@ public sealed partial class ComposerView
         var text = new StackPanel { Spacing = 1 };
         text.Children.Add(new TextBlock { Text = template.Name, FontSize = 13, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = AppResources.Brush("Text"), TextTrimming = TextTrimming.CharacterEllipsis });
         text.Children.Add(new TextBlock { Text = template.Subject + (template.Category.Length > 0 ? "  ·  " + template.Category : string.Empty), FontSize = 11.5, Foreground = AppResources.Brush("Dim"), TextTrimming = TextTrimming.CharacterEllipsis });
-        var delete = new Button { Style = (Style)Application.Current.Resources["Button.Icon"], Width = 28, Height = 28, CornerRadius = new CornerRadius(14), Content = new Barbican.App.Controls.SIcon { Kind = "Trash", Size = 14 } };
+        var delete = new Button { Style = (Style)Application.Current.Resources["Button.Icon"], Width = 28, Height = 28, CornerRadius = ComposerShape.Circle(28), Content = new Barbican.App.Controls.SIcon { Kind = "Trash", Size = 14 } };
         AutomationProperties.SetAutomationId(delete, $"composer.templates.{index}.delete");
         AutomationProperties.SetName(delete, "Delete " + template.Name);
         delete.Click += (_, _) => _ = picker.DeleteAsync(template);
-        var insert = new Button { Style = (Style)Application.Current.Resources["Button.Action"], HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Left, Height = 46, CornerRadius = new CornerRadius(10), Content = text };
+        var insert = new Button { Style = (Style)Application.Current.Resources["Button.Action"], HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Left, Height = 46, CornerRadius = ComposerShape.Row(10), Content = text };
         AutomationProperties.SetAutomationId(insert, $"composer.templates.{index}");
         AutomationProperties.SetName(insert, "Insert " + template.Name);
         insert.Click += (_, _) => _ = picker.InsertAsync(template);
@@ -271,7 +271,7 @@ public sealed partial class ComposerView
             var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
             row.Children.Add(new Barbican.App.Controls.SIcon { Kind = selected ? "Check" : "Mail", Size = 14, Foreground = AppResources.Brush(selected ? "Accent" : "Faint") });
             row.Children.Add(new TextBlock { Text = identity.Label, FontSize = 13, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center });
-            var button = new Button { Style = (Style)Application.Current.Resources["Button.Action"], HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Left, Height = 36, CornerRadius = new CornerRadius(10), Content = row };
+            var button = new Button { Style = (Style)Application.Current.Resources["Button.Action"], HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Left, Height = 36, CornerRadius = ComposerShape.Row(10), Content = row };
             AutomationProperties.SetAutomationId(button, "composer.from.identity." + id);
             AutomationProperties.SetName(button, identity.Label);
             button.Click += (_, _) =>
@@ -382,7 +382,7 @@ public sealed partial class ComposerView
     internal static Button CardButton(string label, DialogTone tone, string id, Action click, bool stretch = false)
     {
         var style = tone == DialogTone.Primary ? "Button.Primary" : "Button.Action";
-        var button = new Button { Style = (Style)Application.Current.Resources[style], Content = label, Height = 34, CornerRadius = new CornerRadius(17), FontSize = 13 };
+        var button = new Button { Style = (Style)Application.Current.Resources[style], Content = label, Height = 34, CornerRadius = ComposerShape.Pill(34), FontSize = 13 };
         if (tone == DialogTone.Danger)
         {
             button.Foreground = AppResources.Brush("RoseFg");

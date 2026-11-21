@@ -30,7 +30,7 @@ public sealed class AccountPickDialogContent : IDialogContent
                 HorizontalAlignment = HorizontalAlignment.Stretch,
                 HorizontalContentAlignment = HorizontalAlignment.Left,
                 Height = 38,
-                CornerRadius = new CornerRadius(12),
+                CornerRadius = ComposerShape.Row(12),
                 FontSize = 13,
             };
             AutomationProperties.SetAutomationId(button, "mailto.account." + account.User);

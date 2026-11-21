@@ -146,6 +146,8 @@ public sealed partial class ComposerView : UserControl
         DropOverlay.Background = bulwark ? AppResources.Brush("Bg") : AppResources.Brush("Sel");
         DropOverlay.Opacity = bulwark ? 0.8 : 0.92;
         Card.CornerRadius = bulwark ? Look.DialogRadius : new CornerRadius(16);
+        // email-composer.tsx:6270: the attachment strip sits in the same px-4 gutter as the ruled rows
+        AttachmentList.Margin = bulwark ? new Thickness(16, 8, 16, 2) : new Thickness(0, 8, 0, 0);
         BodyRow.Margin = bulwark ? new Thickness(12, 0, 12, 0) : new Thickness(0);
         ApplyFooterLayout(bulwark);
     }
@@ -430,7 +432,7 @@ public sealed partial class ComposerView : UserControl
 
     private static Button Toggle(string text, string id, Action click)
     {
-        var button = new Button { Style = (Style)Application.Current.Resources["Button.Icon"], Height = 26, Padding = new Thickness(8, 0, 8, 0), CornerRadius = new CornerRadius(13), Content = new TextBlock { Text = text, FontSize = 12.5, Foreground = AppResources.Brush("Dim") } };
+        var button = new Button { Style = (Style)Application.Current.Resources["Button.Icon"], Height = 26, Padding = new Thickness(8, 0, 8, 0), CornerRadius = ComposerShape.Pill(26), Content = new TextBlock { Text = text, FontSize = 12.5, Foreground = AppResources.Brush("Dim") } };
         AutomationProperties.SetAutomationId(button, id);
         AutomationProperties.SetName(button, "Add " + text);
         button.Click += (_, _) => click();
@@ -503,9 +505,29 @@ public sealed partial class ComposerView : UserControl
 
     private void OnSendArrowClick(object sender, RoutedEventArgs e) => ShowPanel(CardKind.SendMenu);
 
-    private void OnTemplatesClick(object sender, RoutedEventArgs e) => _ = _vm?.OpenTemplatesAsync();
+    private void OnTemplatesClick(object sender, RoutedEventArgs e)
+    {
+        if (Bulwark)
+        {
+            ShowTemplatesMenu();
+        }
+        else
+        {
+            _ = _vm?.OpenTemplatesAsync();
+        }
+    }
 
-    private void OnOptionsClick(object sender, RoutedEventArgs e) => ShowPanel(CardKind.Options);
+    private void OnOptionsClick(object sender, RoutedEventArgs e)
+    {
+        if (Bulwark)
+        {
+            ShowOptionsMenu();
+        }
+        else
+        {
+            ShowPanel(CardKind.Options);
+        }
+    }
 
     private void OnFromClick(object sender, RoutedEventArgs e) => ShowPanel(CardKind.From);
 
@@ -622,7 +644,7 @@ public sealed partial class ComposerView : UserControl
             row.Children.Add(new ProgressRing { IsActive = true, Width = 14, Height = 14, VerticalAlignment = VerticalAlignment.Center });
         }
 
-        var remove = new Button { Style = (Style)Application.Current.Resources["Button.Icon"], Width = 20, Height = 20, CornerRadius = new CornerRadius(10), Content = new Barbican.App.Controls.SIcon { Kind = "Close", Size = 10 } };
+        var remove = new Button { Style = (Style)Application.Current.Resources["Button.Icon"], Width = 20, Height = 20, CornerRadius = ComposerShape.Circle(20), Content = new Barbican.App.Controls.SIcon { Kind = "Close", Size = 10 } };
         AutomationProperties.SetAutomationId(remove, $"composer.attachment.{index}.remove");
         AutomationProperties.SetName(remove, (item.IsUploading ? "Cancel upload of " : "Remove ") + item.Name);
         remove.Click += (_, _) => _vm?.RemoveAttachment(item);
@@ -633,7 +655,7 @@ public sealed partial class ComposerView : UserControl
             BorderBrush = AppResources.Brush("Line"),
             // email-composer.tsx:6290: flex items-center gap-2 px-3 py-1.5 rounded-md text-sm, bg-muted and no border
             BorderThickness = new Thickness(_theme.Applied?.Bulwark == true ? 0 : 1),
-            CornerRadius = _theme.Applied?.Bulwark == true ? Look.ButtonRadius : new CornerRadius(13),
+            CornerRadius = ComposerShape.Pill(32),
             Height = _theme.Applied?.Bulwark == true ? 32 : 28,
             Padding = new Thickness(10, 0, 4, 0),
             Margin = new Thickness(0, 0, 6, 6),

@@ -49,7 +49,7 @@ public sealed class RecipientFieldView : UserControl
             Background = AppResources.Brush("Popup"),
             BorderBrush = AppResources.Brush("Line"),
             BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(10),
+            CornerRadius = ComposerShape.Row(10),
             MinWidth = 280,
             MaxWidth = 420,
             Padding = new Thickness(4),
@@ -90,7 +90,7 @@ public sealed class RecipientFieldView : UserControl
     {
         var changed = _bulwark != bulwark;
         _bulwark = bulwark;
-        _listBox.CornerRadius = bulwark ? ViewHost.Get<StyleState>().ButtonRadius : new CornerRadius(10);
+        _listBox.CornerRadius = ComposerShape.Row(10);
         _root.Padding = bulwark ? new Thickness(16, 10, 16, 10) : new Thickness(0);
         _root.ColumnSpacing = bulwark ? 8 : 10;
         _label.Width = bulwark ? 64 : 54;
@@ -188,11 +188,11 @@ public sealed class RecipientFieldView : UserControl
         {
             Width = 20,
             Height = 20,
-            CornerRadius = new CornerRadius(10),
+            CornerRadius = ComposerShape.Circle(20),
             Background = chip.Kind == ChipKind.Person ? AppResources.Brush("Tile2") : Transparent(),
             Child = new TextBlock { Text = chip.Initials, FontSize = 9, FontWeight = Microsoft.UI.Text.FontWeights.Bold, Foreground = fg, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center },
         };
-        var remove = new Button { Style = (Style)Application.Current.Resources["Button.Icon"], Width = 20, Height = 20, CornerRadius = new CornerRadius(10), Content = new SIcon { Kind = "Close", Size = 10 } };
+        var remove = new Button { Style = (Style)Application.Current.Resources["Button.Icon"], Width = 20, Height = 20, CornerRadius = ComposerShape.Circle(20), Content = new SIcon { Kind = "Close", Size = 10 } };
         AutomationProperties.SetAutomationId(remove, $"composer.{_field!.Name.ToLowerInvariant()}.chip.{index}.remove");
         AutomationProperties.SetName(remove, "Remove " + chip.Label);
         remove.Click += (_, _) => _field!.Remove(index);
@@ -206,7 +206,7 @@ public sealed class RecipientFieldView : UserControl
             BorderBrush = chip.Armed ? AppResources.Brush("Accent") : AppResources.Brush("Line"),
             BorderThickness = new Thickness(chip.Armed ? 2 : 1),
             // email-composer.tsx:7505: inline-flex px-2 py-0.5 rounded-md text-sm border border-border
-            CornerRadius = _bulwark ? ViewHost.Get<StyleState>().ButtonRadius : new CornerRadius(13),
+            CornerRadius = ComposerShape.Pill(26),
             Height = 26,
             Padding = new Thickness(3, 0, 3, 0),
             Child = row,
@@ -344,7 +344,7 @@ public sealed class RecipientFieldView : UserControl
         {
             Width = 26,
             Height = 26,
-            CornerRadius = new CornerRadius(13),
+            CornerRadius = ComposerShape.Circle(26),
             Background = AppResources.Brush(row.IsGroup ? "SkyBg" : "Tile2"),
             Child = row.IsGroup
                 ? new SIcon { Kind = "Users", Size = 14, Foreground = AppResources.Brush("SkyFg"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center }
@@ -366,7 +366,7 @@ public sealed class RecipientFieldView : UserControl
         var box = new Border
         {
             Padding = new Thickness(8, 5, 8, 5),
-            CornerRadius = new CornerRadius(8),
+            CornerRadius = ComposerShape.Row(8),
             Background = highlighted ? AppResources.Brush("Sel") : Transparent(),
             Child = grid,
         };

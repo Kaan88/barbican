@@ -297,7 +297,14 @@ Legend for each row: **B** = Bulwark, **N** = Barbican now.
 | CP-02 | partly | Options shows the active-count badge and Templates/Options show the chevron (`composer-toolbar-menu.tsx:44-61`). Open: Tags menu (needs a compose-time tag model and `Presentation/Tags`, owned by another package), Formatting toggle (Bulwark shows it only in the phone/dock-compact layouts; Barbican draws its editor toolbar inside the editor), Templates/Options/Attach still open cards, not anchored menus |
 | CP-04 | partly | chips `rounded-md` (ButtonRadius), 14 px text, suggestion list `rounded-md` (`email-composer.tsx:7505,6933`); From dropdown and contact picker unchanged |
 | CP-05 | verified | `TextBox.Bare` is an explicit style, so the WP-2 `MinHeight 40` does not reach the ruled recipient/subject rows |
-| CP-03, 06, 07, 08, 09, 10 | open | not touched (pop-out round trip, canvas toolbar, dialogs in dialog host, attach-from-Files, mentions) |
+| CP-02 (menus) | partly, unbuilt | Bulwark Templates (insert, save) and Options (plain text, read receipt, priority) open an in-window `MenuFlyout` above the button (`ComposerView.Menus.cs`); Bento/Nordic keep cards. The Send arrow keeps its card (Bulwark opens the schedule dialog directly; `tools/compose_send_availability.py` probes the card ids). Tags menu: open, needs a compose-time tag model and `Presentation/Tags` |
+| CP-03 | partly | pop-out and return work on Windows (`tools/check-composer-window.py`); the Linux head still hides the button (Uno multi-window, M9) |
+| CP-06 | open | the canvas-drawn editor toolbar was not restyled (seen in the hidden capture: B I U S, size, colour, align, Link, Image, Table) |
+| CP-07 | partly | card buttons and rows take `ComposerShape` radii and `DialogRadius`; the cards are still not in the shared dialog host (MN-01) |
+| CP-08, CP-09 | open | attach-from-Files, recipient mentions: features |
+| CP-10 | open | offline hint (`composer-offline`) needs a connectivity service |
+| (radii) | closed, unbuilt | literal chip avatar, suggestion row, remove button, card button radii replaced by `ComposerShape` (StyleState) |
+| (strip) | closed, unbuilt | attachment strip sits in the 16 px gutter in Bulwark (the capture showed it flush to the pane edge) |
 | (extra) | closed | attachment cards `rounded-md` no border (`:6290`), drop overlay and card use `DialogRadius`, `bg-background/80` (`:5714`) |
 
 ### 4.6 Search, filters, command palette
