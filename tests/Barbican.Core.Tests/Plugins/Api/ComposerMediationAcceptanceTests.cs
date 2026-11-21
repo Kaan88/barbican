@@ -304,6 +304,13 @@ public sealed class ComposerMediationAcceptanceTests
             return Task.FromResult(new PluginComposerSnapshot(Revision, "subject", Body, ["a@example.org"], [], [], Member ? [new("file", "file.txt", "text/plain", Size)] : [], false));
         }
         public Task<bool> SetSubjectAsync(string subject, string hostRevision, CancellationToken ct) { Writes++; WrittenSubject = subject; WrittenRevision = hostRevision; return Task.FromResult(AcceptWrites); }
+        public Task<PluginComposerBody> ReadBodyAsync(CancellationToken ct) => throw new NotSupportedException();
+        public Task<PluginComposerSelection> ReadSelectionAsync(CancellationToken ct) => throw new NotSupportedException();
+        public Task<bool> ReplaceBodyAsync(PluginComposerContent content, string hostRevision, CancellationToken ct) => throw new NotSupportedException();
+        public Task<bool> ReplaceSelectionAsync(PluginComposerContent content, bool below, string hostRevision, CancellationToken ct) => throw new NotSupportedException();
+        public Task<bool> AttachAsync(PluginComposerBlob blob, string hostRevision, CancellationToken ct) => throw new NotSupportedException();
+        public Task<PluginCheckRequest?> BeginCheckAsync(PluginCheckerRegistration spec, CancellationToken ct) => throw new NotSupportedException();
+        public Task<int> SetAnnotationsAsync(PluginCheckerRegistration spec, string revision, PluginValue annotations, CancellationToken ct) => throw new NotSupportedException();
         public async Task<PluginComposerAttachmentData> ReadAttachmentAsync(string attachmentId, CancellationToken ct)
         {
             AttachmentReads++; Started.TrySetResult();
