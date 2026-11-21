@@ -12,8 +12,9 @@
        form in 32 px padding with 16 px between rows), :1672-1680 (full-width 40 px sign-in button with an icon), :1615-1618 (the "or" rule above the single sign-on button). The backdrop and card
        shape of the legacy styles are applied by code-behind (SignInView.ApplyLook). -->
   <Grid x:Name="Backdrop" Background="{StaticResource Ground}" AutomationProperties.AutomationId="signin" AutomationProperties.Name="Sign in">
-    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollMode="Disabled" VerticalScrollMode="Auto" IsTabStop="False">
-    <Border x:Name="Card" MaxWidth="400" HorizontalAlignment="Stretch" VerticalAlignment="Center" Margin="16,32" Padding="0" Background="{StaticResource Tile}" BorderBrush="{StaticResource Line}"
+    <ScrollViewer x:Name="Scroller" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" HorizontalScrollMode="Disabled" VerticalScrollMode="Auto" IsTabStop="False" SizeChanged="OnScrollerSizeChanged">
+    <Grid x:Name="Stage">
+    <Border x:Name="Card" Width="400" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,32" Padding="0" Background="{StaticResource Tile}" BorderBrush="{StaticResource Line}"
             BorderThickness="1" CornerRadius="8">
       <StackPanel>
         <StackPanel Padding="32,40,32,24" Spacing="6" HorizontalAlignment="Stretch">
@@ -95,6 +96,7 @@
       </StackPanel>
       </StackPanel>
     </Border>
+    </Grid>
     </ScrollViewer>
   </Grid>
 </UserControl>

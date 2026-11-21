@@ -142,6 +142,7 @@ public sealed partial class ShellPage : Page
         _overview = ViewHost.Find<IAccountOverview>();
         var signIn = SignInRegion.Model;
         _signIn = signIn;
+        SignInRegion.LookApplied += (_, _) => ApplyBandColour();
         var switcher = ViewHost.Get<AccountsViewModel>();
         accounts.ActiveChanged += (_, _) => DispatcherQueue.TryEnqueue(() => { ApplyAppAvailability(); ShowScreen(); });
         if (_overview is not null)
@@ -237,7 +238,7 @@ public sealed partial class ShellPage : Page
         ReaderColumn.Visibility = phone && !reading && !_composing ? Visibility.Collapsed : Visibility.Visible;
         ListHandle.Visibility = phone ? Visibility.Collapsed : ListColumn.Visibility;
         ReaderRegion.SetFullscreen(fullscreen);
-        _phoneBarWanted = phone && !reading && !_composing;
+        _phoneBarWanted = phone && !reading && !_composing && !drawer;
         UpdatePhoneBar();
         UIElement? incoming = ReaderColumn.Visibility == Visibility.Visible ? ReaderColumn : ListColumn;
         UpdateCompactTransition(phone ? incoming : null);
@@ -432,9 +433,16 @@ public sealed partial class ShellPage : Page
         }
 
         SignInRegion.Visibility = signedOut ? Visibility.Visible : Visibility.Collapsed;
+        ApplyBandColour();
         var calendar = !signedOut && _shell?.ActiveApp == AppId.Calendar && _shell.AvailableApps.Contains(AppId.Calendar);
         var other = signedOut || _shell is null || calendar ? null : _factories.FirstOrDefault(f => f.App == _shell.ActiveApp && _shell.AvailableApps.Contains(f.App));
         MailScreen.Visibility = signedOut || calendar || other is not null ? Visibility.Collapsed : Visibility.Visible;
+        if (_compactFoldersOpen && MailScreen.Visibility != Visibility.Visible)
+        {
+            // leaving the mail screen closes the folder drawer (it belongs to Mail)
+            CloseCompactFolders();
+        }
+
         UpdatePhoneBar();
         ShowCalendar(calendar);
         ShowAppScreen(other);

@@ -40,6 +40,19 @@ public sealed partial class SignInView : UserControl
         };
     }
 
+    /// <summary>The colour the backdrop starts with (the title band takes it so the window reads as one surface), or null outside Bulwark.</summary>
+    public Windows.UI.Color? WashColor { get; private set; }
+
+    /// <summary>The backdrop was repainted (style or theme change).</summary>
+    public event EventHandler? LookApplied;
+
+    // the card is 400 px wide at most (login.css .login-panel max-width) with 16 px of page padding, and stays centred in a window of any height
+    private void OnScrollerSizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        Card.Width = Math.Clamp(Scroller.ActualWidth - 32, 0, 400);
+        Stage.MinHeight = Scroller.ActualHeight;
+    }
+
     private void OnLookChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e) => ApplyLook();
 
     private void OnCssApplied(object? sender, ThemeCssEventArgs e) => DispatcherQueue.TryEnqueue(ApplyLook);
@@ -58,6 +71,8 @@ public sealed partial class SignInView : UserControl
             Backdrop.Background = AppResources.Brush("Ground");
             Card.CornerRadius = new CornerRadius(Look.PaneRadius.TopLeft);
             Card.BorderThickness = Look.PaneBorder;
+            WashColor = null;
+            LookApplied?.Invoke(this, EventArgs.Empty);
             return;
         }
 
@@ -72,6 +87,8 @@ public sealed partial class SignInView : UserControl
         Backdrop.Background = brush;
         Card.CornerRadius = new CornerRadius(8);
         Card.BorderThickness = new Thickness(1);
+        WashColor = wash;
+        LookApplied?.Invoke(this, EventArgs.Empty);
     }
 
     public SignInViewModel Model { get; }

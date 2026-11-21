@@ -26,6 +26,12 @@ public sealed partial class ShellPage
     private DispatcherQueueTimer? _statusTimer;
     private Storyboard? _drawerSlide;
 
+    // Over the sign-in screen the title band takes the colour the backdrop starts with, so the window reads as one surface (login.css: the backdrop is fixed to the whole window)
+    private void ApplyBandColour() =>
+        TitleBand.Background = SignInRegion.Visibility == Visibility.Visible && SignInRegion.WashColor is { } wash
+            ? new Microsoft.UI.Xaml.Media.SolidColorBrush(wash)
+            : new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent);
+
     // the tab bar shows with the mail screen's list in the phone layout; the other app screens keep their rail
     private void UpdatePhoneBar() =>
         PhoneBar.Visibility = _phoneBarWanted && MailScreen.Visibility == Visibility.Visible ? Visibility.Visible : Visibility.Collapsed;
@@ -47,7 +53,9 @@ public sealed partial class ShellPage
         {
             DrawerScrim.Show();
             SlideDrawerIn();
-            DispatcherQueue.TryEnqueue(() => SidebarRegion.Focus(FocusState.Programmatic));
+            // a pointer that opened it gets no focus ring (focus-visible only for the keyboard); the focus goes into the drawer either way
+            var state = CompactFolders.FocusState == FocusState.Pointer ? FocusState.Pointer : FocusState.Programmatic;
+            DispatcherQueue.TryEnqueue(() => SidebarRegion.Focus(state));
         }
         else
         {
