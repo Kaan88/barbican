@@ -24,6 +24,9 @@ public static class AppResources
         _stylesLoaded = true;
         var merged = Application.Current.Resources.MergedDictionaries;
         merged.Add(new ResourceDictionary { Source = new Uri("ms-appx:///Styles/Controls.xaml") });
+        // the stock Fluent controls dressed as Bulwark ones (after Controls.xaml: it reads the Feedback* brushes); the two radii it uses come from FluentShape
+        FluentShape.Apply(_shapeStyle);
+        merged.Add(new ResourceDictionary { Source = new Uri("ms-appx:///Styles/FluentOverrides.xaml") });
         FocusRing.Install();
         FluentMotion.Apply(MotionRuntime.Scale);
     }
@@ -42,6 +45,7 @@ public static class AppResources
         }
 
         _shapeStyle = style;
+        FluentShape.Apply(style);
         var merged = Application.Current.Resources.MergedDictionaries;
         for (var i = 0; i < merged.Count; i++)
         {
