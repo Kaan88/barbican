@@ -1,10 +1,18 @@
 # Release: push a tag v1.2.3 (stable) or v1.2.3-beta.1 (beta).
 #
 # Builds and tests on Windows x64 and Ubuntu, packages
-#   Windows: per-user MSI (cargo-wix, wix/main.wxs) + portable zip
+#   Windows: per-user Inno Setup installer (packaging/inno/barbican.iss) + portable zip
+#            (the MSI, cargo-wix + wix/main.wxs, is on hold: built only when vars.BUILD_MSI is "true")
 #   Linux:   AppImage (linuxdeploy) + .deb (cargo-deb)
-# then writes SHA256SUMS and the signed update manifest (<channel>.json + .sig, read by
-# src/updater.rs) and uploads everything to a GitHub release.
+# then writes SHA256SUMS, the signed update manifest (<channel>.json + .sig, read by
+# src/updater.rs) and hub.txt (read by Hub, the owner's launcher: Hub's docs/COMPLIANCE.md), and
+# uploads everything to a GitHub release.
+#
+# CHANGELOG.md drives the notes: the tag's version needs a "## <version>" entry (the first job
+# fails the release without one); the entry is the release body and release-notes-<version>.md, its
+# first line is the one-line note in hub.txt. Stable tags (v1.2.0) make a normal release, which
+# is what Hub's releases/latest finds; tags with a suffix (v1.2.0-beta.1) make a pre-release, which
+# Hub never sees. Never a draft: Hub cannot see drafts. Tags are v<version>.
 #
 # Secrets / variables (all optional; without them the build still works, unsigned):
 #   secrets.BARBICAN_UPDATE_SIGNING_KEY   base64 Ed25519 seed for the update manifest
@@ -20,8 +28,10 @@
 #                                         Manifests expire after 180 days: release, or re-run
 #                                         the manifest tool, more often than that.
 #   vars.BARBICAN_RELEASES_URL            page "Download" opens
+#   vars.BUILD_MSI                        "true" builds the MSI too (on hold; a failing MSI never
+#                                         fails the release)
 #   secrets.WINDOWS_CERT_PFX_BASE64 / secrets.WINDOWS_CERT_PASSWORD
-#                                         Authenticode: signs barbican.exe and the MSI
+#                                         Authenticode: signs barbican.exe, the setup and the MSI
 #   secrets.GPG_PRIVATE_KEY / secrets.GPG_PASSPHRASE
 #                                         detached SHA256SUMS.asc
 # The app only checks for updates when it was built with both the feed and the public key.
@@ -40,7 +50,23 @@ env:
   BARBICAN_RELEASES_URL: ${{ vars.BARBICAN_RELEASES_URL }}
 
 jobs:
+  changelog:
+    # Fails in seconds, before any build, when the tag has no CHANGELOG.md entry.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Entry for the tag, and the release tools' tests
+        shell: pwsh
+        run: |
+          $v = $env:GITHUB_REF_NAME.TrimStart('v')
+          $n = & ./tools/changelog-notes.ps1 -Version $v
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          Write-Host "Hub note: $($n.OneLine)"
+          & ./tools/test-release-tools.ps1
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
   windows:
+    needs: changelog
     runs-on: windows-latest
     env:
       HAS_CERT: ${{ secrets.WINDOWS_CERT_PFX_BASE64 != '' }}
@@ -51,6 +77,7 @@ jobs:
       - name: Version from the tag
         shell: bash
         run: |
+          # Cargo.lock follows on the next cargo command: no --locked here, or the bump would fail it
           v="${GITHUB_REF_NAME#v}"
           sed -i "0,/^version = \".*\"/s//version = \"${v}\"/" Cargo.toml
           grep -m1 '^version' Cargo.toml
@@ -58,6 +85,13 @@ jobs:
         run: cargo test --release -j 4
       - name: Build
         run: cargo build --release -j 4
+      - name: barbican.exe carries the release version (Hub reads it)
+        shell: pwsh
+        run: |
+          $v = $env:GITHUB_REF_NAME.TrimStart('v')
+          $i = (Get-Item target\release\barbican.exe).VersionInfo
+          Write-Host "ProductVersion $($i.ProductVersion), FileVersion $($i.FileVersion)"
+          if ($i.ProductVersion -ne $v) { throw "barbican.exe has no version resource, or not $v (is rc.exe on the runner?)" }
       - name: Sign barbican.exe (hook)
         if: env.HAS_CERT == 'true'
         env:
@@ -68,7 +102,23 @@ jobs:
           [IO.File]::WriteAllBytes("$env:RUNNER_TEMP\cert.pfx", [Convert]::FromBase64String($env:CERT))
           $st = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" | Select-Object -Last 1
           & $st.FullName sign /f "$env:RUNNER_TEMP\cert.pfx" /p $env:CERT_PASSWORD /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 target\release\barbican.exe
-      - name: WiX 3 toolset
+      - name: Inno Setup installer
+        shell: pwsh
+        run: |
+          $v = $env:GITHUB_REF_NAME.TrimStart('v')
+          ./tools/build-inno.ps1 -Version $v -Out dist
+          if (-not $?) { exit 1 }
+      - name: Sign the installer (hook)
+        if: env.HAS_CERT == 'true'
+        env:
+          CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+        shell: pwsh
+        run: |
+          $st = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" | Select-Object -Last 1
+          & $st.FullName sign /f "$env:RUNNER_TEMP\cert.pfx" /p $env:CERT_PASSWORD /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 (Get-ChildItem dist\Barbican-Setup-*.exe).FullName
+      - name: WiX 3 toolset (MSI, on hold)
+        if: vars.BUILD_MSI == 'true'
+        continue-on-error: true
         shell: pwsh
         run: |
           if (-not (Get-Command candle.exe -ErrorAction SilentlyContinue)) {
@@ -77,7 +127,10 @@ jobs:
             "WIX=$(Split-Path $bin)\" >> $env:GITHUB_ENV
             $bin >> $env:GITHUB_PATH
           }
-      - name: MSI
+      - name: MSI (on hold)
+        id: msi
+        if: vars.BUILD_MSI == 'true'
+        continue-on-error: true
         shell: pwsh
         run: |
           cargo install cargo-wix --locked
@@ -88,7 +141,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit 1 }
           cargo wix --no-build --nocapture --install-version $mv --output "dist\Barbican-$v-x86_64.msi"
       - name: Sign MSI (hook)
-        if: env.HAS_CERT == 'true'
+        if: env.HAS_CERT == 'true' && vars.BUILD_MSI == 'true' && steps.msi.outcome == 'success'
+        continue-on-error: true
         env:
           CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
         shell: pwsh
@@ -150,7 +204,7 @@ jobs:
           path: dist/*
 
   publish:
-    needs: [windows, linux]
+    needs: [changelog, windows, linux]
     runs-on: ubuntu-22.04
     env:
       HAS_GPG: ${{ secrets.GPG_PRIVATE_KEY != '' }}
@@ -161,6 +215,13 @@ jobs:
         with:
           path: dist
           merge-multiple: true
+      - name: Release notes from CHANGELOG.md
+        shell: pwsh
+        run: |
+          $v = $env:GITHUB_REF_NAME.TrimStart('v')
+          $n = & ./tools/changelog-notes.ps1 -Version $v -Out "dist/release-notes-$v.md"
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          Get-Content "dist/release-notes-$v.md"
       - name: Checksums and signed update manifest
         env:
           BARBICAN_UPDATE_SIGNING_KEY: ${{ secrets.BARBICAN_UPDATE_SIGNING_KEY }}
@@ -180,6 +241,24 @@ jobs:
           notes="https://github.com/${GITHUB_REPOSITORY}/releases/tag/${GITHUB_REF_NAME}"
           cargo run --release --example release_manifest -- "${GITHUB_REF_NAME}" dist "$base" "$notes"
           cat dist/SHA256SUMS
+      - name: hub.txt (for Hub), written from the uploaded files and checked
+        shell: pwsh
+        run: |
+          $v = $env:GITHUB_REF_NAME.TrimStart('v')
+          $n = & ./tools/changelog-notes.ps1 -Version $v
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          $files = @(
+            @{ Name = "Barbican-Setup-$v.exe"; Path = "dist/Barbican-Setup-$v.exe"; Role = 'setup'
+               Silent = '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART'; Scope = 'user' }
+          )
+          # in-process (&), not a child pwsh -File: the file list is hashtables
+          & ./tools/write-hub-txt.ps1 -App barbican -Repo barbican -Version $v -Notes $n.OneLine `
+            -NotesFile "release-notes-$v.md" -Kind setup -Exe barbican.exe `
+            -Uninstall '{ACE04D99-4564-4E70-9A43-FE47A6A0E3B5}_is1' -Wait barbican.exe -Files $files -Out dist/hub.txt
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          ./tools/verify-hub-txt.ps1 -HubTxt dist/hub.txt -Dir dist
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          Get-Content dist/hub.txt
       - name: Sign checksums (hook)
         if: env.HAS_GPG == 'true'
         env:
@@ -192,6 +271,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          pre=""
-          case "${GITHUB_REF_NAME}" in *-*) pre="--prerelease" ;; esac
-          gh release create "${GITHUB_REF_NAME}" dist/* --title "Barbican ${GITHUB_REF_NAME#v}" --generate-notes $pre
+          # Hub reads releases/latest, which skips drafts and pre-releases: a stable tag is a normal
+          # release marked latest, a tag with a suffix (v1.2.0-beta.1) is a pre-release, and none is a draft
+          kind="--latest"
+          case "${GITHUB_REF_NAME}" in *-*) kind="--prerelease" ;; esac
+          gh release create "${GITHUB_REF_NAME}" dist/* --title "Barbican ${GITHUB_REF_NAME#v}" \
+            --notes-file "dist/release-notes-${GITHUB_REF_NAME#v}.md" $kind
