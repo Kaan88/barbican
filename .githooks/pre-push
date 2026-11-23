@@ -1,0 +1,4 @@
+#!/bin/sh
+# Enable with: git config core.hooksPath .githooks
+# Blocks the push when tools/privacy-check.sh finds personal data (see CONTRIBUTING-DEV.md).
+exec sh "$(git rev-parse --show-toplevel)/tools/privacy-check.sh" HEAD
