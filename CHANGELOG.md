@@ -1,0 +1,14 @@
+# Changelog
+
+Each release of Barbican is listed here, newest first. The section for a version is the text of its
+GitHub release, its first line is the note Hub shows, and a release is refused when the version
+has no section here. Before tagging, rename "Unreleased" to the version and the date, for
+example "## 0.1.0 — 2026-12-01", and start a new "Unreleased" above it.
+
+## Unreleased
+
+- First installable build: a per-user Windows installer (Inno Setup, Barbican-Setup-<version>.exe), next to the portable zip, with a Start menu shortcut, an optional desktop shortcut and upgrade in place. It needs no administrator rights, and it stops a running Barbican (including one only in the tray) before it replaces the program.
+- barbican.exe carries a Windows version resource and the application icon, so Explorer and Hub show the right version.
+- Updates: an install made with the new installer can update itself like the MSI one does (signed manifest, SHA-256 check, installed only when you say so).
+- Mail, calendar and contacts in the Bento × Nordic design, with a native rich-text composer (spelling, tables, images), a unified inbox, schedule send, invitations, filters and Sieve extras, a command palette and search, drag and drop, and .eml/.mbox import.
+- Settings include an accessibility page; the app can start in the tray, close to the tray and show an unread badge.
