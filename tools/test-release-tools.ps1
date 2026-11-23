@@ -78,6 +78,23 @@ Plain paragraph first.
     Check (-not ((& $get 'notes') -match [char]0xFFFD)) 'notes are cut on a character boundary'
     Check ((& $get 'windows-x86_64.uninstall') -eq '{ACE04D99-4564-4E70-9A43-FE47A6A0E3B5}_is1' -and (& $get 'windows-x86_64.wait') -eq 'barbican.exe') 'uninstall key and wait list'
     Check ((& $get 'notes.file') -eq 'release-notes-1.2.0.md') 'notes.file names the notes asset'
+
+    # ---- verify-hub-txt
+    $verify = Join-Path $PSScriptRoot 'verify-hub-txt.ps1'
+    Check ((Run-Child @($verify, '-HubTxt', $out, '-Dir', $scratch)) -eq 1) 'verify refuses while the notes asset is missing'
+    [IO.File]::WriteAllText((Join-Path $scratch 'release-notes-1.2.0.md'), "notes`n")
+    Check ((Run-Child @($verify, '-HubTxt', $out, '-Dir', $scratch)) -eq 0) 'verify accepts hub.txt next to its files'
+    [IO.File]::AppendAllText($setup, 'x')
+    Check ((Run-Child @($verify, '-HubTxt', $out, '-Dir', $scratch)) -eq 1) 'verify refuses a changed installer'
+
+    # ---- the installer compiles (only where Inno Setup is installed; CI always has it)
+    $iscc = Get-ChildItem "${env:ProgramFiles(x86)}\Inno Setup *\ISCC.exe", "$env:ProgramFiles\Inno Setup *\ISCC.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($iscc) {
+        $stand = Join-Path $scratch 'barbican.exe'
+        [IO.File]::WriteAllText($stand, 'stand-in')
+        & (Join-Path $PSScriptRoot 'build-inno.ps1') -Version 1.2.0-beta.1 -Exe $stand -Out (Join-Path $scratch 'inno') | Out-Null
+        Check (Test-Path (Join-Path $scratch 'inno\Barbican-Setup-1.2.0-beta.1.exe')) 'barbican.iss compiles (stand-in exe)'
+    } else { Write-Host 'skip  Inno Setup not installed' }
 } finally {
     Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction SilentlyContinue
 }
