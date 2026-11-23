@@ -2,7 +2,7 @@
 
 **Goal: 1:1 feature parity with Bulwark webmail 1.21.2, including a plugin system with a comparable API.** Barbican has its own native plugin system (C ABI, no web runtime). Bulwark's hooks, slots and host API are the reference vocabulary, so a Bulwark plugin can be ported by hand. Running Bulwark plugins unchanged is **not** a goal (decided 2026-11-23: a web-based plugin runtime is too much complexity).
 
-Updated 2026-11-23, after the C# port was dropped (PORT-PLAN-DROPPED.md).
+Updated 2026-11-23 (0.1.0 released, schedule added), after the C# port was dropped (PORT-PLAN-DROPPED.md).
 
 **Inputs:**
 - GAPS.md: Bulwark gaps, as P0–P3.
@@ -16,6 +16,32 @@ Sizes: S = up to 2 days, M = up to a week, L = several weeks. Two tracks run sid
 - **B** builds the plugin platform. B reaches a slot or hook only once A has built the screen behind it.
 
 ---
+
+## Schedule
+
+Week 0 is the week of 2026-11-23. Estimates are rough and assume one coordinator, one worker and one reviewer running the branch loop (worker edits in a worktree, Opus reviews, the coordinator merges). A phase starts when the one before it in the same track is merged.
+
+**Status at 0.1.0:** Phase 0 items 1, 2, 6, 7 and 8 are merged (privacy hook, mail frame, plugin safety, plugin catalogue, `spec/parity.csv`). Items 3, 4 and 5 are not. The Inno installer, Hub release files and changelog-driven release workflow are in. Not yet done anywhere: the installer has never been run, the updater has never run end to end, there is no LICENSE, and the Hub catalog entry is an open PR.
+
+| Release | Weeks | Contents | Done when |
+|---|---|---|---|
+| **0.1.1** | 1 | Phase 0 items 3, 4, 5 (sign-in safety, per-profile credentials, sign-out cleanup). Dependabot alert. LICENSE decision. Hub catalog entry merged. Installer and updater run once by the owner on a VM. | Fresh install, sign-in, sign-out, upgrade 0.1.0 to 0.1.1 and uninstall all work on a clean Windows VM; Hub offers the update. |
+| **0.2** | 2-4 | Phase 1 (P0 leftovers). Phase 2 (reader safety and mail moves). B1: plugin API v2 design, the `barbican_status` column filled for all 462 catalogue rows. | Every Phase 1 row and every Phase 2 row is `done` in `spec/parity.csv`; PLUGINS.md describes API v2. |
+| **0.3** | 5-8 | Phase 3 (server settings and account, settings sync first). B2 manifest, permissions, consent, package format. B3 core host API (storage, settings schema, toast, dialog, fetch). | Settings written by Barbican show up in Bulwark and the other way round; a plugin can be installed, shown a consent dialog and given storage. |
+| **0.4** | 9-11 | Phase 4 (Files depth). B4 hooks for mail and composer, send hooks fail closed. B7 first proof: the spam-score plugin ported. | Files rows `done`; the spam-score plugin runs through the public API only. |
+| **0.5** | 12-17 | Phase 6 (shell, list, composer, printing, the unwired settings, themes). B5 declarative slots on those screens. B6 `email.*`, `compose.*`, `tabs.*`, `search.*` host calls. | The roughly 40 dead settings are wired or labelled; a plugin adds a reader slot and a list tab. |
+| **0.6** | 18-21 | B6 `calendar.*`, `contacts.*`, `files.*`. B7 second proof plugin (slot plus storage) and the porting guide. Phase 7 item 1: offline mode and outbox. | Two ported plugins; outbox sends exactly once in the kill-the-app test. |
+| **1.0** | 22-28 | Phase 7 items 2-5 (i18n and time zone, admin writes, delegation and Pro, Files sync and WOPI). Plugin sandbox decision made and recorded. Track C: Linux build and updater rollback marker. | `spec/parity.csv` has no open row except those marked `wont-do` with a reason; clean-VM install, upgrade and uninstall pass; Linux package installs and signs in. |
+
+**Rules that gate every release:**
+1. `cargo test` on `main` and `bash tools/test-privacy-check.sh` pass; `python -I tools/parity-check.py` is OK.
+2. Every row moved to `done` cites the Bulwark file:line and the Rust call site.
+3. The owner runs the installer on a VM before the tag (no installers on the development PC).
+4. The changelog has the version section before the tag; the push goes through the privacy hook.
+
+**Parallelism:** track A and track B run side by side, but never two writers on the same files, and only one cargo command at a time on this machine. B4-B6 follow the screens track A has built.
+
+**Decisions needed by week:** LICENSE (week 1); installer decisions from the 0.1.0 handoff (week 1); Linux builds on or off for releases (week 4); plugin distribution format (before 0.3); sandbox (before 1.0).
 
 ## Phase 0: foundations (about 1 week, do first)
 
