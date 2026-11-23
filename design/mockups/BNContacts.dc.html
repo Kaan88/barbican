@@ -133,7 +133,7 @@ class Component extends DCLogic {
     const groups = [['Design team', '6', t.roseBg, t.roseFg], ['Family', '9', t.amberBg, t.amberFg], ['Book club', '5', t.mintBg, t.mintFg]].map(([name, n, bg, fg]) => ({ name, n, bg, fg }));
     const cats = ['Clients', 'Suppliers', 'Friends', 'VIP', 'No category'];
     const tints = [[t.roseBg, t.roseFg], [t.skyBg, t.skyFg], [t.mintBg, t.mintFg], [t.amberBg, t.amberFg]];
-    const people = [['Ada Kasım', 'Sister · Family', 'A'], ['Arjen de Boer', 'Studio North'], ['Hetzner Support', 'support@hetzner.com', 'H'], ['Jonas Weber', 'Finance · example', 'J'], ['Lena Vos', 'Studio North', 'L'], ['Mira Okafor', 'Creative lead · Studio North', 'M', true], ['Mehmet Yılmaz', 'Accountant'], ['Stalwart Labs', 'hello@stalw.art', 'S']].map(([name, sub, letter, sel], i) => ({
+    const people = [['Sam Example', 'Contact · Family', 'S'], ['Arjen de Boer', 'Studio North'], ['Hetzner Support', 'support@hetzner.com', 'H'], ['Jonas Weber', 'Finance · example', 'J'], ['Lena Vos', 'Studio North', 'L'], ['Mira Okafor', 'Creative lead · Studio North', 'M', true], ['Mehmet Yılmaz', 'Accountant'], ['Stalwart Labs', 'hello@stalw.art', 'S']].map(([name, sub, letter, sel], i) => ({
       name, sub, letter: letter || '', bg: tints[i % 4][0], fg: tints[i % 4][1], ini: name.split(' ').map(w => w[0]).join('').slice(0, 2),
       rowStyle: 'display: flex; gap: 11px; align-items: center; padding: 8px 12px; margin: 0 2px; border-radius: 16px;' + (sel ? 'background: ' + t.sel + ';' : '')
     }));

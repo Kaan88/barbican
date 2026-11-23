@@ -32,13 +32,18 @@ workflow builds it from the tag and signs it when the Authenticode secrets are s
   asks it to close and polls for up to 30 s; it never ends the process. Still running after that,
   setup stops with a message asking you to close Barbican first (a silent setup exits non-zero,
   a silent uninstall fails the same way), and nothing is installed or removed. Only the exe in the
-  install folder is asked: another copy, such as a development build, is left alone.
+  install folder is asked: another copy, such as a development build, is left alone. If PowerShell
+  cannot be started at all, the same question is answered by the app's own mutex
+  (`Local\Barbican.Instance`, `src/platform/win.rs`): no mutex, no running Barbican, setup goes on.
+- The path handed to PowerShell can contain a quote character (a profile folder named `O'Brien`
+  or a curly-quote variant): every character PowerShell reads as a single quote is doubled, so the
+  path cannot end the string early and become commands.
 - Two setups cannot run at once (`SetupMutex`, `Global\BarbicanSetup`).
 - Uninstalling removes the registry entries Barbican wrote for itself: the `Run` value `Barbican`
   (start at login), the `mailto:` registration (`Software\Classes\Barbican.Url.mailto`,
   `Software\Clients\Mail\Barbican`, `Software\RegisteredApplications` value `Barbican`) and the
-  toast app id. The `[Registry]` entries that only clean up have `ValueType: none`, so setup
-  creates nothing there; only the uninstaller acts on them.
+  toast app id. The `[Registry]` entries that only clean up have `ValueType: none` and
+  `dontcreatekey`, so setup creates nothing there; only the uninstaller acts on them.
 - A silent install (`/VERYSILENT /SUPPRESSMSGBOXES /NORESTART`) shows nothing, starts nothing and
   exits 0. Interactive installs offer "Start Barbican" at the end.
 - A license page appears only when the repository has a `LICENSE` (or `LICENSE.txt`) file at its

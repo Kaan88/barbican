@@ -544,9 +544,10 @@ pub fn install_now() -> Result<(), String> {
 /// the old one when the install failed or was cancelled; a reboot-required result 3010 also
 /// relaunches). It never ends the app itself: Barbican writes the open draft on quit (up to 15 s,
 /// `quit_saving_draft`) and a kill would lose it, so when the process is still there after 120 s
-/// the helper exits 1, without installing and without a relaunch: the app is still running, and
-/// the update stays offered. The paths come in as environment variables, never spliced into the
-/// script, so nothing in them is run as a command.
+/// the helper exits 1, without installing and without a relaunch. The app keeps running; nothing
+/// is pending by then (`install_now` and `on_start` clear it before starting this helper), so the
+/// next check downloads the update again. The paths come in as environment variables, never
+/// spliced into the script, so nothing in them is run as a command.
 pub const MSI_SCRIPT: &str = "$ErrorActionPreference='SilentlyContinue'; \
 if (Get-Process -Id ([int]$env:BARBICAN_PID) -ErrorAction SilentlyContinue) { \
 Wait-Process -Id ([int]$env:BARBICAN_PID) -Timeout 120 -ErrorAction SilentlyContinue; \
@@ -558,9 +559,10 @@ Start-Process -FilePath $env:BARBICAN_EXE";
 /// exit, runs `BARBICAN_SETUP` silently (no window, no restart; /CLOSEAPPLICATIONS for any other
 /// copy of the program still open), then starts `BARBICAN_EXE` again, the new program or the old
 /// one when the setup failed. It never ends the app either: still running after 120 s means exit 1
-/// and no install, so the draft Barbican is saving is not lost. The setup's own [Run] entry is
-/// skipped when silent, so Barbican starts once. No path is spliced into the script: the arguments
-/// are fixed, the paths are environment variables.
+/// and no install, so the draft Barbican is saving is not lost; the pending download is already
+/// cleared, so the next check fetches the update again. The setup's own [Run] entry is skipped
+/// when silent, so Barbican starts once. No path is spliced into the script: the arguments are
+/// fixed, the paths are environment variables.
 pub const INNO_SCRIPT: &str = "$ErrorActionPreference='SilentlyContinue'; \
 if (Get-Process -Id ([int]$env:BARBICAN_PID) -ErrorAction SilentlyContinue) { \
 Wait-Process -Id ([int]$env:BARBICAN_PID) -Timeout 120 -ErrorAction SilentlyContinue; \

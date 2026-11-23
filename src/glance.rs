@@ -12,7 +12,7 @@ use std::cell::RefCell;
 use std::sync::Arc;
 
 thread_local! {
-    /// First name from the sending identity, for "Good morning, Kaan."
+    /// First name from the sending identity, for "Good morning, Alex."
     static FIRST_NAME: RefCell<String> = const { RefCell::new(String::new()) };
 }
 

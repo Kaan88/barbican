@@ -275,7 +275,8 @@ jobs:
           # release, a tag with a suffix (v1.2.0-beta.1) is a pre-release, and none is a draft.
           # --latest moves releases/latest, so a stable tag only gets it when it is the newest stable
           # version in the repository: an older maintenance tag (v1.2.1 after v1.3.0) would otherwise
-          # move Hub back to it. gh's own default applies when the tag list cannot be read.
+          # move Hub back to it. When the tag list cannot be read (ls-remote failed, newest empty),
+          # kind is still the --latest from above: the release is marked latest as before.
           kind="--latest"
           case "${GITHUB_REF_NAME}" in
             *-*) kind="--prerelease" ;;

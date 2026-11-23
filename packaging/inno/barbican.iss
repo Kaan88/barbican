@@ -106,16 +106,33 @@ Root: HKCU; Subkey: "Software\Classes\AppUserModelId\{#ToastId}"; ValueType: str
 ;   mailto: registration: Software\Classes\Barbican.Url.mailto (src/mailto.rs PROG_ID),
 ;     Software\Clients\Mail\Barbican and the Software\RegisteredApplications value "Barbican"
 ;     (src/mailto.rs windows_plan / windows_unplan)
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: none; ValueName: "Barbican"; Flags: uninsdeletevalue
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: none; ValueName: "Barbican"; Flags: uninsdeletevalue dontcreatekey
 Root: HKCU; Subkey: "Software\Classes\Barbican.Url.mailto"; ValueType: none; Flags: uninsdeletekey dontcreatekey
 Root: HKCU; Subkey: "Software\Clients\Mail\Barbican"; ValueType: none; Flags: uninsdeletekey dontcreatekey
-Root: HKCU; Subkey: "Software\RegisteredApplications"; ValueType: none; ValueName: "Barbican"; Flags: uninsdeletevalue
+Root: HKCU; Subkey: "Software\RegisteredApplications"; ValueType: none; ValueName: "Barbican"; Flags: uninsdeletevalue dontcreatekey
 
 [Run]
 ; Skipped by a silent setup (Hub, or Barbican's own updater, which starts the new exe itself).
 Filename: "{app}\{#AppExe}"; Description: "Start Barbican"; Flags: nowait postinstall skipifsilent
 
 [Code]
+// PowerShell treats the typographic single quotes U+2018, U+2019, U+201A and U+201B as quote
+// characters too, so a path containing one (a profile folder named O'Brien, with a curly quote)
+// would end the '...' literal early and the rest of it would run as commands. This doubles every
+// character PowerShell reads as a single quote; the ASCII ' is doubled by the caller. Chr and
+// StringOfChar, not the characters themselves: this script stays plain ASCII, so it needs no BOM
+// and reads the same in Inno Setup 6 and 7.
+procedure PsQuotePath(var S: String);
+var
+  I: Integer;
+  C: String;
+begin
+  for I := 0 to 3 do begin
+    C := StringOfChar(Chr($2018 + I), 1);
+    StringChangeEx(S, C, C + C, True);
+  end;
+end;
+
 // Ask this install's Barbican to close its window and wait until the process is gone. Barbican
 // writes the open draft when it quits (up to 15 s, src/desktop.rs quit_saving_draft), and with
 // closeToTray its close button only hides the window, so the process may outlive the request.
@@ -133,6 +150,7 @@ begin
   Exe := ExpandConstant('{app}\{#AppExe}');
   if not FileExists(Exe) then Exit;
   StringChangeEx(Exe, '''', '''''', True);
+  PsQuotePath(Exe);
   // 60 x 500 ms = 30 s. 0: gone; 3: still running; anything else: could not tell.
   Script :=
     '$ErrorActionPreference = ''SilentlyContinue''; ' +
@@ -145,8 +163,16 @@ begin
     'exit 3';
   Ps := ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe');
   if not Exec(Ps, '-NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -Command "' + Script + '"',
-    '', SW_HIDE, ewWaitUntilTerminated, Code) then
-    Code := -1;
+    '', SW_HIDE, ewWaitUntilTerminated, Code) then begin
+    // PowerShell would not start, so nothing was asked and nothing was waited for. The app holds
+    // its own mutex for as long as it runs (src/platform/win.rs first_instance), which answers the
+    // one question left: is Barbican running? No mutex, nothing holds {app} open: go on.
+    Log('Could not start ' + Ps + '; checking the app mutex instead.');
+    if CheckForMutexes('Local\Barbican.Instance') then
+      Result := 'Setup could not ask Barbican to close, and Barbican is running, so this program is' + #13#10 +
+        'in use. Close Barbican (right-click its tray icon and choose Quit), then start again.';
+    Exit;
+  end;
   if Code = 0 then Exit;
   Log('Barbican is still running after 30 s (exit code ' + IntToStr(Code) + '); not ending it.');
   Result := 'Barbican is still running, so setup stopped instead of ending it and losing an open' + #13#10 +
