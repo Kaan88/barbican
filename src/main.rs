@@ -38,6 +38,9 @@ mod mail;
 mod unified;
 mod oauth;
 mod plugins;
+mod plugin_catalog;
+#[cfg(test)]
+mod plugin_catalog_check;
 mod server_settings;
 mod settings;
 mod sieve;
@@ -450,9 +453,35 @@ thread_local! {
     static PLUGIN_ERRORS: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
 }
 
-pub fn disabled_plugins() -> Vec<String> {
+/// Plugins the user switched on (allow-list; a plugin that is not in it is neither loaded nor called).
+pub fn enabled_plugins() -> Vec<String> {
     let p = settings::Settings::load();
-    p.prefs.get("disabledPlugins").and_then(|v| v.as_array()).map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect()).unwrap_or_default()
+    p.prefs.get("enabledPlugins").and_then(|v| v.as_array()).map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect()).unwrap_or_default()
+}
+
+/// Load what was switched on, unload what was switched off; returns the allow-list.
+fn plugins_synced() -> Vec<String> {
+    let en = enabled_plugins();
+    let errs = PLUGINS.with(|p| plugins::sync(&mut p.borrow_mut(), &en));
+    if !errs.is_empty() { PLUGIN_ERRORS.with(|e| e.borrow_mut().extend(errs)); }
+    en
+}
+
+/// Rows from the enabled plugins for the open message.
+pub fn plugin_email_details(m: &serde_json::Value) -> Vec<(String, String, String)> {
+    let en = plugins_synced();
+    PLUGINS.with(|p| plugins::email_details(&p.borrow(), &en, m))
+}
+
+/// True when the `spam-score` plugin is on, so the built-in spam panel steps aside.
+pub fn plugin_spam_active() -> bool {
+    let en = plugins_synced();
+    PLUGINS.with(|p| plugins::is_active(&p.borrow(), &en, "spam-score"))
+}
+
+/// Tell the user about plugins that were switched off for failing.
+pub fn plugin_notices(u: &AppWindow) {
+    for n in plugins::drain_notices() { mail::show_toast(u, &n, false); }
 }
 
 pub fn plugin_list() -> Vec<serde_json::Value> {
@@ -464,8 +493,8 @@ pub fn plugin_errors() -> Vec<String> {
 }
 
 pub fn plugin_compose_check(draft: &serde_json::Value) -> Option<String> {
-    let dis = disabled_plugins();
-    PLUGINS.with(|p| plugins::compose_check(&p.borrow(), &dis, draft))
+    let en = plugins_synced();
+    PLUGINS.with(|p| plugins::compose_check(&p.borrow(), &en, draft))
 }
 
 thread_local! {
@@ -717,9 +746,11 @@ fn main() -> Result<(), slint::PlatformError> {
     rte::wire_drop(&ui);
     chips::wire(&ui);
     {
-        let (loaded, errors) = plugins::load_all();
-        PLUGINS.with(|p| *p.borrow_mut() = loaded);
+        // listed, not loaded: a plugin runs only after the user switches it on
+        let (found, errors) = plugins::discover();
+        PLUGINS.with(|p| *p.borrow_mut() = found);
         PLUGIN_ERRORS.with(|e| *e.borrow_mut() = errors);
+        plugins_synced();
     }
     let state: Shared = Arc::new(Mutex::new(None));
     {

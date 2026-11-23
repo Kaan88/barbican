@@ -874,7 +874,9 @@ fn send_at(u: &AppWindow, c: Arc<Client>, prefs: &crate::settings::Settings, at:
         if let Some(w) = pre_send_warning(&o, prefs, verb) { ARMED.with(|a| a.set(Some(at))); u.set_c_status(w.into()); return; }
         let draft = serde_json::json!({"to": o.to, "cc": o.cc, "bcc": o.bcc, "subject": o.subject, "text": o.text,
             "attachments": o.attachments.iter().map(|a| a.name.clone()).collect::<Vec<_>>()});
-        if let Some(w) = crate::plugin_compose_check(&draft) { ARMED.with(|a| a.set(Some(at))); u.set_c_status(format!("{w} Press Send again to {verb} anyway.").into()); return; }
+        let held = crate::plugin_compose_check(&draft);
+        crate::plugin_notices(u);
+        if let Some(w) = held { ARMED.with(|a| a.set(Some(at))); u.set_c_status(format!("{w} Press Send again to {verb} anyway.").into()); return; }
     }
     let delay = prefs.prefs.get("sendDelaySeconds").and_then(|v| v.as_u64()).unwrap_or(5);
     let snapshot = ST.with(|s| {

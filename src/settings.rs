@@ -348,18 +348,18 @@ impl Settings {
                 out.push(text("text", "ai.lang", "Translate into", "", &cfg.lang));
             }
             "addons" => {
-                out.push(row("section", "", "Plugins", "Native plugins dropped into the plugins folder are loaded when Barbican starts."));
-                let disabled: Vec<String> = self.prefs.get("disabledPlugins").and_then(|v| v.as_array())
+                out.push(row("section", "", "Plugins", "Native plugins dropped into the plugins folder stay off until you switch them on. A plugin runs code on your computer: switch on only the ones you trust."));
+                let enabled: Vec<String> = self.prefs.get("enabledPlugins").and_then(|v| v.as_array())
                     .map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect()).unwrap_or_default();
                 let list = crate::plugin_list();
                 if list.is_empty() {
-                    out.push(text("value", "", "No plugins installed", "Copy a plugin .dll into the folder and restart Barbican.", ""));
+                    out.push(text("value", "", "No plugins installed", "Copy a plugin .dll into the folder and reopen Settings.", ""));
                 }
                 for p in list {
                     let id = p["id"].as_str().unwrap_or("");
                     let hooks = p["hooks"].as_array().map(|a| a.iter().filter_map(|h| h.as_str()).collect::<Vec<_>>().join(", ")).unwrap_or_default();
                     out.push(toggle(&format!("plugin:{id}"), &format!("{} {}", p["name"].as_str().unwrap_or(id), p["version"].as_str().unwrap_or("")),
-                        &format!("{}  (hooks: {hooks})", p["description"].as_str().unwrap_or("")), !disabled.iter().any(|d| d == id)));
+                        &format!("{}  (hooks: {hooks})", p["description"].as_str().unwrap_or("")), enabled.iter().any(|d| d == id)));
                 }
                 for e in crate::plugin_errors() {
                     out.push(text("value", "", "Could not load", &e, ""));
@@ -513,10 +513,10 @@ impl Settings {
             }
             k if k.starts_with("plugin:") => {
                 let id = &k[7..];
-                let mut list: Vec<Value> = self.prefs.get("disabledPlugins").and_then(|v| v.as_array().cloned()).unwrap_or_default();
+                let mut list: Vec<Value> = self.prefs.get("enabledPlugins").and_then(|v| v.as_array().cloned()).unwrap_or_default();
                 list.retain(|x| x.as_str() != Some(id));
-                if value.as_bool() == Some(false) { list.push(json!(id)); }
-                self.prefs.insert("disabledPlugins".into(), Value::Array(list));
+                if value.as_bool() == Some(true) { list.push(json!(id)); }
+                self.prefs.insert("enabledPlugins".into(), Value::Array(list));
                 self.save();
                 return;
             }
