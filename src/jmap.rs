@@ -20,6 +20,10 @@ pub struct Client {
     /// Shared with `scoped` clients of the same login.
     requests: Arc<Gate>,
     uploads: Arc<Gate>,
+    /// The server turned the sign-in down (a 401 that renewing did not cure, or a refresh token
+    /// it rejected): no further request goes out with these credentials, so nothing loops on
+    /// them. Shared with `scoped` clients; a new sign-in makes a new `Client`.
+    rejected: Arc<std::sync::atomic::AtomicBool>,
     /// Mailbox role -> id, refreshed by every Mailbox/get of the whole tree.
     roles: std::sync::Mutex<Option<(std::time::Instant, HashMap<String, String>)>>,
 }
@@ -69,9 +73,29 @@ fn absolute(base: &str, u: &str) -> String {
     } else { u.to_string() }
 }
 
-/// Session discovery (RFC 8620 §2.2): GET /.well-known/jmap, following redirects.
+/// Message of every request made after the server turned the sign-in down.
+pub const SESSION_EXPIRED: &str = "Session expired; sign in again.";
+
+/// A sign-in the server turned down (wrong or revoked credentials), as opposed to a network
+/// or server error that may pass: only the first kind is final and never retried.
+pub fn auth_rejected(e: &str) -> bool {
+    e.starts_with("The server did not accept the sign-in token") || e.starts_with("Wrong username, password")
+        || e.starts_with("Session expired")
+        || (e.starts_with("Token request failed (4") && ["invalid_grant", "invalid_client", "unauthorized_client"].iter().any(|k| e.contains(k)))
+}
+
+/// The client every JMAP request uses. It never follows redirects itself: `redirect::send` does
+/// (same origin only, never https to http, capped), so credentials cannot be passed along.
+fn http_client(timeout: Option<std::time::Duration>) -> R<reqwest::blocking::Client> {
+    let mut b = reqwest::blocking::Client::builder().redirect(reqwest::redirect::Policy::none());
+    if let Some(t) = timeout { b = b.timeout(t); }
+    b.build().map_err(e)
+}
+
+/// Session discovery (RFC 8620 §2.2): GET /.well-known/jmap, following same-origin redirects.
 fn fetch_session(http: &reqwest::blocking::Client, base: &str, auth: &str) -> Result<(u16, Value), String> {
-    let resp = http.get(format!("{base}/.well-known/jmap")).header("Authorization", auth).header("Accept", "application/json").send().map_err(e)?;
+    let resp = crate::redirect::send(&format!("{base}/.well-known/jmap"), true,
+        |u| http.get(u).header("Authorization", auth).header("Accept", "application/json"))?;
     let status = resp.status().as_u16();
     if !resp.status().is_success() { return Ok((status, Value::Null)); }
     Ok((status, resp.json().map_err(e)?))
@@ -137,10 +161,7 @@ impl Client {
     }
 
     fn open(base: &str, auth: String, oauth: Option<crate::oauth::Tokens>, user: &str) -> R<Client> {
-        let http = reqwest::blocking::Client::builder()
-            .timeout(std::time::Duration::from_secs(30))
-            .build()
-            .map_err(e)?;
+        let http = http_client(Some(std::time::Duration::from_secs(30)))?;
         let (status, s) = fetch_session(&http, base, &auth)?;
         if status == 401 {
             return Err(if oauth.is_some() { "The server did not accept the sign-in token.".into() } else { "Wrong username, password or 2FA code".into() });
@@ -161,6 +182,7 @@ impl Client {
             http, auth: Arc::new(std::sync::Mutex::new(auth)), oauth: oauth.map(|t| Arc::new(std::sync::Mutex::new(t))),
             base: base.to_string(), account, username, caps,
             requests: gate("maxConcurrentRequests", 4), uploads: gate("maxConcurrentUpload", 4),
+            rejected: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             live: std::sync::RwLock::new(s.clone()), session: s,
             roles: std::sync::Mutex::new(None),
         })
@@ -176,6 +198,7 @@ impl Client {
             caps: self.caps.clone(), session: self.session.clone(),
             live: std::sync::RwLock::new(self.live.read().unwrap().clone()),
             requests: self.requests.clone(), uploads: self.uploads.clone(),
+            rejected: self.rejected.clone(),
             // the role map is per account
             roles: std::sync::Mutex::new(None),
         }
@@ -191,19 +214,46 @@ impl Client {
         if let Some(m) = &self.oauth { m.lock().unwrap().user = user.to_string(); }
     }
 
+    /// Whether the server turned this sign-in down (see `rejected`).
+    pub fn is_rejected(&self) -> bool { self.rejected.load(std::sync::atomic::Ordering::SeqCst) }
+
+    /// Every request starts here: after a rejection nothing more is sent.
+    fn guard(&self) -> R<()> {
+        if self.is_rejected() { Err(SESSION_EXPIRED.into()) } else { Ok(()) }
+    }
+
+    /// The server answered 401 to credentials that were already renewed (or cannot be): final.
+    fn reject(&self) -> String {
+        self.rejected.store(true, std::sync::atomic::Ordering::SeqCst);
+        SESSION_EXPIRED.into()
+    }
+
     fn renew(&self) -> R<()> {
+        self.guard()?;
         let Some(m) = &self.oauth else { return Err("Not an OAuth session".into()) };
         let mut t = m.lock().unwrap();
-        *t = crate::oauth::refresh(&t)?;
+        match crate::oauth::refresh(&t) {
+            Ok(n) => *t = n,
+            Err(err) => {
+                if auth_rejected(&err) { self.rejected.store(true, std::sync::atomic::Ordering::SeqCst); }
+                return Err(err);
+            }
+        }
         *self.auth.lock().unwrap() = format!("Bearer {}", t.access);
         Ok(())
     }
 
-    fn renew_if_due(&self) {
+    /// Renew an expiring token. A network or server hiccup is ignored (the request may still
+    /// work); a rejection is final and returned.
+    fn renew_if_due(&self) -> R<()> {
+        self.guard()?;
         if let Some(m) = &self.oauth {
             let due = m.lock().unwrap().expires.is_some_and(|x| x <= std::time::Instant::now());
-            if due { let _ = self.renew(); }
+            if due {
+                if let Err(err) = self.renew() { if auth_rejected(&err) { return Err(err); } }
+            }
         }
+        Ok(())
     }
 
     fn auth_header(&self) -> String { self.auth.lock().unwrap().clone() }
@@ -214,7 +264,14 @@ impl Client {
 
     /// Re-fetch the session resource (RFC 8620 §3.4: when `sessionState` changes).
     pub fn refresh_session(&self) -> R<()> {
-        let (_, s) = fetch_session(&self.http, &self.base, &self.auth_header())?;
+        self.guard()?;
+        self.renew_if_due()?;
+        let (mut status, mut s) = fetch_session(&self.http, &self.base, &self.auth_header())?;
+        if status == 401 && self.oauth.is_some() {
+            self.renew()?;
+            (status, s) = fetch_session(&self.http, &self.base, &self.auth_header())?;
+        }
+        if status == 401 { return Err(self.reject()); }
         if s["apiUrl"].is_string() { *self.live.write().unwrap() = s; }
         Ok(())
     }
@@ -231,12 +288,12 @@ impl Client {
         if body.len() > max {
             return Err(format!("The request is larger than the server accepts ({} KB).", max / 1000));
         }
-        self.renew_if_due();
+        self.renew_if_due()?;
         let api = absolute(&self.base, self.live.read().unwrap()["apiUrl"].as_str().unwrap_or(""));
         let send = || {
             let _p = self.requests.enter();
-            self.http.post(&api).header("Authorization", self.auth_header()).header("Content-Type", "application/json")
-                .header("Accept", "application/json").body(body.clone()).send().map_err(e)
+            crate::redirect::send(&api, false, |u| self.http.post(u).header("Authorization", self.auth_header())
+                .header("Content-Type", "application/json").header("Accept", "application/json").body(body.clone()))
         };
         let mut resp = send()?;
         if resp.status() == 401 && self.oauth.is_some() {
@@ -249,7 +306,7 @@ impl Client {
             resp = send()?;
         }
         match resp.status().as_u16() {
-            401 => return Err("Session expired; sign in again.".into()),
+            401 => return Err(self.reject()),
             429 => return Err("The server is rate limiting requests; try again shortly.".into()),
             s if s >= 400 => {
                 let v: Value = resp.json().unwrap_or(json!({}));
@@ -775,15 +832,17 @@ impl Client {
         let url = t.replace("{accountId}", &enc(account)).replace("{blobId}", &enc(blob_id))
             .replace("{name}", &enc(if name.is_empty() { "file" } else { name }))
             .replace("{type}", &enc(if mime.is_empty() { "application/octet-stream" } else { mime }));
-        self.renew_if_due();
+        self.renew_if_due()?;
         // no per-request timeout: in reqwest it is a total deadline that also covers reading the
         // body, which a big attachment on a slow link overruns. The client's blocking timeout
         // bounds each wait (headers, every body read) with no overall cap.
-        let mut resp = self.http.get(&url).header("Authorization", self.auth_header()).send().map_err(e)?;
+        let get = || crate::redirect::send(&url, true, |u| self.http.get(u).header("Authorization", self.auth_header()));
+        let mut resp = get()?;
         if resp.status() == 401 && self.oauth.is_some() {
             self.renew()?;
-            resp = self.http.get(&url).header("Authorization", self.auth_header()).send().map_err(e)?;
+            resp = get()?;
         }
+        if resp.status() == 401 { return Err(self.reject()); }
         if !resp.status().is_success() { return Err(format!("Download failed ({})", resp.status())); }
         Ok(resp.bytes().map_err(e)?.to_vec())
     }
@@ -802,19 +861,20 @@ impl Client {
         let url = t.replace("{accountId}", &pct(account));
         let len = data.len();
         let mime = if mime.is_empty() { "application/octet-stream" } else { mime };
-        self.renew_if_due();
+        self.renew_if_due()?;
         // RFC 8620 §6.1 maxConcurrentUpload
         let _p = self.uploads.enter();
         // a request timeout is a total deadline covering the body; scale it with the size
         // (at least 5 min, allowing ~32 KB/s) so slow links can still upload big files
         let limit = std::time::Duration::from_secs(300u64.max(len as u64 / 32_000));
-        let send = |data: Vec<u8>| self.http.post(&url).header("Authorization", self.auth_header()).header("Content-Type", mime)
-            .timeout(limit).body(data).send().map_err(e);
+        let send = |data: Vec<u8>| crate::redirect::send(&url, false, |u| self.http.post(u).header("Authorization", self.auth_header())
+            .header("Content-Type", mime).timeout(limit).body(data.clone()));
         let mut resp = send(data.clone())?;
         if resp.status() == 401 && self.oauth.is_some() {
             self.renew()?;
             resp = send(data)?;
         }
+        if resp.status() == 401 { return Err(self.reject()); }
         if !resp.status().is_success() {
             let s = resp.status().as_u16();
             let v: Value = resp.json().unwrap_or(json!({}));
@@ -1111,15 +1171,17 @@ impl Client {
         let url = t.replace("{types}", &pct(&types).replace("%2C", ",")).replace("{closeafter}", "no").replace("{ping}", "30");
         // reqwest's blocking timeout bounds each read, not the whole stream
         let client = reqwest::blocking::Client::builder().timeout(std::time::Duration::from_secs(75))
+            .redirect(reqwest::redirect::Policy::none())
             .tcp_keepalive(std::time::Duration::from_secs(30)).build().map_err(e)?;
-        self.renew_if_due();
-        let open = || client.get(&url).header("Authorization", self.auth_header()).header("Accept", "text/event-stream")
-            .header("Cache-Control", "no-cache").send().map_err(e);
+        self.renew_if_due()?;
+        let open = || crate::redirect::send(&url, true, |u| client.get(u).header("Authorization", self.auth_header())
+            .header("Accept", "text/event-stream").header("Cache-Control", "no-cache"));
         let mut resp = open()?;
         if resp.status() == 401 && self.oauth.is_some() {
             self.renew()?;
             resp = open()?;
         }
+        if resp.status() == 401 { return Err(self.reject()); }
         if !resp.status().is_success() { return Err(format!("Push failed ({})", resp.status())); }
         if !on_event(PushEvent::Open) { return Ok(()); }
         let reader = std::io::BufReader::new(resp);
@@ -1906,5 +1968,111 @@ mod tests {
         let (part, full) = split_known(&[&a, &b], &have, false);
         assert_eq!(part.len(), 2);
         assert!(full.is_empty());
+    }
+
+    #[test]
+    fn rejection_messages_are_final() {
+        assert!(auth_rejected("Session expired; sign in again."));
+        assert!(auth_rejected("Session expired; sign in again. (Token request failed (400 Bad Request): invalid_grant )"));
+        assert!(auth_rejected("Wrong username, password or 2FA code"));
+        assert!(auth_rejected("The server did not accept the sign-in token."));
+        assert!(auth_rejected("Token request failed (401 Unauthorized): invalid_client "));
+        // trouble that may pass is not final
+        assert!(!auth_rejected("Token request failed (503 Service Unavailable):  "));
+        assert!(!auth_rejected("error sending request"));
+        assert!(!auth_rejected("The request timed out."));
+        assert!(!auth_rejected("Request failed (500)"));
+    }
+
+    /// A server that follows /.well-known/jmap to the session and answers every API call 401:
+    /// the sign-in is tried once, never again.
+    #[test]
+    fn a_401_after_sign_in_is_not_retried_in_a_loop() {
+        use std::io::{Read, Write};
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = l.local_addr().unwrap().port();
+        let (gets, posts) = (Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)));
+        let (g2, p2) = (gets.clone(), posts.clone());
+        std::thread::spawn(move || {
+            for mut sock in l.incoming().flatten() {
+                let mut buf = [0u8; 8192];
+                let n = sock.read(&mut buf).unwrap_or(0);
+                let req = String::from_utf8_lossy(&buf[..n]).to_string();
+                let mut it = req.split_whitespace();
+                let (method, path) = (it.next().unwrap_or(""), it.next().unwrap_or(""));
+                let session = r#"{"apiUrl":"/api","primaryAccounts":{"urn:ietf:params:jmap:mail":"a1"},"username":"u@example.test","capabilities":{"urn:ietf:params:jmap:core":{}},"accounts":{},"state":"s1"}"#;
+                let reply = match (method, path) {
+                    ("GET", "/.well-known/jmap") => { g2.fetch_add(1, Ordering::SeqCst); "HTTP/1.1 302 Found\r\nLocation: /jmap/session\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_string() }
+                    ("GET", "/jmap/session") => { g2.fetch_add(1, Ordering::SeqCst); format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{session}", session.len()) }
+                    ("POST", _) => { p2.fetch_add(1, Ordering::SeqCst); "HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_string() }
+                    _ => "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_string(),
+                };
+                let _ = sock.write_all(reply.as_bytes());
+            }
+        });
+        let c = Client::connect(&format!("http://127.0.0.1:{port}"), "u@example.test", "pw", "").unwrap();
+        assert_eq!(gets.load(Ordering::SeqCst), 2, "the session came through the redirect");
+        assert!(!c.is_rejected());
+        let e1 = c.request(json!([["Core/echo", {}, "0"]])).unwrap_err();
+        assert!(auth_rejected(&e1), "{e1}");
+        assert_eq!(posts.load(Ordering::SeqCst), 1);
+        assert!(c.is_rejected());
+        for _ in 0..3 {
+            assert!(auth_rejected(&c.request(json!([["Core/echo", {}, "0"]])).unwrap_err()));
+            assert!(c.refresh_session().is_err());
+        }
+        assert_eq!(posts.load(Ordering::SeqCst), 1, "no request goes out after the rejection");
+        assert_eq!(gets.load(Ordering::SeqCst), 2);
+        // a shared account of the same login is just as dead
+        assert!(c.scoped("a2").is_rejected());
+    }
+
+    /// A 401 on the session refetch of an OAuth session (token just expired) renews once and
+    /// retries; it does not kill the client.
+    #[test]
+    fn a_401_on_the_session_refetch_renews_the_token_once() {
+        use std::io::{Read, Write};
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = l.local_addr().unwrap().port();
+        let (gets, tokens) = (Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)));
+        let (g2, t2) = (gets.clone(), tokens.clone());
+        std::thread::spawn(move || {
+            for sock in l.incoming() {
+                let Ok(mut sock) = sock else { break };
+                let mut buf = [0u8; 4096];
+                let n = sock.read(&mut buf).unwrap_or(0);
+                let req = String::from_utf8_lossy(&buf[..n]).to_string();
+                let first = req.lines().next().unwrap_or("").to_string();
+                let fresh = req.contains("Bearer fresh-access");
+                let json = |body: &str| format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
+                let reply = if first.starts_with("POST /token") {
+                    t2.fetch_add(1, Ordering::SeqCst);
+                    json(r#"{"access_token":"fresh-access","refresh_token":"r2","expires_in":3600}"#)
+                } else if first.starts_with("GET /.well-known/jmap") {
+                    let nth = g2.fetch_add(1, Ordering::SeqCst);
+                    // the sign-in call is accepted, the old token is dead by the refetch
+                    if nth == 0 || fresh {
+                        json(r#"{"apiUrl":"/api","primaryAccounts":{"urn:ietf:params:jmap:mail":"a1"},"username":"u@example.test","capabilities":{"urn:ietf:params:jmap:core":{}},"accounts":{},"state":"s2"}"#)
+                    } else {
+                        "HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_string()
+                    }
+                } else {
+                    "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_string()
+                };
+                let _ = sock.write_all(reply.as_bytes());
+            }
+        });
+        let tokens_in = crate::oauth::Tokens {
+            access: "old-access".into(), refresh: Some("r1".into()), expires: None,
+            token_endpoint: format!("http://127.0.0.1:{port}/token"), client_id: "barbican-test".into(), user: String::new(),
+        };
+        let c = Client::connect_oauth(&format!("http://127.0.0.1:{port}"), tokens_in).unwrap();
+        assert_eq!(tokens.load(Ordering::SeqCst), 0);
+        c.refresh_session().unwrap();
+        assert!(!c.is_rejected());
+        assert_eq!(tokens.load(Ordering::SeqCst), 1, "renewed once");
+        assert_eq!(gets.load(Ordering::SeqCst), 3, "sign-in, the 401, the retry");
     }
 }

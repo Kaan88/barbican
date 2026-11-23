@@ -16,12 +16,28 @@ pub const APP_ID: &str = "Barbican.Mail";
 pub fn first_instance() -> bool {
     use windows::Win32::Foundation::{GetLastError, ERROR_ALREADY_EXISTS};
     use windows::Win32::System::Threading::CreateMutexW;
-    let name = wide(r"Local\Barbican.Instance");
-    // the handle is leaked on purpose: Windows releases it when the process ends
-    match unsafe { CreateMutexW(None, false, PCWSTR(name.as_ptr())) } {
+    // one per profile: a test or automation run must not count as the user's Barbican
+    let shared = wide(r"Local\Barbican.Instance");
+    let name = match crate::profile::current() {
+        p if crate::profile::is_default(p) => shared.clone(),
+        p => wide(&format!(r"Local\Barbican.Instance.{p}")),
+    };
+    // Any profile also holds the shared name, so the installer never replaces a running Barbican.
+    // And when the shared name was already held (the user's Barbican, or another profile's, is
+    // running), a non-default profile is not "first" either: the update in the shared data_dir()
+    // must never be installed from under a running Barbican by a test, automation or dev run.
+    let mut other_running = false;
+    if !crate::profile::is_default(crate::profile::current()) {
+        if unsafe { CreateMutexW(None, false, PCWSTR(shared.as_ptr())) }.is_ok() {
+            other_running = unsafe { GetLastError() } == ERROR_ALREADY_EXISTS;
+        }
+    }
+    // the handles are leaked on purpose: Windows releases them when the process ends
+    let mine = match unsafe { CreateMutexW(None, false, PCWSTR(name.as_ptr())) } {
         Ok(_) => { let e = unsafe { GetLastError() }; e != ERROR_ALREADY_EXISTS }
         Err(_) => true,
-    }
+    };
+    mine && !other_running
 }
 
 fn wide(s: &str) -> Vec<u16> {

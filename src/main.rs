@@ -39,6 +39,9 @@ mod rte;
 mod mail;
 mod unified;
 mod oauth;
+mod profile;
+mod redirect;
+mod secrets;
 mod plugins;
 mod plugin_catalog;
 #[cfg(test)]
@@ -570,7 +573,7 @@ fn start_push(w: slint::Weak<AppWindow>, c: Arc<jmap::Client>) {
             if !live() { return; }
             let started = std::time::Instant::now();
             let types_wanted = push_types(&c);
-            let _ = c.watch(&types_wanted, &mut |ev| {
+            let res = c.watch(&types_wanted, &mut |ev| {
                 if !live() { return false; }
                 let types: std::collections::HashSet<String> = match ev {
                     jmap::PushEvent::Open => types_wanted.iter().map(|t| t.to_string()).collect(),
@@ -584,6 +587,12 @@ fn start_push(w: slint::Weak<AppWindow>, c: Arc<jmap::Client>) {
                 true
             });
             if !live() { return; }
+            // a rejected sign-in is final: no reconnecting with dead credentials, the user is
+            // told once and signs in again
+            if res.as_ref().err().is_some_and(|e| auth_rejected(e)) {
+                let _ = w.upgrade_in_event_loop(|u| mail::show_toast(&u, "Your sign-in is no longer valid. Sign in again.", false));
+                return;
+            }
             if started.elapsed() > std::time::Duration::from_secs(120) { backoff = 2; }
             let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.subsec_nanos() as u64).unwrap_or(0);
             let wait = backoff * 1000 + nanos % (backoff * 500);
@@ -766,7 +775,9 @@ fn load_mailboxes(ui: slint::Weak<AppWindow>, client: Arc<jmap::Client>, select_
 fn main() -> Result<(), slint::PlatformError> {
     // an update the user approved ("Install next time") installs before anything else
     // (only when no other Barbican runs: the installer would replace it while it is open)
-    if platform::first_instance() && updater::on_start() { return Ok(()); }
+    // first_instance() first: it takes the instance mutex for the life of the process. Only the
+    // default profile installs a pending update (test, automation and dev profiles never do).
+    if platform::first_instance() && profile::is_default(profile::current()) && updater::on_start() { return Ok(()); }
     // Skia: the same text/graphics engine Chrome uses, so text matches Bulwark in the browser
     // (and gets system font fallback for CJK and other scripts).
     let _ = slint::BackendSelector::new().renderer_name("skia".into()).select();
@@ -874,7 +885,6 @@ fn main() -> Result<(), slint::PlatformError> {
         bodycache::with(|b| b.clear());
         unified::clear();
         u.set_accounts(accounts_model());
-        REMEMBER_OAUTH.store(false, std::sync::atomic::Ordering::SeqCst);
         u.set_current_mail("".into());
         u.set_folders(ModelRc::new(VecModel::from(Vec::<Folder>::new())));
         u.set_mails(ModelRc::new(VecModel::from(Vec::<Mail>::new())));
@@ -1920,10 +1930,9 @@ fn main() -> Result<(), slint::PlatformError> {
     crashguard::clear(&config_dir());
     settings::Settings::flush();
     instance::cleanup();
-    // refresh tokens may rotate while the app runs: keep the newest one
-    if REMEMBER_OAUTH.load(std::sync::atomic::Ordering::SeqCst) {
-        if let Some(c) = state.lock().unwrap().clone() { remember_session(&c, serde_json::json!({"kind": "oauth"}), &c.base, ""); }
-    }
+    // No sign-in is written back here: every rotated refresh token is stored the moment it is
+    // issued (oauth::refresh, under the cross-process lock). Writing this instance's copy at exit
+    // could overwrite a newer one another instance stored since.
     ui.hide()
 }
 
@@ -2028,9 +2037,8 @@ fn display_chat(h: &[agent::Msg]) -> ModelRc<ChatMsg> {
 
 
 // ---------------- sign-in helpers ----------------
-static REMEMBER_OAUTH: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-
-fn remember_session(c: &jmap::Client, mut v: Value, server: &str, user: &str) {
+/// `fresh`: a new sign-in (not a session restored from the store).
+fn remember_session(c: &jmap::Client, mut v: Value, server: &str, user: &str, fresh: bool) {
     v["server"] = serde_json::json!(server);
     v["user"] = serde_json::json!(user);
     if v["kind"] == "oauth" {
@@ -2040,24 +2048,17 @@ fn remember_session(c: &jmap::Client, mut v: Value, server: &str, user: &str) {
         v["refresh"] = serde_json::json!(t.refresh);
         v["endpoint"] = serde_json::json!(t.token_endpoint);
         v["client"] = serde_json::json!(t.client_id);
-        REMEMBER_OAUTH.store(true, std::sync::atomic::Ordering::SeqCst);
     }
-    oauth::remember(&v);
+    oauth::remember(&v, fresh);
 }
 
 fn accounts_model() -> ModelRc<SharedString> {
     ModelRc::new(VecModel::from(oauth::accounts().iter().filter_map(|a| a["user"].as_str().map(SharedString::from)).collect::<Vec<_>>()))
 }
 
-/// Sign in with a remembered session (startup and account switching).
-/// A sign-in the server turned down (wrong or revoked credentials), as opposed to a network
-/// or server error that may pass: only the first kind may forget a remembered account.
-fn auth_rejected(e: &str) -> bool {
-    e.starts_with("The server did not accept the sign-in token") || e.starts_with("Wrong username, password")
-        || e.starts_with("Session expired")
-        || (e.starts_with("Token request failed (4") && ["invalid_grant", "invalid_client", "unauthorized_client"].iter().any(|k| e.contains(k)))
-}
+use jmap::auth_rejected;
 
+/// Sign in with a remembered session (startup and account switching).
 /// `switching`: an account switch from a running session, which a failure must not end.
 fn restore_session(w: slint::Weak<AppWindow>, st: Shared, v: Value, switching: bool) {
     std::thread::spawn(move || {
@@ -2095,13 +2096,16 @@ fn restore_session(w: slint::Weak<AppWindow>, st: Shared, v: Value, switching: b
             }
         }
         let kind = v["kind"].as_str().unwrap_or("").to_string();
-        finish_login(w, st, res, server, user, Some(serde_json::json!({"kind": kind, "pass": v["pass"]})));
+        finish_login(w, st, res, server, user, Some(serde_json::json!({"kind": kind, "pass": v["pass"], "fresh": false})));
     });
 }
 
 fn finish_login(w: slint::Weak<AppWindow>, st: Shared, res: Result<jmap::Client, String>, server: String, user: String, remember: Option<Value>) {
     match res {
         Ok(c) => {
+            // an SSO sign-in may leave the user blank: the server's own name for the login then
+            // ties the remembered session (and its rotated tokens) to one account entry
+            let user = if user.trim().is_empty() { c.username.clone() } else { user };
             let c = Arc::new(c);
             *st.lock().unwrap() = Some(c.clone());
             unified::set_active(&user, c.clone());
@@ -2109,7 +2113,7 @@ fn finish_login(w: slint::Weak<AppWindow>, st: Shared, res: Result<jmap::Client,
             let p = config_path();
             let _ = std::fs::create_dir_all(p.parent().unwrap());
             let _ = std::fs::write(&p, format!("{server}\n{user}\n"));
-            if let Some(v) = remember { remember_session(&c, v, &server, &user); }
+            if let Some(mut v) = remember { let fresh = v["fresh"] != false; if let Some(o) = v.as_object_mut() { o.remove("fresh"); } remember_session(&c, v, &server, &user, fresh); }
             let name = c.username.clone();
             *CHAT_USER.lock().unwrap() = name.clone();
             // host of the server URL for the admin nav subtitle

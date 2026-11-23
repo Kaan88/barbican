@@ -28,9 +28,7 @@ fn path() -> std::path::PathBuf {
     crate::config_dir().join("settings.json")
 }
 
-fn keyring() -> Option<keyring::Entry> {
-    keyring::Entry::new("Barbican", "ai-api-key").ok()
-}
+const SECRET: &str = "ai-api-key";
 
 impl Config {
     pub fn load() -> Config {
@@ -42,7 +40,7 @@ impl Config {
             base: v["base"].as_str().unwrap_or(d.0).into(),
             model: v["model"].as_str().unwrap_or(d.1).into(),
             lang: v["lang"].as_str().unwrap_or("English").into(),
-            key: keyring().and_then(|k| k.get_password().ok()).unwrap_or_default(),
+            key: crate::secrets::get(SECRET).unwrap_or_default(),
             show_clean_spam: v["showCleanSpam"].as_bool().unwrap_or(true),
             actions: (v["actions"].as_i64().unwrap_or(1) as i32).clamp(0, 2),
             instructions: v["instructions"].as_str().unwrap_or("").into(),
@@ -61,9 +59,7 @@ impl Config {
             "prompts": self.prompts, "memory": self.memory_on, "hidden": self.hidden,
             "renderMode": self.render_mode, "remoteImages": self.remote_images});
         let _ = std::fs::write(path(), v.to_string());
-        if let Some(k) = keyring() {
-            let _ = if self.key.is_empty() { k.delete_credential() } else { k.set_password(&self.key) };
-        }
+        if self.key.is_empty() { crate::secrets::delete(SECRET); } else { crate::secrets::set(SECRET, &self.key); }
     }
 
     pub fn memory() -> String {
@@ -90,15 +86,17 @@ impl Config {
         if self.key.is_empty() {
             return Err("Add an API key in Settings → AI assistant first.".into());
         }
-        let http = reqwest::blocking::Client::builder().timeout(std::time::Duration::from_secs(90)).build().map_err(|e| e.to_string())?;
+        let http = reqwest::blocking::Client::builder().timeout(std::time::Duration::from_secs(90))
+            .redirect(reqwest::redirect::Policy::none()).build().map_err(|e| e.to_string())?;
         let base = self.base.trim_end_matches('/');
-        let req = if self.provider == 1 {
-            http.post(format!("{base}/messages")).header("x-api-key", &self.key).header("anthropic-version", "2023-06-01")
+        // redirects are followed by hand, same origin only: the key header (x-api-key is not
+        // one reqwest would drop on its own) must not reach another host
+        let resp = if self.provider == 1 {
+            crate::redirect::send(&format!("{base}/messages"), false, |u| http.post(u).header("x-api-key", &self.key).header("anthropic-version", "2023-06-01").json(&body))
         } else {
-            http.post(format!("{base}/chat/completions")).bearer_auth(&self.key)
-        };
-        let resp = req.json(&body).send().map_err(|e| {
-            if e.is_timeout() { "The AI service timed out.".to_string() } else { format!("Could not reach the AI service: {e}") }
+            crate::redirect::send(&format!("{base}/chat/completions"), false, |u| http.post(u).bearer_auth(&self.key).json(&body))
+        }.map_err(|e| {
+            if e.contains("timed out") { "The AI service timed out.".to_string() } else { format!("Could not reach the AI service: {e}") }
         })?;
         let status = resp.status().as_u16();
         let retry = resp.headers().get("retry-after").and_then(|h| h.to_str().ok()).map(String::from);

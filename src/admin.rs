@@ -7,18 +7,14 @@ use slint::{ComponentHandle, ModelRc, VecModel};
 
 const CAP: &str = "urn:stalwart:jmap";
 
-fn entry() -> Option<keyring::Entry> {
-    keyring::Entry::new("Barbican", "stalwart-admin-key").ok()
-}
+const SECRET: &str = "stalwart-admin-key";
 
 pub fn key() -> String {
-    entry().and_then(|e| e.get_password().ok()).unwrap_or_default()
+    crate::secrets::get(SECRET).unwrap_or_default()
 }
 
 pub fn set_key(k: &str) {
-    if let Some(e) = entry() {
-        let _ = if k.trim().is_empty() { e.delete_credential() } else { e.set_password(k.trim()) };
-    }
+    if k.trim().is_empty() { crate::secrets::delete(SECRET); } else { crate::secrets::set(SECRET, k.trim()); }
 }
 
 pub struct Admin {
@@ -36,7 +32,7 @@ impl Admin {
             format!("{}{}", c.base.splitn(4, '/').take(3).collect::<Vec<_>>().join("/"), a)
         } else { a.to_string() })?;
         Some(Admin {
-            http: reqwest::blocking::Client::builder().timeout(std::time::Duration::from_secs(30)).build().ok()?,
+            http: reqwest::blocking::Client::builder().timeout(std::time::Duration::from_secs(30)).redirect(reqwest::redirect::Policy::none()).build().ok()?,
             api, key, account: c.session["primaryAccounts"][CAP].as_str().map(String::from),
         })
     }
@@ -44,7 +40,7 @@ impl Admin {
     pub fn call(&self, method: &str, mut args: Value) -> Result<Value, String> {
         if let (Some(a), Some(o)) = (&self.account, args.as_object_mut()) { o.entry("accountId").or_insert(json!(a)); }
         let body = json!({"using": ["urn:ietf:params:jmap:core", CAP], "methodCalls": [[method, args, "a"]]});
-        let r = self.http.post(&self.api).bearer_auth(&self.key).json(&body).send().map_err(|e| e.to_string())?;
+        let r = crate::redirect::send(&self.api, false, |u| self.http.post(u).bearer_auth(&self.key).json(&body))?;
         match r.status().as_u16() {
             401 => return Err("The admin API key was rejected.".into()),
             403 => return Err("This key lacks the permission for that.".into()),

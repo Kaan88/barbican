@@ -54,11 +54,11 @@ The repository is public, and every later phase builds on these.
    - Filter navigation in wry so only `about:srcdoc` loads.
    - Fix the named-element shadowing bug (C# R2-04).
    - Decide on `allow-scripts` for the dark and accessibility scripts. C# D-071 says never; run them from the shell instead.
-3. **Sign-in and session safety (S).**
+3. **Sign-in and session safety (S). Done on `v011-signin`.**
    - Follow redirects by hand: credentials go only to same-origin hops, with no switch from https to http (`src/jmap.rs:72`).
    - Stop retry loops after a rejected sign-in.
    - Two instances on one profile must not lose a rotated refresh token.
-4. **Credentials (S).** Keyring entries named per profile (`BARBICAN_PROFILE`), local persistence for tokens (C# ADR 0008), and dev and automation runs kept away from the real sign-in.
+4. **Credentials (S). Done on `v011-signin`.** Keyring entries named per profile (`BARBICAN_PROFILE`), local persistence for tokens (C# ADR 0008), and dev and automation runs kept away from the real sign-in.
 5. **Sign-out cleanup (S).** Remove per-account caches, trusted senders, WebView data and plugin data.
 6. **Native plugin safety (S). Done on `p0-plugins`.**
    - User plugins are off until enabled (`enabledPlugins`; the manifest is read from a sidecar `manifest.json`, so nothing is loaded before that).

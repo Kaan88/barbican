@@ -28,6 +28,30 @@ static WATCH_TOKEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64:
 static FAILED: Mutex<Option<HashMap<String, std::time::Instant>>> = Mutex::new(None);
 const RETRY_AFTER: std::time::Duration = std::time::Duration::from_secs(60);
 
+/// Logins the server turned down. Unlike a timeout (retried after `RETRY_AFTER`), a rejected
+/// sign-in is not tried again until the user signs in to that login again, and the user is told
+/// once.
+#[derive(Default)]
+pub struct Rejections { users: HashMap<String, bool> }
+
+impl Rejections {
+    /// Remember that `user` was turned down.
+    pub fn reject(&mut self, user: &str) { self.users.entry(user.to_string()).or_insert(false); }
+    pub fn is_rejected(&self, user: &str) -> bool { self.users.contains_key(user) }
+    /// True the first time it is asked for a rejected login: the caller shows the notice.
+    pub fn take_notice(&mut self, user: &str) -> bool {
+        match self.users.get_mut(user) { Some(n) if !*n => { *n = true; true } _ => false }
+    }
+    /// The user signed in again.
+    pub fn clear(&mut self, user: &str) { self.users.remove(user); }
+}
+
+static REJECTED: Mutex<Option<Rejections>> = Mutex::new(None);
+
+fn with_rejections<T>(f: impl FnOnce(&mut Rejections) -> T) -> T {
+    f(REJECTED.lock().unwrap().get_or_insert_with(Rejections::default))
+}
+
 // ---------------- row ids ----------------
 // Several sources share short JMAP ids ("b", "c", …), so a unified row is keyed by its
 // login, the shared JMAP account it was read from (empty for the login's own) and its id.
@@ -80,6 +104,8 @@ pub fn set_active(user: &str, c: Arc<Client>) {
     *ACTIVE.lock().unwrap() = user.to_string();
     // the badge's other accounts change with the active one
     OTHER_AT.lock().unwrap().take();
+    // a login that is active signed in just now
+    with_rejections(|r| r.clear(user));
     POOL.lock().unwrap().get_or_insert_with(HashMap::new).insert(user.to_string(), c);
     // the previous active login now needs its own watcher; the new one has main's
     if let Some(w) = WATCHING.lock().unwrap().as_mut() { w.remove(user); }
@@ -94,14 +120,30 @@ pub fn is_active(c: &Client) -> bool {
 
 /// Client for a remembered user, connecting it (blocking) if needed.
 pub fn client(user: &str) -> Option<Arc<Client>> {
-    if let Some(c) = POOL.lock().unwrap().as_ref().and_then(|p| p.get(user).cloned()) { return Some(c); }
+    let pooled = POOL.lock().unwrap().as_ref().and_then(|p| p.get(user).cloned());
+    if let Some(c) = pooled {
+        // a secondary login the server turned down while it was watched: drop it and mark it, so
+        // the user hears about it once (the active login's rejection is shown by the main window)
+        if c.is_rejected() && user != active_user() {
+            if let Some(p) = POOL.lock().unwrap().as_mut() { p.remove(user); }
+            with_rejections(|r| r.reject(user));
+            return None;
+        }
+        return Some(c);
+    }
+    // a login the server turned down waits for the user to sign in again
+    if with_rejections(|r| r.is_rejected(user)) { return None; }
     // a login that just failed is not retried on every refresh (each try waits for the timeout)
     if FAILED.lock().unwrap().as_ref().and_then(|f| f.get(user)).is_some_and(|t| t.elapsed() < RETRY_AFTER) { return None; }
     let v = crate::oauth::accounts().into_iter().find(|a| a["user"].as_str() == Some(user))?;
     let c = match connect(&v) {
         Ok(c) => Arc::new(c),
-        Err(_) => {
-            FAILED.lock().unwrap().get_or_insert_with(HashMap::new).insert(user.to_string(), std::time::Instant::now());
+        Err(e) => {
+            if crate::jmap::auth_rejected(&e) {
+                with_rejections(|r| r.reject(user));
+            } else {
+                FAILED.lock().unwrap().get_or_insert_with(HashMap::new).insert(user.to_string(), std::time::Instant::now());
+            }
             return None;
         }
     };
@@ -124,6 +166,11 @@ pub fn warm_up(w: Option<slint::Weak<crate::AppWindow>>) {
         std::thread::spawn(move || {
             if client(&user).is_some() {
                 if let Some(w) = w { watch(&user, w); }
+            } else if let Some(w) = w {
+                if with_rejections(|r| r.take_notice(&user)) {
+                    let msg = format!("{user} needs to sign in again.");
+                    let _ = w.upgrade_in_event_loop(move |u| crate::mail::show_toast(&u, &msg, false));
+                }
             }
         });
     }
@@ -183,6 +230,7 @@ pub fn clear() {
     UNREAD.lock().unwrap().take();
     WATCHING.lock().unwrap().take();
     FAILED.lock().unwrap().take();
+    REJECTED.lock().unwrap().take();
     WATCH_GEN.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
 }
 
@@ -444,6 +492,11 @@ pub fn watch(user: &str, w: slint::Weak<crate::AppWindow>) {
             true
         });
         if !live() { break; }
+        // a rejected sign-in is final: stop watching, the login waits for the user
+        if res.as_ref().err().is_some_and(|e| crate::jmap::auth_rejected(e)) {
+            with_rejections(|r| r.reject(&user));
+            break;
+        }
         if res.is_err() { std::thread::sleep(std::time::Duration::from_secs(20)); }
     }
         // free the slot (unless a newer watcher holds it) so the login can be watched again
@@ -504,6 +557,26 @@ pub fn shared_apply(c: &Client, account: &str, ids: &[String], action: &str) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_rejected_login_waits_for_a_new_sign_in_and_is_announced_once() {
+        let mut r = Rejections::default();
+        assert!(!r.is_rejected("a@example.test"));
+        assert!(!r.take_notice("a@example.test"));
+        r.reject("a@example.test");
+        r.reject("a@example.test");
+        assert!(r.is_rejected("a@example.test"));
+        assert!(!r.is_rejected("b@example.test"));
+        assert!(r.take_notice("a@example.test"));
+        assert!(!r.take_notice("a@example.test"));
+        // still rejected after the notice
+        assert!(r.is_rejected("a@example.test"));
+        // signing in again clears it, and a later rejection is announced again
+        r.clear("a@example.test");
+        assert!(!r.is_rejected("a@example.test"));
+        r.reject("a@example.test");
+        assert!(r.take_notice("a@example.test"));
+    }
 
     #[test]
     fn other_logins_badge_sum() {
