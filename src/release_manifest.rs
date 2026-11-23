@@ -17,6 +17,7 @@ pub struct ReleaseAsset {
 pub fn asset_key(file: &str) -> Option<&'static str> {
     let f = file.to_ascii_lowercase();
     if f.ends_with(".msi") { Some("windows-x86_64-msi") }
+    else if f.starts_with("barbican-setup-") && f.ends_with(".exe") { Some("windows-x86_64-inno") }
     else if f.ends_with("-windows-x86_64.zip") { Some("windows-x86_64-zip") }
     else if f.ends_with(".appimage") { Some("linux-x86_64-appimage") }
     else if f.ends_with(".deb") { Some("linux-x86_64-deb") }
@@ -100,6 +101,9 @@ mod tests {
     #[test]
     fn keys_and_channels() {
         assert_eq!(asset_key("Barbican-1.0.0-x86_64.msi"), Some("windows-x86_64-msi"));
+        assert_eq!(asset_key("Barbican-Setup-1.0.0.exe"), Some("windows-x86_64-inno"));
+        assert_eq!(asset_key("Barbican-Setup-1.0.0-beta.1.exe"), Some("windows-x86_64-inno"));
+        assert_eq!(asset_key("barbican.exe"), None);
         assert_eq!(asset_key("barbican-1.0.0-windows-x86_64.zip"), Some("windows-x86_64-zip"));
         assert_eq!(asset_key("Barbican-1.0.0-x86_64.AppImage"), Some("linux-x86_64-appimage"));
         assert_eq!(asset_key("barbican_1.0.0-1_amd64.deb"), Some("linux-x86_64-deb"));
