@@ -1,0 +1,319 @@
+id,area,feature,bulwark_ref,rust_status,rust_call_site,csharp_spec,phase,size
+G-001,calendar,Invitations: applying a counter-proposal,components/calendar invitation banner (ical counter),missing,,G-001 (GAPS P0-1 (remaining)),1,S
+G-002,calendar,Invitations: remove cancelled event from the banner,calendar invitation banner,missing,,G-002 (GAPS P0-1 (remaining)),1,S
+G-003,calendar,Event editor: all-day strip in day and week header has no height cap,calendar day/week header,missing,,G-003 (GAPS P0-2),1,S
+G-004,calendar,Import: .ics alerts kept from the file without asking first (D-M4-09: the prompt defaults to keep as Bulwark),ical-import-modal.tsx,missing,,G-004 (GAPS P0-2),1,S
+G-005,calendar,Reminders: an event's own alert set more than 8 days ahead is missed when the calendar defaults do not reach that far,use-calendar-alerts.ts,missing,,G-005 (GAPS P0-3),1,S
+G-006,calendar,Webcal: feeds on localhost or LAN hosts not blocked; plain http accepted with a warning,calendar-subscription-sync.ts,missing,,G-006 (GAPS P0-4),1,S
+G-007,platform,Mailto on Linux: .desktop registration code never compiled,n/a (platform),unverified,,G-007 (GAPS P0-5),1,S
+G-008,calendar,Calendar print,calendar-print.tsx,missing,,G-008 (GAPS P1-1),6,S/M
+G-009,calendar,"Find a time depends on Principal/getAvailability, which Stalwart may not support",find-a-time.tsx,partial,,G-009 (GAPS P1-1),6,S/M
+G-010,contacts,Contact print,contact-print.ts,missing,,G-010 (GAPS P1-2),6,S/M
+G-011,contacts,Contact activity and related people,contact-activity.tsx,missing,,G-011 (GAPS P1-2),6,S/M
+G-012,contacts,"Security review of contacts input: vCard parsing of untrusted files, photo data URI size, export paths",vcard.ts,missing,,G-012 (GAPS P1-2 (review)),1,S/M
+G-013,files,In-app preview (files open externally today),file-preview-modal.tsx; image-preview-modal.tsx; eml-preview.tsx,missing,,G-013 (GAPS P1-3),4,M
+G-014,files,Details panel,file-details-panel.tsx,missing,,G-014 (GAPS P1-3),4,M
+G-015,files,"Grid and list views, sort, search, thumbnails (Show files as, Default sort, thumbnails, hidden files)",file-views.tsx,missing,,G-015 (GAPS P1-3),4,M
+G-016,files,Upload conflict dialog,upload-conflict-dialog.tsx,missing,,G-016 (GAPS P1-3),4,M
+G-017,files,Zip download,lib/files-zip.ts,missing,,G-017 (GAPS P1-3),4,M
+G-018,files,New text file,new-file-dialog.tsx,missing,,G-018 (GAPS P1-3),4,M
+G-019,files,"Filename download rules (filenameSpaceReplacement and siblings, postExportAction)",files-settings.ts,missing,,G-019 (GAPS P1-3),4,M
+G-020,sieve,Filters: 'reject' offered even when the server does not list the reject extension,filter-rule-modal.tsx,missing,,G-020 (GAPS P1-4),1,S
+G-021,sieve,"Vacation UI: reply-to audience, forward while away, keep in inbox, HTML body, templates",vacation-settings.tsx; vacation-template-picker.tsx; lib/vacation-audience.ts; vacation-forward.ts,missing,,G-021 (GAPS P1-5),3,S/M
+G-022,sieve,Vacation: calendar out-of-office block (vacationBlockCalendar),vacation-calendar-block.tsx,missing,,G-022 (GAPS P1-5),3,S/M
+G-023,identities,Identities: create and delete; Bcc,identity-manager-modal.tsx; identity-form.tsx,partial,,G-023 (GAPS P1-6),3,M
+G-024,identities,Signatures: HTML or rich editing (signatureDetails),signature-editor.tsx; signature-details-section.tsx,missing,,G-024 (GAPS P1-6),3,M
+G-025,identities,Identity order (preferredIdentityIds),identity-manager-modal.tsx,missing,,G-025 (GAPS P1-6),3,M
+G-026,identities,Masked addresses (x:MaskedEmail); sub-address helper,masked-addresses-section.tsx; sub-address-helper.tsx,missing,,G-026 (GAPS P1-6),3,M
+G-027,security,Account security: change password (x:AccountPassword),stores/account-security-store.ts; account-security-settings.tsx,missing,,G-027 (GAPS P1-7),3,M
+G-028,security,Account security: TOTP two-factor (x:AccountPassword otpAuth),account-security-settings.tsx,missing,,G-028 (GAPS P1-7),3,M
+G-029,security,Account security: app passwords (x:AppPassword) and API keys (x:ApiKey),account-security-settings.tsx,missing,,G-029 (GAPS P1-7),3,M
+G-030,security,Account security: encryption at rest (x:PublicKey),account-security-settings.tsx,missing,,G-030 (GAPS P1-7),3,M
+G-031,security,"App lock (PIN or Windows Hello, lock after) and session timeout",app-lock/; session/,missing,,G-031 (GAPS P1-7),3,M
+G-032,templates,Templates: edit an existing template,template-manager-modal.tsx; template-form.tsx,partial,,G-032 (GAPS P1-8),3,S/M
+G-033,templates,Templates: rich body,template-form.tsx,partial,,G-033 (GAPS P1-8),3,S/M
+G-034,templates,Templates: placeholder fill on insert,placeholder-fill-modal.tsx; lib/template-merge.ts,partial,,G-034 (GAPS P1-8),3,S/M
+G-035,templates,Templates: save the current draft as a template,quick-save-template-dialog.tsx,partial,,G-035 (GAPS P1-8),3,S/M
+G-036,folders,Folders: subscribe and unsubscribe,organize-settings.tsx,missing,,G-036 (GAPS P1-9),3,S/M
+G-037,folders,Folders: assign standard roles,folder-settings.tsx,missing,,G-037 (GAPS P1-9),3,S/M
+G-038,folders,"Folders: icons and count modes (folderIcons, folderCountModes)",icon-picker.tsx,missing,,G-038 (GAPS P1-9),3,S/M
+G-039,folders,Folders: pin,organize-settings.tsx,missing,,G-039 (GAPS P1-9),3,S/M
+G-040,folders,Folders: mark the whole tree read,organize-settings.tsx,missing,,G-040 (GAPS P1-9),3,S/M
+G-041,folders,Folders: per-folder notification mute (notificationMutes),folder-settings.tsx,missing,,G-041 (GAPS P1-9),3,S/M
+G-042,folders,Folders: export and import a folder,mail-transfer/,partial,,G-042 (GAPS P1-9; P1-11),2,S/M
+G-043,sharing,"Sharing folders, calendars and address books with other users (Barbican shares Files only)",layout/mailbox-share-dialog.tsx; share-collection-dialog.tsx,missing,,G-043 (GAPS P1-9),3,M
+G-044,live-updates,"Live updates for calendars, contacts, files and identities: push types cover mail only, and there is no /changes delta for them",EventSource types,missing,,G-044 (GAPS P1-10),3,S/M
+G-045,notifications,ShareNotification and CalendarEventNotification; the notification centre,share-notification-store.ts; calendar-event-notification-store.ts; notifications/notification-center.tsx,missing,,G-045 (GAPS P1-10),3,M
+G-046,mail-transfer,Mail export of a folder to mbox or eml,mail-transfer/,missing,,G-046 (GAPS P1-11),2,M
+G-047,mail-transfer,winmail.dat (TNEF) decoding,lib/tnef.ts,missing,,G-047 (GAPS P1-11),2,M
+G-048,mail-transfer,"Email/copy: copy a message to another account (Email/copy inside one login, Email/import across logins)","n/a (JMAP Email/copy, Email/import); stores/email-store.ts:5601-5648, lib/jmap/client.ts:12242/:12290",missing,,G-048 (GAPS P1-11),2,M
+G-049,reader-safety,Turn links off in a reported phishing message,lib/phishing-links.ts; phishing-mark-banner.tsx,missing,,G-049 (GAPS P1-12),2,M
+G-050,reader-safety,Phishing report,phishing-mark-banner.tsx; phishing-report*,missing,,G-050 (GAPS P1-12),2,M
+G-051,reader-safety,External sender chip,external-sender-chip.tsx,missing,,G-051 (GAPS P1-12),2,S/M
+G-052,reader-safety,BIMI verified badge,brand-verified-badge.tsx; lib/bimi,missing,,G-052 (GAPS P1-12),2,S/M
+G-053,reader-safety,"Per-sender trust for remote content (trustedSenders, externalContentPolicy)",trusted-senders-modal.tsx,missing,,G-053 (GAPS P1-12),2,M
+G-054,composer,Confirm before sending to external recipients,external-recipient-confirm.tsx,missing,,G-054 (GAPS P1-12),2,S
+G-055,popout,Pop-out windows: message and composer in their own windows,popout/,missing,,G-055 (GAPS P1-13),6,M
+G-056,jmap,"Truncated bodies: a notice shows, but the full body is never fetched",lib/email (isTruncated),missing,,G-056 (GAPS P1-14),1,S
+G-057,jmap,Quota is fetched but not shown (storage usage on the Account page),Account page,missing,,G-057 (GAPS P1-14),1,S
+G-058,composer,"cid: images in a re-opened draft: ROADMAP says placeholders, commit b9b3e99 says restored; re-check",composer draft reopen,unverified,,G-058 (GAPS P1-14),1,S
+G-059,settings-unwired,"Unwired: notificationSoundChoice, pushRelayUrl",settings-store.ts,missing,,G-059 (GAPS P2-1),6,S
+G-060,settings-unwired,Unwired: dateLocale (showOnboardingOnNewDevices wired by G-085),settings-store.ts,missing,,G-060 (GAPS P2-1),6,S
+G-061,settings-unwired,"Unwired: toolbarPosition, sidebarAccountSwitcher, showSharedMailAccounts, compactSharedMailboxes, keepAppsLoaded",settings-store.ts,missing,,G-061 (GAPS P2-1),6,M
+G-062,settings-unwired,"Unwired: listColumns, messageListOrderScope",settings-store.ts,missing,,G-062 (GAPS P2-1),6,S
+G-063,settings-unwired,"Unwired: recipientMentionsEnabled, mentionAddsRecipientTo (rtlEditingSupport wired, see M6b-feature-parity)",settings-store.ts,missing,,G-063 (GAPS P2-1),6,S
+G-064,settings-unwired,Unwired: settingsSyncDisabled (settings sync through Mailbox metadata is not implemented),lib/settings-sync.ts,missing,,G-064 (GAPS P2-1),3,S
+G-065,settings-unwired,"No row and no code: defaultReplyMode, printTheme, hiddenCompanyCalendars",settings-store.ts,missing,,G-065 (GAPS P2-1),6,S
+G-066,settings-unwired,"No row and no code: hiddenSharedMailAccounts, sharedMailAccountOrder, allMailFolderIds",settings-store.ts,missing,,G-066 (GAPS P2-1),6,S
+G-067,settings-unwired,"No row and no code: attachmentReminderKeywords, sidebarApps",settings-store.ts,missing,,G-067 (GAPS P2-1),6,S
+G-068,settings-unwired,"No row and no code: email/attachment/bundleDownloadTemplate, protocolOpenMode, hideAccountSwitcher",settings-store.ts,missing,,G-068 (GAPS P2-1),6,S
+G-069,settings-keyless,"Keyless schema rows dropped by settings.rs schema_rows: Security, Language, Time zone, Default apps, Contacts import and export, Files display, Storage usage, Vacation audience, forward and keep (plus Export, Import, Reset, Accessibility info rows); see settings.csv S-keyless-###",settings-schema.json (info and keyless rows),missing,,G-069 (GAPS cross-cutting finding 1),6,M
+G-070,themes,"Themes: built-in themes, accent colours, custom themes (Barbican has light, dark and system only)",themes-settings.tsx; lib/builtin-themes.ts; theme-compiler.ts,missing,,G-070 (GAPS P2-2),6,M
+G-071,i18n,Language (i18n); Barbican is English only,language-settings.tsx; locale-store.ts,missing,,G-071 (GAPS P2-3),7,L
+G-072,i18n,Time zone picker (Barbican uses the OS time zone),time-zone-picker.tsx,missing,,G-072 (GAPS P2-3),7,S
+G-073,message-list,"Message list extras: list tabs, list columns, hover tag picker, verification-code copy, $pinned, structured-mail cards",message-list-tabs.tsx; list-columns.tsx; structured-mail/,missing,,G-073 (GAPS P2-4),6,M
+G-074,printing,"Printing: conversation, contact and calendar print; print settings (Barbican prints one message)",printing-settings.tsx,partial,,G-074 (GAPS P2-5),6,S/M
+G-075,composer-extras,Composer: @mentions of recipients,recipient-mention.tsx,missing,,G-075 (GAPS P2-6),6,S/M
+G-076,composer-extras,Composer: attach from Files,file-picker-dialog.tsx,missing,,G-076 (GAPS P2-6),6,S/M
+G-077,composer-extras,Composer: message priority and classification labels,lib/message-priority.ts; classification-label-picker.tsx,missing,,G-077 (GAPS P2-6),6,S/M
+G-078,composer-extras,Composer: proofreading (next and previous issue; proofreadingPlugins),proofreading/,missing,,G-078 (GAPS P2-6),6,S/M
+G-079,composer-extras,Composer: link to Files,n/a,unverified,,G-079 (GAPS P2-6),6,S/M
+G-080,admin,"Admin writes: create and edit accounts, groups, lists, domains (DKIM and DNS), API keys, OAuth clients, settings editor, spam training, queue retry",admin/; Stalwart WebUI,partial,,G-080 (GAPS P3 (Admin)),7,L
+G-081,plugins,"Plugins: web plugin runtime (slots, hooks, sandbox, OAuth, secrets, settings); Rust has native DLL plugins with two hooks",lib/plugin-*.ts,partial,,G-081 (GAPS P3 (Plugins)),5,L
+G-082,offline,Offline mode and outbox,offline/; lib/offline,missing,,G-082 (GAPS P3),7,L
+G-083,files-sync,"Files sync, WebDAV and WOPI editing",files-sync/; lib/webdav,missing,,G-083 (GAPS P3),7,L
+G-084,delegation,Delegation and impersonation,settings/delegates/; impersonation/,missing,,G-084 (GAPS P3),7,M
+G-085,onboarding,Tour and onboarding,tour/,missing,,G-085 (GAPS P3),6,M
+G-086,pro-org,Pro interface; organisation announcements and disclaimers,pro/; org/,missing,,G-086 (GAPS P3),7,M
+G-087,distribution,"Distribution: MSI, portable zip, deb and AppImage packaging and release workflows exist in Rust but have never run; the MSI has never been compiled",ROADMAP; wix/main.wxs,unverified,,G-087 (GAPS Roadmap items),7,M
+G-088,updater,"Auto-updater: download and install have never run end to end; needs a public asset mirror (BARBICAN_UPDATE_ASSET_BASE), BARBICAN_UPDATE_FEED, BARBICAN_UPDATE_PUBKEY and the signing secret",updater.rs,unverified,,G-088 (GAPS Roadmap items),7,S
+G-089,desktop,Tray: start at login implemented but not exercised,desktop.rs,unverified,,G-089 (GAPS Roadmap items),7,S
+G-090,platform,"Linux platform layer never compiled; WebKitGTK, Secret Service and portal colour scheme unverified",platform/,unverified,,G-090 (GAPS Roadmap items),7,M
+G-091,rte,Rich-text composer: IME unverified with a real IME; pre-edit covers the text after the caret instead of pushing it aside,rte/layout.rs; IME TextInput,unverified,,G-091 (GAPS Roadmap items),6,S
+G-092,design,"Polish font pass: a side-by-side check of sizes and weights against Bulwark per view, through hidden automation",design/,unverified,,G-092 (GAPS Roadmap items),6,M
+G-093,docs,"ROADMAP.md out of date: later items were done in 54d75d7, 9482bdd, 8b501d4 and 04f7b96; the context-menus line is stale",ROADMAP.md,done,ROADMAP.md,G-093 (GAPS Roadmap items),0,S
+G-094,composer,Recipient chips with autocomplete,recipients.rs; chips.rs (Bulwark email-composer.tsx RecipientInput),unverified,,G-094 (GAPS P0-1 (done)),0,-
+G-095,composer,Schedule send,schedule.rs (Bulwark schedule-send-dialog.tsx),unverified,,G-095 (GAPS P0-2 (done)),0,-
+G-096,composer,Draft autosave (2 s debounce),autosave.rs (Bulwark 2 s),unverified,,G-096 (GAPS P0-3 (done)),0,-
+G-097,reader,"Reader actions: view source, unsubscribe, read receipts, forward as attachment, quick rules, save to Files",reader.rs; mdn.rs; quick_rules.rs,unverified,,G-097 (GAPS P0-4 (done)),0,-
+G-098,reader,"Calendar invitations in mail, with trust warning",invite.rs,unverified,,G-098 (GAPS P0-5 (done)),0,-
+G-099,calendar,Event editor depth,cal_editor.rs,unverified,,G-099 (GAPS P0-6 (done)),0,-
+G-100,calendar,Reminders firing across accounts,reminders.rs,unverified,,G-100 (GAPS P0-7 (done)),0,-
+G-101,desktop,"mailto handling, single-instance handoff, default-app registration",main.rs; desktop.rs,unverified,,G-101 (GAPS P0-8 (done)),0,-
+G-102,productivity,Drag and drop and resizable panes,productivity.slint; panes.json,unverified,,G-102 (GAPS P0-9 (done)),0,-
+G-103,productivity,Command palette (Ctrl+K) and search everything,palette.rs,unverified,,G-103 (GAPS P1-1 (done)),0,-
+G-104,productivity,"Search quality: syntax chips, suggestions, highlights",palette.rs; gsearch.rs,unverified,,G-104 (GAPS P1-2 (done)),0,-
+G-105,productivity,Keyboard shortcuts for every app and the ? sheet,shortcuts.rs,unverified,,G-105 (GAPS P1-3 (done)),0,-
+G-106,calendar,"Agenda, tasks view and editor, .ics import, webcal, birthdays, find a time",cal_extra.rs,unverified,,G-106 (GAPS P1-4 (done)),0,-
+G-107,contacts,"vCard import and export, typed entries, photos, duplicates and merge, directory",vcard.rs; contacts_x.rs; contact_merge.rs,unverified,,G-107 (GAPS P1-5 (done)),0,-
+G-108,sieve,"Filters: edit and reorder, several conditions and actions, header, size and regex, run on existing mail",filters_x.rs; sieve.rs,done,src/filters_x.rs:116,G-108 (GAPS P1-7 (done)),0,-
+G-109,mail,"Sender avatars (Gravatar, BIMI, favicons), .eml and .mbox import",avatars.rs; mailimport.rs,unverified,,G-109 (GAPS P1-14 (part; done)),0,-
+G-110,reader,Truncation notice for long bodies,reader.rs,unverified,,G-110 (GAPS P1-17 (part)),0,-
+S-settingsSyncDisabled,settings-about,Settings sync,stores/settings-store.ts: settingsSyncDisabled,missing,,S-settingsSyncDisabled,3,S
+S-a11y.reset,settings-accessibility,Reset accessibility settings,settings-schema.json (page accessibility),done,src/main.rs:1091,S-a11y.reset,0,S
+S-colorBlindPalette,settings-accessibility,Colour-blind-safe colours,stores/settings-store.ts: colorBlindPalette,done,src/a11y.rs:128,S-colorBlindPalette,0,S
+S-confirmArchive,settings-accessibility,Confirm before archiving,stores/settings-store.ts: confirmArchive,done,src/a11y.rs:132,S-confirmArchive,0,S
+S-confirmDelete,settings-accessibility,Confirm before deleting,stores/settings-store.ts: confirmDelete,done,src/a11y.rs:131,S-confirmDelete,0,S
+S-contrast,settings-accessibility,Contrast,stores/settings-store.ts: contrast,done,src/a11y.rs:123,S-contrast,0,S
+S-focusRing,settings-accessibility,Focus outline,stores/settings-store.ts: focusRing,done,src/a11y.rs:127,S-focusRing,0,S
+S-fontSize,settings-accessibility,Text size,stores/settings-store.ts: fontSize,done,src/a11y.rs:137,S-fontSize,0,S
+S-largeTargets,settings-accessibility,Large targets,stores/settings-store.ts: largeTargets,done,src/a11y.rs:125,S-largeTargets,0,S
+S-letterSpacing,settings-accessibility,Letter spacing,stores/settings-store.ts: letterSpacing,done,src/a11y.rs:139,S-letterSpacing,0,S
+S-lineSpacing,settings-accessibility,Line spacing,stores/settings-store.ts: lineSpacing,done,src/a11y.rs:138,S-lineSpacing,0,S
+S-mailFitWidth,settings-accessibility,Fit wide messages to the window,stores/settings-store.ts: mailFitWidth,done,src/a11y.rs:146,S-mailFitWidth,0,S
+S-mailMinFontSize,settings-accessibility,Smallest text in messages,stores/settings-store.ts: mailMinFontSize,done,src/a11y.rs:144,S-mailMinFontSize,0,S
+S-mailOverrideStyles,settings-accessibility,Use my font and colours in messages,stores/settings-store.ts: mailOverrideStyles,done,src/a11y.rs:145,S-mailOverrideStyles,0,S
+S-mailTextScale,settings-accessibility,Message text size,stores/settings-store.ts: mailTextScale,done,src/a11y.rs:143,S-mailTextScale,0,S
+S-mailViewMode,settings-accessibility,Show messages as,stores/settings-store.ts: mailViewMode,done,src/a11y.rs:135,S-mailViewMode,0,S
+S-paragraphSpacing,settings-accessibility,Paragraph spacing,stores/settings-store.ts: paragraphSpacing,done,src/a11y.rs:141,S-paragraphSpacing,0,S
+S-plainTextFont,settings-accessibility+reading,Plain text mail font | Font for plain text mail,stores/settings-store.ts: plainTextFont,done,src/main.rs:252,S-plainTextFont,0,S
+S-readingWidth,settings-accessibility,Reading width,stores/settings-store.ts: readingWidth,done,src/a11y.rs:142,S-readingWidth,0,S
+S-reduceMotion,settings-accessibility,Reduce motion,stores/settings-store.ts: reduceMotion,done,src/a11y.rs:124,S-reduceMotion,0,S
+S-sendConfirmation,settings-accessibility,Confirm before sending,stores/settings-store.ts: sendConfirmation,done,src/compose.rs:868,S-sendConfirmation,0,S
+S-showRowActionButton,settings-accessibility,Actions button on each message,stores/settings-store.ts: showRowActionButton,done,src/a11y.rs:136,S-showRowActionButton,0,S
+S-singleKeyShortcuts,settings-accessibility,Single-key shortcuts,stores/settings-store.ts: singleKeyShortcuts,done,src/a11y.rs:129,S-singleKeyShortcuts,0,S
+S-toastDuration,settings-accessibility,Notification duration,stores/settings-store.ts: toastDuration,done,src/a11y.rs:130,S-toastDuration,0,S
+S-underlineLinks,settings-accessibility,Underline links,stores/settings-store.ts: underlineLinks,done,src/a11y.rs:126,S-underlineLinks,0,S
+S-unreadCountStyle,settings-accessibility,Unread counts,stores/settings-store.ts: unreadCountStyle,done,src/a11y.rs:134,S-unreadCountStyle,0,S
+S-visualAlerts,settings-accessibility,Visual alerts,stores/settings-store.ts: visualAlerts,done,src/a11y.rs:133,S-visualAlerts,0,S
+S-wordSpacing,settings-accessibility,Word spacing,stores/settings-store.ts: wordSpacing,done,src/a11y.rs:140,S-wordSpacing,0,S
+S-subAddressDelimiter,settings-account,Sub-address delimiter,stores/settings-store.ts: subAddressDelimiter,done,src/compose.rs:169,S-subAddressDelimiter,0,S
+S-colorfulSidebarIcons,settings-appearance,Colorful sidebar icons,stores/settings-store.ts: colorfulSidebarIcons,done,src/mail.rs:117,S-colorfulSidebarIcons,0,S
+S-compactSharedMailboxes,settings-appearance,Compact shared mailboxes,stores/settings-store.ts: compactSharedMailboxes,missing,,S-compactSharedMailboxes,6,S
+S-composePlacement,settings-appearance,Compose button,stores/settings-store.ts: composePlacement,unverified,,S-composePlacement,0,S
+S-density,settings-appearance,Density,stores/settings-store.ts: density,done,src/mail.rs:70,S-density,0,S
+S-enableUnifiedMailbox,settings-appearance,Unified mailbox,stores/settings-store.ts: enableUnifiedMailbox,done,src/main.rs:1005,S-enableUnifiedMailbox,0,S
+S-includeGroupInUnified,settings-appearance,Include group inboxes,stores/settings-store.ts: includeGroupInUnified,done,src/main.rs:1013,S-includeGroupInUnified,0,S
+S-interfaceLayout,settings-appearance,Interface layout,stores/settings-store.ts: interfaceLayout,done,src/mail.rs:584,S-interfaceLayout,0,S
+S-keepAppsLoaded,settings-appearance,Keep apps loaded,stores/settings-store.ts: keepAppsLoaded,missing,,S-keepAppsLoaded,6,S
+S-mailLayout,settings-appearance,Mail layout,stores/settings-store.ts: mailLayout,missing,,S-mailLayout,6,S
+S-proInterface,settings-appearance,Pro interface (experimental),stores/settings-store.ts: proInterface,missing,,S-proInterface,7,S
+S-showFolderTotalCount,settings-appearance,Show total message count,stores/settings-store.ts: showFolderTotalCount,done,src/mail.rs:118,S-showFolderTotalCount,0,S
+S-showRailAccountList,settings-appearance,Show account avatars on the navigation rail,stores/settings-store.ts: showRailAccountList,missing,,S-showRailAccountList,6,S
+S-showSharedMailAccounts,settings-appearance,Show shared mail accounts,stores/settings-store.ts: showSharedMailAccounts,missing,,S-showSharedMailAccounts,6,S
+S-showToolbarLabels,settings-appearance,Show toolbar labels,stores/settings-store.ts: showToolbarLabels,done,src/main.rs:2113,S-showToolbarLabels,0,S
+S-sidebarAccountSwitcher,settings-appearance,Account switcher at the top of the sidebar,stores/settings-store.ts: sidebarAccountSwitcher,missing,,S-sidebarAccountSwitcher,6,S
+S-tintListRowsByAccount,settings-appearance,Tell accounts apart,stores/settings-store.ts: tintListRowsByAccount,done,src/mail.rs:408,S-tintListRowsByAccount,0,S
+S-toolbarPosition,settings-appearance,Toolbar position,stores/settings-store.ts: toolbarPosition,missing,,S-toolbarPosition,6,S
+S-uiStyle,settings-appearance,Style,stores/settings-store.ts: uiStyle,done,src/main.rs:1041,S-uiStyle,0,S
+S-unifiedCrossAccount,settings-appearance,Across all accounts,stores/settings-store.ts: unifiedCrossAccount,done,src/main.rs:1013,S-unifiedCrossAccount,0,S
+S-calendarDayEndHour,settings-calendar,Visible hours,stores/settings-store.ts: calendarDayEndHour,done,src/cal_editor.rs:1354,S-calendarDayEndHour,0,S
+S-calendarFreeScroll,settings-calendar,Free scrolling,stores/settings-store.ts: calendarFreeScroll,done,src/calendar.rs:179,S-calendarFreeScroll,0,S
+S-calendarHideNonWorkingDays,settings-calendar,Hide non-working days,stores/settings-store.ts: calendarHideNonWorkingDays,done,src/calendar.rs:173,S-calendarHideNonWorkingDays,0,S
+S-calendarHoverPreview,settings-calendar,Event hover preview,stores/settings-store.ts: calendarHoverPreview,done,src/calendar.rs:180,S-calendarHoverPreview,0,S
+S-calendarInvitationParsingEnabled,settings-calendar,Show invitations from mail,stores/settings-store.ts: calendarInvitationParsingEnabled,done,src/reader.rs:343,S-calendarInvitationParsingEnabled,0,S
+S-calendarLimitHours,settings-calendar,Limit visible hours,stores/settings-store.ts: calendarLimitHours,done,src/calendar.rs:162,S-calendarLimitHours,0,S
+S-calendarMonthTimedEvents,settings-calendar,Timed events in month view,stores/settings-store.ts: calendarMonthTimedEvents,done,src/calendar.rs:178,S-calendarMonthTimedEvents,0,S
+S-calendarTintedEvents,settings-calendar,Light event colors,stores/settings-store.ts: calendarTintedEvents,done,src/calendar.rs:176,S-calendarTintedEvents,0,S
+S-enableCalendarTasks,settings-calendar,Tasks,stores/settings-store.ts: enableCalendarTasks,done,src/calendar.rs:182,S-enableCalendarTasks,0,S
+S-showBirthdayCalendar,settings-calendar,Contact birthday calendar,stores/settings-store.ts: showBirthdayCalendar,done,src/calendar.rs:185,S-showBirthdayCalendar,0,S
+S-showTasksApp,settings-calendar,Tasks as their own app,stores/settings-store.ts: showTasksApp,done,src/calendar.rs:184,S-showTasksApp,0,S
+S-showTasksOnCalendar,settings-calendar,Show tasks on calendar,stores/settings-store.ts: showTasksOnCalendar,done,src/calendar.rs:183,S-showTasksOnCalendar,0,S
+S-showTimeInMonthView,settings-calendar,Show time in month view,stores/settings-store.ts: showTimeInMonthView,done,src/calendar.rs:175,S-showTimeInMonthView,0,S
+S-showWeekNumbers,settings-calendar,Show week numbers,stores/settings-store.ts: showWeekNumbers,done,src/calendar.rs:171,S-showWeekNumbers,0,S
+S-attachmentReminderEnabled,settings-composing,Attachment reminder,stores/settings-store.ts: attachmentReminderEnabled,done,src/compose.rs:809,S-attachmentReminderEnabled,0,S
+S-autoSelectReplyIdentity,settings-composing,Reply from the address it was sent to,stores/settings-store.ts: autoSelectReplyIdentity,done,src/compose.rs:307,S-autoSelectReplyIdentity,0,S
+S-emptySubjectWarningEnabled,settings-composing,Empty subject warning,stores/settings-store.ts: emptySubjectWarningEnabled,done,src/compose.rs:798,S-emptySubjectWarningEnabled,0,S
+S-mentionAddsRecipientTo,settings-composing,Contacts in @ mentions,stores/settings-store.ts: mentionAddsRecipientTo,missing,,S-mentionAddsRecipientTo,6,S
+S-placeholderWarningEnabled,settings-composing,Placeholder warning,stores/settings-store.ts: placeholderWarningEnabled,done,src/compose.rs:801,S-placeholderWarningEnabled,0,S
+S-plainTextMode,settings-composing,Plain text only,stores/settings-store.ts: plainTextMode,done,src/compose.rs:405,S-plainTextMode,0,S
+S-quickReplyEnabled,settings-composing,Quick reply,stores/settings-store.ts: quickReplyEnabled,done,src/main.rs:2112,S-quickReplyEnabled,0,S
+S-recipientMentionsEnabled,settings-composing,Mention recipients with @,stores/settings-store.ts: recipientMentionsEnabled,missing,,S-recipientMentionsEnabled,6,S
+S-replyIdentityMatch,settings-composing,Received address matching,stores/settings-store.ts: replyIdentityMatch,done,src/compose.rs:307,S-replyIdentityMatch,0,S
+S-replyUnderMessage,settings-composing,Replies under the message,stores/settings-store.ts: replyUnderMessage,done,src/compose.rs:426,S-replyUnderMessage,0,S
+S-rtlEditingSupport,settings-composing,Right-to-left editing support,stores/settings-store.ts: rtlEditingSupport,missing,,S-rtlEditingSupport,6,S
+S-sendDelaySeconds,settings-composing,Undo send,stores/settings-store.ts: sendDelaySeconds,done,src/compose.rs:879,S-sendDelaySeconds,0,S
+S-signatureNewMailEnabled,settings-composing,Signature on new mail,stores/settings-store.ts: signatureNewMailEnabled,done,src/compose.rs:333,S-signatureNewMailEnabled,0,S
+S-signaturePosition,settings-composing,Signature position,stores/settings-store.ts: signaturePosition,done,src/compose.rs:339,S-signaturePosition,0,S
+S-signatureReplyForwardEnabled,settings-composing,Signature on replies & forwards,stores/settings-store.ts: signatureReplyForwardEnabled,done,src/compose.rs:333,S-signatureReplyForwardEnabled,0,S
+S-signatureSeparatorEnabled,settings-composing,Signature delimiter,stores/settings-store.ts: signatureSeparatorEnabled,done,src/compose.rs:336,S-signatureSeparatorEnabled,0,S
+S-writingLanguage,settings-composing,Writing language,stores/settings-store.ts: writingLanguage,done,src/main.rs:1042,S-writingLanguage,0,S
+S-groupContactsByLetter,settings-contacts,Group by first letter,stores/settings-store.ts: groupContactsByLetter,done,src/contacts.rs:236,S-groupContactsByLetter,0,S
+S-showContactsDirectory,settings-contacts,Show the directory,stores/settings-store.ts: showContactsDirectory,done,src/contacts_x.rs:851,S-showContactsDirectory,0,S
+S-sortContactsByLastName,settings-contacts,Sort by last name,stores/settings-store.ts: sortContactsByLastName,done,src/contacts.rs:237,S-sortContactsByLastName,0,S
+S-filenameCollapseSeparators,settings-files,Collapse repeated separators,stores/settings-store.ts: filenameCollapseSeparators,missing,,S-filenameCollapseSeparators,4,S
+S-filenameLowercase,settings-files,Lowercase,stores/settings-store.ts: filenameLowercase,missing,,S-filenameLowercase,4,S
+S-filenameSpaceReplacement,settings-files,Spaces,stores/settings-store.ts: filenameSpaceReplacement,missing,,S-filenameSpaceReplacement,4,S
+S-filenameStripDiacritics,settings-files,Strip diacritics,stores/settings-store.ts: filenameStripDiacritics,missing,,S-filenameStripDiacritics,4,S
+S-postExportAction,settings-files,After export,stores/settings-store.ts: postExportAction,missing,,S-postExportAction,4,S
+S-dateFormat,settings-general,Date format,stores/settings-store.ts: dateFormat,done,src/mail.rs:66,S-dateFormat,0,S
+S-dateLocale,settings-general,Date format region,stores/settings-store.ts: dateLocale,missing,,S-dateLocale,6,S
+S-firstDayOfWeek,settings-general,First day of week,stores/settings-store.ts: firstDayOfWeek,done,src/calendar.rs:170,S-firstDayOfWeek,0,S
+S-showOnboardingOnNewDevices,settings-general,Show on new devices,stores/settings-store.ts: showOnboardingOnNewDevices,missing,,S-showOnboardingOnNewDevices,6,S
+S-webviewBackgroundCloseMinutes,settings-general,Free the mail view's memory in the background,stores/settings-store.ts: webviewBackgroundCloseMinutes,missing,,S-webviewBackgroundCloseMinutes,6,S
+S-timeFormat,settings-general,Time format,stores/settings-store.ts: timeFormat,done,src/calendar.rs:177,S-timeFormat,0,S
+S-timeZone,settings-general,Time zone,stores/settings-store.ts: timeZone,missing,,S-timeZone,7,S
+S-archiveMode,settings-message_list,Archive in,stores/settings-store.ts: archiveMode,done,src/mail.rs:990,S-archiveMode,0,S
+S-clearSearchOnFolderChange,settings-message_list,Clear search when switching folders,stores/settings-store.ts: clearSearchOnFolderChange,done,src/main.rs:846,S-clearSearchOnFolderChange,0,S
+S-confirmBulkDelete,settings-message_list,Confirm before deleting several messages,stores/settings-store.ts: confirmBulkDelete,done,src/ctxmenu.rs:537,S-confirmBulkDelete,0,S
+S-deleteAction,settings-message_list,Delete action,stores/settings-store.ts: deleteAction,done,src/mail.rs:1029,S-deleteAction,0,S
+S-disableThreading,settings-message_list,Group messages by conversation,stores/settings-store.ts: disableThreading,done,src/main.rs:334,S-disableThreading,0,S
+S-emailsPerPage,settings-message_list,Emails per page,stores/settings-store.ts: emailsPerPage,done,src/mail.rs:68,S-emailsPerPage,0,S
+S-groupListByDate,settings-message_list,Group by date,stores/settings-store.ts: groupListByDate,done,src/mail.rs:64,S-groupListByDate,0,S
+S-listColumns,settings-message_list,Show the list as columns,stores/settings-store.ts: listColumns,missing,,S-listColumns,6,S
+S-messageListOrderScope,settings-message_list,Apply to all folders,stores/settings-store.ts: messageListOrderScope,missing,,S-messageListOrderScope,6,S
+S-mvInboxType,settings-message_list,Inbox type,stores/settings-store.ts: mvInboxType,done,src/mail.rs:584,S-mvInboxType,0,S
+S-mvUnreadSectionSize,settings-message_list,Unread messages shown,stores/settings-store.ts: mvUnreadSectionSize,done,src/mail.rs:587,S-mvUnreadSectionSize,0,S
+S-permanentlyDeleteJunk,settings-message_list,Permanently delete Junk,stores/settings-store.ts: permanentlyDeleteJunk,done,src/mail.rs:984,S-permanentlyDeleteJunk,0,S
+S-searchDefaultScope,settings-message_list,Search in,stores/settings-store.ts: searchDefaultScope,done,src/main.rs:1599,S-searchDefaultScope,0,S
+S-showAttachmentChips,settings-message_list,Show attachments in the list,stores/settings-store.ts: showAttachmentChips,done,src/mail.rs:70,S-showAttachmentChips,0,S
+S-showPreview,settings-message_list,Show preview text,stores/settings-store.ts: showPreview,done,src/mail.rs:65,S-showPreview,0,S
+S-showTagChips,settings-message_list,Show tags in the list,stores/settings-store.ts: showTagChips,done,src/main.rs:2114,S-showTagChips,0,S
+S-showVerificationCodes,settings-message_list,Show verification codes,stores/settings-store.ts: showVerificationCodes,done,src/mail.rs:71,S-showVerificationCodes,0,S
+S-swipeLeftAction,settings-message_list,Swipe left action (mobile),stores/settings-store.ts: swipeLeftAction,missing,,S-swipeLeftAction,6,S
+S-swipeRightAction,settings-message_list,Swipe right action (mobile),stores/settings-store.ts: swipeRightAction,missing,,S-swipeRightAction,6,S
+S-tintListRowsByTag,settings-message_list,Tint list rows by tag color,stores/settings-store.ts: tintListRowsByTag,done,src/mail.rs:72,S-tintListRowsByTag,0,S
+S-calendarNotificationSound,settings-notifications,Sound for reminders,stores/settings-store.ts: calendarNotificationSound,done,src/reminders.rs:415,S-calendarNotificationSound,0,S
+S-calendarNotificationsEnabled,settings-notifications,Event notifications,stores/settings-store.ts: calendarNotificationsEnabled,done,src/reminders.rs:414,S-calendarNotificationsEnabled,0,S
+S-doNotDisturb,settings-notifications,Pause notifications,stores/settings-store.ts: doNotDisturb,done,src/reminders.rs:415,S-doNotDisturb,0,S
+S-emailNotificationSound,settings-notifications,Sound for new mail,stores/settings-store.ts: emailNotificationSound,done,src/main.rs:567,S-emailNotificationSound,0,S
+S-emailNotificationsEnabled,settings-notifications,Email notifications,stores/settings-store.ts: emailNotificationsEnabled,done,src/main.rs:562,S-emailNotificationsEnabled,0,S
+S-faviconUnreadBadge,settings-notifications,Unread count on the taskbar icon,stores/settings-store.ts: faviconUnreadBadge,done,src/mail.rs:190,S-faviconUnreadBadge,0,S
+S-keepRunningInTray,settings-notifications,Keep running in the tray when the window is closed,stores/settings-store.ts: keepRunningInTray,missing,,S-keepRunningInTray,6,S
+S-desktopOpenOnDoubleClick,settings-general,Open messages in a new window on double-click,stores/settings-store.ts: desktopOpenOnDoubleClick,missing,,S-desktopOpenOnDoubleClick,6,S
+S-desktopComposeInWindow,settings-general,Always write messages in a new window,stores/settings-store.ts: desktopComposeInWindow,missing,,S-desktopComposeInWindow,6,S
+S-desktopRestoreWindows,settings-general,Reopen windows at start,stores/settings-store.ts: desktopRestoreWindows,missing,,S-desktopRestoreWindows,6,S
+S-notificationSoundChoice,settings-notifications,Tone,stores/settings-store.ts: notificationSoundChoice,missing,,S-notificationSoundChoice,6,S
+S-pushNotifyInboxOnly,settings-notifications,Inbox only,stores/settings-store.ts: pushNotifyInboxOnly,done,src/main.rs:568,S-pushNotifyInboxOnly,0,S
+S-pushRelayUrl,settings-notifications,Push relay,stores/settings-store.ts: pushRelayUrl,missing,,S-pushRelayUrl,6,S
+S-unreadBadgeAllAccounts,settings-notifications,Count unread mail in all accounts,stores/settings-store.ts: unreadBadgeAllAccounts,done,src/mail.rs:189,S-unreadBadgeAllAccounts,0,S
+S-nestedTags,settings-organize,Nested tags,stores/settings-store.ts: nestedTags,done,src/main.rs:1025,S-nestedTags,0,S
+S-avatars.refresh,settings-privacy,Refresh sender icons,stores/settings-store.ts: avatars.refresh,done,src/main.rs:1100,S-avatars.refresh,0,S
+S-externalContentPolicy,settings-privacy,External content,stores/settings-store.ts: externalContentPolicy,missing,,S-externalContentPolicy,2,S
+S-gravatarAvatars,settings-privacy,Gravatar photos,stores/settings-store.ts: gravatarAvatars,done,src/avatars.rs:33,S-gravatarAvatars,0,S
+S-senderFavicons,settings-privacy,Sender pictures from the web,stores/settings-store.ts: senderFavicons,done,src/avatars.rs:33,S-senderFavicons,0,S
+S-showAvatarsInJunk,settings-privacy,Show avatars in the Junk folder,stores/settings-store.ts: showAvatarsInJunk,done,src/avatars.rs:33,S-showAvatarsInJunk,0,S
+S-externalSenderLabel,settings-privacy,Label external senders,stores/settings-store.ts: externalSenderLabel,missing,,S-externalSenderLabel,2,S
+S-trustedSenders,settings-privacy,Trusted senders,stores/settings-store.ts: trustedSenders,missing,,S-trustedSenders,2,S
+S-attachmentImagePreviewsEnabled,settings-reading,Show image previews in attachments,stores/settings-store.ts: attachmentImagePreviewsEnabled,done,src/attachments.rs:60,S-attachmentImagePreviewsEnabled,0,S
+S-emailAlwaysLightMode,settings-reading,Always show emails in light mode,stores/settings-store.ts: emailAlwaysLightMode,done,src/main.rs:233,S-emailAlwaysLightMode,0,S
+S-hideInlineImageAttachments,settings-reading,Hide inline images from attachments,stores/settings-store.ts: hideInlineImageAttachments,done,src/mail.rs:73,S-hideInlineImageAttachments,0,S
+S-mailAttachmentAction,settings-reading,Attachment click action,stores/settings-store.ts: mailAttachmentAction,done,src/main.rs:1747,S-mailAttachmentAction,0,S
+S-markAsReadDelay,settings-reading,Mark as read,stores/settings-store.ts: markAsReadDelay,done,src/msgload.rs:36,S-markAsReadDelay,0,S
+S-messageSpacing,settings-reading,Message spacing,stores/settings-store.ts: messageSpacing,done,src/main.rs:255,S-messageSpacing,0,S
+S-returnToListAfterAction,settings-reading,"Return to list after delete, archive, move or mark unread",stores/settings-store.ts: returnToListAfterAction,done,src/mail.rs:1011,S-returnToListAfterAction,0,S
+S-debugMode,settings-troubleshooting,Detailed logging,stores/settings-store.ts: debugMode,missing,,S-debugMode,6,S
+S-keyless-001,settings-account,Email address,settings-schema.json (page account),missing,,S-keyless-001,3,S
+S-keyless-002,settings-account,Username,settings-schema.json (page account),missing,,S-keyless-002,3,S
+S-keyless-003,settings-account,Authentication,settings-schema.json (page account),missing,,S-keyless-003,3,S
+S-keyless-004,settings-account,JMAP server,settings-schema.json (page account),missing,,S-keyless-004,3,S
+S-keyless-005,settings-account,Storage usage,settings-schema.json (page account),missing,,S-keyless-005,3,S
+S-keyless-006,settings-account,Account type,settings-schema.json (page account),missing,,S-keyless-006,3,S
+S-keyless-007,settings-account,Your name,settings-schema.json (page account),missing,,S-keyless-007,3,S
+S-keyless-008,settings-account,Your name,settings-schema.json (page account),missing,,S-keyless-008,3,S
+S-keyless-009,settings-account,Your addresses,settings-schema.json (page account),missing,,S-keyless-009,3,S
+S-keyless-010,settings-account,Sub-addressing,settings-schema.json (page account),missing,,S-keyless-010,3,S
+S-keyless-011,settings-security,Two-step sign-in,settings-schema.json (page security),missing,,S-keyless-011,3,S
+S-keyless-012,settings-security,Two-step sign-in,settings-schema.json (page security),missing,,S-keyless-012,3,S
+S-keyless-013,settings-security,Lock with a PIN,settings-schema.json (page security),missing,,S-keyless-013,3,S
+S-keyless-014,settings-security,Unlock with Windows Hello,settings-schema.json (page security),missing,,S-keyless-014,3,S
+S-keyless-015,settings-security,Lock after,settings-schema.json (page security),missing,,S-keyless-015,3,S
+S-keyless-016,settings-security,Lock now,settings-schema.json (page security),missing,,S-keyless-016,3,S
+S-keyless-017,settings-security,PIN,settings-schema.json (page security),missing,,S-keyless-017,3,S
+S-keyless-018,settings-security,Passkey,settings-schema.json (page security),missing,,S-keyless-018,3,S
+S-keyless-019,settings-notifications,Turn on for this device,settings-schema.json (page notifications),missing,,S-keyless-019,6,S
+S-keyless-020,settings-general,Introductory tour,settings-schema.json (page general),missing,,S-keyless-020,6,S
+S-keyless-021,settings-general,Language,settings-schema.json (page general),missing,,S-keyless-021,7,S
+S-keyless-022,settings-general,Open email links in {appName},settings-schema.json (page general),missing,,S-keyless-022,6,S
+S-keyless-023,settings-general,Open calendar links in {appName},settings-schema.json (page general),missing,,S-keyless-023,6,S
+S-keyless-024,settings-general,How links open,settings-schema.json (page general),missing,,S-keyless-024,6,S
+S-keyless-025,settings-appearance,Light or dark,settings-schema.json (page appearance),missing,,S-keyless-025,6,S
+S-keyless-026,settings-appearance,Text size and motion,settings-schema.json (page appearance),unverified,,S-keyless-026,6,S
+S-keyless-027,settings-accessibility,Density and toolbar labels,settings-schema.json (page accessibility),unverified,,S-keyless-027,6,S
+S-keyless-028,settings-accessibility,Theme and colour mode,settings-schema.json (page accessibility),unverified,,S-keyless-028,6,S
+S-keyless-029,settings-accessibility,Light background for messages,settings-schema.json (page accessibility),unverified,,S-keyless-029,6,S
+S-keyless-030,settings-accessibility,Keyboard shortcuts,settings-schema.json (page accessibility),unverified,,S-keyless-030,6,S
+S-keyless-031,settings-accessibility,Hover and swipe actions,settings-schema.json (page accessibility),unverified,,S-keyless-031,6,S
+S-keyless-032,settings-accessibility,Event previews in the calendar,settings-schema.json (page accessibility),unverified,,S-keyless-032,6,S
+S-keyless-033,settings-accessibility,Conversations and preview lines,settings-schema.json (page accessibility),unverified,,S-keyless-033,6,S
+S-keyless-034,settings-accessibility,Marking mail as read,settings-schema.json (page accessibility),unverified,,S-keyless-034,6,S
+S-keyless-035,settings-accessibility,Warnings before sending,settings-schema.json (page accessibility),unverified,,S-keyless-035,6,S
+S-keyless-036,settings-accessibility,Asking before deleting several messages,settings-schema.json (page accessibility),unverified,,S-keyless-036,6,S
+S-keyless-037,settings-accessibility,Do not disturb,settings-schema.json (page accessibility),unverified,,S-keyless-037,6,S
+S-keyless-038,settings-accessibility,Sounds and the unread badge,settings-schema.json (page accessibility),unverified,,S-keyless-038,6,S
+S-keyless-039,settings-message_list,Message list order,settings-schema.json (page message_list),unverified,,S-keyless-039,6,S
+S-keyless-040,settings-composing,Check spelling and grammar while I type,settings-schema.json (page composing),unverified,,S-keyless-040,6,S
+S-keyless-041,settings-vacation,Reply automatically,settings-schema.json (page vacation),missing,,S-keyless-041,3,S
+S-keyless-042,settings-vacation,Reply to,settings-schema.json (page vacation),missing,,S-keyless-042,3,S
+S-keyless-043,settings-vacation,From (optional),settings-schema.json (page vacation),missing,,S-keyless-043,3,S
+S-keyless-044,settings-vacation,Until (optional),settings-schema.json (page vacation),missing,,S-keyless-044,3,S
+S-keyless-045,settings-vacation,Subject,settings-schema.json (page vacation),missing,,S-keyless-045,3,S
+S-keyless-046,settings-vacation,Forward messages,settings-schema.json (page vacation),missing,,S-keyless-046,3,S
+S-keyless-047,settings-vacation,Forward to,settings-schema.json (page vacation),missing,,S-keyless-047,3,S
+S-keyless-048,settings-vacation,Keep in inbox,settings-schema.json (page vacation),missing,,S-keyless-048,3,S
+S-keyless-049,settings-calendar,Calendar opens in,settings-schema.json (page calendar),unverified,,S-keyless-049,6,S
+S-keyless-050,settings-calendar,Organize invitations as,settings-schema.json (page calendar),unverified,,S-keyless-050,6,S
+S-keyless-051,settings-calendar,Working days,settings-schema.json (page calendar),unverified,,S-keyless-051,6,S
+S-keyless-052,settings-contacts,Import contacts,settings-schema.json (page contacts),unverified,,S-keyless-052,6,S
+S-keyless-053,settings-contacts,Export contacts,settings-schema.json (page contacts),unverified,,S-keyless-053,6,S
+S-keyless-054,settings-files,Show files as,settings-schema.json (page files),unverified,,S-keyless-054,4,S
+S-keyless-055,settings-files,Default sort,settings-schema.json (page files),unverified,,S-keyless-055,4,S
+S-keyless-056,settings-files,Sort direction,settings-schema.json (page files),unverified,,S-keyless-056,4,S
+S-keyless-057,settings-files,Show file icons,settings-schema.json (page files),unverified,,S-keyless-057,4,S
+S-keyless-058,settings-files,Colored icons,settings-schema.json (page files),unverified,,S-keyless-058,4,S
+S-keyless-059,settings-files,Show thumbnails,settings-schema.json (page files),unverified,,S-keyless-059,4,S
+S-keyless-060,settings-files,Show hidden files,settings-schema.json (page files),unverified,,S-keyless-060,4,S
+S-keyless-061,settings-about,Export settings,settings-schema.json (page about),unverified,,S-keyless-061,6,S
+S-keyless-062,settings-about,Import settings,settings-schema.json (page about),unverified,,S-keyless-062,6,S
+S-keyless-063,settings-about,Refresh cached data,settings-schema.json (page about),unverified,,S-keyless-063,6,S
+S-keyless-064,settings-about,Reset settings,settings-schema.json (page about),unverified,,S-keyless-064,6,S

@@ -2,3 +2,6 @@ target/
 *.pdb
 plugins/*/target/
 __pycache__/
+
+# Private, never committed: privacy patterns and account notes
+.local/
