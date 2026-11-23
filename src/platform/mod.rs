@@ -272,7 +272,9 @@ mod tests {
 
     #[test]
     fn folders() {
-        assert!(config_dir().ends_with(if cfg!(windows) { "Barbican" } else { "barbican" }));
+        // a test process runs under its own throwaway profile, never the user's folder
+        assert!(config_dir().starts_with(app_config_dir()));
+        assert!(config_dir().ends_with(crate::profile::test_profile()));
         assert!(data_dir().ends_with(if cfg!(windows) { "Barbican" } else { "barbican" }));
     }
 }

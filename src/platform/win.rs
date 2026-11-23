@@ -17,10 +17,15 @@ pub fn first_instance() -> bool {
     use windows::Win32::Foundation::{GetLastError, ERROR_ALREADY_EXISTS};
     use windows::Win32::System::Threading::CreateMutexW;
     // one per profile: a test or automation run must not count as the user's Barbican
-    let name = wide(&match crate::profile::current() {
-        p if crate::profile::is_default(p) => r"Local\Barbican.Instance".to_string(),
-        p => format!(r"Local\Barbican.Instance.{p}"),
-    });
+    let shared = wide(r"Local\Barbican.Instance");
+    let name = match crate::profile::current() {
+        p if crate::profile::is_default(p) => shared.clone(),
+        p => wide(&format!(r"Local\Barbican.Instance.{p}")),
+    };
+    // any profile also holds the shared name, so the installer never replaces a running Barbican
+    if !crate::profile::is_default(crate::profile::current()) {
+        let _ = unsafe { CreateMutexW(None, false, PCWSTR(shared.as_ptr())) };
+    }
     // the handle is leaked on purpose: Windows releases it when the process ends
     match unsafe { CreateMutexW(None, false, PCWSTR(name.as_ptr())) } {
         Ok(_) => { let e = unsafe { GetLastError() }; e != ERROR_ALREADY_EXISTS }

@@ -40,9 +40,17 @@ pub fn current() -> &'static str {
     P.get_or_init(|| {
         let port = crate::automation::enabled()
             .then(|| std::env::var("BARBICAN_AUTOMATION_PORT").unwrap_or_else(|_| "8792".into()));
-        resolve(std::env::var("BARBICAN_PROFILE").ok().as_deref(), port.as_deref())
+        let profile = resolve(std::env::var("BARBICAN_PROFILE").ok().as_deref(), port.as_deref());
+        // a test process never touches the user's own sign-in or settings
+        #[cfg(test)]
+        let profile = if is_default(&profile) { test_profile() } else { profile };
+        profile
     })
 }
+
+/// The throwaway profile of a test process (unit tests only).
+#[cfg(test)]
+pub fn test_profile() -> String { format!("test-{}", std::process::id()) }
 
 pub fn is_default(profile: &str) -> bool { profile == DEFAULT }
 

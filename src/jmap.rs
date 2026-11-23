@@ -265,7 +265,12 @@ impl Client {
     /// Re-fetch the session resource (RFC 8620 §3.4: when `sessionState` changes).
     pub fn refresh_session(&self) -> R<()> {
         self.guard()?;
-        let (status, s) = fetch_session(&self.http, &self.base, &self.auth_header())?;
+        self.renew_if_due()?;
+        let (mut status, mut s) = fetch_session(&self.http, &self.base, &self.auth_header())?;
+        if status == 401 && self.oauth.is_some() {
+            self.renew()?;
+            (status, s) = fetch_session(&self.http, &self.base, &self.auth_header())?;
+        }
         if status == 401 { return Err(self.reject()); }
         if s["apiUrl"].is_string() { *self.live.write().unwrap() = s; }
         Ok(())
@@ -2021,5 +2026,53 @@ mod tests {
         assert_eq!(gets.load(Ordering::SeqCst), 2);
         // a shared account of the same login is just as dead
         assert!(c.scoped("a2").is_rejected());
+    }
+
+    /// A 401 on the session refetch of an OAuth session (token just expired) renews once and
+    /// retries; it does not kill the client.
+    #[test]
+    fn a_401_on_the_session_refetch_renews_the_token_once() {
+        use std::io::{Read, Write};
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = l.local_addr().unwrap().port();
+        let (gets, tokens) = (Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)));
+        let (g2, t2) = (gets.clone(), tokens.clone());
+        std::thread::spawn(move || {
+            for sock in l.incoming() {
+                let Ok(mut sock) = sock else { break };
+                let mut buf = [0u8; 4096];
+                let n = sock.read(&mut buf).unwrap_or(0);
+                let req = String::from_utf8_lossy(&buf[..n]).to_string();
+                let first = req.lines().next().unwrap_or("").to_string();
+                let fresh = req.contains("Bearer fresh-access");
+                let json = |body: &str| format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
+                let reply = if first.starts_with("POST /token") {
+                    t2.fetch_add(1, Ordering::SeqCst);
+                    json(r#"{"access_token":"fresh-access","refresh_token":"r2","expires_in":3600}"#)
+                } else if first.starts_with("GET /.well-known/jmap") {
+                    let nth = g2.fetch_add(1, Ordering::SeqCst);
+                    // the sign-in call is accepted, the old token is dead by the refetch
+                    if nth == 0 || fresh {
+                        json(r#"{"apiUrl":"/api","primaryAccounts":{"urn:ietf:params:jmap:mail":"a1"},"username":"u@example.test","capabilities":{"urn:ietf:params:jmap:core":{}},"accounts":{},"state":"s2"}"#)
+                    } else {
+                        "HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_string()
+                    }
+                } else {
+                    "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_string()
+                };
+                let _ = sock.write_all(reply.as_bytes());
+            }
+        });
+        let tokens_in = crate::oauth::Tokens {
+            access: "old-access".into(), refresh: Some("r1".into()), expires: None,
+            token_endpoint: format!("http://127.0.0.1:{port}/token"), client_id: "barbican-test".into(), user: String::new(),
+        };
+        let c = Client::connect_oauth(&format!("http://127.0.0.1:{port}"), tokens_in).unwrap();
+        assert_eq!(tokens.load(Ordering::SeqCst), 0);
+        c.refresh_session().unwrap();
+        assert!(!c.is_rejected());
+        assert_eq!(tokens.load(Ordering::SeqCst), 1, "renewed once");
+        assert_eq!(gets.load(Ordering::SeqCst), 3, "sign-in, the 401, the retry");
     }
 }
