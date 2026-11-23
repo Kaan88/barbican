@@ -762,18 +762,25 @@ fn load_mailboxes(ui: slint::Weak<AppWindow>, client: Arc<jmap::Client>, select_
     mail::load_mailboxes(ui, client, select_inbox);
 }
 
+/// Another Barbican runs on this computer: it may have the mail view's profile folder open.
+static OTHER_INSTANCE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 fn main() -> Result<(), slint::PlatformError> {
     // an update the user approved ("Install next time") installs before anything else
     // (only when no other Barbican runs: the installer would replace it while it is open)
-    if platform::first_instance() && updater::on_start() { return Ok(()); }
+    // (the check cannot run twice: the second call would see this process's own lock)
+    let first = platform::first_instance();
+    OTHER_INSTANCE.store(!first, std::sync::atomic::Ordering::SeqCst);
+    if first && updater::on_start() { return Ok(()); }
     // Skia: the same text/graphics engine Chrome uses, so text matches Bulwark in the browser
     // (and gets system font fallback for CJK and other scripts).
     let _ = slint::BackendSelector::new().renderer_name("skia".into()).select();
     // a mailto: link from the OS while Barbican already runs: hand it over and quit
     let link = instance::mailto_arg(&std::env::args().skip(1).collect::<Vec<_>>());
     if link.as_deref().is_some_and(instance::forward) { return Ok(()); }
-    // what the last sign-out could not delete (locked then), before any WebView exists
-    signout::sweep_pending();
+    // what the last sign-out could not delete (locked then), before any WebView exists; not
+    // while another Barbican runs: its mail view may have that profile open
+    if first { signout::sweep_pending(); }
     let ui = AppWindow::new()?;
     apply_theme(&ui);
     apply_ui_prefs(&ui);
@@ -866,7 +873,9 @@ fn main() -> Result<(), slint::PlatformError> {
         SESSION_GEN.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let account = u.get_account().to_string();
         let mut owner = None;
+        let mut server = String::new();
         if let Some(c) = st.lock().unwrap().take() {
+            server = c.base.clone();
             owner = Some(reminders::owner_key(&c.base, &c.username));
             if let Some(t) = c.tokens() { std::thread::spawn(move || oauth::revoke(&c.base, &t)); }
         }
@@ -874,7 +883,7 @@ fn main() -> Result<(), slint::PlatformError> {
         reminders::stop();
         // the account list is keyed by the name typed on the login form
         let login = std::mem::take(&mut *LOGIN_USER.lock().unwrap());
-        let last = signout::forget_keyring(&[login.as_str(), account.as_str()]);
+        let last = signout::forget_keyring(&[login.as_str(), account.as_str()], &server);
         if last { avatars::cancel_pending(); }
         // a chat answer still coming must not write the account's file again
         CHAT_USER.lock().unwrap().clear();
@@ -882,7 +891,7 @@ fn main() -> Result<(), slint::PlatformError> {
         unified::clear();
         // cookies, cache and storage of the mail view, and the account's files on disk
         mailview::clear_browsing_data();
-        signout::wipe(signout::Who { user: account, owner, last, webview_live: mailview::is_built() });
+        signout::wipe(signout::Who { user: account, owner, last, webview_live: mailview::is_built() || OTHER_INSTANCE.load(std::sync::atomic::Ordering::SeqCst) });
         u.set_chat(display_chat(&[]));
         u.set_accounts(accounts_model());
         REMEMBER_OAUTH.store(false, std::sync::atomic::Ordering::SeqCst);

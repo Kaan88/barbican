@@ -396,18 +396,25 @@ pub fn accounts() -> Vec<Value> {
         .and_then(|v| v.as_array().cloned()).unwrap_or_default()
 }
 
-/// The list without the account that signed in as any of `names` (compared without regard to
-/// case: the name typed on the login form and the name the server reports can differ).
-pub fn without_account(all: Vec<Value>, names: &[&str]) -> Vec<Value> {
+/// The list without the account that signed in as any of `names` on `server` (names compared
+/// without regard to case: the name typed on the login form and the name the server reports
+/// can differ; servers compared as the addresses they resolve to). The same name on another
+/// server is another account and stays. An empty `server` matches every server.
+pub fn without_account(all: Vec<Value>, names: &[&str], server: &str) -> Vec<Value> {
+    let same_server = |a: &Value| {
+        let s = a["server"].as_str().unwrap_or("");
+        server.is_empty() || s.is_empty()
+            || crate::jmap::normalize_base(s).eq_ignore_ascii_case(&crate::jmap::normalize_base(server))
+    };
     all.into_iter().filter(|a| {
         let u = a["user"].as_str().unwrap_or("");
-        !names.iter().any(|n| !n.is_empty() && n.eq_ignore_ascii_case(u))
+        !(same_server(a) && names.iter().any(|n| !n.is_empty() && n.eq_ignore_ascii_case(u)))
     }).collect()
 }
 
 /// Drop an account from the switcher's list; an empty list deletes the keychain entry.
-pub fn forget_account(names: &[&str]) {
-    let all = without_account(accounts(), names);
+pub fn forget_account(names: &[&str], server: &str) {
+    let all = without_account(accounts(), names, server);
     let Some(e) = accounts_entry() else { return };
     if all.is_empty() { let _ = e.delete_credential(); } else { let _ = e.set_password(&Value::Array(all).to_string()); }
 }

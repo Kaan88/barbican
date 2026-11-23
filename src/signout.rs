@@ -164,10 +164,11 @@ fn forget_owner(file: &Path, owner: &str) {
 /// Everything the OS keychain holds for the account: the remembered session and its entry in
 /// the account list; with the last account also the Stalwart admin key. All keychain entries
 /// that sign-out deletes go through here. Returns whether no remembered account is left.
-/// `names`: how the account is known (the login form's name and the server's).
-pub fn forget_keyring(names: &[&str]) -> bool {
+/// `names`: how the account is known (the login form's name and the server's); `server`: the
+/// one it signed in to (empty when unknown: then the name alone decides).
+pub fn forget_keyring(names: &[&str], server: &str) -> bool {
     crate::oauth::forget();
-    crate::oauth::forget_account(names);
+    crate::oauth::forget_account(names, server);
     let last = crate::oauth::accounts().is_empty();
     if last { crate::admin::set_key(""); }
     last
@@ -175,8 +176,18 @@ pub fn forget_keyring(names: &[&str]) -> bool {
 
 // ---------------- what stays locked until the next start ----------------
 
+/// Wipes can overlap (a sign-out, a quick sign-in, a second sign-out while the first still
+/// retries): the pending list is read, changed and rewritten under this lock so one wipe
+/// cannot drop the other's entries.
+static PENDING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn pending_lock() -> std::sync::MutexGuard<'static, ()> {
+    PENDING.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 fn schedule(r: &Roots, paths: &[PathBuf]) {
     if paths.is_empty() { return; }
+    let _lock = pending_lock();
     let file = r.pending_file();
     let mut all = read_pending(&file);
     for p in paths { if !all.contains(p) { all.push(p.clone()); } }
@@ -184,6 +195,7 @@ fn schedule(r: &Roots, paths: &[PathBuf]) {
 }
 
 fn unschedule(r: &Roots, done: &[PathBuf]) {
+    let _lock = pending_lock();
     let file = r.pending_file();
     let mut all = read_pending(&file);
     all.retain(|p| !done.contains(p));
@@ -212,6 +224,7 @@ fn allowed(r: &Roots, p: &Path) -> bool {
 
 /// At start, before any WebView exists: remove what the last sign-out could not.
 pub fn sweep_pending_with(r: &Roots, remove: &dyn Fn(&Path) -> io::Result<()>) -> Report {
+    let _lock = pending_lock();
     let file = r.pending_file();
     let mut report = Report::default();
     for p in read_pending(&file) {
@@ -442,13 +455,52 @@ mod tests {
             serde_json::json!({"user": "bob@example.test", "server": "https://mail.example.test"}),
         ];
         // the server reports another form of the name than the one typed
-        let left = crate::oauth::without_account(list.clone(), &["Ann@Example.test", "ann"]);
+        let left = crate::oauth::without_account(list.clone(), &["Ann@Example.test", "ann"], "");
         assert_eq!(left.len(), 1);
         assert_eq!(left[0]["user"], "bob@example.test");
-        let left = crate::oauth::without_account(list.clone(), &["", "ann@example.test"]);
+        let left = crate::oauth::without_account(list.clone(), &["", "ann@example.test"], "");
         assert_eq!(left.len(), 1);
         // an empty name matches nothing
-        assert_eq!(crate::oauth::without_account(list, &["", ""]).len(), 2);
+        assert_eq!(crate::oauth::without_account(list, &["", ""], "").len(), 2);
+    }
+
+    #[test]
+    fn the_same_name_on_another_server_stays() {
+        let list = vec![
+            serde_json::json!({"user": "admin@example.test", "server": "https://a.example.test"}),
+            serde_json::json!({"user": "admin@example.test", "server": "https://b.example.test/"}),
+        ];
+        let left = crate::oauth::without_account(list.clone(), &["admin@example.test"], "https://a.example.test");
+        assert_eq!(left.len(), 1);
+        assert_eq!(left[0]["server"], "https://b.example.test/");
+        // the server as typed on the login form (no scheme, trailing slash, other case)
+        let left = crate::oauth::without_account(list.clone(), &["admin@example.test"], "B.example.test/");
+        assert_eq!(left.len(), 1);
+        assert_eq!(left[0]["server"], "https://a.example.test");
+        // server unknown: the name alone decides
+        assert!(crate::oauth::without_account(list, &["admin@example.test"], "").is_empty());
+    }
+
+    #[test]
+    fn overlapping_wipes_keep_each_others_pending_entries() {
+        let t = Tmp::new("overlap");
+        let r = t.roots();
+        let a = r.config.join("a.json");
+        let b = r.config.join("b.json");
+        schedule(&r, &[a.clone()]);
+        schedule(&r, &[b.clone()]);
+        unschedule(&r, &[a.clone()]);
+        assert_eq!(read_pending(&r.pending_file()), vec![b.clone()]);
+        // many threads scheduling and unscheduling at once lose nothing
+        let extra: Vec<PathBuf> = (0..16).map(|i| r.config.join(format!("c{i}.json"))).collect();
+        std::thread::scope(|s| {
+            for p in &extra {
+                s.spawn(|| { schedule(&r, &[p.clone()]); });
+            }
+            s.spawn(|| { for _ in 0..16 { unschedule(&r, &[a.clone()]); } });
+        });
+        let left = read_pending(&r.pending_file());
+        for p in extra.iter().chain([&b]) { assert!(left.contains(p), "{p:?} was lost"); }
     }
 
     #[test]
