@@ -309,6 +309,8 @@ pub fn load_mailboxes(w: slint::Weak<AppWindow>, c: Arc<Client>, select_inbox: b
             rebuild_folders(&u);
             set_tags(&u, &counts);
             if select_inbox {
+                // a notification of this login brought the switch: its message, not the Inbox
+                if crate::desktop::resume_pending(&u, &c) { return; }
                 if let Some(id) = inbox {
                     u.set_current_folder(id.clone().into());
                     crate::glance::title(&u);

@@ -2075,6 +2075,7 @@ fn restore_session(w: slint::Weak<AppWindow>, st: Shared, v: Value, switching: b
             if switching {
                 let msg = format!("Could not switch to {user}: {e}");
                 let _ = w.upgrade_in_event_loop(move |u| {
+                    desktop::drop_pending();
                     u.set_busy(false);
                     u.set_accounts(accounts_model());
                     mail::show_toast(&u, &msg, false);

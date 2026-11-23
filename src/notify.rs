@@ -81,6 +81,8 @@ pub struct View {
     pub narrowed: bool,
     /// The message is in the list on screen.
     pub listed: bool,
+    /// The message open in the reader ("" for none).
+    pub current_mail: String,
     /// Ids of the session's folders (empty while they are not loaded yet).
     pub folders: Vec<String>,
     pub inbox: Option<String>,
@@ -107,6 +109,42 @@ pub struct OpenPlan {
     pub notice: Option<&'static str>,
 }
 
+/// Whether the user changed the account, the folder or the open message since `then` (Bulwark
+/// applyMailDeepLink: "The user moved on while the login reconnected: don't pull them away").
+pub fn moved_on(then: &View, now: &View) -> bool {
+    then.account != now.account || then.folder != now.folder || then.current_mail != now.current_mail
+}
+
+/// What to do about the login a toast belongs to.
+#[derive(Debug, Clone, PartialEq)]
+pub enum AccountPlan {
+    /// The window is on that login (or the toast names none): open it here.
+    Here,
+    /// Another signed-in login: switch to it first (Bulwark applyMailDeepLink: switchAccount).
+    Switch(String),
+    /// A login that is not signed in any more.
+    Missing,
+}
+
+/// `current` is the login on screen, `signed_in` the logins the switcher offers.
+pub fn plan_account(r: &MailRef, current: &str, signed_in: &[String]) -> AccountPlan {
+    match r.account.as_deref() {
+        None => AccountPlan::Here,
+        Some(a) if current.is_empty() || a == current => AccountPlan::Here,
+        Some(a) if signed_in.iter().any(|s| s == a) => AccountPlan::Switch(a.to_string()),
+        Some(_) => AccountPlan::Missing,
+    }
+}
+
+/// How long an activation waits for its login's folders after the switch.
+pub const PENDING_FOR: std::time::Duration = std::time::Duration::from_secs(90);
+
+/// Whether an activation queued at `queued` for a login switch still applies once `login`'s
+/// folders are loaded: only for the login it named, and not long after.
+pub fn pending_applies(r: &MailRef, queued: std::time::Instant, now: std::time::Instant, login: &str) -> bool {
+    r.account.as_deref() == Some(login) && now.saturating_duration_since(queued) <= PENDING_FOR
+}
+
 fn known(v: &View, id: &str) -> bool { v.folders.is_empty() || v.folders.iter().any(|f| f == id) }
 
 /// The folder to select to show `target`: None when it is already shown as it is.
@@ -115,13 +153,14 @@ pub fn folder_to_select(target: &str, v: &View) -> Option<String> {
 }
 
 /// Which folder, and whether to open the message, when a toast for `r` is activated
-/// (Bulwark's showInOwningFolder: the message's own folder is selected, its account is checked
-/// first, a message that is gone only says so). The All inboxes view is left for the folder:
-/// its rows are keyed per source, so the message could not be highlighted there.
+/// (Bulwark's showInOwningFolder: the message's own folder is selected, a message that is gone
+/// only says so). The login is settled before this (see [`plan_account`]). The All inboxes view
+/// is left for the folder: its rows are keyed per source, so the message could not be
+/// highlighted there. A search or tag that already lists the message is left alone.
 pub fn plan_mail_open(r: &MailRef, v: &View, at: &Location) -> OpenPlan {
-    // another login's message id means nothing here (Bulwark opens the Inbox instead)
+    // another login's message id means nothing here: callers switch first, so never open it
     if r.account.as_deref().is_some_and(|a| !v.account.is_empty() && a != v.account) {
-        return OpenPlan { folder: v.inbox.as_deref().and_then(|i| folder_to_select(i, v)), open: false, notice: None };
+        return OpenPlan::default();
     }
     let hint = r.mailbox.as_deref().filter(|m| known(v, m));
     let target = match at {
@@ -145,7 +184,8 @@ pub fn plan_mail_open(r: &MailRef, v: &View, at: &Location) -> OpenPlan {
         None if v.listed => None,
         None => v.inbox.as_deref(),
     };
-    let folder = target.and_then(|t| folder_to_select(t, v));
+    // search results that list the message already show and highlight it: keep them
+    let folder = target.filter(|_| !(v.listed && v.narrowed)).and_then(|t| folder_to_select(t, v));
     OpenPlan { folder, open: true, notice: None }
 }
 
@@ -351,7 +391,7 @@ mod tests {
     }
 
     fn view(folder: &str) -> View {
-        View { account: "me@x.test".into(), folder: folder.into(), narrowed: false, listed: false,
+        View { account: "me@x.test".into(), folder: folder.into(), narrowed: false, listed: false, current_mail: String::new(),
             folders: vec!["inbox".into(), "arch".into(), "sub".into(), "sent".into()], inbox: Some("inbox".into()) }
     }
     fn r(mailbox: Option<&str>, account: Option<&str>) -> MailRef {
@@ -438,16 +478,63 @@ mod tests {
         // narrowed but the mail is on screen already: leave the results
         v.listed = true;
         assert_eq!(plan_mail_open(&r(None, None), &v, &Location::Unknown).folder, None);
+        // also when the server's answer is known: the mail is in the results and highlighted
+        let p = plan_mail_open(&r(Some("inbox"), None), &v, &boxes(&["inbox"]));
+        assert_eq!(p, OpenPlan { folder: None, open: true, notice: None });
+        let p = plan_mail_open(&r(Some("arch"), None), &v, &boxes(&["arch"]));
+        assert_eq!(p, OpenPlan { folder: None, open: true, notice: None });
     }
 
     #[test]
-    fn another_login_opens_the_inbox_only() {
+    fn another_login_is_switched_to() {
+        let me = "me@x.test";
+        let signed = vec![me.to_string(), "other@x.test".to_string()];
+        // no login in the toast, or the one on screen: here
+        assert_eq!(plan_account(&r(Some("arch"), None), me, &signed), AccountPlan::Here);
+        assert_eq!(plan_account(&r(Some("arch"), Some(me)), me, &signed), AccountPlan::Here);
+        // nothing on screen to compare with: here
+        assert_eq!(plan_account(&r(None, Some(me)), "", &signed), AccountPlan::Here);
+        // another signed-in login: switch to it
+        assert_eq!(plan_account(&r(Some("arch"), Some("other@x.test")), me, &signed), AccountPlan::Switch("other@x.test".into()));
+        // one that was signed out since
+        assert_eq!(plan_account(&r(Some("arch"), Some("gone@x.test")), me, &signed), AccountPlan::Missing);
+        // never opened through the wrong login
         let p = plan_mail_open(&r(Some("arch"), Some("other@x.test")), &view("sent"), &boxes(&["arch"]));
-        assert_eq!(p, OpenPlan { folder: Some("inbox".into()), open: false, notice: None });
-        let p = plan_mail_open(&r(Some("arch"), Some("other@x.test")), &view("inbox"), &Location::Unknown);
-        assert_eq!(p, OpenPlan { folder: None, open: false, notice: None });
+        assert_eq!(p, OpenPlan::default());
         // the same login: opens
-        assert!(plan_mail_open(&r(Some("arch"), Some("me@x.test")), &view("inbox"), &boxes(&["arch"])).open);
+        assert!(plan_mail_open(&r(Some("arch"), Some(me)), &view("inbox"), &boxes(&["arch"])).open);
+    }
+
+    #[test]
+    fn queued_activation_waits_for_its_login_only() {
+        use std::time::{Duration, Instant};
+        let t0 = Instant::now();
+        let m = r(Some("arch"), Some("other@x.test"));
+        assert!(pending_applies(&m, t0, t0 + Duration::from_secs(3), "other@x.test"));
+        // another login came up (the switch failed or the user chose another)
+        assert!(!pending_applies(&m, t0, t0 + Duration::from_secs(3), "me@x.test"));
+        // too late: the user has long moved on
+        assert!(!pending_applies(&m, t0, t0 + PENDING_FOR + Duration::from_secs(1), "other@x.test"));
+        // a toast without a login never waits
+        assert!(!pending_applies(&r(None, None), t0, t0, "other@x.test"));
+    }
+
+    #[test]
+    fn moved_on_means_account_folder_or_mail() {
+        let a = view("inbox");
+        assert!(!moved_on(&a, &a.clone()));
+        assert!(moved_on(&a, &view("arch")));
+        let mut b = a.clone();
+        b.current_mail = "e7".into();
+        assert!(moved_on(&a, &b));
+        let mut c = a.clone();
+        c.account = "other@x.test".into();
+        assert!(moved_on(&a, &c));
+        // a search typed meanwhile or rows loaded do not count
+        let mut d = a.clone();
+        d.narrowed = true;
+        d.listed = true;
+        assert!(!moved_on(&a, &d));
     }
 
     #[test]

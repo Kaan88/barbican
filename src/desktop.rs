@@ -13,6 +13,8 @@ thread_local! {
     static TRAY: RefCell<Option<tray::Tray>> = const { RefCell::new(None) };
     static UNREAD: Cell<i64> = const { Cell::new(-1) };
     static UPDATE_REV: Cell<u64> = const { Cell::new(u64::MAX) };
+    /// A toast of another login, waiting for that login's folders after the switch.
+    static PENDING: RefCell<Option<(notify::MailRef, std::time::Instant)>> = const { RefCell::new(None) };
     /// Versions whose prompt the user closed this session.
     static DISMISSED: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
     /// After a draft could not be saved, quitting again within a minute closes without it.
@@ -317,8 +319,11 @@ fn activate(a: notify::Activation) {
     let Some(c) = st.and_then(|s| s.lock().unwrap().clone()) else { return };
     match a.action.as_str() {
         "archive" | "mark-read" | "delete" => {
-            // another login's message id means nothing to this session
-            if r.account.as_deref().is_some_and(|x| x != c.username) { return; }
+            // another login's message id means nothing to this session: say so, do nothing
+            if r.account.as_deref().is_some_and(|x| x != c.username) {
+                crate::mail::show_toast(&u, "That message belongs to another account. Click the notification to switch to it.", false);
+                return;
+            }
             let action = match a.action.as_str() { "mark-read" => "read", x => x };
             crate::mail::apply_confirmed(&u, c, vec![r.id.clone()], action, &[r.id]);
         }
@@ -336,6 +341,7 @@ fn view_of(u: &AppWindow, c: &crate::jmap::Client, id: &str) -> notify::View {
         folder: u.get_current_folder().to_string(),
         narrowed: !u.get_search().trim().is_empty() || !u.get_current_tag().is_empty(),
         listed: !id.is_empty() && (0..m.row_count()).any(|i| m.row_data(i).is_some_and(|r| r.id == id)),
+        current_mail: u.get_current_mail().to_string(),
         inbox: crate::mail::role_id("inbox").filter(|i| ids.contains(i)),
         folders: ids,
     }
@@ -351,23 +357,52 @@ fn select_folder(u: &AppWindow, id: &str) {
     u.invoke_select_folder(id.into());
 }
 
-/// A toast's click: the message's own folder, then the message. Where it is now comes from the
-/// list on screen or from the server (it may have moved since the toast, or be gone).
+/// A toast's click: the window comes up, the message's login is made the active one (Bulwark
+/// applyMailDeepLink: waits for it and switches), then its own folder, then the message.
 fn open_from_toast(u: &AppWindow, c: std::sync::Arc<crate::jmap::Client>, r: notify::MailRef) {
     show_window(u);
     u.set_show_settings(false);
     u.set_app(0);
     u.invoke_app_changed(0);
-    let v = view_of(u, &c, &r.id);
-    if r.account.as_deref().is_some_and(|x| x != c.username) {
-        finish_open(u, &r, &v, &notify::Location::Unknown);
-        return;
+    let signed_in: Vec<String> = crate::oauth::accounts().iter().filter_map(|a| a["user"].as_str().map(String::from)).collect();
+    match notify::plan_account(&r, &c.username, &signed_in) {
+        notify::AccountPlan::Here => open_here(u, c, r, false),
+        notify::AccountPlan::Missing => crate::mail::show_toast(u, "That message belongs to an account that is not signed in.", false),
+        notify::AccountPlan::Switch(user) => {
+            // the folders of that login are not there yet: open the message once they are
+            // (resume_pending, from the folder load that follows the switch)
+            PENDING.with(|p| *p.borrow_mut() = Some((r, std::time::Instant::now())));
+            u.invoke_switch_account(user.into());
+        }
     }
-    if let Some(m) = crate::mail::email(&r.id) {
-        let boxes = m["mailboxIds"].as_object().map(|o| o.iter().filter(|(_, v)| **v == true).map(|(k, _)| k.clone()).collect());
-        if let Some(b) = boxes {
-            finish_open(u, &r, &v, &notify::Location::In(b));
-            return;
+}
+
+/// The folders of `c` just loaded after a login switch: run the toast that asked for it.
+/// Returns whether one did (the Inbox is then not selected on top of it).
+pub fn resume_pending(u: &AppWindow, c: &std::sync::Arc<crate::jmap::Client>) -> bool {
+    let Some((r, at)) = PENDING.with(|p| p.borrow_mut().take()) else { return false };
+    if !notify::pending_applies(&r, at, std::time::Instant::now(), &c.username) { return false; }
+    open_here(u, c.clone(), r, true);
+    true
+}
+
+/// A switch that failed: its queued toast must not open the message at a later switch.
+pub fn drop_pending() { PENDING.with(|p| *p.borrow_mut() = None); }
+
+/// Select the message's folder in the active login and open it. Where the message is now comes
+/// from the list on screen or from the server (it may have moved since the toast, or be gone).
+/// `fresh`: the login was switched to just now, so the list and folder on screen are the
+/// previous login's and nothing there counts.
+fn open_here(u: &AppWindow, c: std::sync::Arc<crate::jmap::Client>, r: notify::MailRef, fresh: bool) {
+    let then = view_of(u, &c, &r.id);
+    let v = if fresh { notify::View { folder: String::new(), narrowed: false, listed: false, ..then.clone() } } else { then.clone() };
+    if !fresh {
+        if let Some(m) = crate::mail::email(&r.id) {
+            let boxes = m["mailboxIds"].as_object().map(|o| o.iter().filter(|(_, v)| **v == true).map(|(k, _)| k.clone()).collect());
+            if let Some(b) = boxes {
+                finish_open(u, &r, &v, &notify::Location::In(b), false);
+                return;
+            }
         }
     }
     let w = u.as_weak();
@@ -378,19 +413,24 @@ fn open_from_toast(u: &AppWindow, c: std::sync::Arc<crate::jmap::Client>, r: not
             Err(_) => notify::Location::Unknown,
         };
         let _ = w.upgrade_in_event_loop(move |u| {
-            // the view may have moved on while the server answered
-            let v = match STATE.with(|s| s.borrow().clone()).and_then(|s| s.lock().unwrap().clone()) {
+            // the user may have moved on while the server answered: another login, folder or
+            // message is theirs now; the message list may have changed too
+            let now = match STATE.with(|s| s.borrow().clone()).and_then(|s| s.lock().unwrap().clone()) {
                 Some(c) => view_of(&u, &c, &r.id),
                 None => return,
             };
-            finish_open(&u, &r, &v, &at);
+            if notify::moved_on(&then, &now) { return; }
+            let v = if fresh { notify::View { folder: String::new(), narrowed: false, listed: false, ..now } } else { now };
+            finish_open(&u, &r, &v, &at, fresh);
         });
     });
 }
 
-fn finish_open(u: &AppWindow, r: &notify::MailRef, v: &notify::View, at: &notify::Location) {
+fn finish_open(u: &AppWindow, r: &notify::MailRef, v: &notify::View, at: &notify::Location, fresh: bool) {
     let plan = notify::plan_mail_open(r, v, at);
-    if let Some(f) = &plan.folder { select_folder(u, f); }
+    // after a switch the list is empty: a message that cannot be shown still leaves the Inbox
+    let folder = plan.folder.clone().or_else(|| if fresh { v.inbox.clone() } else { None });
+    if let Some(f) = &folder { select_folder(u, f); }
     if let Some(n) = plan.notice { crate::mail::show_toast(u, n, false); }
     if plan.open {
         u.set_current_mail(r.id.clone().into());
