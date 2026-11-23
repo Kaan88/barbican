@@ -120,7 +120,17 @@ pub fn is_active(c: &Client) -> bool {
 
 /// Client for a remembered user, connecting it (blocking) if needed.
 pub fn client(user: &str) -> Option<Arc<Client>> {
-    if let Some(c) = POOL.lock().unwrap().as_ref().and_then(|p| p.get(user).cloned()) { return Some(c); }
+    let pooled = POOL.lock().unwrap().as_ref().and_then(|p| p.get(user).cloned());
+    if let Some(c) = pooled {
+        // a secondary login the server turned down while it was watched: drop it and mark it, so
+        // the user hears about it once (the active login's rejection is shown by the main window)
+        if c.is_rejected() && user != active_user() {
+            if let Some(p) = POOL.lock().unwrap().as_mut() { p.remove(user); }
+            with_rejections(|r| r.reject(user));
+            return None;
+        }
+        return Some(c);
+    }
     // a login the server turned down waits for the user to sign in again
     if with_rejections(|r| r.is_rejected(user)) { return None; }
     // a login that just failed is not retried on every refresh (each try waits for the timeout)

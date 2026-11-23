@@ -2022,7 +2022,8 @@ fn display_chat(h: &[agent::Msg]) -> ModelRc<ChatMsg> {
 
 
 // ---------------- sign-in helpers ----------------
-fn remember_session(c: &jmap::Client, mut v: Value, server: &str, user: &str) {
+/// `fresh`: a new sign-in (not a session restored from the store).
+fn remember_session(c: &jmap::Client, mut v: Value, server: &str, user: &str, fresh: bool) {
     v["server"] = serde_json::json!(server);
     v["user"] = serde_json::json!(user);
     if v["kind"] == "oauth" {
@@ -2033,7 +2034,7 @@ fn remember_session(c: &jmap::Client, mut v: Value, server: &str, user: &str) {
         v["endpoint"] = serde_json::json!(t.token_endpoint);
         v["client"] = serde_json::json!(t.client_id);
     }
-    oauth::remember(&v);
+    oauth::remember(&v, fresh);
 }
 
 fn accounts_model() -> ModelRc<SharedString> {
@@ -2080,13 +2081,16 @@ fn restore_session(w: slint::Weak<AppWindow>, st: Shared, v: Value, switching: b
             }
         }
         let kind = v["kind"].as_str().unwrap_or("").to_string();
-        finish_login(w, st, res, server, user, Some(serde_json::json!({"kind": kind, "pass": v["pass"]})));
+        finish_login(w, st, res, server, user, Some(serde_json::json!({"kind": kind, "pass": v["pass"], "fresh": false})));
     });
 }
 
 fn finish_login(w: slint::Weak<AppWindow>, st: Shared, res: Result<jmap::Client, String>, server: String, user: String, remember: Option<Value>) {
     match res {
         Ok(c) => {
+            // an SSO sign-in may leave the user blank: the server's own name for the login then
+            // ties the remembered session (and its rotated tokens) to one account entry
+            let user = if user.trim().is_empty() { c.username.clone() } else { user };
             let c = Arc::new(c);
             *st.lock().unwrap() = Some(c.clone());
             unified::set_active(&user, c.clone());
@@ -2094,7 +2098,7 @@ fn finish_login(w: slint::Weak<AppWindow>, st: Shared, res: Result<jmap::Client,
             let p = config_path();
             let _ = std::fs::create_dir_all(p.parent().unwrap());
             let _ = std::fs::write(&p, format!("{server}\n{user}\n"));
-            if let Some(v) = remember { remember_session(&c, v, &server, &user); }
+            if let Some(mut v) = remember { let fresh = v["fresh"] != false; if let Some(o) = v.as_object_mut() { o.remove("fresh"); } remember_session(&c, v, &server, &user, fresh); }
             let name = c.username.clone();
             *CHAT_USER.lock().unwrap() = name.clone();
             // host of the server URL for the admin nav subtitle

@@ -398,16 +398,35 @@ pub fn revoke(base: &str, t: &Tokens) {
 
 // ---- remembered sessions (secrets.rs: Credential Manager / Secret Service, one set per profile) ----
 
-/// kind: "oauth" (secret = refresh token, plus endpoint/client) or "password".
-pub fn remember(v: &Value) {
+/// The remembered-account list after remembering `v`: the entry of the same user and server is
+/// replaced and moved first; every other entry stays exactly as `all` (read under the lock just
+/// now) has it, so a refresh token another instance rotated meanwhile survives. With `fresh`
+/// false (a restored session, not a new sign-in) the stored refresh token of that entry wins
+/// over this instance's copy, which may be a rotation behind.
+fn merge_account(mut all: Vec<Value>, v: &Value, fresh: bool) -> (Vec<Value>, Value) {
+    let mut v = v.clone();
+    let user = v["user"].as_str().unwrap_or("").to_string();
+    if !fresh && v["kind"] == "oauth" {
+        let ep = v["endpoint"].as_str().unwrap_or("").to_string();
+        if let Some(r) = find_refresh(&all, &user, &ep).filter(|r| !r.is_empty()) { v["refresh"] = json!(r); }
+    }
+    if !user.is_empty() {
+        all.retain(|a| a["user"].as_str() != Some(user.as_str()) || a["server"] != v["server"]);
+        all.insert(0, v.clone());
+    }
+    (all, v)
+}
+
+/// kind: "oauth" (secret = refresh token, plus endpoint/client) or "password". `fresh`: a new
+/// sign-in (its tokens replace the stored ones); false for a session restored from the store.
+/// The read-modify-write runs under the refresh lock, so it cannot overwrite a token another
+/// instance rotated and stored in between.
+pub fn remember(v: &Value, fresh: bool) {
+    let _lock = RefreshLock::acquire();
+    let (all, v) = merge_account(accounts(), v, fresh);
     put("session", &v.to_string());
     // keep every signed-in account for the account switcher
-    let user = v["user"].as_str().filter(|u| !u.is_empty()).map(String::from).unwrap_or_default();
-    if user.is_empty() { return; }
-    let mut all = accounts();
-    all.retain(|a| a["user"].as_str() != Some(user.as_str()) || a["server"] != v["server"]);
-    all.insert(0, v.clone());
-    put("accounts", &Value::Array(all).to_string());
+    if v["user"].as_str().is_some_and(|u| !u.is_empty()) { put("accounts", &Value::Array(all).to_string()); }
 }
 
 /// All remembered accounts (most recently used first).
@@ -417,6 +436,7 @@ pub fn accounts() -> Vec<Value> {
 }
 
 pub fn forget_account(user: &str) {
+    let _lock = RefreshLock::acquire();
     let mut all = accounts();
     all.retain(|a| a["user"].as_str() != Some(user));
     put("accounts", &Value::Array(all).to_string());
@@ -518,6 +538,39 @@ mod tests {
         assert_eq!(find_refresh(&stored, "a@example.test", ep).as_deref(), Some("r2"));
         assert!(rotate_in(&mut stored, "a@example.test", ep, "r3"));
         assert_eq!(find_refresh(&stored, "a@example.test", ep).as_deref(), Some("r3"));
+    }
+
+    #[test]
+    fn remembering_keeps_the_other_entries_as_stored() {
+        // B reads the list after A stored X:r2, so X keeps r2 while Y is added in front
+        let ep = "https://one.example.test/token";
+        let all = vec![acct("x@example.test", ep, "r2")];
+        let y = acct("y@example.test", ep, "y1");
+        let (out, _) = merge_account(all, &y, true);
+        assert_eq!(out.len(), 2);
+        assert_eq!(out[0]["user"], "y@example.test");
+        assert_eq!(out[1]["refresh"], "r2");
+    }
+
+    #[test]
+    fn a_restored_session_adopts_the_stored_token_but_a_new_sign_in_replaces_it() {
+        let ep = "https://one.example.test/token";
+        let stored = vec![acct("x@example.test", ep, "r2")];
+        let mine = acct("x@example.test", ep, "r1");
+        let (out, v) = merge_account(stored.clone(), &mine, false);
+        assert_eq!(v["refresh"], "r2");
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0]["refresh"], "r2");
+        let (out, v) = merge_account(stored, &mine, true);
+        assert_eq!(v["refresh"], "r1");
+        assert_eq!(out[0]["refresh"], "r1");
+    }
+
+    #[test]
+    fn an_empty_user_is_not_added_to_the_account_list() {
+        let (out, v) = merge_account(vec![], &acct("", "https://one.example.test/token", "r1"), true);
+        assert!(out.is_empty());
+        assert_eq!(v["refresh"], "r1");
     }
 
     #[test]
