@@ -173,7 +173,12 @@ impl Settings {
     pub fn import(&mut self, v: &Value) -> Result<(), String> {
         let prefs = if v["app"] == "barbican" { v["settings"].clone() } else if v["settings"].is_object() { v["settings"].clone() } else { v.clone() };
         let Some(obj) = prefs.as_object() else { return Err("This file has no settings.".into()) };
-        self.prefs = obj.clone();
+        let mut imported = obj.clone();
+        // Plugin consent is per computer and per file: never copy an allow-list or its file bindings
+        // from a settings file, or an import could switch on code this user has not agreed to run.
+        imported.remove("enabledPlugins");
+        imported.remove("pluginBindings");
+        self.prefs = imported;
         self.save();
         if v["desktop"].is_object() {
             let _ = std::fs::write(crate::config_dir().join("settings.json"), v["desktop"].to_string());
@@ -626,6 +631,12 @@ mod tests {
         assert!(s.import(&json!([1, 2])).is_err());
         assert!(s.import(&json!("nope")).is_err());
         assert_eq!(s.str("density", ""), "compact");
+
+        // Plugin consent is not imported: it stays local to this computer and its files.
+        s.import(&json!({"theme": "light", "enabledPlugins": ["spam-score"], "pluginBindings": {"spam-score": "C:/p/a.dll|abc"}})).unwrap();
+        assert_eq!(s.str("theme", ""), "light");
+        assert!(s.prefs.get("enabledPlugins").is_none() && s.prefs.get("pluginBindings").is_none());
+        assert!(Settings::load().prefs.get("enabledPlugins").is_none());
 
         s.reset();
         assert!(s.prefs.is_empty());

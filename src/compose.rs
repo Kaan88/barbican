@@ -825,20 +825,19 @@ pub fn send_scheduled(u: &AppWindow, c: Arc<Client>, prefs: &crate::settings::Se
     send_at(u, c, prefs, Some(at));
 }
 
-thread_local! {
-    /// The send time a pre-send warning was raised for (None = send now): confirming the
-    /// warning repeats that intent instead of falling back to an immediate send.
-    static ARMED: std::cell::Cell<Option<Option<i64>>> = const { std::cell::Cell::new(None) };
-}
+/// What the user asked for when the warning was raised: send now, or schedule at that time.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Intent { Send, Schedule(i64) }
 
 /// Which check raised the warning the user has just seen.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Stage { Builtin, Plugin }
 
 thread_local! {
-    /// The last pre-send warning and the draft (fingerprint) it was raised for. Pressing Send again on the
-    /// same draft acknowledges that stage; any change to the draft makes the fingerprint differ, so every check runs again.
-    static HELD: std::cell::Cell<Option<(u64, Stage)>> = const { std::cell::Cell::new(None) };
+    /// The last pre-send warning, the draft (fingerprint) and the action it was raised for. Pressing Send
+    /// again for the same draft AND the same action acknowledges that stage; any change to either makes the
+    /// check run again, so a hold from a scheduling attempt never authorises a plain Send (or another time).
+    static HELD: std::cell::Cell<Option<(u64, Intent, Stage)>> = const { std::cell::Cell::new(None) };
 }
 
 fn draft_fingerprint(o: &Outgoing) -> u64 {
@@ -852,8 +851,8 @@ fn draft_fingerprint(o: &Outgoing) -> u64 {
 /// The staged send gate: built-in warnings first, then the plugin check. A stage the user already
 /// confirmed for this exact draft is skipped, later stages still run (a confirmed empty-subject warning
 /// does not skip the plugin check).
-fn gate(held: Option<(u64, Stage)>, fp: u64, builtin: impl FnOnce() -> Option<String>, plugin: impl FnOnce() -> Option<String>) -> Result<(), (Stage, String)> {
-    let acked = held.filter(|(f, _)| *f == fp).map(|(_, s)| s);
+fn gate(held: Option<(u64, Intent, Stage)>, fp: u64, intent: Intent, builtin: impl FnOnce() -> Option<String>, plugin: impl FnOnce() -> Option<String>) -> Result<(), (Stage, String)> {
+    let acked = held.filter(|(f, a, _)| *f == fp && *a == intent).map(|(_, _, s)| s);
     if acked.is_none() {
         if let Some(w) = builtin() { return Err((Stage::Builtin, w)); }
     }
@@ -863,17 +862,13 @@ fn gate(held: Option<(u64, Stage)>, fp: u64, builtin: impl FnOnce() -> Option<St
     Ok(())
 }
 
-/// The user has seen a warning for exactly this draft.
-fn acknowledged(fp: u64) -> bool { HELD.with(|h| h.get()).is_some_and(|(f, _)| f == fp) }
+/// The user has seen a warning for exactly this draft and this action.
+fn acknowledged(fp: u64, intent: Intent) -> bool {
+    HELD.with(|h| h.get()).is_some_and(|(f, a, _)| f == fp && a == intent)
+}
 
 fn send_at(u: &AppWindow, c: Arc<Client>, prefs: &crate::settings::Settings, at: Option<i64>) {
-    let mut at = at;
-    if at.is_none() && HELD.with(|h| h.get()).is_some() {
-        // "Press Send again" after a scheduling attempt keeps scheduling
-        if let Some(Some(t)) = ARMED.with(|a| a.get()) {
-            if t > chrono::Local::now().timestamp_millis() { at = Some(t); }
-        }
-    }
+    let intent = at.map_or(Intent::Send, Intent::Schedule);
     if crate::autosave::in_flight() {
         // the draft is being saved: send once it is, so the send replaces that draft
         crate::autosave::queue(match at { Some(t) => crate::autosave::Queued::Schedule(t), None => crate::autosave::Queued::Send });
@@ -897,7 +892,7 @@ fn send_at(u: &AppWindow, c: Arc<Client>, prefs: &crate::settings::Settings, at:
         return;
     }
     let fp = draft_fingerprint(&o);
-    let warned = acknowledged(fp);
+    let warned = acknowledged(fp, intent);
     let verb = if at.is_some() { "schedule" } else { "send" };
     // picking a time is the confirmation for a scheduled send
     if at.is_none() && prefs.bool("sendConfirmation", false) && !warned && !u.get_c_status().ends_with("to send.") {
@@ -907,14 +902,13 @@ fn send_at(u: &AppWindow, c: Arc<Client>, prefs: &crate::settings::Settings, at:
     o.read_receipt = o.read_receipt || prefs.bool("requestReadReceiptDefault", false);
     let draft = serde_json::json!({"to": o.to, "cc": o.cc, "bcc": o.bcc, "subject": o.subject, "text": o.text,
         "attachments": o.attachments.iter().map(|a| a.name.clone()).collect::<Vec<_>>()});
-    let verdict = gate(HELD.with(|h| h.get()), fp, || pre_send_warning(&o, prefs, verb), || {
+    let verdict = gate(HELD.with(|h| h.get()), fp, intent, || pre_send_warning(&o, prefs, verb), || {
         let w = crate::plugin_compose_check(&draft);
         crate::plugin_notices(u);
         w.map(|w| format!("{w} Press Send again to {verb} anyway."))
     });
     if let Err((stage, w)) = verdict {
-        HELD.with(|h| h.set(Some((fp, stage))));
-        ARMED.with(|a| a.set(Some(at)));
+        HELD.with(|h| h.set(Some((fp, intent, stage))));
         u.set_c_status(w.into());
         return;
     }
@@ -1313,22 +1307,34 @@ mod gate_tests {
     #[test]
     fn builtin_warning_does_not_skip_the_plugin_check() {
         // first Send: the built-in warning
-        assert_eq!(gate(None, 1, || w("empty subject"), || panic!("plugin runs after the built-in stage")), Err((Stage::Builtin, "empty subject".into())));
+        assert_eq!(gate(None, 1, Intent::Send, || w("empty subject"), || panic!("plugin runs after the built-in stage")), Err((Stage::Builtin, "empty subject".into())));
         // second Send on the same draft: built-in confirmed, the plugin check still runs and holds
-        assert_eq!(gate(Some((1, Stage::Builtin)), 1, || w("empty subject"), || w("plugin says no")), Err((Stage::Plugin, "plugin says no".into())));
+        assert_eq!(gate(Some((1, Intent::Send, Stage::Builtin)), 1, Intent::Send, || w("empty subject"), || w("plugin says no")), Err((Stage::Plugin, "plugin says no".into())));
         // third Send: both confirmed
-        assert_eq!(gate(Some((1, Stage::Plugin)), 1, || w("empty subject"), || w("plugin says no")), Ok(()));
+        assert_eq!(gate(Some((1, Intent::Send, Stage::Plugin)), 1, Intent::Send, || w("empty subject"), || w("plugin says no")), Ok(()));
     }
 
     #[test]
     fn editing_the_draft_after_a_hold_runs_every_check_again() {
-        assert_eq!(gate(Some((1, Stage::Plugin)), 2, || None, || w("plugin says no")), Err((Stage::Plugin, "plugin says no".into())));
-        assert_eq!(gate(Some((1, Stage::Builtin)), 2, || w("empty subject"), || None), Err((Stage::Builtin, "empty subject".into())));
+        assert_eq!(gate(Some((1, Intent::Send, Stage::Plugin)), 2, Intent::Send, || None, || w("plugin says no")), Err((Stage::Plugin, "plugin says no".into())));
+        assert_eq!(gate(Some((1, Intent::Send, Stage::Builtin)), 2, Intent::Send, || w("empty subject"), || None), Err((Stage::Builtin, "empty subject".into())));
+    }
+
+    #[test]
+    fn changing_the_action_after_a_hold_runs_every_check_again() {
+        let scheduled = Intent::Schedule(1_000);
+        let held = Some((1u64, scheduled, Stage::Plugin));
+        // a plain Send is a different action: the scheduling hold does not authorise it
+        assert_eq!(gate(held, 1, Intent::Send, || None, || w("plugin says no")), Err((Stage::Plugin, "plugin says no".into())));
+        // another time is a different action too
+        assert_eq!(gate(held, 1, Intent::Schedule(2_000), || None, || w("plugin says no")), Err((Stage::Plugin, "plugin says no".into())));
+        // pressing Schedule again for the same draft and time confirms it
+        assert_eq!(gate(held, 1, scheduled, || None, || w("plugin says no")), Ok(()));
     }
 
     #[test]
     fn clean_draft_passes() {
-        assert_eq!(gate(None, 1, || None, || None), Ok(()));
+        assert_eq!(gate(None, 1, Intent::Send, || None, || None), Ok(()));
     }
 
     #[test]

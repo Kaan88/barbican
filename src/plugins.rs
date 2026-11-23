@@ -33,9 +33,16 @@
 //! * A plugin is enabled by key AND bound to its file (path + SHA-256, `pluginBindings` pref); a replaced file must be
 //!   switched off and on again. Manifest ids starting with `file:` or holding control characters are rejected, and a
 //!   library whose id duplicates another plugin's is refused (after loading: the ABI gives no earlier look).
-//! * Loading (`Library::new` + the manifest call) runs on a worker thread with a budget; an overrun marks the plugin failed.
+//! * Loading (`Library::new` + the manifest call) runs on a worker thread with a budget; an overrun marks the plugin
+//!   failed. The budget cannot contain a plugin that hangs inside its `DllMain`: that code holds the Windows loader
+//!   lock, so threads created afterwards (including the next plugin's loader thread) can block until it returns.
+//!   That is inherent to running foreign code in this process and cannot be recovered from here.
+//! * A loaded library is never unloaded for the rest of the session: its code may have started threads or registered
+//!   callbacks that outlive the handle, and unloading it under them crashes the app. Switching a plugin off only
+//!   stops calling it; the library and its backend object stay alive until the process exits.
 //! * At most one call is in flight per plugin: while an abandoned call has not returned, new calls fail at once
-//!   (the ABI makes no thread-safety promise), which counts toward the failure limit.
+//!   (the ABI makes no thread-safety promise), which counts toward the failure limit, and the plugin is not loaded
+//!   again until that call returns.
 //! * Every call runs on a worker thread with the hook's budget from the catalogue (2000 ms when the hook is not in it,
 //!   at most [`MAX_BUDGET_MS`] because the UI waits). A call that overruns is abandoned (its thread may linger) and
 //!   counts as a failure. Panics are caught. A panic inside a plugin's own `extern "C"` function aborts at the C
@@ -71,7 +78,7 @@ pub trait PluginBackend: Send + Sync {
 struct Native {
     call: CallFn,
     free: FreeFn,
-    _lib: libloading::Library,
+    _lib: Arc<libloading::Library>,
 }
 
 impl PluginBackend for Native {
@@ -111,6 +118,20 @@ pub struct Plugin {
 
 static NOTICES: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
+/// Every library loaded this session. Its `Drop` would call `FreeLibrary`, which can pull the code out from
+/// under a plugin's threads or callbacks; the process keeps them mapped instead (a bounded, deliberate leak).
+static LIBRARIES: Mutex<Vec<Arc<libloading::Library>>> = Mutex::new(Vec::new());
+
+/// Backends of plugins that were switched off or replaced by rediscovery. Keeping the object alive keeps its
+/// library handles and plugin-side state intact even while it is disabled and not callable.
+static RETIRED_BACKENDS: Mutex<Vec<Arc<dyn PluginBackend>>> = Mutex::new(Vec::new());
+
+fn retire(backend: Option<Arc<dyn PluginBackend>>) {
+    if let Some(b) = backend {
+        RETIRED_BACKENDS.lock().unwrap_or_else(|e| e.into_inner()).push(b);
+    }
+}
+
 /// Messages for the user (a plugin was switched off); the UI shows them as toasts.
 pub fn drain_notices() -> Vec<String> {
     std::mem::take(&mut *NOTICES.lock().unwrap_or_else(|e| e.into_inner()))
@@ -127,6 +148,11 @@ impl Plugin {
     /// Loaded, switched on and not switched off by failures.
     fn active(&self, enabled: &[String]) -> bool {
         self.backend.is_some() && !self.is_tripped() && enabled.contains(&self.key)
+    }
+
+    /// Stop calling this plugin. The library and backend object stay alive for the process lifetime.
+    fn park(&mut self) {
+        retire(self.backend.take());
     }
 
     /// The spelling of `hook` this plugin's manifest declared (its aliases are interchangeable).
@@ -180,6 +206,13 @@ impl Plugin {
                 }
             }
         }
+    }
+}
+
+impl Drop for Plugin {
+    fn drop(&mut self) {
+        // Rediscovery drops old entries (replaced files): keep their loaded code alive too.
+        self.park();
     }
 }
 
@@ -248,15 +281,43 @@ pub fn discover_in(folder: &std::path::Path) -> (Vec<Plugin>, Vec<String>) {
             description: "No manifest next to the file, so nothing is known about it until you switch it on. Only switch on plugins you trust.".into(),
         });
         if out.iter().any(|x| x.key == m.id) { errors.push(format!("{file}: duplicate id {}", m.id)); continue; }
+        let hash = match fingerprint(p) {
+            Ok(h) => h,
+            // no hash means no binding, so the plugin could never be enabled: report it instead of listing it
+            Err(e) => { errors.push(format!("{file}: {e}")); continue; }
+        };
         out.push(Plugin { key: m.id.clone(), id: m.id, name: m.name, version: m.version, description: m.description, hooks: m.hooks,
-            path: p.display().to_string(), verified, fingerprint: fingerprint(p), backend: None, busy: Arc::new(AtomicBool::new(false)),
+            path: p.display().to_string(), verified, fingerprint: hash, backend: None, busy: Arc::new(AtomicBool::new(false)),
             load_failed: false, failures: AtomicU32::new(0), tripped: AtomicBool::new(false) });
     }
     (out, errors)
 }
 
-fn fingerprint(p: &std::path::Path) -> String {
-    std::fs::read(p).map(|b| Sha256::digest(&b).iter().map(|x| format!("{x:02x}")).collect()).unwrap_or_default()
+type FileStamp = (u64, std::time::SystemTime);
+static HASHES: std::sync::OnceLock<Mutex<std::collections::HashMap<std::path::PathBuf, (FileStamp, String)>>> =
+    std::sync::OnceLock::new();
+
+fn hash_cache() -> &'static Mutex<std::collections::HashMap<std::path::PathBuf, (FileStamp, String)>> {
+    HASHES.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
+}
+
+/// SHA-256 of the library file. A file that cannot be read is an error (the plugin is unusable, never bindable).
+/// The hash is reused while the file's size and modification time are unchanged, because Settings rebuilds the
+/// Add-ons rows on every keystroke and must not re-read and re-hash every library.
+fn fingerprint(p: &std::path::Path) -> Result<String, String> {
+    let meta = std::fs::metadata(p).map_err(|e| format!("cannot read the file: {e}"))?;
+    let stamp = meta.modified().ok().map(|t| (meta.len(), t));
+    if let Some(stamp) = stamp {
+        let hit = hash_cache().lock().unwrap_or_else(|e| e.into_inner())
+            .get(p).filter(|(s, _)| *s == stamp).map(|(_, h)| h.clone());
+        if let Some(h) = hit { return Ok(h); }
+    }
+    let bytes = std::fs::read(p).map_err(|e| format!("cannot read the file: {e}"))?;
+    let hash: String = Sha256::digest(&bytes).iter().map(|x| format!("{x:02x}")).collect();
+    if let Some(stamp) = stamp {
+        hash_cache().lock().unwrap_or_else(|e| e.into_inner()).insert(p.to_path_buf(), (stamp, hash.clone()));
+    }
+    Ok(hash)
 }
 
 /// Keep the state (loaded library, failure count) of entries that are unchanged; take new or replaced files as found.
@@ -300,11 +361,15 @@ fn sync_with(plugins: &mut [Plugin], enabled: &[String], loader: &Loader, budget
     let mut errors = vec![];
     for i in 0..plugins.len() {
         if !enabled.contains(&plugins[i].key) {
-            // switching off forgets an earlier load failure, so on again tries again
-            plugins[i].backend = None;
+            // switching off forgets an earlier load failure, so on again tries again; the backend is parked,
+            // not dropped, because dropping it would unload the library under any thread still inside it
+            plugins[i].park();
             plugins[i].load_failed = false;
             continue;
         }
+        // A timed-out call may still be running inside the library: loading the file while it is busy would
+        // enter the plugin again (and on Windows could not reload a replaced file anyway).
+        if plugins[i].busy.load(Ordering::SeqCst) { continue; }
         if plugins[i].backend.is_some() || plugins[i].load_failed || plugins[i].is_tripped() { continue; }
         let path = plugins[i].path.clone();
         // Library::new and manifest() run foreign code: never on the UI thread without a limit
@@ -312,7 +377,7 @@ fn sync_with(plugins: &mut [Plugin], enabled: &[String], loader: &Loader, budget
         let (l, pp) = (loader.clone(), std::path::PathBuf::from(&path));
         let started = std::thread::Builder::new().name("barbican-plugin-load".into()).spawn(move || {
             let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| l(&pp))).unwrap_or_else(|_| Err("plugin panicked while loading".to_string()));
-            let _ = tx.send(r); // if nobody waits any more the library is dropped (unloaded) here
+            let _ = tx.send(r); // if nobody waits any more, the library stays loaded anyway (see LIBRARIES)
         });
         let res = match started {
             Err(e) => Err(format!("could not start loader: {e}")),
@@ -343,6 +408,10 @@ fn sync_with(plugins: &mut [Plugin], enabled: &[String], loader: &Loader, budget
 
 unsafe fn load(p: &std::path::Path) -> LoadResult {
     let lib = libloading::Library::new(p).map_err(|e| e.to_string())?;
+    // The library's DllMain has already run and may have started threads: keep the mapping for the whole
+    // process even if the symbol lookup below or a later check rejects the plugin.
+    let lib = Arc::new(lib);
+    LIBRARIES.lock().unwrap_or_else(|e| e.into_inner()).push(lib.clone());
     let manifest: libloading::Symbol<ManifestFn> = lib.get(b"barbican_plugin_manifest\0").map_err(|_| "missing barbican_plugin_manifest")?;
     let call: libloading::Symbol<CallFn> = lib.get(b"barbican_plugin_call\0").map_err(|_| "missing barbican_plugin_call")?;
     let free: libloading::Symbol<FreeFn> = lib.get(b"barbican_plugin_free\0").map_err(|_| "missing barbican_plugin_free")?;
@@ -705,9 +774,86 @@ mod tests {
         let d = temp_folder("fp");
         let f = d.join("x.bin");
         std::fs::write(&f, b"one").unwrap();
-        let a = fingerprint(&f);
-        std::fs::write(&f, b"two").unwrap();
-        assert_ne!(a, fingerprint(&f));
+        let a = fingerprint(&f).unwrap();
+        // a different length changes the cached stamp even if the clock tick is the same
+        std::fs::write(&f, b"two-two").unwrap();
+        assert_ne!(a, fingerprint(&f).unwrap());
         let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn a_rebuild_reuses_the_hash_while_size_and_time_are_unchanged() {
+        let d = temp_folder("hash-cache");
+        let f = d.join("x.bin");
+        std::fs::write(&f, b"one").unwrap();
+        let first = fingerprint(&f).unwrap();
+        // Put a marker where the cache would store this file's hash for its current stamp.
+        let meta = std::fs::metadata(&f).unwrap();
+        let stamp = (meta.len(), meta.modified().unwrap());
+        hash_cache().lock().unwrap().insert(f.clone(), (stamp, "from-cache".into()));
+        assert_eq!(fingerprint(&f).unwrap(), "from-cache", "same size and time: the hash is reused");
+        // A different file changes the stamp, so the hash is computed again.
+        std::fs::write(&f, b"one-and-more").unwrap();
+        let again = fingerprint(&f).unwrap();
+        assert_ne!(again, "from-cache");
+        assert_ne!(again, first);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn a_file_that_cannot_be_read_is_a_discovery_error() {
+        let d = temp_folder("unreadable");
+        assert!(fingerprint(&d.join("missing.dll")).is_err());
+        // A directory with a library name cannot be hashed: the plugin must not be listed as bindable.
+        std::fs::create_dir(d.join(lib_name("locked"))).unwrap();
+        std::fs::write(d.join(lib_name("fine")), b"x").unwrap();
+        let (list, errors) = discover_in(&d);
+        assert_eq!(list.len(), 1, "{:?}", list.iter().map(|p| &p.key).collect::<Vec<_>>());
+        assert!(!list.iter().any(|p| p.name.contains("locked")));
+        assert!(errors.iter().any(|e| e.contains("locked") && e.contains("cannot read")), "{errors:?}");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    struct Tracked { dropped: Arc<AtomicBool> }
+    impl PluginBackend for Tracked {
+        fn call(&self, _: &str, _: &Value) -> Result<Option<Value>, String> { Ok(None) }
+    }
+    impl Drop for Tracked {
+        fn drop(&mut self) { self.dropped.store(true, Ordering::SeqCst); }
+    }
+
+    #[test]
+    fn switching_off_keeps_the_loaded_backend_alive() {
+        let dropped = Arc::new(AtomicBool::new(false));
+        let d = dropped.clone();
+        let l = stub_loader(move |_| Ok((stub_meta("keepme"), Arc::new(Tracked { dropped: d.clone() }) as Arc<dyn PluginBackend>)));
+        let mut list = vec![bare("keepme", "x", "")];
+        let en = vec!["keepme".to_string()];
+        assert!(sync_with(&mut list, &en, &l, MS).is_empty());
+        assert!(list[0].active(&en));
+        sync_with(&mut list, &[], &l, MS);
+        assert!(list[0].backend.is_none() && !list[0].active(&en), "switched off: not callable");
+        assert!(!dropped.load(Ordering::SeqCst), "the backend object is not dropped (that would unload the library)");
+    }
+
+    #[test]
+    fn a_plugin_with_an_abandoned_call_is_not_loaded_again() {
+        let loads = Arc::new(AtomicUsize::new(0));
+        let n = loads.clone();
+        let dropped = Arc::new(AtomicBool::new(false));
+        let l = stub_loader(move |_| {
+            n.fetch_add(1, Ordering::SeqCst);
+            Ok((stub_meta("busy-plugin"), Arc::new(Tracked { dropped: dropped.clone() }) as Arc<dyn PluginBackend>))
+        });
+        let mut list = vec![bare("busy-plugin", "x", "")];
+        list[0].busy.store(true, Ordering::SeqCst);
+        let en = vec!["busy-plugin".to_string()];
+        assert!(sync_with(&mut list, &en, &l, MS).is_empty());
+        assert_eq!(loads.load(Ordering::SeqCst), 0, "an abandoned call is still inside the library");
+        assert!(list[0].backend.is_none());
+        list[0].busy.store(false, Ordering::SeqCst);
+        assert!(sync_with(&mut list, &en, &l, MS).is_empty());
+        assert_eq!(loads.load(Ordering::SeqCst), 1, "loaded once the old call returned");
+        assert!(list[0].active(&en));
     }
 }
