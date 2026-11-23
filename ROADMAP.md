@@ -1,13 +1,13 @@
 # Barbican roadmap
 
-**Goal: 1:1 feature parity with Bulwark webmail 1.21.2, including its plugin system.** A Bulwark plugin ZIP should install and run in Barbican unchanged. Our own native (C ABI) plugins stay, using the same hook and slot names.
+**Goal: 1:1 feature parity with Bulwark webmail 1.21.2, including a plugin system with a comparable API.** Barbican has its own native plugin system (C ABI, no web runtime). Bulwark's hooks, slots and host API are the reference vocabulary, so a Bulwark plugin can be ported by hand. Running Bulwark plugins unchanged is **not** a goal (decided 2026-11-23: a web-based plugin runtime is too much complexity).
 
 Updated 2026-11-23, after the C# port was dropped (PORT-PLAN-DROPPED.md).
 
 **Inputs:**
 - GAPS.md: Bulwark gaps, as P0–P3.
 - CSHARP-LESSONS.md: what the C# port leaves us.
-- docs/from-csharp/: Bulwark-referenced specs, the plugin catalogue and the bridge scripts.
+- docs/from-csharp/: Bulwark-referenced specs and the plugin catalogue (the web plugin bridge there is archived; we do not use it).
 
 **A row is done** when it works end to end in the real app, matches Bulwark's behaviour (cite the Bulwark file:line), and is checked through the hidden automation channel. Server writes are checked live only on the test account.
 
@@ -38,7 +38,7 @@ The repository is public, and every later phase builds on these.
    - User plugins are off until enabled.
    - Each hook call runs on a worker thread with a time budget.
    - `compose.check` fails closed.
-7. **Plugin catalogue in Rust (S).**
+7. **Plugin API reference in Rust (S).** (Bulwark's names are our reference vocabulary, not a compatibility promise.)
    - Generate `src/plugin_catalog.rs` (hook, slot and host-API names, kinds, permissions, budgets) from `docs/from-csharp/spec/plugins/*.csv`.
    - Move `docs/from-csharp/spec/plugins/` to `spec/plugins/` and add a Rust call-site column.
    - Old hook names become aliases.
@@ -124,30 +124,28 @@ Port the C# pure-logic parts first (`FileTransfer.Zip`/`Upload`, the `FileNames`
 - a new text file;
 - the filename download rules.
 
-## Phase 5, track B: the plugin platform (8–10 weeks, starts after Phase 0)
+## Phase 5, track B: our own plugin system (5–7 weeks, starts after Phase 0)
 
-Bulwark's model:
-- **Package:** a ZIP holding `manifest.json` and `index.js`.
-- **Hooks:** 218, of four kinds (observer, intercept, transform, takeover).
-- **Slots:** 58, of three kinds (frame, action, data).
-- **Host API:** 186 methods called by postMessage RPC.
-- **Sandbox:** null-origin iframes.
-- **Permissions:** about 68.
-- **Storage:** per login.
+**Decision (2026-11-23):** no Bulwark plugin compatibility and no web or JavaScript plugin runtime. Plugins are native (C ABI, as today, `src/plugins.rs`). Barbican offers comparable hooks, slots and host calls under Bulwark's names where that is sensible, so porting a Bulwark plugin means rewriting its logic, not reinventing its API.
 
-The C# port showed that the unmodified Bulwark runtime runs inside a desktop web view.
+What Bulwark offers, as the reference (`spec/plugins/*.csv`):
+- 218 hooks of four kinds: observer, intercept, transform, takeover.
+- 58 slots: frame, action and data.
+- 186 host methods, about 68 permissions, per-login storage.
+
+What we change: no iframes and no postMessage. A plugin cannot draw its own UI. Instead a slot takes a **declarative description** (rows, buttons, lists, forms as JSON, like the settings schema today) that the host draws in Slint. That keeps plugins simple and the look consistent.
 
 | Step | Work | Size |
 |---|---|---|
-| B1 Spike | One wry web view per plugin frame, placed over Slint rectangles: background frame, z-order, resize, focus, teardown. **Risk check:** at most two frames starting at once; never move a live web view to another parent (C# lesson). | M |
-| B2 Runtime and bridge | Build Bulwark's sandbox runtime from the pinned commit (`docs/from-csharp/tools/plugin-runtime-build/`). Port the parent page and bridge scripts and their Node tests. On the Rust side: message dispatch with source and origin checks, size caps, reply IDs used only once, and teardown when navigation starts. | M |
-| B3 Packages and consent | ZIP inspection (size, entry count, unsafe paths). Manifest checks, including `minAppVersion`. A consent dialog listing the permissions, web origins and POST paths. A hash-pinned record that starts disabled. Spec: `M6b-package-authority.md`. | M |
-| B4 Core host API | `storage` (per login, 1 MiB), `ui` (toasts, dialogs, openDialog), `http` fetch (declared origins only, every redirect checked, private addresses refused), `account`/`user` read access, settings schema. Spec: `M6b-api-inventory.md`, `M6b-runtime-transport.md`. | L |
-| B5 Hooks | Fire the 218 hooks from the Rust event points, area by area, as track A builds each area. Each hook has its time budget. Send hooks fail closed. Re-run the send checks when a transform changes the recipients. A plugin that keeps failing is turned off. The native C-ABI plugins get the same hooks. | L (spread out) |
-| B6 Slots | Frame slots in the reader, composer, sidebar, calendar, settings and admin. Action slots: menus and toolbars drawn by the host. Data slots: search results, day labels, calendar marks. Props are filtered by permission and pushed as updates without restarting the frame. Placement table: `M6b-plugin-slots.md`. | L |
-| B7 Remaining host API | The rest of the 186 methods: `email.*`, `calendar.*`, `contacts.*`, `files.*`, `tabs.*`, `search.*`, `compose.*`, `frame-escape`. | L |
-| B8 Server-side services | Bulwark runs a secrets proxy, plugin OAuth, admin approval and marketplace on its server. Barbican must provide them locally: secrets in the OS keyring scoped per plugin, OAuth through a loopback redirect, and a managed tier with Ed25519-signed bundles. **Needs a design decision** (see the open decisions below). | M–L |
-| B9 Conformance | Bulwark's `integration/fixtures/plugin-api-probe`, the proofreading plugin and the spam-score plugin run unchanged. The catalogue status reads `done` for every hook and slot. | M |
+| B1 API design | For each row of the three catalogue CSVs decide adopt, adapt or skip, and write the result into a `barbican_status` column. Define plugin API v2: JSON over the C ABI, plus a table of host functions given to the plugin at load. Document it in PLUGINS.md. | S/M |
+| B2 Manifest, permissions, consent | A manifest (sidecar file, already read by the Phase 0 work) with the permissions the plugin needs. A consent dialog listing them. A hash-pinned record per plugin that starts disabled. Package format: a folder or a ZIP with size, entry-count and path checks. | M |
+| B3 Host API, core | Per-login storage with a quota, settings schema, toast and dialog, HTTP fetch limited to origins the manifest declares (every redirect checked, private addresses refused), read access to the account. | M |
+| B4 Hooks | Fire the adopted hooks from the Rust event points, area by area, as track A builds each area. Each hook has a time budget. Send hooks fail closed. Send checks run again when a transform changes the recipients. | L (spread out) |
+| B5 Declarative slots | Reader, composer, sidebar, calendar, settings and admin slots, rendered from plugin data and filtered by permission. Action slots (menus, toolbars) and data slots (search results, day labels, calendar marks). | L |
+| B6 Rest of the host API | `email.*`, `calendar.*`, `contacts.*`, `files.*`, `tabs.*`, `search.*`, `compose.*`, in the order the screens exist. | L |
+| B7 Proof | Port the spam-score plugin, and one plugin that uses a slot and storage (for example the proofreading one), as the test of the API. Write a short porting guide from Bulwark's API to ours. | M |
+
+Risk: native plugins run in the app's process with its rights, so enabling one is a trust decision. A later step can add a sandbox (see the open decisions).
 
 ## Phase 6, track A: shell, list and composer parity (4–6 weeks)
 
@@ -202,8 +200,8 @@ Many of the plugin slots live on these screens.
 
 ## Open decisions
 
-1. **Server-side plugin services (B8).** Do secrets, OAuth and admin-managed plugins run locally in Barbican, or through a Bulwark server when there is one?
-2. **Frame sandbox.** Bulwark gives plugin frames `allow-forms` as well as scripts. Do we match it, or allow scripts only?
+1. **Plugin sandbox.** Native plugins run with full trust. Is that acceptable, or do we later move to a sandboxed format (for example WebAssembly) with the same API? Not needed to start; the API in B1 should not rule it out.
+2. **Plugin distribution.** Loose folders and ZIPs only, or also a signed bundle format and a catalogue of plugins?
 3. **JMAP extensions.** Several features use Stalwart-only `x:` extensions (account security, masked addresses). Hide them on other servers, as Bulwark does.
 
 ## Polish backlog (from earlier passes)
