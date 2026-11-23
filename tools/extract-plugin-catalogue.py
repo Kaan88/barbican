@@ -3,9 +3,11 @@
 
   python tools/extract-plugin-catalogue.py <bulwark-root>
 
-Reads <bulwark>/lib/plugin-hook-catalog.ts and lib/plugin-slot-catalog.ts. Columns that people edit
-later (milestone, owner, cs_call_site, status, budget_ms, fail_closed) are kept from the existing CSV when the row's name
-is already there; new rows get the defaults from tools/plugin_milestones.py (spec/plugins/README.md).
+Reads <bulwark>/lib/plugin-hook-catalog.ts and lib/plugin-slot-catalog.ts. The committed CSVs are the source of truth;
+this only refreshes them from a Bulwark checkout. Columns that people edit later (phase, rust_call_site, status,
+budget_ms, fail_closed) are kept from the existing CSV when the row's name is already there; new rows get
+phase 5-B5 (hooks) / 5-B6 (slots) and status pending. host-api.csv is not produced here (spec/plugins/README.md).
+Then run `python tools/gen-plugin-catalog.py` to regenerate src/plugin_catalog.rs.
 """
 import csv
 import re
@@ -100,14 +102,12 @@ def main():
     if len(sys.argv) != 2:
         sys.exit(__doc__)
     bw = Path(sys.argv[1])
-    sys.path.insert(0, str(Path(__file__).parent))
-    from plugin_milestones import NA_STATUS, hook_milestone, hook_owner, slot_milestone
 
     OUT.mkdir(parents=True, exist_ok=True)
     hooks_path, slots_path = OUT / "hooks.csv", OUT / "slots.csv"
     old_h, old_s = existing(hooks_path, "name"), existing(slots_path, "name")
     hcols = ["name", "group", "kind", "permission", "also_permission", "payload", "when", "bulwark_ref",
-             "milestone", "owner", "cs_call_site", "status", "budget_ms", "fail_closed"]
+             "phase", "rust_call_site", "status", "budget_ms", "fail_closed"]
     rows = []
     for name, line, a, tail in entries(bw / "lib" / "plugin-hook-catalog.ts", "H"):
         group, kind, perm, payload, when = (unq(x) for x in a[:5])
@@ -123,9 +123,8 @@ def main():
         rows.append({
             "name": name, "group": group, "kind": kind, "permission": perm, "also_permission": also,
             "payload": payload, "when": when, "bulwark_ref": f"lib/plugin-hook-catalog.ts:{line}",
-            "milestone": r.get("milestone") or hook_milestone(name, group),
-            "owner": r.get("owner") or hook_owner(name, group),
-            "cs_call_site": r.get("cs_call_site", ""), "status": r.get("status") or NA_STATUS.get(name, "pending"),
+            "phase": r.get("phase") or "5-B5",
+            "rust_call_site": r.get("rust_call_site", ""), "status": r.get("status") or "pending",
             # R2-10: Bulwark lib/plugin-hooks.ts:62-66 (5 s, intercepts 60 s, takeovers fail closed); edited rows are kept
             "budget_ms": r.get("budget_ms") or {"intercept": "60000", "takeover": "600000"}.get(kind, "5000"),
             "fail_closed": r.get("fail_closed") or ("true" if kind == "takeover" else "false"),
@@ -135,7 +134,7 @@ def main():
         w.writeheader()
         w.writerows(rows)
 
-    scols = ["name", "area", "kind", "permissions", "props", "where", "bulwark_ref", "milestone", "status"]
+    scols = ["name", "area", "kind", "permissions", "props", "where", "bulwark_ref", "phase", "status"]
     srows = []
     for name, line, a, tail in entries(bw / "lib" / "plugin-slot-catalog.ts", "S"):
         area, kind, perms, props, where = unq(a[0]), unq(a[1]), a[2], a[3], unq(a[4])
@@ -145,8 +144,8 @@ def main():
         srows.append({
             "name": name, "area": area, "kind": kind, "permissions": perms, "props": props, "where": where,
             "bulwark_ref": f"lib/plugin-slot-catalog.ts:{line}",
-            "milestone": r.get("milestone") or slot_milestone(name, area),
-            "status": r.get("status") or "catalogued",
+            "phase": r.get("phase") or "5-B6",
+            "status": r.get("status") or "pending",
         })
     with slots_path.open("w", encoding="utf-8", newline="") as f:
         w = csv.DictWriter(f, scols, lineterminator="\n")
