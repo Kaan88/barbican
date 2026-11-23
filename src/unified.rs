@@ -113,6 +113,14 @@ pub fn set_active(user: &str, c: Arc<Client>) {
 
 pub fn active_user() -> String { ACTIVE.lock().unwrap().clone() }
 
+/// The remembered login (what the account switcher lists and a toast carries) of a connected
+/// client. It can differ from the session's own `username`: Stalwart answers with the principal
+/// name, which need not be the address that was typed to sign in.
+pub fn login_of(c: &Client) -> String {
+    let found = POOL.lock().unwrap().as_ref().and_then(|p| p.iter().find(|(_, x)| std::ptr::eq(x.as_ref(), c)).map(|(k, _)| k.clone()));
+    found.unwrap_or_else(|| c.username.clone())
+}
+
 pub fn is_active(c: &Client) -> bool {
     let a = active_user();
     POOL.lock().unwrap().as_ref().and_then(|p| p.get(&a)).is_some_and(|x| std::ptr::eq(x.as_ref(), c))

@@ -415,8 +415,12 @@ fn run_cmd(u: &AppWindow, line: &str) -> String {
             use slint::Model;
             let i: usize = args.first().and_then(|v| v.parse().ok()).unwrap_or(0);
             let Some(m) = u.get_mails().row_data(i) else { return "no such row".into() };
-            let mail = crate::notify::NewMail { id: m.id.to_string(), sender: m.sender.to_string(), subject: m.subject.to_string(), preview: m.preview.to_string() };
-            if let Some(n) = crate::notify::mail_note(&[mail], "automation", false, true) { crate::notify::show(n); }
+            // the folder the row is in (not a view like All inboxes or Starred) and the session's own login,
+            // so the recorded context goes back through note-activate the way a real toast's does
+            let folder = u.get_current_folder().to_string();
+            let mailbox = if folder.starts_with("__") { String::new() } else { folder };
+            let mail = crate::notify::NewMail { id: m.id.to_string(), mailbox, sender: m.sender.to_string(), subject: m.subject.to_string(), preview: m.preview.to_string() };
+            if let Some(n) = crate::notify::mail_note(&[mail], &crate::unified::active_user(), false, true) { crate::notify::show(n); }
             "ok".into()
         }
         // "note-activate ACTION CONTEXT": the same path a click or a button on a toast takes

@@ -660,6 +660,7 @@ fn check_new_mail(c: Arc<jmap::Client>, w: Option<slint::Weak<AppWindow>>) {
             if seen.insert(id.clone()) && !first_run {
                 batch.push(notify::NewMail {
                     id,
+                    mailbox: gsearch::hit_folder(m, std::slice::from_ref(inbox)),
                     sender: mail::sender(m),
                     subject: m["subject"].as_str().unwrap_or("").to_string(),
                     preview: mail::clean_preview(m["preview"].as_str().unwrap_or("")),
@@ -670,7 +671,7 @@ fn check_new_mail(c: Arc<jmap::Client>, w: Option<slint::Weak<AppWindow>>) {
         let arrived = !batch.is_empty();
         batch.reverse();
         if !dnd {
-            if let Some(n) = notify::mail_note(&batch, &c.username, sound, roles.contains_key("archive")) { notify::show(n); }
+            if let Some(n) = notify::mail_note(&batch, &unified::login_of(&c), sound, roles.contains_key("archive")) { notify::show(n); }
         }
         // Settings > Accessibility > Visual alerts: flash the taskbar button
         if arrived && a11y::A11y::load().visual_alerts {
@@ -2117,6 +2118,7 @@ fn restore_session(w: slint::Weak<AppWindow>, st: Shared, v: Value, switching: b
             if switching {
                 let msg = format!("Could not switch to {user}: {e}");
                 let _ = w.upgrade_in_event_loop(move |u| {
+                    desktop::drop_pending();
                     u.set_busy(false);
                     u.set_accounts(accounts_model());
                     mail::show_toast(&u, &msg, false);

@@ -212,6 +212,29 @@ pub fn toggle_folder(u: &AppWindow, id: &str) {
     rebuild_folders(u);
 }
 
+/// The folders above `id` in the tree, nearest first.
+fn ancestors_of(list: &[Value], id: &str) -> Vec<String> {
+    let mut out = vec![];
+    let mut cur = id.to_string();
+    // a cycle in the server's data must not loop
+    while out.len() < 64 {
+        let Some(p) = list.iter().find(|m| m["id"] == cur.as_str()).and_then(|m| m["parentId"].as_str()).filter(|p| !p.is_empty()) else { break };
+        out.push(p.to_string());
+        cur = p.to_string();
+    }
+    out
+}
+
+/// Unfold the folders above `id`, so the selected folder shows in the tree.
+pub fn reveal_folder(u: &AppWindow, id: &str) {
+    let opened = BOXES.with(|b| {
+        let mut b = b.borrow_mut();
+        let up = ancestors_of(&b.list, id);
+        up.iter().fold(false, |any, a| b.collapsed.remove(a) | any)
+    });
+    if opened { rebuild_folders(u); }
+}
+
 /// Role and name of a folder of the active account.
 pub fn mailbox_info(id: &str) -> (String, String) {
     BOXES.with(|b| b.borrow().list.iter().find(|m| m["id"] == id)
@@ -286,6 +309,8 @@ pub fn load_mailboxes(w: slint::Weak<AppWindow>, c: Arc<Client>, select_inbox: b
             rebuild_folders(&u);
             set_tags(&u, &counts);
             if select_inbox {
+                // a notification of this login brought the switch: its message, not the Inbox
+                if crate::desktop::resume_pending(&u, &c) { return; }
                 if let Some(id) = inbox {
                     u.set_current_folder(id.clone().into());
                     crate::glance::title(&u);
@@ -1136,6 +1161,17 @@ pub fn clean_preview(p: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn ancestors_walk_up_the_tree() {
+        let l = vec![json!({"id": "a"}), json!({"id": "b", "parentId": "a"}), json!({"id": "c", "parentId": "b"}),
+            json!({"id": "x", "parentId": "y"}), json!({"id": "y", "parentId": "x"})];
+        assert_eq!(super::ancestors_of(&l, "c"), ["b", "a"]);
+        assert!(super::ancestors_of(&l, "a").is_empty());
+        assert!(super::ancestors_of(&l, "missing").is_empty());
+        // a cycle ends
+        assert_eq!(super::ancestors_of(&l, "x").len(), 64);
+    }
+
     use super::*;
 
     #[test]
