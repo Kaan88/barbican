@@ -773,9 +773,6 @@ fn load_mailboxes(ui: slint::Weak<AppWindow>, client: Arc<jmap::Client>, select_
     mail::load_mailboxes(ui, client, select_inbox);
 }
 
-/// Another Barbican runs on this computer: it may have the mail view's profile folder open.
-static OTHER_INSTANCE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-
 fn main() -> Result<(), slint::PlatformError> {
     // an update the user approved ("Install next time") installs before anything else
     // (only when no other Barbican runs: the installer would replace it while it is open)
@@ -783,7 +780,6 @@ fn main() -> Result<(), slint::PlatformError> {
     // twice: the second call would see this process's own lock). Only the default profile installs
     // a pending update (test, automation and dev profiles never do).
     let first = platform::first_instance();
-    OTHER_INSTANCE.store(!first, std::sync::atomic::Ordering::SeqCst);
     if first && profile::is_default(profile::current()) && updater::on_start() { return Ok(()); }
     // Skia: the same text/graphics engine Chrome uses, so text matches Bulwark in the browser
     // (and gets system font fallback for CJK and other scripts).
@@ -792,11 +788,14 @@ fn main() -> Result<(), slint::PlatformError> {
     let link = instance::mailto_arg(&std::env::args().skip(1).collect::<Vec<_>>());
     if link.as_deref().is_some_and(instance::forward) { return Ok(()); }
     // a start that never got cleared last time (it crashed) runs without network pictures
-    let last_start_failed = crashguard::begin(&config_dir());
+    // (the first Barbican of the profile guards: a second one neither sees nor clears its marker)
+    let first_of_profile = platform::first_of_profile();
+    let last_start_failed = crashguard::start(&config_dir(), first_of_profile);
     if last_start_failed { crashguard::enter_safe_mode(); }
     // what the last sign-out could not delete (locked then), before any WebView exists; not
-    // while another Barbican runs: its mail view may have that profile open
-    if first { signout::sweep_pending(); }
+    // while another Barbican of this profile runs: its mail view may have that profile open
+    // (every path swept is this profile's own, so another profile running does not matter)
+    if first_of_profile { signout::sweep_pending(); }
     let ui = AppWindow::new()?;
     apply_theme(&ui);
     apply_ui_prefs(&ui);
@@ -899,7 +898,8 @@ fn main() -> Result<(), slint::PlatformError> {
         reminders::stop();
         // the account list is keyed by the name typed on the login form
         let login = std::mem::take(&mut *LOGIN_USER.lock().unwrap());
-        let last = signout::forget_keyring(&[login.as_str(), account.as_str()], &server);
+        let forgot = signout::forget_keyring(&[login.as_str(), account.as_str()], &server);
+        let last = forgot.last;
         if last { avatars::cancel_pending(); }
         // a chat answer still coming must not write the account's file again
         CHAT_USER.lock().unwrap().clear();
@@ -907,13 +907,20 @@ fn main() -> Result<(), slint::PlatformError> {
         unified::clear();
         // cookies, cache and storage of the mail view, and the account's files on disk
         mailview::clear_browsing_data();
-        signout::wipe(signout::Who { user: account, owner, last, webview_live: mailview::is_built() || OTHER_INSTANCE.load(std::sync::atomic::Ordering::SeqCst) });
+        // live, now: this process's view, or another Barbican of this profile (same WebView folder)
+        signout::wipe(signout::Who { user: account, owner, last, webview_live: mailview::is_built() || platform::other_of_profile_running() });
+        // nobody at this computer finds the last person's password or code in the form
+        u.set_login_password("".into());
+        u.set_login_otp("".into());
         u.set_chat(display_chat(&[]));
         u.set_accounts(accounts_model());
         u.set_current_mail("".into());
         u.set_folders(ModelRc::new(VecModel::from(Vec::<Folder>::new())));
         u.set_mails(ModelRc::new(VecModel::from(Vec::<Mail>::new())));
-        u.set_status("Signed out.".into());
+        // a credential that stayed in the keychain is not "signed out"
+        u.set_status(if forgot.cleared { "Signed out.".into() } else {
+            format!("Signed out here, but your saved sign-in could not be removed from {}. Remove the Barbican entries there yourself.", platform::keystore_name()).into()
+        });
         u.set_logged_in(false);
     });
 
@@ -944,6 +951,8 @@ fn main() -> Result<(), slint::PlatformError> {
         SESSION_GEN.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         *st.lock().unwrap() = None;
         u.set_user("".into());
+        u.set_login_password("".into());
+        u.set_login_otp("".into());
         u.set_status("Sign in to another account. Your other accounts stay signed in.".into());
         u.set_logged_in(false);
     });
@@ -1840,7 +1849,7 @@ fn main() -> Result<(), slint::PlatformError> {
                 let printed = u.get_render_mode() == 0 && mailview::print();
                 if !printed {
                     if let Some(h) = CUR.with(|c| c.borrow().as_ref().map(|c| c.html.clone().unwrap_or_else(|| format!("<pre>{}</pre>", esc(&c.text))))) {
-                        let p = std::env::temp_dir().join("barbican-print.html");
+                        let p = platform::print_file();
                         let page = wrap_html_opts(&format!("<h2>{}</h2>{h}<script>print()</script>", esc(&u.get_r_subject())), false)
                             .replace("script-src 'none'", "script-src 'unsafe-inline'");
                         let _ = std::fs::write(&p, page);
@@ -1871,7 +1880,7 @@ fn main() -> Result<(), slint::PlatformError> {
         std::thread::spawn(move || {
             let name = sanitize_name(a["name"].as_str().unwrap_or("attachment"));
             if let Ok(bytes) = c.download(a["blobId"].as_str().unwrap_or(""), &name, a["type"].as_str().unwrap_or("")) {
-                let dir = std::env::temp_dir().join("Barbican");
+                let dir = platform::mail_temp_dir();
                 let _ = std::fs::create_dir_all(&dir);
                 let p = dir.join(&name);
                 if std::fs::write(&p, bytes).is_ok() { oauth::open_browser(&p.to_string_lossy()); }
@@ -1925,9 +1934,12 @@ fn main() -> Result<(), slint::PlatformError> {
     winstate::restore(&ui);
     if !desktop::start_hidden() { ui.show()?; }
     if last_start_failed { mail::show_toast(&ui, crashguard::NOTICE, false); }
-    // up for a few seconds: this start was a good one
+    // This start was a good one once the first list has been rendered (mail.rs rebuild_list), or
+    // here when the login form is what is shown (nothing remembered to sign in with), or on a
+    // clean quit; the timer is only the fallback (see crashguard.rs)
+    if oauth::remembered().is_none() { crashguard::done(&config_dir()); }
     let guard_timer = slint::Timer::default();
-    guard_timer.start(slint::TimerMode::SingleShot, crashguard::UP_FOR, || crashguard::clear(&config_dir()));
+    guard_timer.start(slint::TimerMode::SingleShot, crashguard::UP_FOR, || crashguard::done(&config_dir()));
     if automation::enabled() {
         ui.window().set_position(slint::PhysicalPosition::new(-6000, 0));
     }
@@ -1956,7 +1968,7 @@ fn main() -> Result<(), slint::PlatformError> {
     // the window can be closed to the tray: the loop runs until Quit
     slint::run_event_loop_until_quit()?;
     winstate::save(&ui);
-    crashguard::clear(&config_dir());
+    crashguard::done(&config_dir());
     settings::Settings::flush();
     instance::cleanup();
     // No sign-in is written back here: every rotated refresh token is stored the moment it is
@@ -2154,6 +2166,9 @@ fn finish_login(w: slint::Weak<AppWindow>, st: Shared, res: Result<jmap::Client,
                 u.set_accounts(accounts_model());
                 u.set_busy(false);
                 u.set_status("".into());
+                // the password is not kept in the form once it has been used
+                u.set_login_password("".into());
+                u.set_login_otp("".into());
                 u.set_account(name.clone().into());
                 u.set_initials(initials(&name).into());
                 u.set_server_host(host.into());

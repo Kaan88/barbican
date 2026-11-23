@@ -175,7 +175,7 @@ fn get_with(email: &str, brand: Option<&str>, p: &Prefs, junk: bool, start: impl
 /// Sign-out: answers still being fetched must not write the cache again.
 pub fn cancel_pending() {
     GEN.fetch_add(1, Ordering::SeqCst);
-    WORK.lock().unwrap().0.clear();
+    work().0.clear();
     // the pictures fetched for this account's senders are not the next account's to see
     SLOTS.with(|s| s.borrow_mut().clear());
 }

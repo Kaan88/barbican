@@ -500,8 +500,20 @@ pub fn start_action(p: Option<&Pending>, current: &str, hash_now: impl Fn(&Path)
     if p.approved { StartAction::Install } else { StartAction::Nothing }
 }
 
+/// Only the default profile updates the program: a test, automation or dev profile shares the
+/// downloads folder (`data_dir()/updates`) and the installer, and must never install from under
+/// the user's own Barbican (`main` gates `on_start` the same way).
+pub fn enabled_for(profile: &str) -> bool { crate::profile::is_default(profile) }
+
+/// Whether this process's profile updates the program (see [`enabled_for`]).
+pub fn enabled() -> bool { enabled_for(crate::profile::current()) }
+
+/// What a non-default profile answers when asked to approve or install an update.
+pub const NOT_THIS_PROFILE: &str = "Updates are installed by the default Barbican profile, not this one.";
+
 /// The user chose "Install next time I start".
 pub fn approve_next_start() -> Result<(), String> {
+    if !enabled() { return Err(NOT_THIS_PROFILE.into()); }
     let mut p = Pending::load().ok_or("No update is waiting.")?;
     p.approved = true;
     p.save()
@@ -530,6 +542,7 @@ pub fn on_start() -> bool {
 
 /// "Restart now": install the verified download and quit.
 pub fn install_now() -> Result<(), String> {
+    if !enabled() { return Err(NOT_THIS_PROFILE.into()); }
     let p = Pending::load().ok_or("No update is waiting.")?;
     if start_action(Some(&p), VERSION, sha256_file) == StartAction::Discard {
         Pending::clear();
@@ -662,6 +675,16 @@ pub fn status_text(s: &State, kind: Kind) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn only_the_default_profile_updates() {
+        assert!(super::enabled_for("default"));
+        for p in ["dev", "auto-8792", "test-1"] { assert!(!super::enabled_for(p), "{p}"); }
+        // this test process runs under a throwaway profile: it neither approves nor installs
+        assert!(!super::enabled());
+        assert_eq!(super::approve_next_start(), Err(super::NOT_THIS_PROFILE.to_string()));
+        assert_eq!(super::install_now(), Err(super::NOT_THIS_PROFILE.to_string()));
+    }
+
     use super::*;
     use base64::Engine;
     use ed25519_dalek::{Signer, SigningKey};

@@ -677,7 +677,8 @@ fn place(ui: &AppWindow) -> wry::Rect {
 }
 
 thread_local! {
-    /// The WebView's profile folder is ours (platform::data_dir), so sign-out knows what to delete.
+    /// The WebView's profile folder is ours and this profile's own (platform::webview_dir), so
+    /// sign-out knows what to delete and never reaches another profile's.
     static CONTEXT: RefCell<Option<wry::WebContext>> = const { RefCell::new(None) };
 }
 
@@ -694,7 +695,7 @@ pub fn is_built() -> bool {
 fn build(ui: &AppWindow) -> Option<wry::WebView> {
     CONTEXT.with(|c| {
         let mut c = c.borrow_mut();
-        let ctx = c.get_or_insert_with(|| wry::WebContext::new(Some(crate::signout::webview_dir())));
+        let ctx = c.get_or_insert_with(|| wry::WebContext::new(Some(crate::platform::webview_dir())));
         build_in(ui, ctx)
     })
 }

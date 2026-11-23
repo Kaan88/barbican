@@ -32,6 +32,8 @@ pub fn first_instance() -> bool {
             other_running = unsafe { GetLastError() } == ERROR_ALREADY_EXISTS;
         }
     }
+    // the per-profile "a Barbican of this profile runs" mutex (see `other_of_profile_running`)
+    PROFILE_FIRST.store(hold_profile_mutex(), std::sync::atomic::Ordering::SeqCst);
     // the handles are leaked on purpose: Windows releases them when the process ends
     let mine = match unsafe { CreateMutexW(None, false, PCWSTR(name.as_ptr())) } {
         Ok(_) => { let e = unsafe { GetLastError() }; e != ERROR_ALREADY_EXISTS }
@@ -43,6 +45,64 @@ pub fn first_instance() -> bool {
 fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(std::iter::once(0)).collect()
 }
+
+// ---- who else uses this profile's folders (the WebView's profile folder above all) ----
+//
+// Every process holds a named mutex per profile from its start (`Local\Barbican.Profile.<name>`,
+// default profile `...default`). The WebView folder, the temp folder and the config folder
+// are the profile's, so another process holding the same name may have them open. A
+// process cannot tell itself from another by opening the name (its own handle counts), so the
+// check lets go of its own handle for a moment, opens the name, and takes it again.
+
+/// The raw handle this process holds on its profile's mutex (0: none).
+static PROFILE_MUTEX: std::sync::Mutex<isize> = std::sync::Mutex::new(0);
+/// Whether this process created the profile's mutex (no other process of the profile at start).
+static PROFILE_FIRST: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
+fn profile_mutex_name(profile: &str) -> Vec<u16> { wide(&format!(r"Local\Barbican.Profile.{profile}")) }
+
+/// Take this process's hold on the profile mutex; true when nobody held it before.
+fn hold_profile_mutex() -> bool {
+    let (mut held, first) = hold(&profile_mutex_name(crate::profile::current()));
+    let mut slot = PROFILE_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
+    std::mem::swap(&mut *slot, &mut held);
+    first
+}
+
+/// Create (or open) the named mutex: its raw handle and whether this call created it.
+fn hold(name: &[u16]) -> (isize, bool) {
+    use windows::Win32::Foundation::{GetLastError, ERROR_ALREADY_EXISTS};
+    use windows::Win32::System::Threading::CreateMutexW;
+    match unsafe { CreateMutexW(None, false, PCWSTR(name.as_ptr())) } {
+        Ok(h) => { let first = unsafe { GetLastError() } != ERROR_ALREADY_EXISTS; (h.0 as isize, first) }
+        Err(_) => (0, true),
+    }
+}
+
+/// Whether any other process has the named mutex, given this process's own handle in `own`
+/// (released while looking and taken again after).
+fn held_by_another(name: &[u16], own: &mut isize) -> bool {
+    use windows::Win32::Foundation::{CloseHandle, HANDLE};
+    use windows::Win32::System::Threading::OpenMutexW;
+    const SYNCHRONIZE: u32 = 0x0010_0000;
+    if *own != 0 { unsafe { let _ = CloseHandle(HANDLE(*own as *mut _)); } *own = 0; }
+    let other = match unsafe { OpenMutexW(windows::Win32::System::Threading::SYNCHRONIZATION_ACCESS_RIGHTS(SYNCHRONIZE), false, PCWSTR(name.as_ptr())) } {
+        Ok(h) => { unsafe { let _ = CloseHandle(h); } true }
+        Err(_) => false,
+    };
+    *own = hold(name).0;
+    other
+}
+
+/// Whether this process was the first of its profile to start (decided once, atomically).
+pub fn first_of_profile() -> bool { PROFILE_FIRST.load(std::sync::atomic::Ordering::SeqCst) }
+
+/// Live: whether another Barbican process of this profile is running now.
+pub fn other_of_profile_running() -> bool {
+    let mut slot = PROFILE_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
+    held_by_another(&profile_mutex_name(crate::profile::current()), &mut slot)
+}
+
 
 fn read_dword(key: &str, value: &str) -> Option<u32> {
     let (k, v) = (wide(key), wide(value));
@@ -162,6 +222,26 @@ pub fn set_overlay(hwnd: isize, rgba: Option<(&[u8], u32)>, label: &str) {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    #[test]
+    fn another_holder_is_told_from_my_own_hold() {
+        let name = wide(&format!(r"Local\Barbican.Test.{}", std::process::id()));
+        // nobody holds it: my own hold does not count as another process
+        let (mut own, first) = hold(&name);
+        assert!(first && own != 0);
+        assert!(!held_by_another(&name, &mut own));
+        assert!(own != 0, "my hold is taken again after the look");
+        // a second holder (a handle apart from mine, standing for another process) does count
+        let (other, first) = hold(&name);
+        assert!(!first);
+        assert!(held_by_another(&name, &mut own));
+        // once it is gone, only mine is left
+        unsafe { let _ = windows::Win32::Foundation::CloseHandle(windows::Win32::Foundation::HANDLE(other as *mut _)); }
+        assert!(!held_by_another(&name, &mut own));
+        unsafe { let _ = windows::Win32::Foundation::CloseHandle(windows::Win32::Foundation::HANDLE(own as *mut _)); }
+    }
+
     #[test]
     fn monitor_work_areas_are_real_rectangles() {
         // a session without a display may list none; any listed monitor has a size

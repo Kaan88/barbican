@@ -57,11 +57,43 @@ pub fn forget(b: &dyn Backend, profile: &str, name: &str) {
 
 // ---- the real store for this process ----
 
-pub fn get(name: &str) -> Option<String> { load(&Os, profile::current(), name) }
-pub fn set(name: &str, value: &str) -> bool { save(&Os, profile::current(), name, value) }
-pub fn delete(name: &str) { forget(&Os, profile::current(), name) }
+// A unit-test process keeps its secrets in memory: it never writes to (or leaves anything in)
+// the real Credential Manager / Secret Service.
+#[cfg(not(test))]
+pub(crate) fn store() -> &'static Os { &Os }
+#[cfg(test)]
+pub(crate) fn store() -> &'static mem::Mem { &mem::Mem }
 
-struct Os;
+pub fn get(name: &str) -> Option<String> { load(store(), profile::current(), name) }
+pub fn set(name: &str, value: &str) -> bool { save(store(), profile::current(), name, value) }
+pub fn delete(name: &str) { forget(store(), profile::current(), name) }
+
+#[cfg(test)]
+mod mem {
+    use super::Backend;
+    use std::collections::HashMap;
+    use std::sync::Mutex;
+
+    static NEW: Mutex<Option<HashMap<String, String>>> = Mutex::new(None);
+
+    fn with<R>(f: impl FnOnce(&mut HashMap<String, String>) -> R) -> R {
+        f(NEW.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert_with(HashMap::new))
+    }
+
+    /// The in-process store the `get`/`set`/`delete` of a test process use.
+    pub struct Mem;
+    impl Backend for Mem {
+        fn read(&self, t: &str) -> Option<String> { with(|m| m.get(t).cloned()) }
+        fn write(&self, t: &str, v: &str) -> bool { with(|m| m.insert(t.into(), v.into())); true }
+        fn remove(&self, t: &str) { with(|m| m.remove(t)); }
+        fn read_legacy(&self, _: &str) -> Option<String> { None }
+        fn remove_legacy(&self, _: &str) {}
+    }
+}
+
+// (a test process uses the in-memory store instead, see `store`)
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) struct Os;
 
 impl Backend for Os {
     fn read(&self, target: &str) -> Option<String> { os::read(target) }
