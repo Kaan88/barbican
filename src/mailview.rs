@@ -46,9 +46,13 @@ thread_local! {
 ///
 /// A page under the dark conversion (dark_mail.rs) is ready once that pass ran.
 ///
-/// Links: every link and form of a message is retargeted to a new window before it is shown
-/// (wry only sees main-frame navigations, so a `target=_self/_top/_parent` link would otherwise
-/// navigate the frame itself, or do nothing); new windows open in the browser or the composer.
+/// Links: every link and form of a message is retargeted to a new window before it is shown.
+/// A click must not load anything into the message frame: on Windows wry hooks only WebView2's
+/// top-level `NavigationStarting` (frame loads go to `FrameNavigationStarting`, which wry does
+/// not hook), so a plain link or `target=_self` would replace the message with the remote page;
+/// on WebKitGTK and WKWebView wry's navigation handler does see frame navigations (it would hand
+/// a web URL to the browser and cancel the load), but `target=_top/_parent` reaches the view's
+/// own top-level navigation on every platform. New windows open in the browser or the composer.
 const SHELL_JS: &str = r#"(function(){
 var cur=null,nxt=null,seq=0;
 function post(m){try{window.ipc.postMessage(m)}catch(e){}}
@@ -192,8 +196,9 @@ fn nav_decision(url: &str, locked: bool) -> Nav {
     if l.starts_with("http://") || l.starts_with("https://") { return Nav::Browser; }
     if crate::mailto::parse(u).is_some() || l.starts_with("file:") { return Nav::Cancel; }
     if !locked { return if l.starts_with("http") { Nav::Browser } else { Nav::Allow }; }
-    // the shell (NavigateToString reports a data: URL, WebKitGTK about:blank) and the frames
-    if l == "about:srcdoc" || l == "about:blank" || l.starts_with("data:text/html") { Nav::Allow } else { Nav::Cancel }
+    // the message frames (srcdoc) and blank frames; the shell's own data: page loaded before
+    // the lock, so after it nothing else may load here
+    if l == "about:srcdoc" || l == "about:blank" { Nav::Allow } else { Nav::Cancel }
 }
 
 fn run_js(js: String) {
@@ -365,7 +370,9 @@ fn forward_key(ui: &AppWindow, spec: &str) {
 /// written with character references), `name` goes from all of these, and `id` from the ones
 /// that are exposed by id as well (`object`). An `img` is exposed by id only together with a
 /// name, which is gone, so ordinary `id`s on images (CSS hooks in newsletters) survive.
-const NAMED_ACCESS_TAGS: &[&str] = &["img", "form", "embed", "object", "iframe", "applet", "frame"];
+/// `image` is here too: the HTML parser rewrites that tag to `img`, so the literal `<image>`
+/// must lose its `name` as well. A `<form>` does not appear here: its start tag is removed.
+const NAMED_ACCESS_TAGS: &[&str] = &["img", "image", "embed", "object", "iframe", "applet", "frame"];
 const NAMED_ACCESS_ID_TAGS: &[&str] = &["object", "applet"];
 
 fn is_html_ws(b: u8) -> bool { matches!(b, b' ' | b'\t' | b'\n' | b'\r' | 0x0c) }
@@ -374,6 +381,11 @@ fn is_html_ws(b: u8) -> bool { matches!(b, b' ' | b'\t' | b'\n' | b'\r' | 0x0c) 
 ///  * `<base>` (it would move every relative URL; the frame's CSP also says `base-uri 'none'`),
 ///  * `<meta http-equiv=..>` of any kind (`refresh` redirects the frame; `set-cookie` and the
 ///    rest have no business in a message),
+///  * `<form>` start tags: a form's controls are exposed on the form by name, so
+///    `<form><input name=closest>` makes `form.closest` (and `name=style` makes `form.style`)
+///    that control, which breaks the `el.closest('svg')` / `el.style` walks of the dark and
+///    accessibility scripts. Without the form its controls are associated with nothing and
+///    cannot shadow; the controls themselves stay, as does the inert `</form>`,
 ///  * `name` (and `id`) attributes that shadow `document` members (see `NAMED_ACCESS_TAGS`).
 /// Every `<letter` in the text is looked at as a possible tag start, wherever it sits (inside a
 /// comment, a quoted value, a textarea): over-removing from inert text is harmless, but a
@@ -438,7 +450,10 @@ fn sanitize_pass(s: &str) -> Result<Option<String>, ()> {
         };
         budget = budget.checked_sub(end - i).ok_or(())?;
         let has = |n: &str| attrs.iter().any(|a| a.0 == n);
-        if name == "base" || (name == "meta" && has("http-equiv")) {
+        // a form's controls shadow its members by name (`form.closest`, `form.style`); both of
+        // our in-frame scripts call those on every element. With the form gone its controls are
+        // associated with nothing, so their names cannot shadow.
+        if name == "base" || name == "form" || (name == "meta" && has("http-equiv")) {
             dels.push((i, end));
         } else if NAMED_ACCESS_TAGS.contains(&name.as_str()) {
             let id_too = NAMED_ACCESS_ID_TAGS.contains(&name.as_str());
@@ -542,6 +557,38 @@ mod tests {
     }
 
     #[test]
+    fn image_alias_is_sanitized_like_img() {
+        // the HTML parser rewrites <image> to <img>, so the name must be stripped from the
+        // literal tag or the element it builds shadows document members
+        for h in ["<IMAGE NAME=body>", "<image name=\"URL\" src=x>", "<image/src=x name=querySelectorAll>"] {
+            let o = san(h);
+            assert!(!o.to_ascii_lowercase().contains("name"), "{h} -> {o}");
+            assert!(o.to_ascii_lowercase().contains("<image"), "{o}");
+        }
+        // without a name the alias is left alone
+        assert_eq!(san("<image src=x>"), "<image src=x>");
+    }
+
+    #[test]
+    fn forms_are_removed_so_control_names_cannot_shadow() {
+        // a control named closest or style shadows form.closest / form.style, which the dark
+        // and accessibility scripts call on every element
+        for h in [
+            "<form><input name=closest></form>",
+            "<FORM ACTION=\"https://e.x/\"><input name=\"style\"></FORM>",
+            "<form/><input name=closest>",
+        ] {
+            let o = san(h);
+            assert!(!o.to_ascii_lowercase().contains("<form"), "{h} -> {o}");
+            assert!(o.to_ascii_lowercase().contains("<input"), "{o}");
+        }
+        // the controls and the inert closing tag stay; dropping the form is what disarms the names
+        let o = san("<form><input name=closest><button name=style>x</button></form>");
+        assert_eq!(o, "<input name=closest><button name=style>x</button></form>");
+        assert!(san("<p>formatted</p>").contains("formatted"));
+    }
+
+    #[test]
     fn hostile_input_is_bounded_and_falls_back_to_text() {
         let big = "<b ".repeat(400_000);
         let t = std::time::Instant::now();
@@ -558,11 +605,11 @@ mod tests {
         // before the shell reported in: its own load passes whatever form the platform reports
         assert_eq!(nav_decision("data:text/html;charset=utf-8,<p>", false), Nav::Allow);
         assert_eq!(nav_decision("https://example.org/", false), Nav::Browser);
-        // after: only the shell, blank and srcdoc
-        for u in ["about:srcdoc", "about:blank", "data:text/html;charset=utf-8;base64,AAAA"] {
+        // after: only the message frames (srcdoc) and blank frames
+        for u in ["about:srcdoc", "about:blank"] {
             assert_eq!(nav_decision(u, true), Nav::Allow, "{u}");
         }
-        for u in ["javascript:alert(1)", "data:text/plain,x", "blob:https://x/y", "ftp://x/", "about:config", "ms-appx://x", "view-source:x", "mailto:a@b.c", "FILE:///c:/x", "chrome://x", "wry://localhost/x"] {
+        for u in ["javascript:alert(1)", "data:text/plain,x", "data:text/html;charset=utf-8;base64,AAAA", "blob:https://x/y", "ftp://x/", "about:config", "ms-appx://x", "view-source:x", "mailto:a@b.c", "FILE:///c:/x", "chrome://x", "wry://localhost/x"] {
             assert_eq!(nav_decision(u, true), Nav::Cancel, "{u}");
         }
         // links still reach the browser, as before
@@ -643,10 +690,10 @@ fn build(ui: &AppWindow) -> Option<wry::WebView> {
             slint::Timer::single_shot(Duration::ZERO, move || on_ipc(&m));
         })
         .with_navigation_handler(|url| {
-            // A top-level navigation is never a click on a mail link (those are retargeted to a
-            // new window); it comes from the page itself. Once the shell is up it is the only
-            // page: everything but about:srcdoc/about:blank/the shell's own data: page is
-            // cancelled, and a web URL is handed to the browser instead.
+            // A navigation here is not a click on a mail link (those are retargeted to a new
+            // window): it comes from the page itself. Once the shell is up, only the message
+            // frames (about:srcdoc) and blank frames may load; anything else is cancelled, and
+            // a web URL is handed to the browser instead.
             match nav_decision(&url, NAV_LOCKED.load(Ordering::Relaxed)) {
                 Nav::Allow => true,
                 Nav::Browser => { crate::oauth::open_browser(&url); false }
