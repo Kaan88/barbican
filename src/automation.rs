@@ -433,7 +433,7 @@ fn run_cmd(u: &AppWindow, line: &str) -> String {
             let st = crate::updater::state();
             format!("unread {n} | tooltip {} | update {:?} {} | kind {:?} | visible {}", crate::desktop::tooltip(n), st.status, st.target, crate::updater::current_kind(), win.is_visible())
         }
-        "update-check" => { crate::updater::check(true); "ok".into() }
+        "update-check" => { if crate::updater::enabled() { crate::updater::check(true); "ok".into() } else { "updates are off in this profile".into() } }
         // the window's close button (X): quits, or hides to the tray with close to tray on
         "close" => { win.dispatch_event(WindowEvent::CloseRequested); "ok".into() }
         // "tray open|compose|check|quit": what the tray menu items do

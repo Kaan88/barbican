@@ -198,8 +198,12 @@ pub struct Forgot {
 /// `names`: how the account is known (the login form's name and the server's); `server`: the
 /// one it signed in to (empty when unknown: then the name alone decides).
 pub fn forget_keyring(names: &[&str], server: &str) -> Forgot {
+    // Whether other accounts stay is decided from the list as it was, not from the store after the
+    // sign-out: when the shortened list cannot be written the whole entry is deleted, and the
+    // other accounts' local data (chats, avatars, the admin key) must not be wiped for that.
+    let others = !crate::oauth::without_account(crate::oauth::accounts(), names, server).is_empty();
     let cleared = crate::oauth::forget_account(names, server);
-    let last = crate::oauth::accounts().is_empty();
+    let last = !others;
     if last { crate::admin::set_key(""); }
     Forgot { last, cleared }
 }
