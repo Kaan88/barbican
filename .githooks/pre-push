@@ -1,4 +1,19 @@
 #!/bin/sh
 # Enable with: git config core.hooksPath .githooks
-# Blocks the push when tools/privacy-check.sh finds personal data (see CONTRIBUTING-DEV.md).
-exec sh "$(git rev-parse --show-toplevel)/tools/privacy-check.sh" HEAD
+# git feeds one line per pushed ref on stdin: <local ref> <local sha> <remote ref> <remote sha>.
+# Each pushed commit or tag is checked by tools/privacy-check.sh (see CONTRIBUTING-DEV.md).
+remote=${1:-origin}
+root=$(git rev-parse --show-toplevel) || exit 2
+status=0
+while read -r local_ref local_sha remote_ref remote_sha; do
+  case $local_sha in *[!0]*) ;; *) continue ;; esac            # deleting a ref: nothing to scan
+  base=""
+  case $remote_sha in
+    *[!0]*) if git cat-file -e "$remote_sha^{commit}" 2>/dev/null; then base=$remote_sha; fi ;;
+  esac                                                          # new ref: range = not on the remote
+  PRIVACY_REMOTE=$remote sh "$root/tools/privacy-check.sh" "$local_sha" "$base" || {
+    rc=$?
+    [ "$rc" -gt "$status" ] && status=$rc
+  }
+done
+exit "$status"
