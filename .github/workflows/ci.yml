@@ -48,7 +48,7 @@ jobs:
         shell: pwsh
         run: |
           ./tools/test-release-tools.ps1
-          if ($LASTEXITCODE -ne 0) { exit 1 }
+          if ($LASTEXITCODE) { exit 1 }
       - name: Inno Setup installer compiles (the real exe, a pre-release version, not run)
         if: runner.os == 'Windows'
         shell: pwsh

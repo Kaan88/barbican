@@ -60,10 +60,10 @@ jobs:
         run: |
           $v = $env:GITHUB_REF_NAME.TrimStart('v')
           $n = & ./tools/changelog-notes.ps1 -Version $v
-          if ($LASTEXITCODE -ne 0) { exit 1 }
+          if ($LASTEXITCODE) { exit 1 }
           Write-Host "Hub note: $($n.OneLine)"
           & ./tools/test-release-tools.ps1
-          if ($LASTEXITCODE -ne 0) { exit 1 }
+          if ($LASTEXITCODE) { exit 1 }
 
   windows:
     needs: changelog
@@ -220,7 +220,7 @@ jobs:
         run: |
           $v = $env:GITHUB_REF_NAME.TrimStart('v')
           $n = & ./tools/changelog-notes.ps1 -Version $v -Out "dist/release-notes-$v.md"
-          if ($LASTEXITCODE -ne 0) { exit 1 }
+          if ($LASTEXITCODE) { exit 1 }
           Get-Content "dist/release-notes-$v.md"
       - name: Checksums and signed update manifest
         env:
@@ -246,7 +246,7 @@ jobs:
         run: |
           $v = $env:GITHUB_REF_NAME.TrimStart('v')
           $n = & ./tools/changelog-notes.ps1 -Version $v
-          if ($LASTEXITCODE -ne 0) { exit 1 }
+          if ($LASTEXITCODE) { exit 1 }
           $files = @(
             @{ Name = "Barbican-Setup-$v.exe"; Path = "dist/Barbican-Setup-$v.exe"; Role = 'setup'
                Silent = '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART'; Scope = 'user' }
@@ -255,9 +255,9 @@ jobs:
           & ./tools/write-hub-txt.ps1 -App barbican -Repo barbican -Version $v -Notes $n.OneLine `
             -NotesFile "release-notes-$v.md" -Kind setup -Exe barbican.exe `
             -Uninstall '{ACE04D99-4564-4E70-9A43-FE47A6A0E3B5}_is1' -Wait barbican.exe -Files $files -Out dist/hub.txt
-          if ($LASTEXITCODE -ne 0) { exit 1 }
+          if ($LASTEXITCODE) { exit 1 }
           ./tools/verify-hub-txt.ps1 -HubTxt dist/hub.txt -Dir dist
-          if ($LASTEXITCODE -ne 0) { exit 1 }
+          if ($LASTEXITCODE) { exit 1 }
           Get-Content dist/hub.txt
       - name: Sign checksums (hook)
         if: env.HAS_GPG == 'true'
