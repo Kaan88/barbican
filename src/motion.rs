@@ -47,6 +47,7 @@ pub fn install_filter(ui: &AppWindow) {
     let w = ui.as_weak();
     ui.window().on_winit_window_event(move |_, ev| {
         crate::automation::winit_event(ev);
+        if let Some(u) = w.upgrade() { crate::winstate::event(&u, ev); }
         if let WindowEvent::Focused(true) = ev {
             if PREF.with(|p| p.borrow().as_str() == "system") {
                 if let Some(u) = w.upgrade() {

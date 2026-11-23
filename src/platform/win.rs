@@ -97,6 +97,25 @@ pub fn set_process_app_id() {
     }
 }
 
+/// Work areas (screen minus the taskbar) of the connected monitors as (x, y, width, height)
+/// in physical virtual-desktop pixels, in the system's order.
+pub fn monitor_work_areas() -> Vec<(i32, i32, i32, i32)> {
+    use windows::Win32::Foundation::{LPARAM, RECT};
+    use windows::Win32::Graphics::Gdi::{EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR, MONITORINFO};
+    unsafe extern "system" fn each(m: HMONITOR, _: HDC, _: *mut RECT, out: LPARAM) -> windows::core::BOOL {
+        let out = unsafe { &mut *(out.0 as *mut Vec<(i32, i32, i32, i32)>) };
+        let mut info = MONITORINFO { cbSize: std::mem::size_of::<MONITORINFO>() as u32, ..Default::default() };
+        if unsafe { GetMonitorInfoW(m, &mut info) }.as_bool() {
+            let r = info.rcWork;
+            out.push((r.left, r.top, r.right - r.left, r.bottom - r.top));
+        }
+        true.into()
+    }
+    let mut out: Vec<(i32, i32, i32, i32)> = Vec::new();
+    unsafe { let _ = EnumDisplayMonitors(None, None, Some(each), LPARAM(&mut out as *mut _ as isize)); }
+    out
+}
+
 /// The unread overlay on the taskbar button (None clears it). `rgba` is a square icon.
 pub fn set_overlay(hwnd: isize, rgba: Option<(&[u8], u32)>, label: &str) {
     use windows::Win32::System::Com::*;
@@ -127,6 +146,12 @@ pub fn set_overlay(hwnd: isize, rgba: Option<(&[u8], u32)>, label: &str) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn monitor_work_areas_are_real_rectangles() {
+        // a session without a display may list none; any listed monitor has a size
+        assert!(super::monitor_work_areas().iter().all(|&(_, _, w, h)| w > 0 && h > 0));
+    }
+
     #[test]
     fn reads_without_writing() {
         // present on every Windows 10/11 desktop; reading never changes anything
