@@ -119,18 +119,16 @@ Filename: "{app}\{#AppExe}"; Description: "Start Barbican"; Flags: nowait postin
 // PowerShell treats the typographic single quotes U+2018, U+2019, U+201A and U+201B as quote
 // characters too, so a path containing one (a profile folder named O'Brien, with a curly quote)
 // would end the '...' literal early and the rest of it would run as commands. This doubles every
-// character PowerShell reads as a single quote; the ASCII ' is doubled by the caller. Chr and
-// StringOfChar, not the characters themselves: this script stays plain ASCII, so it needs no BOM
-// and reads the same in Inno Setup 6 and 7.
+// character PowerShell reads as a single quote; the ASCII ' is doubled by the caller. #$XXXX
+// literals, not the characters themselves: this script stays plain ASCII (no BOM needed), and the
+// literal is a full UTF-16 character in the Unicode compiler. Not Chr: it takes a Byte in Pascal
+// Script, so Chr($2018) would be cut to $18.
 procedure PsQuotePath(var S: String);
-var
-  I: Integer;
-  C: String;
 begin
-  for I := 0 to 3 do begin
-    C := StringOfChar(Chr($2018 + I), 1);
-    StringChangeEx(S, C, C + C, True);
-  end;
+  StringChangeEx(S, #$2018, #$2018#$2018, True);
+  StringChangeEx(S, #$2019, #$2019#$2019, True);
+  StringChangeEx(S, #$201A, #$201A#$201A, True);
+  StringChangeEx(S, #$201B, #$201B#$201B, True);
 end;
 
 // Ask this install's Barbican to close its window and wait until the process is gone. Barbican
