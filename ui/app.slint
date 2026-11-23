@@ -1738,6 +1738,10 @@ export component AppWindow inherits Window {
     property <bool> has-summary: Theme.bento && !root.composing && root.reader-w >= 330px;
     in-out property <string> server;
     in-out property <string> user;
+    // the login form's password and 2FA code: cleared by the app on sign-in, sign-out and
+    // whenever the form opens (src/main.rs), so the next person at this computer never finds them
+    in-out property <string> login-password;
+    in-out property <string> login-otp;
     in-out property <string> search;
 
     callback login(string, string, string, string, bool);
@@ -2205,7 +2209,7 @@ export component AppWindow inherits Window {
     property <bool> any-overlay: ctx-open || ev-open || show-settings || composing || CompX.sched-open || Pd.overlay || admin-dlg != "";
     changed any-overlay => { if !root.any-overlay { kbd.focus(); } }
     changed app => { kbd.focus(); }
-    changed logged-in => { kbd.focus(); }
+    changed logged-in => { root.login-password = ""; root.login-otp = ""; kbd.focus(); }
     changed bx => { root.webview-sync(); }
     changed by => { root.webview-sync(); }
     changed bw => { root.webview-sync(); }
@@ -2293,10 +2297,12 @@ export component AppWindow inherits Window {
                         pwd := LineEdit {
                             placeholder-text: "Password or app password";
                             input-type: password;
+                            text <=> root.login-password;
                             accepted => { root.login(srv.text, usr.text, pwd.text, otp.text, root.remember); }
                         }
                         otp := LineEdit {
                             placeholder-text: "2FA code (only if enabled)";
+                            text <=> root.login-otp;
                             accepted => { root.login(srv.text, usr.text, pwd.text, otp.text, root.remember); }
                         }
                         CheckBox { text: "Remember me on this computer"; checked <=> root.remember; }

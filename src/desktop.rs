@@ -118,10 +118,12 @@ pub fn init(ui: &AppWindow, state: Shared) {
 
     // updates: a first check soon after start, then every few hours
     let t = slint::Timer::default();
+    // (the default profile only: a test, automation or dev profile never checks or downloads)
     t.start(slint::TimerMode::SingleShot, std::time::Duration::from_secs(20), || {
+        if !updater::enabled() { return; }
         if updater::auto_check() { updater::check(false); }
         let every = slint::Timer::default();
-        every.start(slint::TimerMode::Repeated, updater::CHECK_EVERY, || if updater::auto_check() { updater::check(false); });
+        every.start(slint::TimerMode::Repeated, updater::CHECK_EVERY, || if updater::enabled() && updater::auto_check() { updater::check(false); });
         TIMERS.with(|v| v.borrow_mut().push(every));
     });
     TIMERS.with(|v| v.borrow_mut().push(t));
@@ -457,6 +459,8 @@ fn refresh_update(u: &AppWindow) {
     let g = u.global::<crate::UpdateState>();
     let dismissed = DISMISSED.with(|d| d.borrow().iter().any(|v| *v == s.target));
     let mode = match s.status {
+        // no update prompt outside the default profile
+        _ if !updater::enabled() => 0,
         updater::Status::Ready if !dismissed => 1,
         // only installs that can't update themselves get the "available" prompt (and not dev builds)
         updater::Status::Available if !dismissed && matches!(kind, updater::Kind::Zip) => 2,
@@ -498,27 +502,37 @@ pub fn settings_rows(tab: &str, p: &settings::Settings) -> Vec<crate::SRow> {
             }
             out.push(toggle("desktop.closeToTray", "Keep running in the tray when closed", "New mail and reminders keep coming after you close the window.", p.bool("desktop.closeToTray", false)));
         }
-        "about" => {
-            let st = updater::state();
-            let kind = updater::current_kind();
-            out.push(row("section", "", "Updates", ""));
-            let (label, button) = match st.status {
-                updater::Status::Ready => ("Restart to update", "desktop.update.restart"),
-                updater::Status::Available if !matches!(kind, updater::Kind::Dev) => ("Download", "desktop.update.download"),
-                _ => ("Check now", "desktop.update.check"),
-            };
-            let mut r = row("button", button, "Updates", &format!("Barbican {} · {}", updater::VERSION, updater::status_text(&st, kind)));
-            r.text = s(label);
-            out.push(r);
-            let mut ch = row("select", "desktop.updateChannel", "Update channel", "Beta versions come earlier and can have more problems.");
-            ch.options = slint::ModelRc::new(slint::VecModel::from(vec![s("Stable"), s("Beta")]));
-            ch.index = p.int("desktop.updateChannel", 0).clamp(0, 1) as i32;
-            out.push(ch);
-            out.push(toggle("desktop.autoUpdate", "Check for updates automatically",
-                "Checks every few hours and downloads new versions in the background. Nothing installs until you say so.", p.bool("desktop.autoUpdate", true)));
-        }
+        "about" => out.extend(about_rows(updater::enabled(), p)),
         _ => {}
     }
+    out
+}
+
+/// The Updates section of About; outside the default profile only a note (see `updater::enabled`).
+fn about_rows(enabled: bool, p: &settings::Settings) -> Vec<crate::SRow> {
+    let mut out = vec![];
+    let toggle = |key: &str, label: &str, desc: &str, on: bool| { let mut r = row("toggle", key, label, desc); r.on = on; r };
+    if !enabled {
+        out.push(row("section", "", "Updates", "This profile does not update Barbican. The default profile checks for updates and installs them."));
+        return out;
+    }
+    let st = updater::state();
+    let kind = updater::current_kind();
+    out.push(row("section", "", "Updates", ""));
+    let (label, button) = match st.status {
+        updater::Status::Ready => ("Restart to update", "desktop.update.restart"),
+        updater::Status::Available if !matches!(kind, updater::Kind::Dev) => ("Download", "desktop.update.download"),
+        _ => ("Check now", "desktop.update.check"),
+    };
+    let mut r = row("button", button, "Updates", &format!("Barbican {} · {}", updater::VERSION, updater::status_text(&st, kind)));
+    r.text = s(label);
+    out.push(r);
+    let mut ch = row("select", "desktop.updateChannel", "Update channel", "Beta versions come earlier and can have more problems.");
+    ch.options = slint::ModelRc::new(slint::VecModel::from(vec![s("Stable"), s("Beta")]));
+    ch.index = p.int("desktop.updateChannel", 0).clamp(0, 1) as i32;
+    out.push(ch);
+    out.push(toggle("desktop.autoUpdate", "Check for updates automatically",
+        "Checks every few hours and downloads new versions in the background. Nothing installs until you say so.", p.bool("desktop.autoUpdate", true)));
     out
 }
 
@@ -531,7 +545,7 @@ pub fn setting_changed(key: &str, on: bool) {
                 if let Some(u) = app() { crate::mail::show_toast(&u, &format!("Could not change start at sign-in: {e}"), false); }
             }
         }
-        "desktop.updateChannel" | "desktop.autoUpdate" if on => updater::check(true),
+        "desktop.updateChannel" | "desktop.autoUpdate" if on && updater::enabled() => updater::check(true),
         _ => {}
     }
 }
@@ -539,6 +553,7 @@ pub fn setting_changed(key: &str, on: bool) {
 /// Settings buttons of the Updates section. Returns whether `key` was one of them.
 pub fn settings_button(u: &AppWindow, key: &str) -> bool {
     match key {
+        k if k.starts_with("desktop.update.") && !updater::enabled() => true,
         "desktop.update.check" => { updater::check(true); true }
         "desktop.update.restart" => { restart_to_update(u); true }
         "desktop.update.download" => {
@@ -585,7 +600,12 @@ mod tests {
         let p = settings::Settings::with_prefs(m);
         let keys: Vec<String> = settings_rows("desktop", &p).iter().map(|r| r.key.to_string()).collect();
         assert_eq!(keys, ["", "desktop.startAtLogin", "desktop.startMinimized", "desktop.closeToTray"]);
-        let about: Vec<String> = settings_rows("about", &p).iter().map(|r| r.key.to_string()).collect();
+        let about: Vec<String> = about_rows(true, &p).iter().map(|r| r.key.to_string()).collect();
         assert_eq!(about, ["", "desktop.update.check", "desktop.updateChannel", "desktop.autoUpdate"]);
+        // another profile does not update: a note, no buttons or toggles
+        let about: Vec<String> = about_rows(false, &p).iter().map(|r| r.key.to_string()).collect();
+        assert_eq!(about, [""]);
+        // (a test process runs under a throwaway profile)
+        assert_eq!(settings_rows("about", &p).len(), 1);
     }
 }

@@ -591,6 +591,9 @@ pub fn rebuild_list(u: &AppWindow) {
         crate::listsync::sync_into(&u.get_mails(), build_rows(&l), |m| m.id.clone(), same_row, |m| u.set_mails(m));
         u.set_has_more(l.emails.len() < l.total);
         u.set_checked_count(l.checked.len() as i32);
+        // the first list built after sign-in is what a bad sender-picture setting crashed in:
+        // the start was a good one (an empty mailbox falls back to crashguard::UP_FOR)
+        if u.get_logged_in() && !l.emails.is_empty() { crate::crashguard::done(&crate::config_dir()); }
     });
 }
 

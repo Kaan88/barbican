@@ -440,30 +440,65 @@ pub fn accounts() -> Vec<Value> {
 /// can differ; servers compared as the addresses they resolve to). The same name on another
 /// server is another account and stays. An empty `server` matches every server.
 pub fn without_account(all: Vec<Value>, names: &[&str], server: &str) -> Vec<Value> {
-    let same_server = |a: &Value| {
-        let s = a["server"].as_str().unwrap_or("");
-        server.is_empty() || s.is_empty()
-            || crate::jmap::normalize_base(s).eq_ignore_ascii_case(&crate::jmap::normalize_base(server))
-    };
-    all.into_iter().filter(|a| {
-        let u = a["user"].as_str().unwrap_or("");
-        !(same_server(a) && names.iter().any(|n| !n.is_empty() && n.eq_ignore_ascii_case(u)))
-    }).collect()
+    all.into_iter().filter(|a| !is_account(a, names, server)).collect()
 }
 
-/// Drop an account from the switcher's list; an empty list deletes the keychain entry.
-pub fn forget_account(names: &[&str], server: &str) {
+/// Whether a stored entry is the account that signed in as any of `names` on `server`
+/// (see [`without_account`]).
+fn is_account(a: &Value, names: &[&str], server: &str) -> bool {
+    let s = a["server"].as_str().unwrap_or("");
+    let same_server = server.is_empty() || s.is_empty()
+        || crate::jmap::normalize_base(s).eq_ignore_ascii_case(&crate::jmap::normalize_base(server));
+    let u = a["user"].as_str().unwrap_or("");
+    same_server && names.iter().any(|n| !n.is_empty() && n.eq_ignore_ascii_case(u))
+}
+
+fn accounts_in(b: &dyn crate::secrets::Backend, profile: &str) -> Vec<Value> {
+    crate::secrets::load(b, profile, "accounts").and_then(|s| serde_json::from_str::<Value>(&s).ok())
+        .and_then(|v| v.as_array().cloned()).unwrap_or_default()
+}
+
+fn remembered_in(b: &dyn crate::secrets::Backend, profile: &str) -> Option<Value> {
+    crate::secrets::load(b, profile, "session").and_then(|s| serde_json::from_str(&s).ok())
+}
+
+/// Sign-out of an account, against one secret store: its entry leaves the switcher's list
+/// (`accounts`), and the remembered session (`session`) goes with it when it is that account's;
+/// the session of another remembered account stays. The caller holds the [`RefreshLock`], so
+/// a refresh cannot write the session back in between (see `store_rotated`).
+/// When the shortened list cannot be written, the whole list entry is deleted instead: the
+/// other accounts then sign in again, but the account that signed out does not stay.
+/// Returns whether nothing of the account is left in the store.
+fn forget_account_in(b: &dyn crate::secrets::Backend, profile: &str, names: &[&str], server: &str) -> bool {
+    let all = accounts_in(b, profile);
+    let rest = without_account(all.clone(), names, server);
+    if rest.len() != all.len() {
+        if rest.is_empty() {
+            crate::secrets::forget(b, profile, "accounts");
+        } else {
+            let text = Value::Array(rest).to_string();
+            // a busy keyring is tried once more
+            let saved = crate::secrets::save(b, profile, "accounts", &text) || crate::secrets::save(b, profile, "accounts", &text);
+            if !saved { crate::secrets::forget(b, profile, "accounts"); }
+        }
+    }
+    if remembered_in(b, profile).is_some_and(|s| is_account(&s, names, server)) {
+        crate::secrets::forget(b, profile, "session");
+    }
+    !accounts_in(b, profile).iter().any(|a| is_account(a, names, server))
+        && !remembered_in(b, profile).is_some_and(|s| is_account(&s, names, server))
+}
+
+/// Sign-out of an account: see [`forget_account_in`]; one lock acquisition covers the list and
+/// the session (the lock is not reentrant). False when something of the account is still in
+/// the keychain.
+pub fn forget_account(names: &[&str], server: &str) -> bool {
     let _lock = RefreshLock::acquire();
-    let all = without_account(accounts(), names, server);
-    if all.is_empty() { crate::secrets::delete("accounts"); } else { put("accounts", &Value::Array(all).to_string()); }
+    forget_account_in(crate::secrets::store(), crate::profile::current(), names, server)
 }
 
 pub fn remembered() -> Option<Value> {
     crate::secrets::get("session").and_then(|s| serde_json::from_str(&s).ok())
-}
-
-pub fn forget() {
-    crate::secrets::delete("session");
 }
 
 #[cfg(test)]
@@ -587,6 +622,91 @@ mod tests {
         let (out, v) = merge_account(vec![], &acct("", "https://one.example.test/token", "r1"), true);
         assert!(out.is_empty());
         assert_eq!(v["refresh"], "r1");
+    }
+
+    use crate::secrets::Backend;
+    use std::cell::{Cell, RefCell};
+    use std::collections::HashMap;
+
+    #[derive(Default)]
+    struct Fake { m: RefCell<HashMap<String, String>>, fail_writes: Cell<bool> }
+    impl Backend for Fake {
+        fn read(&self, t: &str) -> Option<String> { self.m.borrow().get(t).cloned() }
+        fn write(&self, t: &str, v: &str) -> bool {
+            if self.fail_writes.get() { return false; }
+            self.m.borrow_mut().insert(t.into(), v.into());
+            true
+        }
+        fn remove(&self, t: &str) { self.m.borrow_mut().remove(t); }
+        fn read_legacy(&self, _: &str) -> Option<String> { None }
+        fn remove_legacy(&self, _: &str) {}
+    }
+
+    fn signed_in(b: &Fake, session_user: &str) {
+        let (ann, bob) = (acct("ann@example.test", "https://e.example.test/t", "r1"), acct("bob@example.test", "https://e.example.test/t", "r2"));
+        let mut ann = ann; ann["server"] = json!("https://mail.example.test");
+        let mut bob = bob; bob["server"] = json!("https://mail.example.test");
+        let session = if session_user == "ann@example.test" { ann.clone() } else { bob.clone() };
+        assert!(crate::secrets::save(b, "p", "accounts", &json!([ann, bob]).to_string()));
+        assert!(crate::secrets::save(b, "p", "session", &session.to_string()));
+    }
+
+    const ANN: &[&str] = &["ann@example.test"];
+    const SERVER: &str = "https://mail.example.test";
+
+    #[test]
+    fn signing_out_takes_the_session_of_that_account_and_keeps_the_others() {
+        let b = Fake::default();
+        signed_in(&b, "ann@example.test");
+        assert!(forget_account_in(&b, "p", ANN, SERVER));
+        assert!(remembered_in(&b, "p").is_none(), "ann's session is gone");
+        let left = accounts_in(&b, "p");
+        assert_eq!(left.len(), 1);
+        assert_eq!(left[0]["user"], "bob@example.test");
+        // the session of another remembered account stays when it is not the one signing out
+        let b = Fake::default();
+        signed_in(&b, "bob@example.test");
+        assert!(forget_account_in(&b, "p", ANN, SERVER));
+        assert_eq!(remembered_in(&b, "p").unwrap()["user"], "bob@example.test");
+        assert_eq!(accounts_in(&b, "p").len(), 1);
+        // the last account takes both entries
+        assert!(forget_account_in(&b, "p", &["bob@example.test"], SERVER));
+        assert!(remembered_in(&b, "p").is_none() && accounts_in(&b, "p").is_empty());
+        assert!(b.m.borrow().is_empty());
+    }
+
+    #[test]
+    fn a_rotation_after_sign_out_cannot_bring_the_account_back() {
+        // forget_account_in runs under the refresh lock, as store_rotated does: whichever comes
+        // second finds nothing to restore
+        let b = Fake::default();
+        signed_in(&b, "ann@example.test");
+        assert!(forget_account_in(&b, "p", ANN, SERVER));
+        let mut all = accounts_in(&b, "p");
+        assert!(!rotate_in(&mut all, "ann@example.test", "https://e.example.test/t", "r9"));
+        assert!(remembered_in(&b, "p").is_none());
+        assert!(accounts_in(&b, "p").iter().all(|a| a["user"] != "ann@example.test"));
+    }
+
+    #[test]
+    fn a_list_that_cannot_be_shortened_is_deleted_rather_than_kept() {
+        let b = Fake::default();
+        signed_in(&b, "ann@example.test");
+        b.fail_writes.set(true);
+        // the shortened list cannot be written: the whole entry goes, ann does not stay
+        assert!(forget_account_in(&b, "p", ANN, SERVER));
+        assert!(accounts_in(&b, "p").is_empty());
+        assert!(remembered_in(&b, "p").is_none());
+    }
+
+    #[test]
+    fn the_same_name_on_another_server_keeps_its_session() {
+        let b = Fake::default();
+        signed_in(&b, "ann@example.test");
+        // signing out ann of a different server leaves this ann's entries alone
+        assert!(forget_account_in(&b, "p", ANN, "https://other.example.test"));
+        assert_eq!(accounts_in(&b, "p").len(), 2);
+        assert_eq!(remembered_in(&b, "p").unwrap()["user"], "ann@example.test");
     }
 
     #[test]

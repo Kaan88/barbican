@@ -10,7 +10,7 @@
 //! | notifications        | WinRT toasts with app id and group      | freedesktop notifications (D-Bus) with actions     |
 //! | start at login       | HKCU `...\CurrentVersion\Run` value     | `~/.config/autostart/barbican.desktop`             |
 //! | folders              | %APPDATA% / %LOCALAPPDATA%              | $XDG_CONFIG_HOME / $XDG_DATA_HOME                  |
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 pub mod hunspell;
 #[cfg(windows)]
@@ -27,29 +27,79 @@ pub fn config_dir() -> PathBuf {
 
 /// The config folder of the default profile (other profiles live below it, see `profile.rs`).
 fn app_config_dir() -> PathBuf {
-    #[cfg(windows)]
+    // a test process never writes to the user's real folders: its own throwaway root
+    #[cfg(test)]
+    { return test_root().join("config"); }
+    #[cfg(all(not(test), windows))]
     {
         let base = std::env::var("APPDATA").unwrap_or_else(|_| ".".into());
         PathBuf::from(base).join("Barbican")
     }
-    #[cfg(not(windows))]
+    #[cfg(all(not(test), not(windows)))]
     {
         xdg_dir("XDG_CONFIG_HOME", ".config").join("barbican")
     }
 }
 
-/// Large machine-local data: downloaded updates.
+/// The folder a unit-test process keeps its config and data in (`<temp>/barbican-test-<pid>`),
+/// so tests never touch the real %APPDATA% / %LOCALAPPDATA%. Not removed when the run ends.
+#[cfg(test)]
+fn test_root() -> PathBuf {
+    std::env::temp_dir().join(format!("barbican-test-{}", std::process::id()))
+}
+
+/// Large machine-local data: downloaded updates (shared by every profile, `data_dir()/updates`)
+/// and the mail view's WebView profile (see [`webview_dir`]).
 pub fn data_dir() -> PathBuf {
-    #[cfg(windows)]
+    #[cfg(test)]
+    { return test_root().join("data"); }
+    #[cfg(all(not(test), windows))]
     {
         let base = std::env::var("LOCALAPPDATA").or_else(|_| std::env::var("APPDATA")).unwrap_or_else(|_| ".".into());
         PathBuf::from(base).join("Barbican")
     }
-    #[cfg(not(windows))]
+    #[cfg(all(not(test), not(windows)))]
     {
         xdg_dir("XDG_DATA_HOME", ".local/share").join("barbican")
     }
 }
+
+// ---- what belongs to one profile, outside the config folder ----
+//
+// The config folder is per profile already. The mail view's WebView folder, the folder mail
+// attachments are opened from and the print file are not: they each get a name per profile,
+// so one profile's sign-out (which deletes them) can never reach another's. The default
+// profile keeps the names every earlier version used.
+
+/// The WebView user-data folder of a profile: `<data>/webview` (default, where 0.1.0 and 0.1.1
+/// put it) or `<data>/profiles/<profile>/webview`.
+pub fn webview_dir_for(profile: &str, data: &Path) -> PathBuf {
+    match crate::profile::subdir(profile) {
+        Some(sub) => data.join(sub).join("webview"),
+        None => data.join("webview"),
+    }
+}
+
+/// Where attachments and files opened in another program are written: `<temp>/Barbican`
+/// (default) or `<temp>/Barbican-<profile>`.
+pub fn temp_folder_for(profile: &str, temp: &Path) -> PathBuf {
+    if crate::profile::is_default(profile) { temp.join("Barbican") } else { temp.join(format!("Barbican-{profile}")) }
+}
+
+/// The file the last printed message is written to: `<temp>/barbican-print.html` (default) or
+/// `<temp>/barbican-print-<profile>.html`.
+pub fn print_file_for(profile: &str, temp: &Path) -> PathBuf {
+    if crate::profile::is_default(profile) { temp.join("barbican-print.html") } else { temp.join(format!("barbican-print-{profile}.html")) }
+}
+
+/// This process's WebView folder.
+pub fn webview_dir() -> PathBuf { webview_dir_for(crate::profile::current(), &data_dir()) }
+
+/// This process's folder for files opened from mail.
+pub fn mail_temp_dir() -> PathBuf { temp_folder_for(crate::profile::current(), &std::env::temp_dir()) }
+
+/// This process's print file.
+pub fn print_file() -> PathBuf { print_file_for(crate::profile::current(), &std::env::temp_dir()) }
 
 #[cfg(not(windows))]
 fn xdg_dir(var: &str, fallback: &str) -> PathBuf {
@@ -65,6 +115,28 @@ fn xdg_dir(var: &str, fallback: &str) -> PathBuf {
 pub fn first_instance() -> bool {
     #[cfg(windows)]
     { win::first_instance() }
+    #[cfg(not(windows))]
+    { true }
+}
+
+/// Whether this is the first Barbican of this profile to start (Windows: decided by the
+/// profile's own mutex, so a second instance of another profile does not count). Elsewhere
+/// always true for now.
+pub fn first_of_profile() -> bool {
+    #[cfg(windows)]
+    { win::first_of_profile() }
+    #[cfg(not(windows))]
+    { true }
+}
+
+/// Live, at the moment of asking: is another Barbican process of this profile running, one that
+/// may have this profile's WebView folder open? Windows: the profile's named mutex, see
+/// `win.rs`. Elsewhere there is no such check yet, so the answer is the cautious one, true:
+/// sign-out then leaves the WebView folder for the next start's sweep instead of deleting a
+/// folder another process might still use.
+pub fn other_of_profile_running() -> bool {
+    #[cfg(windows)]
+    { win::other_of_profile_running() }
     #[cfg(not(windows))]
     { true }
 }
@@ -275,6 +347,30 @@ mod tests {
         // a test process runs under its own throwaway profile, never the user's folder
         assert!(config_dir().starts_with(app_config_dir()));
         assert!(config_dir().ends_with(crate::profile::test_profile()));
-        assert!(data_dir().ends_with(if cfg!(windows) { "Barbican" } else { "barbican" }));
+        // and in a throwaway root of its own, not under %APPDATA% / %LOCALAPPDATA%
+        assert!(config_dir().starts_with(std::env::temp_dir()) && data_dir().starts_with(std::env::temp_dir()));
+        assert!(data_dir().ends_with("data") && data_dir().starts_with(test_root()));
+    }
+
+    #[test]
+    fn webview_temp_and_print_names_are_per_profile() {
+        let (data, temp) = (Path::new("/d"), Path::new("/t"));
+        // the default profile keeps the names of 0.1.0 and 0.1.1
+        assert_eq!(webview_dir_for("default", data), data.join("webview"));
+        assert_eq!(temp_folder_for("default", temp), temp.join("Barbican"));
+        assert_eq!(print_file_for("default", temp), temp.join("barbican-print.html"));
+        // any other profile has its own, none of them inside or equal to the default's
+        let w = webview_dir_for("dev", data);
+        assert_eq!(w, data.join("profiles").join("dev").join("webview"));
+        assert_ne!(w, webview_dir_for("default", data));
+        assert_ne!(w, webview_dir_for("qa", data));
+        assert!(!w.starts_with(data.join("webview")) && !data.join("webview").starts_with(&w));
+        assert_eq!(temp_folder_for("dev", temp), temp.join("Barbican-dev"));
+        assert!(!temp_folder_for("dev", temp).starts_with(temp.join("Barbican")));
+        assert_eq!(print_file_for("dev", temp), temp.join("barbican-print-dev.html"));
+        assert_ne!(print_file_for("dev", temp), print_file_for("qa", temp));
+        // this process is a test profile: its own names
+        assert!(webview_dir().ends_with(Path::new("profiles").join(crate::profile::test_profile()).join("webview")));
+        assert!(mail_temp_dir().ends_with(format!("Barbican-{}", crate::profile::test_profile())));
     }
 }

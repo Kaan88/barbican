@@ -344,7 +344,7 @@ pub fn activate(u: &AppWindow, c: Arc<Client>, id: &str) {
     let name = crate::sanitize_name(n["name"].as_str().unwrap_or("file"));
     std::thread::spawn(move || {
         if let Ok(bytes) = c.download_from(&acc_of(&n), n["blobId"].as_str().unwrap_or(""), &name, &mime(&n)) {
-            let dir = std::env::temp_dir().join("Barbican");
+            let dir = crate::platform::mail_temp_dir();
             let _ = std::fs::create_dir_all(&dir);
             let p = dir.join(&name);
             if std::fs::write(&p, bytes).is_ok() { crate::oauth::open_browser(&p.to_string_lossy()); }
