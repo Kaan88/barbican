@@ -1,0 +1,3784 @@
+# Implementation review log (Fable)
+
+Fable reviews the integrated candidate at each major milestone and can review a sensitive change early. The coordinator (Opus) checks delegated work at integration. Approvals recorded before the November 21 continuation came from an earlier reviewer and are scoped to the revisions they name. For the review cadence and completion criteria, see [the project rules](../CLAUDE.md#active-milestone-and-review) and the [milestone work list](milestones/M6b-plan.md#current-work).
+
+Record the scope and candidate, the affected outcome, any reproduction and fix, the evidence examined and the reviewer's decision. Mark an approval's scope explicitly. The entries below are historical records of the revisions they name.
+
+## Claude continuation review packet (2026-11-20)
+
+**Ready for review, not milestone completion.** The last Claude-attributed commit on this branch is `b459504001c63b7abff3884f7f5ec5adbfc50657` (Match Bulwark inbox surfaces and toolbar density). This packet covers the 77 subsequent commits through `bff8a915aa2c175717e409d55d62eac3eda41d1c`. Attribution was checked in Git trailers on the branch's first-parent history. Review the net diff with `git diff b459504..bff8a91`; intermediate UI experiments include reversions, so commit titles alone do not describe the final behavior.
+
+| Completed work in the range | Review anchors and evidence |
+|---|---|
+| Bulwark mail surfaces and interactions: conversation grouping across pages, per-message headers/actions, narrow navigation, resizable docked replies, maximize/pop-out/return preserving the editor, inline send and keyboard guards | `c3ca11e`, `a6e3b36`, `5518b0a`, `2bd56bc`, `06ad154`; [Windows interaction and visual record](milestones/M6b-solo-parity.md). Bulwark remains the appearance reference; the native prototype supplies motion and feedback. |
+| Local ZIP review/consent, recoverable package authority, authenticated WebView startup, exact pinned runtime assets, shared profile lease, shutdown and Settings activation | `b928ee8` through `1028e55`; package, runtime and Windows probe entries below. Ordinary installed add-ons have an executable Windows lifecycle. |
+| Scoped persistent storage and sign-out cleanup, explicit native trust before loading, native activation, owned OAuth callbacks and reviewed HTTP website grants | `3dfc99d` through `7e02bda`; corresponding authority reviews below. Native add-ons remain full-trust code. |
+| Composer/reader actions, bounded previews, compose-link routing, send checks/transforms/observers, guarded raw submission and attributed toast/progress notifications | `93366cf` through `849855e`; [API coverage and remaining methods](milestones/M6b-api-inventory.md#windows-execution-evidence-for-the-november-20-continuation). Preview/print evidence uses synthetic sinks, not physical printing. |
+| Trusted OAuth organization policy, policy-mediated print/send/classification, authenticated signed managed acquisition/install, isolated managed origin, fresh startup proof and session activation | `d7ba9f0` through `3791df4`; [managed activation and takeover](milestones/M6b-solo-parity.md#managed-add-on-activation-and-takeover). Includes denied recipient, revoked initialization and recovery cases. |
+| Immediate Reading/list preference application and persisted Settings walkthrough | `9ae9a57`; [nested Settings](milestones/M6b-solo-parity.md#nested-settings-and-restart): 1,138 Presentation and 16 mail-page tests reported passing. |
+| Unchanged proofreading fixture runs in the Windows composer, with typing annotations, guarded replacement, send warning, opt-out and queued-policy denial | `bff8a91`; [typing checker](milestones/M6b-solo-parity.md#typing-checker-on-windows). Long drafts, on-demand APIs, callbacks, navigation and per-checker controls remain open. |
+
+### Verification and approval boundaries
+
+- Latest recorded full Windows Automation result: **3,638 passed, zero failed, four skipped** for the typing-checker checkpoint. The summary was kept in a machine-local log that is not in the repository. Strict M6b catalogue and generated hooks checks were reported passing. These are carried evidence, not tests rerun during this documentation handoff.
+- Last explicitly approved combined Windows code/portable checkpoint: **`3791df4`**, with 3,623 passing Automation tests and four skips, clean Release build, catalogue/hooks/tokens checks and extracted portable smoke. [Exact ZIP checksum and source](milestones/M6b-solo-parity.md#windows-checkpoint-at-3791df4). This portable predates the Settings and typing-checker commits.
+- The reviewer's later typing-checker approval covers the reviewed fixes; it does not approve the final M6b candidate. No new Claude or reviewer approval is asserted by this packet. Linux remains deferred to M9.
+
+### Requested continuation review
+
+1. Read [current work and its continuation state](milestones/M6b-plan.md#current-work). Review the net changes since `b459504`, prioritizing package/session authority, WebView delivery, policy and send fences, then the UI changes and evidence above.
+2. Preserve the local paused drafts. `artifacts/m6b-paused/dialog-source/` is the later dialog source snapshot (reported isolated Windows build and 11 focused tests passed); `dialogs.patch` and `dialog-new-files/` are earlier snapshots. Compare against the current tree before restoring anything; do not apply both versions. Resume the private synthetic `addons-fixture dialog-probe` replay. Native dialog behavior is not yet accepted.
+3. `artifacts/m6b-paused/scoped-mail.patch` is unverified transport/delivery fencing work. Inspect it independently before applying, testing and exercising allowed/denied/stale-account mail-read results. These ignored artifacts are machine-local and are absent from a fresh clone.
+4. Complete the remaining proofreading methods, dialog flow, scoped reads and production slot mounts. Track each outcome in the current work list/API inventory. Then run the combined Windows suite and Release build, affected synthetic walkthroughs, catalogue/generator checks and a fresh extracted portable smoke; obtain explicit Fable approval before closing M6b or starting M7.
+
+This documentation pass changes no application code. Main merges, tags and release publication remain separately authorized actions.
+
+## M6b Bulwark rail and list
+
+- Review `src/Barbican.App/Theme/{StyleState,StyleMetrics}.cs` and `Views/{Rail/RailView,Sidebar/SidebarView,List/MessageListView,Search/SearchBoxView}.xaml` (uncommitted, based on `90a70f8`): the Bulwark rail and sidebar use their semantic palette rather than Bento tile, the unconfigured logo is absent, and list density and toolbar sizes follow upstream. Rail metrics also apply to non-mail screens in Bulwark; enlarged targets and legacy styles need visual verification. Configurable upstream logos and full icon parity are not implemented.
+- Windows Automation build passed; hidden synthetic WGC selected-message captures at 1424×884 client size in `artifacts/auto/8936/` show distinct light/dark modes and body rendering. List and reader starts measured 312 and 696 logical px; select-all measured 32×32. No live reference was used in this pass. Remaining visible differences include the Windows title band, Bento-like rounded selected rows, duplicate thread rows, toolbar/search icon and shape details, and reader styling outside this slice. Legacy, high-contrast, large-target, narrow and keyboard states were not visually verified.
+
+## M6b quick-reply handoff (stream: m6b-quick-reply)
+
+- Review `src/Barbican.Core/Compose/ComposeRequest.cs`, `ComposeSeeder.cs`, and `tests/Barbican.Core.Tests/Compose/ComposeSeederTests.cs` (uncommitted): reply-only text is imported as plain text before signature placement; UI ownership, account and message binding, draft lifecycle, and sending remain outside this stream. Synthetic Core tests do not verify the eventual UI handoff.
+- Composer visual pass (uncommitted, based on palette prerequisite): review `src/Barbican.App/Views/Compose/ComposerView.xaml` and `ComposerView.xaml.cs`. Bulwark uses flat header/field rows and a compact responsive footer while the same actions and legacy layouts remain; header window controls, additional Bulwark footer actions and compact dock field behavior are not implemented. Hidden synthetic Windows captures exercise new and docked reply plus Bento/Nordic previews; actual window transitions and live accounts were not tested.
+- Composer send availability (uncommitted): review `src/Barbican.Presentation/Compose/ComposerViewModel.Send.cs`, `ComposerViewModel.cs`, `RecipientFieldViewModel.cs`, and `src/Barbican.App/Views/Compose/ComposerView*.cs`. Bulwark enables on an expanded To entry, including uncommitted and invalid text, so validation remains reachable; Cc/Bcc alone do not enable it. A send attempt is guarded throughout warnings and validation against keyboard re-entry. Presentation tests and hidden synthetic Windows UIA checks cover controls and schedule-menu transitions, not live delivery.
+
+## M6b shell
+
+- Review the uncommitted mail shell slice based on palette prerequisite `e8b41fa`:
+  `src/Barbican.App/Theme/{StyleMetrics,ShellLayout,StyleState,ThemeController}.cs`,
+  `Shell/ShellPage.xaml*`, and `Views/{Rail/RailView,Sidebar/SidebarView,List/MessageListView}.xaml`.
+  Bulwark alone uses flush seams and 56/256/384 defaults, while legacy shapes are retained;
+  shared metrics and rail also affect other app screens and need integration review.
+  The Windows title band remains above the rail, not the reference's full-height rail;
+  preserving a safe native drag/caption area needs a separate design. A hidden synthetic
+  sample checked default and resized pane bounds, saved widths after restart, the minimum
+  window, and Bento/Nordic transitions; actual pointer dragging and keyboard focus remain
+  unverified. The title, list contents, and reader are not full Bulwark parity.
+
+## M6b adaptive reply dock
+
+- Review the uncommitted `src/Barbican.App/Shell/{ReplyDockLayout.cs,ShellPage.xaml,ShellPage.xaml.cs}`
+  changes based on `45df962`. Bulwark's 60% initial share and 700 px takeover threshold
+  follow `components/mail/reply-dock.tsx`; the native reader's 200 px minimum replaces
+  the web-specific chrome/body measurements. The compact disclosure keeps the composer
+  mounted. A draggable/persisted divider and the web reader's measured chrome and body
+  adaptation are not implemented; legacy dock height remains 400 px. Hidden synthetic
+  automation verified both compact disclosure directions, a retained subject, resizing,
+  and legacy heights; keyboard accessibility, editor undo state and all reply variants
+  still need verification.
+
+## M0, consolidated at the merge (stream: m0-review)
+
+The seven M0 streams' sections are archived verbatim in
+[fable-review/M0-streams.md](fable-review/M0-streams.md). Below they are deduplicated and ordered by
+risk; each item names its source streams in brackets: bootstrap, cat-a, cat-b, cat-c, s12, s3, s45,
+and review (this stream, which added its own findings). Commits: merges into `m0/integrate`, then
+fast-forwarded to `main`.
+
+### 1. Security, privacy and the user's real screen
+1. **The real screen was touched three times, and the popup rule rests on contradicting evidence.**
+   In S2 a `MenuFlyout` opened as a windowed popup and Windows clamped it onto the visible monitor (four
+   times, about 0.5-0.7 s each, right edge). In S4 an unconstrained flyout showed as a strip about 118 px
+   wide at the left edge for a few seconds. No input was sent either time. The evidence conflicts: S2's
+   code-created `MenuFlyout` with `ShouldConstrainToRootBounds = true` was still windowed, while S4's
+   XAML-declared one drew in-window. The review decided on a constrained `Popup` host, XAML-declared
+   flyouts only, and a fail-closed guard in the AUTOMATION build. Review that decision and the guard
+   when M1 builds it. Still untested: `ComboBox`, `ToolTip`, `AutoSuggestBox`, `TeachingTip`,
+   `CommandBarFlyout`, `ContentDialog`. [s12, s45, review] Where: ADR 0005 and 0007 "M0 review",
+   `spikes/BodyShell/Scenario.Phases.cs:109-135, :301`, `spikes/s4-automation/MainWindow.xaml`.
+2. **Linux body security.** These block M1's reader on Linux:
+   - there is no host request filter (blocking is CSP-only);
+   - a `target=_blank` click is lost;
+   - a script-initiated top-level navigation of the shell reached the test server although
+     `NavigationStarting` cancelled it;
+   - `webkit.messageHandlers.unoWebView` messages must be validated by the host.
+
+   [s12] Where: ADR 0005 decision 4 and "M0 review", `src/Barbican.App/Assets/mail/shell.js`,
+   `spikes/BodyShell/Scenario.Probes.cs`.
+3. **OAuth loopback flow (new catalogue rows).** The Rust sign-in returns on an `error` callback before
+   it checks `state`, so any local process can abort a pending sign-in (denial of service, no token
+   leak). The listener accepts any local connection on 127.0.0.1:8791. The dynamic-registration cache is
+   a plain file. The refresh lock is a file that goes stale after 60 s. Review B-OAUTH-001..018 before M1
+   ports them; the C# port should check `state` first. [review] Where: `spec/behaviours/oauth.md`, Rust
+   `src/oauth.rs` at `rust-final`.
+4. **Assistant actions model (catalogued, ported in M6).** `send_email` always asks for confirmation.
+   With `actions` = 2, every other write tool runs without asking: delete (to Trash), move, filter
+   rules, settings, vacation. Mail and draft text are fenced as untrusted by tags only. Decide whether
+   "automatic" should still confirm destructive tools. [review] Where: `spec/behaviours/assistant.md`
+   B-AI-004, B-AI-009.
+5. **Privacy of the public history and of copied text.**
+   - Check that no blob in the public history survives from before the prototype rewrite
+     (`70965c3`, `4bc0fda`, `58bb19b`).
+   - Check the scrub of the legacy docs, the plan, the mockups and the tools against the originals at
+     `rust-final`.
+   - `tools/privacy-check.sh` has gaps: it scans text only; the first name alone, LAN addresses and
+     private artifact links are not patterns; the hook works only after the per-clone config.
+   - Binary fixtures can embed home paths (the spam-score DLL was left out for this reason).
+   - The Rust `reader.rs:1168` holds a real test-account constant. It was not copied; the port takes
+     the account from configuration.
+   - Commit bodies quoted in `spec/decisions.md` were checked by eye. Not every Rust commit body has
+     been run through the full pattern set.
+   - The review added `docs/legacy/mailview-shell.rust-final.js` verbatim; it was grepped, with no
+     hits.
+
+   [bootstrap, cat-a, cat-b, review] Where: `docs/legacy/README.md`, `tools/privacy-check.sh`,
+   `spec/rust-tests.csv` (fixture names).
+6. **Secrets.**
+   - S5 read the real Credential Manager blobs in memory (structure only, buffers zeroed).
+   - The C# app stores under new names with local-machine persistence; the user may want roaming.
+   - The import never writes the Rust entries.
+   - The Linux format of the Rust entries is known from the crate source only.
+
+   [s45, review] Where: `spikes/s5-credentials/read-format.ps1`, ADR 0008 (with its "M0 review").
+7. **Release builds must not carry FlaUI, the Win2D capture or the automation server.** Nothing
+   enforces this yet. The review made it the first M1 automation task: a separate project, plus a
+   publish check for `FlaUI*.dll`. [s45, review] Where: ADR 0007 "M0 review".
+8. **System changes on the VM.**
+   - `sudo -n apt-get` installed `libicu-dev`/`icu-devtools`, WebKitGTK 4.1, GTK 3, Xvfb, xauth and
+     fonts, with their dependencies (GStreamer among them).
+   - `~/.barbican-lib` holds symlinks to the unversioned library names Uno loads.
+   - Open: whether `sudo` in the setup script is acceptable at all, and how the M9 `.deb` gets those
+     library names.
+
+   [bootstrap, s12] Where: `tools/linux-remote.sh`, ADR 0005 "VM packages".
+
+### 2. Decisions that shape the whole port
+9. **SkiaSharp split at the merge.** Uno.Sdk 6.7.49 (S1) uses SkiaSharp 3.119.2; the editor (S3) pins
+   4.156.0, the version Uno.Sdk 7.0.22 uses. Transitive pinning would have put SkiaSharp 4 into the
+   Uno 6.7 head. The review withheld the editor pins from Uno.Sdk projects with
+   `Condition="'$(UsingUnoSdk)' != 'true'"`. It checked the resolved versions in `project.assets.json`
+   and made the Uno 7 move the first M1 task (fallback: vendor RichTextKit on SkiaSharp 3). Review:
+   - that the condition is evaluated where expected (`Directory.Packages.props` is imported after
+     Uno's `Sdk.props` sets `UsingUnoSdk`);
+   - that no Uno.Sdk project can reach the editor packages transitively;
+   - the decision to move in M1 rather than at M2.
+
+   [review, s12, s3] Where: `Directory.Packages.props`, ADR 0004 and 0006 "M0 review", merge commit
+   `dc77c17`.
+10. **Editor offsets are UTF-16 with grapheme caret steps, not Rust's bytes and code points.** Rust
+    tests with non-ASCII text need recomputed offsets, and Backspace on combining sequences changes.
+    Review this, together with the port of `Doc.Delete`, `InsertBlocks` and `InsertSplit` (atomic
+    blocks at range ends and paste into cells are untested). [s3] Where:
+    `src/Barbican.Core/Editor/{TextOffsets,Pos,Doc,Block}.cs`, commit `adca3e1`.
+11. **New project `Barbican.Editor.Layout`** (not in the plan's §3.2), so that layout tests run headless.
+    [s3]
+12. **Facts that contradict the plan:**
+    - Uno 7.0.65 has a Skia `RichEditBox`. The custom editor is kept because RTF cannot round-trip
+      Bulwark's HTML; the user should know.
+    - Uno 7 is current, not 6.6.
+    - RichTextKit is Apache-2.0, not MIT. It is compatible, and a vendored copy must keep its NOTICE.
+
+    [s3]
+13. **Automation clicks go through a UIA client (FlaUI.UIA3), not in-process peers.** Peers lack patterns
+    on `ListViewItem` and `TextBox`. Elements over the WebView2 are invisible to UIA and keep the
+    in-process path. Drag, hover and IME are by hand only. [s45] Where: ADR 0007,
+    `spikes/s4-automation/Uia.cs`.
+14. **Build infrastructure deviations.**
+    - Build slots are N named mutexes, not one semaphore. Untested across elevated sessions.
+    - The shared compiler server is off by default.
+    - `Directory.Build.rsp` alone does not cap MSBuild nodes (28 measured), so the scripts pass
+      `-maxCpuCount:4`.
+    - `-v` means PowerShell's `-Verbose`.
+    - Tests run on MTP; check that `maxParallelThreads` is honoured.
+    - The review extended the real-input grep to `spikes/` and `prototype/`, and fixed a stale comment
+      in `eng/BannedSymbols.Tests.txt`.
+
+    [bootstrap, review] Where: `tools/build.ps1`, `tools/build.sh`, `global.json`.
+15. **Analyzer strictness and relaxations.**
+    - MA0048 (one type per file) conflicts with the plan's single-file `JmapError` hierarchy; decide
+      before the M1 JMAP stream.
+    - The App head relaxes CA1010, CA2007 and MA0004.
+    - `eng/Uno.WebView2Name.targets` removes the `WebView2Aot` compile reference.
+    - Spikes relax many rules; the s4 spike imports no strictness at all.
+
+    [bootstrap, s12, s3, s45]
+16. **License AGPL-3.0-only** (Bulwark-derived material). [bootstrap]
+17. **Product deviations that need the user:**
+    - lite mode dropped (B-READ-046, T- row `dropped?`);
+    - sender pictures off by default (B-READ-032, needs a D- entry);
+    - Sieve replace without `ifInState` (J-030);
+    - credential roaming (ADR 0008).
+
+    [cat-a, s45]
+
+### 3. Catalogue completeness and accuracy
+18. **The catalogue is extracted, not read line by line, and the review sampled it.**
+    - Mechanical checks: all 353 T- rows (file, line and fn exist; the set matches `src/` exactly);
+      all 155 non-merge commits have a D- row; 375 line-cited B- rows were checked for plausibility.
+    - 52 rows were read by hand, weighted to JMAP, sync, push, msgload, editor, recurrence, updater and
+      OAuth.
+    - Found missing, and added by the review: oauth, dnd, assistant (ai/agent), spam, plugins, zip,
+      capture, pim, search box and invitations behaviours; `spec/menus.md`; the verbatim `SHELL_JS`.
+
+    Review the review's own new files, since they were written by one agent from source:
+    `spec/menus.md`, `spec/behaviours/{oauth,assistant,dnd,extras}.md`. [cat-a, cat-b, review] Where:
+    `docs/m0-checklist.md` §3.
+19. **`spec/jmap.csv` inherited a stale compliance doc.** Five rows were "not done" although they are
+    implemented at `rust-final`: J-053, J-056, J-057, J-058, J-068. They are now corrected with code
+    cites; this also resolves cat-a's truncated-notice contradiction (B-READ-010 was right). The other
+    69 rows keep the doc's status; M1 must re-verify every J- row it touches. [cat-a, review]
+20. **Interactions re-baseline: mostly carried.** Of 471 rows, 84 changed, 9 were confirmed and 378 were
+    carried; the review spot-checked 8.
+    - "D" means a code path exists, often never driven live.
+    - I-322, I-323 and I-454 moved to D by inference.
+    - M2 holds 142 rows.
+    - Layout metrics were read, not measured.
+
+    [cat-c, review] Where: `spec/interactions.csv`, `spec/layout/`.
+21. **Known duplicate rules:** B-SYNC-001..011 against B-LST, and B-COMP-039..069 against B-RTE.
+    `shortcuts.md` and `palette.md` sit under `behaviours/`. The plan's "21 context menus" is 24 in
+    Rust. [cat-b, review] Where: `spec/README.md`.
+22. **Settings.**
+    - "Wired" is a literal match, so 110 of 136 is an upper bound.
+    - The plan's "201 keys" is wrong: the schema has 136 distinct keys (now stated in
+      `docs/m0-checklist.md`).
+    - The defaults were not checked against Bulwark's store.
+
+    [bootstrap, cat-b]
+23. **Decisions.**
+    - Some reasons are only the commit subject.
+    - The D- ids were renumbered once. Nothing cites them yet; freeze them before M1 cites the first one.
+    - 10 plain integration merges are not cited.
+    - The intent of the `mat-*` WIP branches is inferred; their diffs were not read.
+
+    [cat-a, cat-b, review]
+24. **Test rows.**
+    - T- ids are positional; `tools/spec-check.py` maps by the `module::name` tag, so mapping survives
+      renumbering.
+    - Descriptions come from the first four asserts; some test bodies were not read in full.
+    - Gap-row milestones and G-094..G-110 (done items) are the stream's own mapping.
+
+    [cat-a, cat-b, review]
+25. **`tools/spec-check.py` (new).** It detects class and method names by regex (a heuristic) and treats
+    a T- row as done only when a test carries its tag or the status is `dropped(D-…)`. Check it against
+    the first M1 tests. [review]
+26. **Motion numbers.** B-MOT-027 quotes commit `0530d4a`, not the baseline JSON. [cat-b]
+
+### 4. Partially verified measurements
+27. **Capture and feel.**
+    - The WGC cadence is 20.8 ms (48 fps) off-screen on a 144 Hz display, cause unknown.
+    - The probe semantics are mapped, not re-derived.
+    - The focus check is sampled (40 ms).
+    - S3's hidden window parks at -32000 and S4's at -12000; use one design.
+    - On Windows, S2 captures only frames that changed.
+    - The Linux results come from Xvfb, and header/body skew was up to 2 samples.
+
+    [s45, s3, s12]
+28. **Not launched or not loaded.**
+    - The published Windows exe has not been started (it needs a hidden smoke mode).
+    - The generated token XAML is now compiled by the App head on both TFMs, but has not been loaded
+      at runtime.
+    - The token test is partly circular, and the prototype's Hover, Pressed and SelRow brushes differ
+      from theme.slint.
+
+    [bootstrap, s12, review]
+29. **Editor gate.**
+    - Measured only on Windows, at 100 %, in the light theme.
+    - `TextContrast` k = 1.6 is an empirical fit.
+    - CSS line height has not been checked with fallback fonts.
+    - Only committed-text IME was exercised.
+    - The BiDi caret ambiguity is pinned in a test, not solved.
+    - The TextPointer shift was found empirically.
+    - The performance numbers come from a Debug build.
+
+    [s3]
+30. **Timing is single-sample.** Inner-loop and publish timings come from one machine, one sample each.
+    The publish sizes are 292.9 MB (win-x64 R2R) and 160 MB (linux-x64), including about 60 MB of unused
+    WinAppSDK AI components and a 21 MB `DirectN.dll`. [s12]
+
+### Resolved at the merge (for the record)
+- `RustTestAttribute` duplication: there is now one copy in `tests/Shared/`, and its tags match
+  `spec/rust-tests.csv`. The 7 `rte::model` rows are marked ported. [s3]
+- ADR numbers that collided: S4/S5 are now 0007/0008. [s3, s45]
+- The truncated-body contradiction: J-053 was stale. [cat-a]
+- "201 settings keys": the number is 136. [bootstrap, cat-b]
+- `menus.md` was missing: it now has 24 menus. [cat-b]
+- Generated XAML was not compiled: the App head compiles it on both TFMs. [bootstrap]
+- `tools/linux.ps1` failed in a worktree because it had no `.local/`: it now reads the main checkout's. [review]
+- Not resolved, it needs the user: the Rust repo's local pre-commit guard (blocked by the permission
+  classifier). [bootstrap]
+
+## M1, consolidated at the verify stage (stream: m1-verify)
+
+**Fable review 2 (2026-11-17, `m1` at `4eccc0f`):** items 1 to 23 below carry their verdict as a link; the new findings
+(R2-nn), the decisions and the gate blockers are in [fable-review-2.md](fable-review-2.md). Items 24 to 39 were not looked at again.
+
+The M1 sections of the stages, streams and reviews are archived verbatim in
+[fable-review/M1-streams.md](fable-review/M1-streams.md). Below they are deduplicated and ordered by risk. Each item names
+its sources in brackets:
+- plan, f1, f2: the plan and the two fixed stages;
+- jmap, mailcore, accounts, shell-ui, body: the five streams;
+- jmap-rev, mailcore-rev, accounts-rev, shell-ui-rev, body-rev: their reviews;
+- verify: this stage, which adds its own items, marked **[verify]**.
+
+Commits are on `m1`; the per-stream commits are in the archive. Report: [milestones/M1.md](milestones/M1.md).
+
+### 1. Security, privacy and the user's real screen
+1. [Fable 2: fixed, see R2-04](fable-review-2.md#verify) **Mail frame sandbox and CSP.**
+   - Dark-pass frames run with `allow-same-origin` + `allow-scripts`, as in Rust. F1 kept `allow-same-origin` against
+     the plan's text and dropped the popup flags.
+   - This is safe only while the frame CSP admits nothing but our hashed scripts, with no inline handlers. Any future
+     `'unsafe-hashes'` or plugin script inside frames breaks it.
+   - The CSP adds `base-uri 'none'` (Bulwark) to the Rust policy.
+
+   [f1, body-rev] `Core/Mail/Body/MailSandbox.cs`, `MailCsp.cs`, `Assets/mail/shell.js`, ADR 0005 "M1 F1".
+2. [Fable 2: open (never ran)](fable-review-2.md#verify) **Linux body security is CSP-only and never ran.**
+   - There is no request filter and no frame-navigation event on Uno.
+   - `StripRefresh` and the frame CSP are the only guards.
+   - The shell lets the first `NavigationStarting` through unconditionally. If Uno raises it twice for
+     `NavigateToString`, the shell never comes up.
+
+   [body, body-rev] `App/MailBody/BodyShell.cs`.
+3. [Fable 2: fine, untested](fable-review-2.md#verify) **Remote-content permission per page.** Each page now carries its own `Allow`. The Windows request filter passes
+   remote requests only while a page that allows them is alive. No automated test covers this (App type), and the
+   shell checks in `spec/feel/M1/shell-checks.json` predate it. [body-rev] `BodyShell.cs`.
+4. [Fable 2: fine](fable-review-2.md#verify) **OAuth.**
+   - The loopback listener reads `state` first, in constant time. A wrong or missing state gets 400 and the wait goes
+     on; Rust ended the sign-in. This is a behaviour change for the user to accept.
+   - One callback is accepted.
+   - AUTOMATION builds use `RedirectFollowingLauncher` and never open a browser.
+   - Refresh happens under a file lock that goes stale after 60 s, with adopt-and-retry-once.
+   - An agent never refreshes an imported OAuth entry.
+
+   [plan, accounts, accounts-rev] `Core/Auth/LoopbackListener.cs`, `RedirectFollowingLauncher.cs`, `OAuthTokenSource.cs`.
+5. [Fable 2: fixed, see R2-06](fable-review-2.md#verify) **Secrets.**
+   - Windows: hand-written CredMan `LibraryImport`, `CRED_PERSIST_LOCAL_MACHINE` (roaming is an open question).
+   - The blob limit of 2560 bytes caps the single `accounts` entry at about 8 to 10 OAuth accounts; split it per
+     account before M2's sign-out.
+   - Password strings cannot be zeroed.
+   - The Linux `SecretServiceStore`, including the locked-keyring fix, has never run.
+
+   [accounts, accounts-rev] `Platform.Windows/WindowsSecretStore.cs`, `Platform.Linux/SecretServiceStore.cs`.
+6. [Fable 2: fine, see R2-14](fable-review-2.md#verify) **ADR 0008 import and read-only accounts.**
+   - The agent path is `dev`/`auto-*` only, password kind only, forced read-only, and never reads the admin key.
+   - The user path cannot be reached in M1, because `dev` is the default profile until M8.
+   - Every account is read-only unless it is listed in `BARBICAN_WRITABLE_ACCOUNTS`.
+   - OAuth read-only now follows the real login, not the typed hint. Review this before M2 opens writes.
+
+   [plan, accounts, accounts-rev] `Platform/RustCredentialImport.cs`, `Core/Accounts/ReadOnlyPolicy.cs`, `AccountManager.cs`.
+7. [Fable 2: not reviewed](fable-review-2.md#verify) **Hidden automation.**
+   - The popup guard is reactive, so a windowed popup could draw for one tick.
+   - The deny list comes from private-desktop probes: CommandBarFlyout, ComboBox, ToolTip and AutoSuggestBox open
+     outside the window.
+   - The App throws when a monitor overlaps the hidden rectangle.
+   - Release enforcement is static plus output scans. FakeJmap is now in it.
+   - **[verify]** Every launch of this stage kept the foreground window and cursor unchanged, the popup guard read
+     0/0, and the App was never foreground.
+
+   [f1, shell-ui-rev, verify] `src/Barbican.Automation/PopupGuard.cs`, `App/Composition/HiddenWindow.cs`,
+   `tests/Barbican.Build.Tests/ReleaseContentTests.cs`.
+8. [Fable 2: fixed](fable-review-2.md#verify) **Session discovery.** Redirects are followed by hand (at most 5 hops). Credentials go only to same-origin hops, and
+   a switch from https to http is refused. Check that a Stalwart behind a cross-host redirecting proxy asks for sign-in
+   again rather than failing oddly. [jmap] `Core/Jmap/Transport/SessionFetcher.cs`.
+9. [Fable 2: mostly fixed, see R2-08](fable-review-2.md#verify) **PNG decoder on hostile input.** It reads 8-bit, non-interlaced PNG with a 40 MP cap, and a 40 MP picture allocates
+   about 360 MB transiently. Other formats wait for an App decoder. [mailcore, mailcore-rev] `Core/Mail/Attachments/PngDecoder.cs`.
+10. [Fable 2: not reviewed](fable-review-2.md#verify) **X11 stand-in.** `XGetImage` of an off-screen rectangle (BadMatch) is now refused. The stand-in is unwired and has
+    never run. [body-rev] `App/MailBody/X11BodyOverlay.cs`.
+11. [Fable 2: decision](fable-review-2.md#verify) **Privacy check vs. provider name.** The check refuses Google's mail provider name anywhere in the repo, so the
+    unsupported-provider notice lacks its two domains. The user decides on a narrower pattern. [accounts] `tools/privacy-check.sh`,
+    `Core/Accounts/MailServerAddress.cs`.
+
+### 2. Open correctness risks
+12. [Fable 2: fixed](fable-review-2.md#verify) **Body cache can mix accounts after a switch.** `BodyCacheSync` files an event under the account active when the
+    event is handled. Ids repeat across accounts, so a cached body could show another message's keywords. Fix: carry
+    the account key in `MailSyncEventArgs`. [accounts-rev] `Presentation/Accounts/BodyCacheSync.cs`.
+13. [Fable 2: fixed](fable-review-2.md#verify) **List delta plumbing.**
+    - There are two RFC 8620 §5.6 implementations: `LoadedList.Apply` and `ListDeltaApplier`.
+    - Every delta reaches the list twice: `ListDeltaEvent` and `EmailsChangedEvent`, giving two rebuilds.
+    - `ListDeltaEvent` has no query id, so the list drops deltas while a first page loads.
+
+    [mailcore, mailcore-rev, jmap-rev] `Presentation/Mail/LoadedList.cs`, `MessageListViewModel.cs`, `Core/Sync/ListDeltaApplier.cs`.
+14. [Fable 2: fine](fable-review-2.md#verify) **Who runs the sync loop.** `MailEventHub` runs `IMailSync.RunAsync`. If the accounts session also started it, there
+    would be two loops. Check this stays single as M2 adds accounts features. [mailcore] `Presentation/Mail/MailEventHub.cs`.
+15. [Fable 2: open, see R2-03](fable-review-2.md#verify) **Sign-in and popover views bypass the accounts ViewModels.** They drive `IAccountManager` directly, so the provider
+    notice, OAuth cancel, unread badges and error lines are not on screen. The popover refreshes only on `ActiveChanged`.
+    The I- rows stay `P`. [shell-ui, accounts-rev] `App/Views/SignIn/SignInFormModel.cs`,
+    `App/Views/Accounts/AccountPopoverModel.cs`.
+16. [Fable 2: partly fixed](fable-review-2.md#verify) **The App composition is untested.**
+    - A DI cycle (BodyShell → KeyRouter → … → BodyShell) hung the first launch silently. It is broken now with
+      `Lazy<IKeyRouter>`.
+    - No test resolves `AppComposition`.
+    - `ViewHost` captures the provider through an `ILoggerProvider` factory.
+    - `SmokeRun` still uses its own probe WebView.
+
+    [body, shell-ui, f1] `App/Composition/*`, `App/Shell/ViewHost.cs`.
+17. [Fable 2: open (low)](fable-review-2.md#verify) **Null lists in `EmailBody`.** `ModelReader` leaves null in non-nullable lists, and `BodyShape.Normalize` works
+    around it. Fix the reader. [body] `Core/Mail/Body/BodyShape.cs`.
+18. [Fable 2: partly fixed, see R2-05](fable-review-2.md#verify) **Keyboard routing.**
+    - `KeyRouter.Handle` ignores `KeySource`. The page skips text boxes.
+    - Arrow keys are handled for every source, which risks a double move with a focused `ListView`.
+    - `KeyChordMapper` does not handle Shift+digit or AltGr.
+    - Enter or Space on a focused button also reaches the router.
+    - None of this has run on Uno.
+
+    Hand test. [mailcore, mailcore-rev, shell-ui, shell-ui-rev] `Presentation/Input/KeyRouter.cs`, `App/Shell/ShellPage.xaml.cs`.
+19. [Fable 2: partly fixed, see R2-10](fable-review-2.md#verify) **Hook semantics.**
+    - Sync hooks are awaited inline, where Bulwark fires and forgets.
+    - Observers run fire-and-forget on the pool.
+    - Interceptors only stop a key whose answer is already complete.
+    - Handler errors are swallowed.
+    - `onNewEmailReceived` rides the Rust new-mail check, so a message read elsewhere first is not reported, and it
+      ignores notification prefs.
+    - `onEmailContentRender` and `onThemeChange` were aligned with Bulwark by the reviews.
+
+    [jmap, mailcore, shell-ui-rev, body-rev] `Core/Sync/MailSync.cs`, `NewMailWatcher.cs`, `Core/Plugins/HookBus*.cs`.
+20. [Fable 2: not reviewed](fable-review-2.md#verify) **Window events now reach the hooks** **[verify]**. `App.xaml.cs` calls `ShellLifecycle.AttachWindow`. Before this,
+    `onWindowFocus/Blur`, `onVisibilityChange` and `onBeforeUnload` had call sites but no caller. A hidden run showed
+    no crash and no focus change. The events themselves were not observed, because a hidden window is never activated.
+    Hand test. [shell-ui, verify] `src/Barbican.App/App.xaml.cs`, commit 6b506be.
+21. [Fable 2: partly fixed](fable-review-2.md#verify) **Body cache and loader.**
+    - The cache bounds are global, not per account (as in Rust; the plan said per account).
+    - `Weight` counts UTF-16 code units where Rust counted UTF-8 bytes.
+    - An open now ignores its own cancelled prefetch. Check that the extra fetch through the cache cannot matter.
+    - `MailBodyView` never unsubscribes from `BodyShell.StateChanged`.
+    - `IBodyOverlayStrategy` has no caller.
+
+    [accounts-rev, body-rev] `Core/Mail/BodyCache/*`, `Presentation/Mail/Loading/MessageLoader.cs`, `App/MailBody/MailBodyView.cs`.
+22. [Fable 2: confirmed, see R2-01 and R2-02](fable-review-2.md#verify) **`AccountManager` design.** The shared-attempt design (`Entry.Connecting`) was where the "failed connect pins the
+    account" bug lived. Review the whole design. [accounts-rev] `Core/Accounts/AccountManager.cs`.
+23. [Fable 2: fixed, see R2-01](fable-review-2.md#verify) **Push edge cases.**
+    - A server without `eventSourceUrl` gets no live updates at all; Rust behaves the same.
+    - The 700 ms debounce can be postponed indefinitely by a steady stream of pushes.
+
+    [jmap, jmap-rev] `Core/Sync/MailSync.Push.cs`.
+
+### 3. Deviations and judgement calls
+24. **JMAP request shape.**
+    - `using` lists every advertised capability (Rust), where Bulwark sends core+mail.
+    - A 402 with TOTP becomes `OtpRequiredError`, modelled on Bulwark rather than a recorded Stalwart response.
+    - J-015 is deferred to M3; J-051 stays M2.
+    - J-009 and J-028 are "done" on thin tests.
+
+    [jmap, jmap-rev] `Core/Jmap/Transport/*`, `spec/jmap.csv`.
+25. **Mail list rules that differ from Rust.**
+    - The unread-first Inbox is a local partition, not Rust's two queries.
+    - The flagged tile uses the text filter `is:starred`.
+    - Date groups follow Bulwark's `list-date-groups.ts`, not Rust.
+    - Shift+G is refresh, as in Bulwark and Rust; the plan wording said "select last".
+    - Escape, `g s` and Ctrl+E semantics changed.
+
+    [mailcore, mailcore-rev] `Presentation/Mail/ListLayout.cs`, `Presentation/Shell/GlanceTilesViewModel.cs`, `Core/Mail/Grouping/DateGroups.cs`.
+26. **Deliberate deviations in the body view.**
+    - `cid:` replacement goes longest id first; this fixes a Rust bug at main.rs:617.
+    - `shell.js` posts `ready` after a forced layout without waiting a frame, which was the price of the 50 ms gate.
+      data: images may paint a frame late. Check this on screen.
+
+    [body, body-rev] `Core/Mail/Body/CidImages.cs`, `Assets/mail/shell.js`.
+27. **Contract changes the integrator should know.**
+    - F2 made analyzer-forced renames (`IsReadOnly`, `Barbican.Core.Mail.Cache`, `TagRules`, `KeywordSyntax`).
+    - The jmap stream added `ListCursor.Position`, `Watch(query, loaded)`, `Trace`, `OpenEventSourceAsync` and new
+      `EmailBody` fields.
+    - The accounts stream added `AccountInfo.Kind/IsReadOnly`, `IPrefsEditor`, `IAuthorizationLauncher` and others.
+    - Tests ported with a changed shape: typed records instead of JSON values, `ObservableCollection` instead of
+      `VecModel`, and `KeyModifiers` flags.
+
+    [f2, jmap, accounts]
+28. **Catalogue choices.**
+    - 218 hooks in 27 groups, not the 219 in 29 that PORT-PLAN M6b says.
+    - The hook milestone column contains judgement calls.
+    - Three phone-layout hooks are `n/a`.
+    - Hook payloads are our own records.
+
+    [f2, plan, mailcore] `spec/plugins/hooks.csv`, `tools/plugin_milestones.py`.
+29. **Plan-level calls.**
+    - Branches are named `m1-<key>` (CLAUDE.md says `m<n>/<stream>`).
+    - Five streams were used.
+    - One DI file per feature with `TryAdd`/`Replace`.
+    - The I- rows that are actions were closed for display and deferred.
+    - The SQLite cache moved to M2.
+    - The lite drop D-233 waits for the user.
+
+    [plan] `docs/milestones/M1-plan.md`.
+30. **Uno-specific choices.**
+    - Members not implemented in Uno carry a `win:` prefix (`ShouldConstrainToRootBounds`,
+      `ItemContainerTransitions`, `ShowsScrollingPlaceholders`). They compile, but are unproven at run time.
+    - `PopupLintTests` accepts the prefixed form, still requiring `True`.
+    - The Uno 7 move is deferred until after 2026-11-27.
+
+    [shell-ui, shell-ui-rev, f1] `src/Barbican.App/Views/**`, ADR 0004.
+31. **Small judgement calls.**
+    - `DispatcherQueueDispatcher.Post` drops work after shutdown.
+    - Server lookup has no `_jmap._tcp` SRV lookup.
+    - The sign-in error wording.
+    - The empty mail chrome during a slow restore, and what an offline restore shows.
+
+    [shell-ui-rev, accounts, accounts-rev]
+32. **Hook-bus allocation bound relaxed** **[verify]**. The bound is now under one byte per call (10 KB per 10,000
+    calls), down from 1 KB in total. The merged build failed once at 4.7 KB, a one-off tiered-JIT allocation. Check that
+    this still pins the "no allocation per call" property. [verify] `tests/Barbican.Core.Tests/Plugins/HookBusTests.cs`, 6b506be.
+
+### 4. Partially verified
+33. **Linux: nothing of M1 ran.** That covers the Uno head, the Secret Service, the Linux browser launcher and paths,
+    the loopback listener (`ExclusiveAddressUse` maps to SO_REUSEPORT), the body shell, the X11 stand-in, Xvfb feel, and
+    the red-test convention on the merged branch.
+
+    The VM answers ping, but SSH on port 22 timed out at every stage. M1 is green on Windows only, which is not "green"
+    by CLAUDE.md. [all streams, verify]
+34. **Feel frame gates unproven** **[verify]**.
+    - WGC of the hidden window delivers frames only after a layout change. The scripts wake it with a one-pixel resize,
+      so captures show settled states (1 to 6 frames).
+    - In the verify run the display was off (user idle about 5 h, display timeout 300 s). All 123 WGC frames were
+      uniform white, and the `rendering` probe ticked at about 30 Hz (gap 32 ms).
+    - `tools/flicker.py` reported 0 BLANK / 0 FLASH on those white bursts, because it compares against the first and
+      last frame. It now reports `empty` / `capture_valid`.
+    - The earlier streams' 0/0 claims rest on 1 to 6 frames each. Their artifacts are gone, so whether those frames had
+      content cannot be checked.
+    - Input to first changed frame ≤ 21 ms, and header and body in one frame, rest on the code.
+
+    [shell-ui, body, body-rev, verify] `tools/flicker.py`, `spec/feel/M1/verify-results.json`, ADR 0007.
+35. **Live server: nothing checked by an agent.** The live suite, browsing both accounts, push from a real server, and a
+    live Rust or Bulwark trace are hand tests. `spec/traces/M1/*.rust.txt` are derived from source. [jmap, accounts,
+    plan] `tests/Barbican.Jmap.Live`, `tools/trace-diff.py`.
+36. **Views never driven in a hidden run.**
+    - The account popover and the sign-in view: the sign-in view was rendered once on a private desktop, with no
+      frames.
+    - Tooltips (hover).
+    - I-209 and I-214 banners: the seed has no remote content.
+    - Load more: the seed Inbox is one page.
+    - The `PopIn` first frame.
+
+    [shell-ui, shell-ui-rev, accounts, body-rev]
+37. **Spec status set by the verify stage** **[verify]**. Review these as decisions, not facts.
+    - The I- rows I-039, I-046 and I-156 were marked done from a hidden run. For I-046 the UIA tree still lists the
+      collapsed rows, so the evidence is the XAML render.
+    - Unmarked B- rows were settled from the milestones of their Rust tests (`spec/behaviours/*` "M1 status (verify)").
+    - The pending (M1) motion rows were given statuses.
+    - `spec/settings.csv` `csharp_read_by` was filled by a literal key search (47 keys).
+
+    [verify] `spec/interactions.csv`, `spec/behaviours/*.md`, `spec/settings.csv`, 6b506be.
+38. **Design.**
+    - Screenshots are XAML renders, so the body area is empty and Bento is 1356x856 (no window padding).
+    - No comparison with the mockups was made.
+    - **[verify]** In Nordic light the disabled rail icons, the toolbar's More button and the section-header icons are
+      barely visible.
+    - A collapsed Folders card keeps its height.
+    - "Remember me" renders indeterminate.
+
+    [shell-ui, accounts-rev, verify] `docs/milestones/M1-screens/`.
+39. **Coverage and numbers.**
+    - Coverage: Jmap 93%, Sync 91%, Mail/Service 94%. The uncovered parts are cancellation and IO branches.
+    - Cold start (5 Release smoke runs): first frame 284 to 353 ms.
+    - Inbox interactive: an upper bound by polling, 783 to 866 ms.
+    - All are single-machine numbers.
+
+    [jmap, verify]
+
+### Resolved during M1 (for the record)
+- **[jmap-rev]**
+  - a cancelled sync stuck the hook at "syncing";
+  - a bad trace path failed every request;
+  - the event stream leaked.
+- **[jmap merge]**
+  - there were two hook buses;
+  - every push reset the list;
+  - the spec-check hook regex held a stray 0x08 byte.
+- **[mailcore-rev]**
+  - Shift+G was bound to "select last";
+  - a stale delta could land in a newly opened folder.
+- **[accounts-rev]**
+  - a failed connect pinned the account;
+  - the sign-in deadline threw;
+  - `AccountsStartup.Completion` hung;
+  - a locked keyring lost writes silently (Linux, unverified).
+- **[accounts merge]** The sign-in screen flashed at every start-up.
+- **[shell-ui-rev]**
+  - the tooltip host was never set;
+  - Add account did nothing;
+  - the dispatcher threw after shutdown;
+  - nothing kept FakeJmap out of Release.
+- **[body-rev]**
+  - an open was dropped by its own cancelled prefetch;
+  - two loader tests were flaky.
+- **[shell-ui]** The `key` automation command is registered (`App/Shell/Automation/KeyCommand.cs`; this was mailcore
+  item 8).
+- **[verify]** The window events are wired (item 20). `flicker.py` rejects uniform captures (item 34).
+
+
+## M1 fix stream: security (stream: m1-fix-security)
+
+Fixes for Fable review 1 (`docs/fable-review-1.md` on `fable/review-1`) F-02, F-03, F-04, F-05, F-06, F-07, F-08, F-09, F-12,
+F-13 and user decisions D-2, D-9, D-10, on branch `m1-fix-security` (from `m1` at `056ae3b`). Items below name what to re-check.
+
+- [Fable 2: fixed, see R2-09](fable-review-2.md#f-verdicts) **F-02 session URLs (judgement calls).** `Core/Jmap/Transport/SessionUrls.cs`, `SessionParser.cs`, `SessionFetcher.cs`,
+  `AuthorizedHttp.cs`, `JmapSession.CredentialOrigins`. Relative URLs still resolve against the session URL (RFC 8620 §2), then
+  move onto the typed origin; Bulwark resolves them against the typed origin's root instead (`client.ts:2329`): the two differ only
+  for a relative URL without a leading slash. A session that arrived from another origin keeps no "hosted elsewhere" host (Bulwark
+  has no such case: the browser fetch never crosses). The session re-fetch on a `sessionState` change now goes through discovery
+  when the session URL is off the typed origin. A cross-origin 401 now says "Enter <origin> as the server address" instead of
+  "Wrong username" (FABLE-REVIEW M1 item 8). Check the wording, and whether a Stalwart behind a proxy that redirects
+  `/.well-known/jmap` to another host should be followed with a prompt instead.
+- [Fable 2: fixed, see R2-09](fable-review-2.md#f-verdicts) **D-10 plain http.** `Core/Jmap/ServerEndpoint.cs` `Read`: http only for `localhost`, 127.0.0.0/8 and `::1`, else
+  `InsecureMessage`. A remembered (or imported) http server elsewhere now fails at start-up with that message. There is no
+  "I understand" override (the brief said refuse). `*.localhost` names are not treated as loopback.
+- [Fable 2: fixed](fable-review-2.md#f-verdicts) **F-04 OAuth loopback and discovery.** `Core/Auth/LoopbackListener.cs`, `CallbackCheck.cs`, `OAuthDiscovery.cs` (`Secure`,
+  `MetaFrom`), `OAuthMetadata.Issuer/IssParameterSupported`, `RefreshLock.cs`. Judgement calls: a wrong `iss` **with** the right
+  state ends the sign-in (the state was leaked to a second provider, so waiting on gives nothing); without the state it is refused
+  like any stranger. An `iss` sent while the metadata names no issuer is ignored unless the provider announced the parameter.
+  A plain-http registration endpoint of an external provider is dropped (fallback client id), not followed. The refresh lock no
+  longer deletes its file and has no 60 s staleness: verify on Linux that .NET's `FileShare.None` really takes `flock` there (it
+  does in .NET on Unix by default; `DOTNET_SYSTEM_IO_DISABLEFILELOCKING` would turn it off). Not changed: bind address (already
+  `IPAddress.Loopback`), constant-time state compare, PKCE verifier (48 random bytes, 64 chars).
+- [Fable 2: fixed, see R2-06](fable-review-2.md#f-verdicts) **F-05 one credential per account.** `Platform/SecretAccountVault.cs`: `account/<sha256-prefix>` entries plus `account-index`
+  (in the secret store, not a profile file: the index names no address and keeps the vault one unit). Judgement: the `session`
+  entry was dropped (nothing in the C# app read it). Migration of the old single entry is silent and automatic on first load.
+  The live Windows store was not exercised by a test here (no throwaway-target run in this stream); the 2560-byte cap is
+  checked with a capped fake store. Hand test: sign in to three OAuth accounts in a dev profile and restart.
+- [Fable 2: fixed](fable-review-2.md#f-verdicts) **F-06 / D-2 import.** `RustCredentialImport`: the user import keeps OAuth accounts listed but drops their refresh token
+  ("imported without its sign-in; sign in again"). ADR 0008 point 2's "validate by a normal refresh" is withdrawn in an
+  amendment section.
+- [Fable 2: fixed, see R2-14](fable-review-2.md#f-verdicts) **F-12 read-only fails closed.** `Core/Accounts/ReadOnlyPolicy.For(profile, env, readFile)`: in `dev` (also the default
+  profile, so a plain user run is covered too) and `auto-*`, only the file named by `BARBICAN_WRITABLE_ACCOUNTS_FILE` counts,
+  and only when its folder is named `.local`; `BARBICAN_WRITABLE_ACCOUNTS` is ignored there. Other profiles keep the variable.
+  Registered from `IProfilePaths` (not `ProfilePaths.FromEnvironment`), so the policy follows the profile the app actually uses.
+  Judgement: the allow-list holds logins, not account keys (server+login), matching the existing `IsReadOnly(user, …)`; a
+  stricter key match can come with M2's writes. Who sets the variable: `tools/auto-run.ps1` (F-08 commit) points it at the main
+  checkout's `.local/writable-accounts.txt` when that file exists; nobody creates the file in this stream.
+- [Fable 2: partly fixed, see R2-07](fable-review-2.md#f-verdicts) **F-07 / D-9 authserv-id.** `Core/Mail/AuthResults/AuthServTrust.cs`, `AuthenticationResults.Trusted/AuthServId`; the reader
+  (`ReaderSnapshots.FromBody`) gets `ReaderOptions.ServerHost` from the account key in `MessageLoader.Present`. Judgement calls:
+  the id is not *learned* from Inbox mail (the review's suggestion); it is matched against the server host or its parent domain
+  (`mail.example.org` trusts `example.org` and `*.example.org`, never a bare TLD). Risk: a host directly under a two-label public
+  suffix (`example.co.uk`) would trust `*.co.uk`; there is no public suffix list. Learning the id per account (and pinning it) is
+  deferred to M2 with the trust banner (G-049). Hand test: open a received message on the live account and check the chip still
+  shows (Stalwart's authserv-id must sit in the server's parent domain).
+- [Fable 2: mostly fixed, see R2-08](fable-review-2.md#f-verdicts) **F-09 PNG bombs.** `Core/Mail/Attachments/PngDecoder.TryThumbnail` streams rows into `ThumbnailCells` (the cells of
+  `ThumbnailScaler.Fill`, byte-identical: `PngThumbnailTests.The_streaming_thumbnail_equals_decode_and_fill` over all colour types
+  and filters); `IImageDecoder.TryThumbnail` is a default interface method so platform decoders keep working; `TryDecode` capped
+  at 16 MP and itself row-streamed (no raw buffer); `AttachmentCards.Thumbnail` holds a static lock; `OutOfMemoryException` is caught.
+  Judgement: the streaming cap is 100 MP (time, not memory: about a second of inflate). Nothing in the app calls
+  `AttachmentCards.Thumbnail` yet (cards show kinds only in M1); the lock assumes callers are off the UI thread, which the doc says.
+- [Fable 2: fixed](fable-review-2.md#f-verdicts) **F-08 automation token.** `Automation/Protocol/AutomationConnection.cs` (UI-free, tested over a real loopback socket in
+  `AutomationConnectionTests`), `AutomationServer`, `AutomationHost` (no token: the port stays closed, the popup guard still
+  runs). Clients: `tools/auto-run.ps1` (token per run in `artifacts/auto/<port>/token`, also passes
+  `BARBICAN_WRITABLE_ACCOUNTS_FILE` when the main checkout has `.local/writable-accounts.txt`), new `tools/autoconn.py` used by
+  `auto.py`, `motion.py`, `scenarios.py`, `layout/m1_scenarios.py`, `layout/m1_shots.py`, and `linux-remote.sh auto`.
+  Not changed: `spikes/s4-automation` (the spike server has no token; it is reference code, not built into the app).
+  Judgement: lines are read with a bound (`CommandLine.MaxLength`) so a peer cannot grow one line without limit. The hidden
+  Automation build was not launched in this commit; the F-03 stage runs it through `auto-run.ps1` and so checks the token path
+  end to end. Linux pending (VM rule).
+- [Fable 2: fixed on Windows](fable-review-2.md#f-verdicts) **F-13 WebView2 folder.** `App/Composition/WebViewEnvironment.cs` (renamed from `HiddenWebView.cs`) runs for every run:
+  `WEBVIEW2_USER_DATA_FOLDER` = `<profile DataDir>\WebView2`, `--dns-prefetch-disable` always, the painting flags only when
+  hidden. Found on the way: a hidden run without `BARBICAN_PROFILE` named its WebView2 folder after `auto-<port>` while Core
+  resolved the `dev` profile (the user's own data); it now sets `BARBICAN_PROFILE` to the run's profile before composition.
+  WebKitGTK data directory: Linux pending (the Linux head reads none of this; Uno's WebView there has no data-dir setting we
+  use yet).
+- [Fable 2: fixed on Windows, see R2-04](fable-review-2.md#f-verdicts) **F-03 the mail frame.** `Core/Mail/Body/MailSanitizer.cs` (AngleSharp 1.9.1, new Core dependency; runs in
+  `MessageFetcher.FetchAsync` off the UI thread before the body is cached, and on plugin HTML in
+  `MessageLoader.TransformThenShowAsync`); `MailSandbox.Frame` (never `allow-scripts`); `MailCsp.Policy(remote)` always
+  `script-src 'none'` plus `x-dns-prefetch-control: off`; `MailPage(Html, Dark, Background, HasRemoteContent) { Sizing }`;
+  `A11y.Sizing()` / `MailSizing`; `ShellDocument` builds one inline script (`window.__bbDarkPass=function(document){email_dark.js}`
+  + shell.js) allowed by its SHA-256 only; `shell.js` `finish()` (srcdoc check on both the load and the poll path, then size,
+  then dark, then ready); `BodyShell` sends `dark` and `size`, cancels every frame navigation but `about:srcdoc`.
+  Probe (hidden Automation build, Windows, loopback beacon): a meta refresh with the shell's sandbox (host asked for
+  `allow-scripts allow-top-navigation`, both filtered out), with and without the frame CSP, and in hand-made `allow-scripts`
+  frames: 0 beacon hits; the dark pass and the sizing applied from the shell (pending class gone, `data-dark-done` set, 10 px ->
+  15 px, white table -> rgb(22,22,22)). Foreground unchanged, no popups. Linux pending (VM rule): whether WebKitGTK lets the
+  shell's listeners and the dark pass act on a sandboxed frame without `allow-scripts`, and the meta-refresh probe there.
+  Judgement calls: `meta` is removed entirely (the page sets its own charset); `form` is unwrapped (content kept), inputs stay
+  inert; `noscript` content is kept (it renders in a script-less frame, as in a mail client); a body is reserialised only when
+  something was removed. `A11y.MailScript()` stays for its Rust-ported tests but is no longer put in a page. Not done: the
+  S2 spike harness probe (the hidden-app probe above replaces it on Windows); link-opener confirmation (point 5) is M2.
+- [Fable 2: open](fable-review-2.md#f-verdicts) **Linux.** `tools/linux.ps1 test` tried once at the end of the stream: the VM job failed (ssh exit 255). Linux pending (VM
+  unreachable) for every item above: the full test run, F-03 (frame listeners and dark pass without `allow-scripts` under
+  WebKitGTK, the meta-refresh probe, WebKitGTK DNS prefetch), F-04 (`FileShare.None` as `flock`), F-08 (`linux-remote.sh auto`
+  with the token), F-13 (WebKitGTK data directory).
+
+## m1-fix-core (Fable review 1: F-10, F-11, F-14, F-15, F-16 and the M1 verify open issues)
+
+Review these, in this order of risk:
+
+- [Fable 2: fixed, see R2-13](fable-review-2.md#f-verdicts) **F-14 sync/list, the three judgement calls.** (1) `Presentation/Mail/LoadedList.cs`: `Apply(ListDelta)` now delegates to
+  `Core/Sync/ListDeltaApplier`; `Apply(EmailsChangedEvent)` takes fresh copies only and **ignores `Removed`** (the removals of the
+  query that was watched). `MailSync` still emits both events and `BodyCache` still evicts bodies by `Removed`. Check you agree
+  that a message moved out of the folder keeping its cached body until the cache's LRU drops it is fine. (2)
+  `MessageListViewModel.FirstPageAsync`: the unread-first Inbox is now two queries as Rust `fetch_unread_first` (notKeyword
+  `$seen` limited to the section size, then hasKeyword `$seen`), with no sync states, so every push resets and re-reads the list
+  (as Rust: "a sync re-fetches it in full"). Paging then uses the `$seen` query (`_pagingQuery`). Unread messages beyond the
+  section size are not shown (Rust too). (3) a reset reloads `max(page size, rows loaded)` rows and closes the reader when the
+  open message is no longer in the list. `Core/Mail/Service/ListPageFetcher.cs`: "more pages" counts the ids returned;
+  `ListPage.DroppedIds` lists rows that failed to parse but **nothing logs them yet** (Core has no logger there): wire it in M2.
+  `MailService.GetThreadAsync` sorts by the thread's `emailIds`. `Core/Jmap/Transport/RequestSplitter.cs`: a creation id is now
+  looked for only in `/set` calls; a `#` string in a query is data. Check no other method takes a creation id (EmailSubmission
+  `onSuccessUpdateEmail` keys are handled by the key rule). The "http" host-name part of F-14 was already fixed by the
+  security stream (`ServerEndpoint.Parse`, merge a03364a).
+- [Fable 2: fixed as asked, see R2-01 and R2-10](fable-review-2.md#f-verdicts) **F-15 hooks and sync.** `Core/Plugins/Hooks/HookBus.cs`: a 5 s per-handler timeout (`HookBus(TimeProvider?, TimeSpan?)`);
+  a handler past it is cancelled, left behind and reported through `HandlerFailed`; an interceptor that times out counts as
+  "allow", a transform leaves the value. An answer that is already complete stays synchronous (KeyRouter relies on that).
+  The abandoned handler task keeps running if it ignores its token. `Core/Sync/MailSync.cs`: `onNewEmailReceived` now runs after
+  the gate is released (still awaited, still ordered, bounded by the bus timeout); every hook call swallows non-cancel
+  exceptions; `SyncNowAsync` catches everything (CA1031 suppressed with a reason, three places). `MailSync.Push.cs`: debounce
+  capped at `MaxCoalesce` 3 s; `AuthError` on push open emits one `SyncProblemEvent` (retry with backoff continues, the flag
+  resets when a stream opens); a `TransportError { Retryable: false }` ("No push support") switches to `PollAsync`, a sync of
+  all push types every `PollInterval` 60 s. Judgement: 60 s is my number, Bulwark has none. `MessageListViewModel` shows
+  `SyncProblemEvent.Message` in `Error` and clears it on the next `PushStateEvent(true)`: a status line only, no sign-in prompt
+  (the accounts views are still not bound to the sign-in screen, M1.md open issue).
+- [Fable 2: partly fixed, see R2-05 and R2-11](fable-review-2.md#f-verdicts) **F-16 keys.** `Presentation/Input/KeyRouter.cs`: a real (`KeySource.Keyboard`) plain Up/Down is **not** handled (the focused
+  `ListView` moves one row); WebView and Automation arrows are. This means: with focus outside the list, an arrow key does
+  nothing and the reader's `_motion.Step()` and `OpenReason.Key` are not used for arrow navigation. **Hand test**: one arrow press
+  moves one row, and the reader animates as for `j`. `App/Shell/KeyChordMapper.cs`: Shift+digit and Ctrl+Alt (AltGr) map to null;
+  the router also refuses any Alt chord. Typing in a text box is still filtered in `ShellPage.OnPreviewKeyDown`, not in the router.
+- [Fable 2: fixed](fable-review-2.md#f-verdicts) **Body cache race.** `MailSyncEventArgs.AccountKey` is set by `MailEventHub` from the account whose engine produced the event;
+  `BodyCacheSync` files under it (the `IAccountManager` parameter is gone) and the list ignores events of another account.
+  `MailEventHub.Publish(e)` without a key uses the active account at publish time (tests).
+- [Fable 2: partly fixed](fable-review-2.md#f-verdicts) **DI wiring test.** `tests/Barbican.Presentation.Tests/Composition/CompositionGraphTests.cs` resolves **every** registered
+  service of Core + MailCore + Accounts + AccountsPresentation + the loader chain, with a presenter shaped like `BodyShell`
+  (`Lazy<IKeyRouter>`). It does not include the Uno-only types (`BodyShell`, `AppComposition`, views): a cycle that runs through them is
+  still only caught at launch. Worth a head-level test in an App test project. It found a real bug: `AccountManager.DisposeAsync`
+  threw `ObjectDisposedException` when the container disposed the one instance for each of its three registrations; now idempotent.
+- [Fable 2: fine, cost not measured](fable-review-2.md#f-verdicts) **MailBodyView / shell.js.** `App/MailBody/MailBodyView.cs` unsubscribes on `Unloaded` and re-subscribes on `Loaded`.
+  `Assets/mail/shell.js` posts `ready` from `requestAnimationFrame` with a 34 ms timer fallback (a hidden window may never run a
+  frame). **Not measured**: the feel cost (up to one frame per message open) and whether data: images are decoded at reveal. Measure
+  with the hidden feel run before the M1 gate; if the frame is too dear, `img.decode()` on the data: images is the alternative.
+  Only a static test (`ShellScriptTests.ReadyIsPostedOneFrameAfterTheLayoutWithATimerFallback`) covers the script.
+- [Fable 2: fixed](fable-review-2.md#f-verdicts) **F-10, F-11.** Flagged tile is `HasKeyword = "$flagged"` (`Presentation/Shell/MailShellStartup.cs`). `tools/spec-check.py`: a T- row
+  whose only tests are `[Red]` is `pending`; `--milestone` also fails while any `[Red]` test exists anywhere (no stream-to-
+  milestone map exists, so a red test for a later milestone would block an earlier gate: revisit if that happens) and for a J- row
+  that is `done` without `cs_test`. J-009 and J-028 are `partial(M2)` (`spec/jmap.csv`), and `spec/README.md` says so. Verified by a
+  temporary `[Red]` on a tagged test (row went pending, gate message printed); not kept as a test (no harness for Python tools).
+- **Not covered.** Linux: `tools/linux.ps1 ping` failed once (ssh key not accepted / VM unreachable): Linux pending (VM
+  unreachable). No hidden run was launched. Commit hashes: see `git log m1-fix-core` (this stream's commits are the ones after a03364a).
+
+## Fable review 2 (stream: fable-review-2)
+
+Report: [fable-review-2.md](fable-review-2.md), branch `fable-review-2` from `m1` at `4eccc0f` (reading only; nothing built, run or
+launched; Linux unverified). For the next Fable pass, in this order:
+
+- **R2-01 after its fix: a refused sign-in must stop all traffic of that account.** Why: by the Stalwart source a failed login
+  counts toward a ban of the client address (100 a day by default, no end by default), and a session signed in with a one-time code
+  is checked again after the token lifetime. Check the latch in the client, that the push loop, the poll and the unread timer all
+  stop, and the test that counts requests against a 401 server. Paths: `Core/Jmap/Transport/StaticAccessTokenSource.cs`,
+  `AuthorizedHttp.cs`, `Core/Auth/OAuthTokenSource.cs`, `Core/Sync/MailSync.Push.cs`, `Core/Accounts/AccountManager.cs`. This finding
+  is derived from source and was **not** run (running it can block the user's address): confirm the reading of
+  `crates/http/src/auth/authenticate.rs` and `crates/common/src/auth/authentication.rs`.
+- **R2-04 after its fix, on both OSes.** Named elements against `shell.js` (`name="URL"`, `"body"`, `"querySelectorAll"`,
+  `"addEventListener"`, `"__bbd"`), the give-up path, and on Linux whether the shell's `frame-src` really stops a click in an
+  unhandled frame. Also the dark pass (`email_dark.js`) reads the same document: check it for the same pattern. Paths:
+  `Core/Mail/Body/MailSanitizer.cs`, `App/Assets/mail/shell.js`, `App/MailBody/BodyShell.cs`.
+- **Sanitizer parse differences.** The sanitizer parses with scripting off (`MailSanitizer.Clean`), which matches a frame without
+  `allow-scripts`. Any later use of sanitized HTML in a context where scripting is on (the M3 editor, a plugin view) re-opens the
+  `noscript` difference. `EmailBody.CidBodyValues` holds the unsanitized originals: they must never be shown.
+- **R2-02 and R2-03.** Start-up without network and the account screens once they are bound to `SignInViewModel` and
+  `AccountsViewModel`: cancel of the OAuth wait, Enter to submit, the row errors.
+- **R2-05 and R2-11.** Which focused controls keep Enter and Space, and punctuation shortcuts on a non-US layout. Hand test.
+- **R2-06.** The vault under two instances, once `AccountStore.ChangeAsync` reloads inside the refresh lock.
+- **R2-07.** The pinned authserv-id and the trace-block rule when M2 builds the trust banner; no code removes forged inbound
+  headers on the server side as far as this review found (`crates/smtp/src/inbound/data.rs`).
+- **R2-10.** The hook catalogue's per-hook budget and fail-closed flag before the first send guard (M3) and the plugin hosts (M6b).
+- **Not reviewed in this pass** (say so at the gate): the shell-ui layout, motion and theme code, `X11BodyOverlay.cs`, the Linux
+  secret store at run time, items 24 to 39 of the verify-stage list.
+
+## m1-fix-2 (stream: m1-fix-2)
+
+This stream fixes Fable review 2 R2-01 to R2-05 on branch `m1-fix-2`, taken from `m1` at `1c34da4`, and merges them into `m1`.
+- Commits: `8623ecd` (R2-01, R2-02), `a56f335` (R2-03, R2-05, the R2-02 list state) and `675a7c4` (R2-04).
+- E-3 and E-4 are implemented as the review's recommended defaults; the user has not confirmed either yet.
+- R2-06 to R2-14 are not touched; each is owed before its milestone (M1.md §5).
+- Windows: `tools/build.ps1 test` ran 956 tests: 952 passed, 4 skipped, 0 failed. Linux pending (VM unreachable).
+- No real account was used. Every account check ran against FakeJmap.
+
+For the next Fable pass, in this order:
+
+- [ ] **R2-01: the latch. Does a refusal really stop every request of that account?**
+  - **Why:** Stalwart counts every failed login toward a ban of the client address.
+  - **Design:** `Core/Auth/AuthLatch.cs` wraps the token source of every client that `JmapClientFactory` and the sign-in paths
+    build.
+    - It closes on any `AuthError { NeedsSignIn: true }` from the inner source, which includes a refused refresh token.
+    - It also closes when `AuthorizedHttp` gets a 401 after a renewed header (`Core/Jmap/Transport/AuthorizedHttp.cs`).
+  - **Check:**
+    - that no request path skips the latch;
+    - that `MailSync` stops the push stream, the poll and the debounced syncs (`StopForSignIn` in `Core/Sync/MailSync.Push.cs`
+      and `MailSync.cs`);
+    - that `AccountManager.OnRefused` stops the unread timer for an inactive account.
+  - **Known:**
+    - requests already in flight when the refusal lands can each still get one 401;
+    - the refused session is moved to `_retired` and disposed only with the manager.
+  - **Tests:** `tests/Barbican.Core.Tests/Auth/AuthLatchTests.cs`, which counts `FakeJmapServer.Refused`, and
+    `Accounts/AccountManagerTests.cs`.
+- [ ] **R2-02: start-up without a network, and the retry loop.**
+  - **Design:** `AccountManager.RestoreAsync` connects every remembered account at once and activates the first one, in
+    remembered order, that connects. When every account failed only because its server could not be reached, the first one
+    opens without a session ("connecting", E-3).
+  - **Retry:** `RetryAsync` runs on `TimeProvider` (2 s doubling to 60 s) and connects the accounts that are unreachable and not
+    refused. When an account connects, `Attach` raises `ActiveChanged(info, info)` for the active one, so the mail reloads.
+  - **Check:**
+    - that the loop ends when nothing needs it;
+    - that it never retries a refused account;
+    - that the same-key `ActiveChanged` (also raised with `renewed: true` after a new sign-in) is handled everywhere it is
+      listened to;
+    - `SwitchToAsync` connecting the active account that has no session.
+  - **UI:** `MessageListViewModel.IsConnecting` and `MessageListView` show "Connecting…".
+- [ ] **R2-03 and the shell's choice of screen.**
+  - **Paths:** `App/Shell/ShellPage.xaml.cs` (`ShowScreen`, `Back`, `WireAccounts`), `App/Views/SignIn/SignInView.xaml(.cs)`,
+    `App/Views/Accounts/AccountPopoverView.xaml(.cs)`, and `Presentation/Accounts/SignInViewModel.cs` (`Prefill`, `Submit`,
+    `CanLeave`, `LeaveCommand`).
+  - The refused account on screen gets the form, filled in once per refusal.
+  - A refused row in the popover raises `AccountsViewModel.SignInRequested`.
+  - Cancel leaves the form only for "Add account", for a request from a row, or when another account exists.
+  - **Judge:** whether `_offered`/`_dismissed` can trap the user on the form or hide a needed one. The views are unproven on
+    screen (HAND TEST 1).
+- [ ] **R2-04 on both OSes.**
+  - **Sanitizer:** `Core/Mail/Body/MailSanitizer.cs` (`Unname`) drops `name` on `img` and its `id`. `<a name>` and a plain
+    `<img id>` stay.
+  - **Shell:** `App/Assets/mail/shell.js` reads the frame document through `Document.prototype` getters, uses `EventTarget.prototype.addEventListener` and
+    `Element.prototype.setAttribute`, keeps its marks in WeakSets (`handled`, `finished`), and `reveal` refuses an unfinished
+    frame.
+  - **Host:** `App/MailBody/BodyShell.cs` `GiveUp` sends `MailPageBuilder.Error` once; if that is not ready in time either,
+    `Ready` runs and the shell refuses the reveal, so the old page stays.
+  - **Evidence:** the hidden probe `spec/feel/M1/verify/r2-04-probe.json` sent a page with `img name=URL/body/querySelectorAll/...` and
+    `form name=documentElement` straight to `__bb.show`, without the sanitizer: it finished and was revealed.
+  - **Not covered:**
+    - `email_dark.js` still uses `doc.body`, `doc.documentElement` and `doc.defaultView`, which are safe only because the sanitizer runs
+      first. Bringing it to the prototype pattern would mean diverging from the verbatim Rust/Bulwark port. Decide.
+    - In `size()`, `b.querySelectorAll` runs on the body element, which named access does not reach.
+    - The give-up path was not exercised at run time.
+    - Linux / WebKitGTK.
+- [ ] **R2-05: the focus heuristic.**
+  - **Paths:** `App/Shell/KeyGate.cs` (the tested rule) and `ShellPage.Activates`, which treats a `ButtonBase`, `ComboBox`,
+    `ToggleSwitch`, or a `SelectorItem` outside `ListRegion` as owning the key.
+  - **Check:** controls that may be missing (`HyperlinkButton` is a `ButtonBase`; an `Expander` header; a `NavigationViewItem`),
+    and that Enter on a message row still opens it.
+  - The real keyboard path is a hand test.
+
+
+## M1 hotfix: sign-in (stream: m1-hotfix-signin)
+
+HAND TEST 1 on the portable zip from 6b506be: passkey sign-in failed, the TOTP sign-in on the server's page crashed the app
+at the callback (WER: CoreMessagingXP.dll 0xc000027b, combase RPC_E_WRONG_THREAD), and every later start showed an empty
+mail screen. Commits 15223c7, aa77c20, 56038a3.
+
+- **Root cause of the crash and of the empty shell: `ActiveChanged` off the UI thread.** `AccountManager` raises it from
+  thread-pool continuations (sign-in after the loopback, `RestoreAsync` under `AccountsStartup`'s `Task.Run`, and since R2-02
+  the retry loop). `ActiveMailSource` forwarded it synchronously to UI-bound ViewModels. The fix marshals in
+  `Presentation/Mail/ActiveMailSource.cs` only; the manager still raises its events on any thread. **Review:** every other
+  direct subscriber of `IAccountManager.ActiveChanged` / `IAccountOverview.StatusesChanged` must keep dispatching itself
+  (today: `ShellPage`, `AccountsViewModel`); a new subscriber that forgets will bring the crash back. Consider making the
+  manager raise its events through an injected context instead. The proof is `SignInThreadTests` (a UI-thread stand-in, not
+  WinUI); no hidden-app run signed in, because the AUTOMATION build has no FakeJmap-backed account route (the fake OAuth
+  provider still lives in Core.Tests, linked into Presentation.Tests).
+- **`Changed` is now posted, not synchronous, when raised off the UI thread.** Subscribers read `Active`/`Mail`/`Sync` when
+  the post runs, so a quick second change can be seen twice with the newer account. Check `MailEventHub.Attach` and
+  `MessageListViewModel.OnAccountChanged` tolerate a repeated change of the same account.
+- **The crash guard swallows UI-thread exceptions** (`App/Composition/CrashGuard.cs`: `Application.UnhandledException` is
+  marked handled after logging to `<data dir>/logs/crash-*.log`). This keeps the app alive but can leave a ViewModel half
+  updated; it also hides failures from the AUTOMATION build, which only notices them in the logs folder. Decide whether the
+  automation build should fail a run when a crash log appears. Logs hold exception messages, which may contain an address the
+  user typed (never a password or token by construction; not enforced).
+- **The 11:03 and 11:05 automation crashes (wt-m1-fix-security, P7 0x800710dd)** are the same failure mode (an unhandled
+  WinRT exception on the UI thread turned into a fail-fast at combase+0xabfa) but not the same bug: a different HRESULT
+  (HRESULT_FROM_WIN32 4317, ERROR_INVALID_OPERATION), in hidden runs of the F-03/F-13 WebView2 work with no sign-in. 21 such
+  crashes of that automation exe since 04:46 are in WER. No dump existed. The crash guard will now log them; look at the
+  logs folder of the next one before guessing.
+- **RFC 9207 check relaxed (deviation from F-04).** `CallbackCheck`: an issuer the metadata does not name no longer refuses an
+  `iss` it cannot compare (Bulwark browser-sign-in.ts:170 parity). `OAuthDiscovery` takes the issuer of the server's own
+  well-known document for an own per-account document without one (Stalwart answers `issuer: ""` on a plain-HTTP connection
+  behind a TLS proxy, openid.rs:60). The user's server sends a full issuer, so this did not cause HAND TEST 1; it was latent
+  and the login hint now routes every sign-in through `/api/discover/<account>`.
+- **Passkeys: cause not proven.** Stalwart 0.16.27's source has no WebAuthn; the user's server runs a newer login page with
+  passkeys whose passkey login posts the page's raw query back (`authCodePasskey` with `query`). The only differences
+  between the C# and Rust requests were the missing `login_hint` (6b506be's form sent none) and `%20` instead of `+` in
+  `scope`; both are now identical to Rust (`OAuthFlow.FormEncode`, test `The_authorize_query_is_written_as_the_Rust_app_writes_it`).
+  The same OAuth client id is used by both apps (stateless `swc1.` ids, the cached ids are equal). If passkeys still fail,
+  the next step needs a real browser: the page's error text and the server's log for the `authCodePasskey` request.
+- **Atomic save:** an account is remembered (vault: entries, then index) before hooks and before it is announced, so the
+  crash point of HAND TEST 1 cannot lose it (`A_finished_sign_in_is_remembered_before_anything_can_fail_on_it`). Not changed:
+  a vault write that fails still lets the sign-in succeed unremembered (Rust parity, `AccountStore.LastError` only).
+- **User state left as found:** `%APPDATA%/Barbican-dev` and the credentials `Barbican.Next/dev/session`, `.../accounts`
+  (the pre-F-05 single-entry layout) were only listed. The new build migrates them on the first start (ADR 0008 amendment)
+  and should restore the account without the form.
+
+## M1 look (stream: m1-look)
+
+HAND TEST 1: "does not look or feel like the concept winui3 build". The gap, the choices and the numbers are in
+docs/milestones/M1-look-gap.md.
+
+- **Icon colour bug (fixed, worth a second look).** `SIcon` bound its stroke to its own `Foreground`. Control.Foreground is not
+  inherited into a template's content, so every icon without a local Foreground drew in the theme default. That is whitish in dark
+  and almost invisible in light (rail, toolbar, folder icons). SIcon now binds, once it is loaded, to the nearest ContentPresenter's
+  Foreground, and the button templates pass their Foreground to it.
+  - Check: does an icon that is re-parented after Loaded (virtualised list containers) keep the right source?
+- **Prototype preferred over the mockups.** Seven places are listed in the gap file: Bento selection card, the "B" mark, label rows,
+  "New message", the reader order, a one-tile sidebar, and Segoe UI. Review them against design/README.md: the design language
+  file still describes the mockups.
+- **Motion that deviates from the prototype** to stay within design/MOTION.md:
+  - one block rise instead of the staggered per-row entrance;
+  - 150 ms instead of 220 / 260 ms on a style switch;
+  - the header rise runs on every switch (the prototype's ran only on first load, because of a bug in the prototype).
+
+  Check the header rise for feel during slow `j` presses. It is skipped only while keys repeat.
+- **Body cross-fade.** shell.js keeps the old frame under the new one for the fade (110 ms + 20 ms) and then removes it.
+  - Two frames are alive for that time, which doubles the memory of two large mails for about 130 ms.
+  - `print` and `dim` act on the new frame only.
+- **The flicker rule gives a false positive on a sparse target folder.** `m1_scenarios` folder_click flags BLANK on the list region
+  because Sent in the sample data has one row. flicker.py compares every frame with the first and the last frame, not with the
+  settled target. Either pick a folder with as many rows, or give the rule a target baseline. The run before the port showed
+  0 only because its `select m3` changed nothing.
+- **Sender panel** (new `Views/Context/ContextView`).
+  - It reads the sender's other messages from the loaded list rows only; no request is made.
+  - It hides below a 420 px reader, which the prototype never does.
+  - Its data is display-only, and no action is wired.
+- **Body typography is not ported** (prototype 15 / 16 px, line height 1.6 / 1.8, Nordic 600 px measure). It belongs to
+  MailPageBuilder / sizing. Decide whether M2 should adopt it.
+- **The drift check** (`tools/lookdiff.py check`) compares 12 RenderTargetBitmap pictures against `docs/milestones/M1-look/ref/`
+  at 2 %.
+  - Sample data that depends on the time of day (the Nordic greeting, relative dates) can move a few pixels. It was 0.00 % on the
+    same day.
+  - It is a script, not a test in `tools/build.ps1 test`, because it needs a running hidden AUTOMATION build.
+
+## M2, consolidated at the verify stage (stream: m2-verify)
+
+The M2 sections of the plan, stage F, the five streams and their reviews are archived verbatim in
+[fable-review/M2-streams.md](fable-review/M2-streams.md). Below they are deduplicated and ordered by risk. Each item names its
+sources in brackets: plan, f (stage F), actions, menus, reader, search, unified, their reviews (`-rev`), and **[verify]** for this
+stage's own items. Commits are on `m2` (`git log --first-parent m2`); the per-stream commits are in the archive. Report:
+[milestones/M2.md](milestones/M2.md).
+
+### 1. Security, privacy and the user's real screen
+1. **GuardedHttp (mandatory)** [reader, reader-rev]. `src/Barbican.Core/Net/{GuardedHttp,PublicAddress,GuardedRefusal,OneClickUnsubscribe}.cs`.
+   - One `SocketsHttpHandler`: no redirects, cookies, proxy or credentials; https only (http only through the loopback test seam);
+     GET/POST; 2 MB cap; 20 s timeout.
+   - `ConnectCallback` resolves once, refuses any non-public address and connects to the address it checked (no DNS rebinding).
+   - The review widened `PublicAddress` (192.0.0.0/24, 198.18.0.0/15, 64:ff9b:1::/48, Teredo).
+   - Check: that the callback is the only way out (no other `HttpClient` in reader code), the embedded-IPv4 rules, and whether
+     ISATAP and 2001:2::/48 matter.
+   - **Fable review 3: fine** by reading (connects to the checked address, redirects re-checked). Low: three small ranges missing in `PublicAddress` (R3-12).
+2. **R2-07 Authentication-Results trace block (mandatory)** [reader, reader-rev, f-rev].
+   `src/Barbican.Core/Mail/AuthResults/{AuthTrace,AuthServPins}.cs`, `src/Barbican.Presentation/Mail/Loading/ReaderDepth.cs`.
+   - A header counts only inside the server's own block: from the first Received, whose `by` host is pinned per account or trusted
+     by D-9.
+   - No verdict in Sent, in Drafts or for `$draft`. Stalwart's header order is confirmed (`crates/smtp/src/inbound/data.rs:482-501`).
+   - Open:
+     - (a) with `add_received` off and `add_auth_results` on, a forged block counts;
+     - (b) the first open of an account may still show a verdict in Sent while the roles load;
+     - (c) the faithful `dkim_gate` port accepts any authserv-id in its own unit (one-click), so D-9 must hold through the trace
+       block only. Confirm that one-click reads `AuthTrace`, not the raw headers.
+   - **Fable review 3: partly fixed.** (a) is not accurate: Stalwart writes its Received and Authentication-Results only for port 25, so a submitted, JMAP-sent or imported message can carry a forged first block (R3-06, decision E-9). (b) still open.
+3. **R2-14 / M2-Q2 writes in agent profiles (mandatory; M2-Q2 still a proposal)** [reader, reader-rev, verify].
+   `src/Barbican.Core/Accounts/ReadOnlyPolicy.cs`, `src/Barbican.App/MailBody/Automation/{WriteTestGuard,Rx*Command}.cs`, `tools/auto-run.ps1`.
+   - Agent profiles fail closed without both `.local` lists.
+   - The `rx-*` commands exist only in `AUTOMATION_WRITES` builds, re-read both lists each call, and destroy only token-marked mail.
+   - [verify] proved it live: with the agent import, the menus greyed every write row on `<test-account>`, and `act mail.star` and
+     `act mail.delete` answered `disabled`, sending nothing.
+   - Check: that no path makes `<readonly-account>` writable in any profile.
+   - **Fable review 3: fine** (`ReadOnlyPolicy`, `ProfilePaths.IsAgentProfile`); notes in R3-12.
+4. **The native plugin host is not a security boundary (mandatory)** [unified, unified-rev].
+   `src/Barbican.Core/Plugins/Native/{NativePluginHost,PluginLoadContext,PluginHookBridge,LoadedPlugin}.cs`.
+   - There is one collectible load context per plugin, but a plugin runs with full trust and can take the process down.
+   - Decide: user plugins in `<config>/plugins` stay off until the M6b permission UI.
+   - A plugin's `Dispose` runs synchronously at shutdown, and a faulted `Ready` task goes unobserved.
+   - The payload JSON is built by reflection with IL2026/IL3050 suppressed: check before any trimmed publish.
+   - **Fable review 3: confirmed, open.** The code loads `<config>/plugins` (`UnifiedRegistration.cs:136-137`) although M2.md default 7 says off until M6b (R3-04, decision E-10).
+5. **R2-06 two instances on one vault (mandatory)** [unified, unified-rev].
+   `Core/Accounts/{IAccountVault,AccountStore}.cs`, `Platform/SecretAccountVault.cs`, `Core/Auth/OAuthTokenSource.cs`.
+   - Each change re-reads inside the cross-process lock, then upserts or removes one entry; there is one retry with the in-memory token.
+   - Not covered: the lock across two real processes. A second acquire in one process waits 15 s and then proceeds without the lock.
+   - **Fable review 3: not reviewed.**
+6. **Zip slip, saves and file names** [reader-rev, unified-rev].
+   - Download all now sanitizes names (`ReaderNames.SanitizePart`).
+   - Open:
+     - `SaveTargets` writes into Downloads with no dialog and no check for Windows reserved names (`NUL.txt`, `CON`);
+     - TNEF file names reach the saver unsanitised (`TnefExpander`);
+     - `rx-save queue PATH` takes any path (automation only).
+   - **Fable review 3: partly fixed**; what is left is R3-10 (no dialog, reserved names, IO errors not caught: R3-05).
+7. **Trusted senders key on the From address only** [reader-rev]: Bulwark parity (`email-viewer.tsx:3170`), so a spoofed From of a
+   trusted sender loads remote content.
+8. **Live credential copies** [verify]. The agent import into `auto-8889` wrote the two Rust password entries under this app's own
+   `account/<id>` targets of that profile. The Rust entries were only read. No OAuth token was imported or refreshed. Decide whether to
+   keep them for the next live stage (M2.md §6 item 10).
+9. **No real input; every popup in-window** [menus, menus-rev, verify].
+   - The four hosts (menu, dialog, palette, `?` sheet) are each one constrained `Popup` (`PopupLintTests`).
+   - Every hidden run of this stage answered `popup-guard open 0` and `own-is-foreground=no`, and the foreground window was
+     unchanged at every start.
+   - The real right-click path and `CharacterReceived` on a German layout are hand tests.
+
+### 2. Open correctness risks
+10. **Most M2 views behind the logic are not built (the exit gap)** [actions-rev, menus, menus-rev, reader-rev, search-rev, unified-rev, verify].
+    - 70 M2 interaction rows plus 19 carried M1 rows are `todo` (M2.md §2).
+    - The biggest gaps:
+      - the account popover view;
+      - hover strip states;
+      - the sidebar "+", tag management and arrow keys;
+      - MENU-READER and MENU-ATT (the reader's More button is disabled), view source, forward as attachment, Save to Files;
+      - snippet marks;
+      - import and export entries and a file picker;
+      - the unified menu, per-account rows and the shared section;
+      - J-051 `collapseThreads`, J-074 `x:ArchivedItem`.
+    - Recommended: one follow-up stream before the gate.
+11. **Unified with two real logins** [verify].
+    - Live, `unified on` reported `sources=2`, but only `<test-account>` rows showed, and "Switch to `<readonly-account>`" was disabled.
+      Either the second login was not signed in by the import's restore, or its rows were dropped.
+    - In the sample run the header stayed "All inboxes" after `unified inbox`, and the sidebar Inbox row stays highlighted.
+    - Files: `Core/Mail/Unified/*`, `Presentation/Unified/*`, `App/Views/Unified/Automation/UnifiedCommand.cs`.
+    - Also open [unified-rev]:
+      - other logins refresh every two minutes;
+      - paging is ordered within a page only;
+      - a read-only login's row is refused as "not signed in".
+    - **Fable review 3: confirmed, gate blocker.** No row of All inboxes can be opened: the composite row id goes to the active account as an email id (R3-01). Row-menu Download and View source send an empty account id (R3-02).
+12. **Writes are never retried and a failed chunk stops the rest** [actions]. `MailWriter.SetChunksAsync`; Bulwark `batchMoveEmails`
+    :4134 continues. Chunks already applied are not reported.
+    - **Fable review 3: confirmed.** A later failed chunk also hides the applied ones: all rows come back and no undo is recorded (R3-03).
+13. **Optimistic removal and "a push delta applies once"** [actions]. `LoadedList`, `MessageListViewModel.Actions.cs`,
+    `MailActionService.Removal.cs`.
+    - A delta whose `Added` re-inserts a message the user just deleted (server race) shows it again until the next delta.
+    - [verify] trace: the port sends no `list_delta` after a write (Rust did); it relies on push (`spec/traces/M2/*.rust.txt`, optional line).
+14. **Sync delta during a search** [search, search-rev]. `ListFilters.For` now reads the grammar for an unshaped query, but `in:trash`
+    and `in:spam` fall back to the open folder. The real fix is one line: `Watch` with the shaped query in `MessageListViewModel`.
+15. **Sieve save** [search, search-rev]. There is no `ifInState`, so another client's save in between is overwritten (Rust identical).
+    `QuickRuleSaver`, `SieveScriptStore.SaveAsync`. Decide before M6. L-016 (live, byte-for-byte restore) did not run.
+16. **MimeKit and DnsClient AOT and trim unproven** [f, f-rev, reader-rev, unified]. No trimmed publish was made. TNEF uses MimeKit
+    `TnefPart` with the code-pages provider. Run one trimmed publish (IL2104/IL3053) before M8.
+17. **`ActiveListSourceResolver` reads `IActiveMail.Mail` at call time** [f-rev]. Unified replaced the resolver; check that it now
+    resolves from the captured service.
+18. **Select all in folder is capped at 10 000 ids without saying so** [actions-rev]. `MessageListViewModel.ResolveTargetsAsync`.
+
+### 3. Deviations and judgement calls
+19. **Asserts not ported verbatim** [f, f-rev]. D-234 (T-206 through the plugin host), D-235 (T-110), D-236 (`.example` domains:
+    check the DKIM and DMARC alignment pairs), D-237 (T-023, T-024), D-238 (T-216..T-218 loopback seam), D-239 (contract renames).
+20. **Hook policy (R2-10)** [unified, plan].
+    - `hooks.csv` `budget_ms` and `fail_closed`; `HookPolicies.g.cs`.
+    - Intercepts get 60 s, so a plugin link check may hold a link that long.
+    - In-app handlers still start synchronously; native handlers start on the pool.
+    - 14 hooks were re-tagged out of M2 (M2-Q5).
+21. **Spam score** [unified]. The port of `spam.rs` is line by line. The clean row is hidden unless `showCleanSpam` is set (B-SPAM-004).
+    Detail rows reach the reader as banners until the reader reads `IEmailDetailsSource`.
+22. **Menus** [menus, menus-rev].
+    - The palette opens on Ctrl+K only, not on `k`.
+    - The myRights enable rules are derived from RFC 8621 §2.4.
+    - Bulwark's "Restore" (Trash) and "Move to Inbox" (Archive) rows are missing.
+    - Escape inside a flyout closes the whole menu.
+    - Icons are line-icon stand-ins.
+    - ToggleTheme is a preview until M6.
+23. **Actions** [actions, actions-rev].
+    - Confirmation is a dialog request; it answers no without a host.
+    - Archive by year or month creates folders one by one.
+    - Restore from Trash guesses the target folder.
+    - Undo of `trash-and-read` leaves the messages read.
+    - Messages may be dropped onto Drafts or Sent.
+    - "Move to" lists Drafts and Sent [verify screens].
+24. **Reader** [reader, reader-rev].
+    - The MDN and the zip are hand ports.
+    - Saves go to Downloads with no dialog.
+    - A BIMI SVG counts as missing.
+    - `onBeforeExternalLink` is intercept-only.
+    - One failed download fails the whole zip; Rust leaves it out.
+    - The banner budget is 250 ms (not checked against open-to-shown on screen).
+    - A double click is ignored per action and message.
+25. **Search** [search, search-rev].
+    - The filter panel only writes grammar operators (no size presets, no "No attachment").
+    - Snippets are fetched lazily per row (25 ms batch).
+    - A global-search hit opens only if it is in the first page of its folder.
+    - Rules menus depend on the registration order.
+26. **Sign-out** [unified, unified-rev]. onAfterLogout fires per account. The whole body cache is cleared; the avatar cache is not.
+    `MailSync.Dispose` is now idempotent.
+    - **Fable review 3: partly fixed.** Per-account local state other than the body cache and the vault entry stays (R3-11, decision E-12; not confirmed file by file).
+27. **J-028 n/a** [unified]. `upToId` is never sent; a delta is applied whole.
+28. **Escape clears ticks** [verify]. `KeyRouter` "close" now also calls `ClearChecked` (Bulwark `hooks/use-keyboard-shortcuts.ts:217-221`).
+    M1 kept the ticks and the selection bar after Escape. Test `KeyRouterTests.Escape_closes_the_reader_and_clears_the_ticks_as_Bulwark_does`.
+29. **Bundled plugin on publish** [verify]. The App csproj target `PublishBundledPlugins` copies `plugins/spam-score` to `$(PublishDir)`
+    and fails the publish if the plugin was not built. The portable zip now carries it.
+
+### 4. Partially verified
+30. **Feel** [verify]. WGC gave valid frames for the first time.
+    - ctx_menu, dialog, palette, delete and undo: 0 BLANK / 0 FLASH in four looks.
+    - Bento dialog open: one 27 to 29 ms frame in 2 of 9 runs.
+    - Close transitions are a single swap (2 frames).
+    - `search_results` and `chip_remove` are unmeasured (the script stops the probe too early).
+    - A 500-message import had one 34.8 ms gap.
+    - Files: `tools/feel-m2.py`, `spec/feel/M2/verify/`.
+    - Real-input scenarios (select_range, drop_move, pane_resize, hover_strip) and the Narrator pass are HAND TEST 2.
+31. **Linux** [f, unified-rev, verify].
+    - Green on merged `m2` (1426 tests, 0 failed).
+    - `xrun -Script auto-m2` drove the menu, the dialog over the body, the palette, `dnd-sim` and undo.
+    - Open:
+      - the first X11 capture after an open showed the body as a white block in the dark theme (a possible WebKitGTK white flash);
+      - 4 frames in the first 0.5 s of the idle probe;
+      - the build still restores `Barbican.Platform.Windows`;
+      - Secret Service has never run for real.
+    - Files: `tools/linux-remote.sh`, `docs/milestones/M2-screens/linux-*.png`.
+    - The streams' "no Linux result" came from `tools/linux.ps1` picking Git's MSYS ssh when started from Git Bash; it now calls
+      Windows OpenSSH [verify].
+32. **Hand tests only** [menus, actions, reader].
+    - The real right-click on rows, the body and folders.
+    - Ctrl and Shift clicks.
+    - Hover strip, pane drag and its reset.
+    - Real drag (there is no `CanDrag`: `dnd-sim` is the only entry).
+    - The dialog focus trap (`TabFocusNavigation=Cycle`).
+    - R2-11 on a German layout.
+    - R2-12 scroll (not measured).
+33. **Live** [verify].
+    - Ran read-only on `<test-account>` through the agent import: L-047 key path, menus with write rows disabled, writes refused,
+      search, unified (inconclusive).
+    - Leftovers found and not removed (M2.md §4).
+    - Every write live check (L-015, L-016, L-022, L-037, L-038, L-039, L-044, L-057) waits for M2-Q2 or HAND TEST 2.
+34. **Traces** [verify]. `ActionTraceTests` writes `spec/traces/M2/{delete_undo,move}.cs.txt`; the Rust side is derived by hand
+    (`mail.rs:978/:1032/:1045/:1058`, `jmap.rs:688/:692`). The undo line follows Bulwark `stores/email-store.ts:5878` (Rust had no mail undo).
+35. **FakeJmap fidelity** [f, actions, reader, unified].
+    - `ImportBlob` drops Message-ID: a repeated import is not a duplicate on the fake. Seen again in [verify]: `imported 500 already 0` twice.
+    - Shared accounts are not served.
+    - Sample runs use the M1 seed (`SeedM2` off), so banners, TNEF and spam rows never show in hidden runs.
+    - The synthetic TNEF must stay readable by MimeKit.
+36. **Commit trailers** [f]. `954dcd5` says Opus 5.5 and the later stage F commits say Sonnet 5.5. History is not rewritten (D-1).
+
+### Resolved during M2 (for the record)
+- **[f-rev]** The automation `text` command sets `TextBox.Text` in process.
+- **[actions-rev]**
+  - myRights on moves and drops;
+  - a cancelled write restores its rows;
+  - R2-12 scrolls only on a changed id.
+- **[actions]** A DI cycle (`LiveMailActions` takes `Func<>`).
+- **[menus]** A DI cycle (`Lazy<PaletteController>`). **[menus-rev]** The dialog focus trap (unverified on screen).
+- **[reader-rev]**
+  - R2-14 fails closed;
+  - the banner budget;
+  - zip slip;
+  - double clicks;
+  - unfolded unsubscribe headers;
+  - more `PublicAddress` ranges.
+- **[search-rev]**
+  - the sync delta grammar;
+  - history IO off the UI thread;
+  - a single redraw per change;
+  - no self-opening dropdown.
+- **[unified-rev]**
+  - `MailSync.Dispose` is idempotent;
+  - slow unified sources keep their rows;
+  - a plugin manifest that throws is contained;
+  - transfer IO is off the UI thread;
+  - `UnifiedSectionView` re-subscribes;
+  - G-046 and G-047 statuses are honest.
+- **[verify]**
+  - Escape clears ticks;
+  - the publish carries the plugin;
+  - `linux.ps1` uses OpenSSH;
+  - the delete_undo and move traces;
+  - the `auto-m2` VM script;
+  - 33 interaction rows deferred as the plan lists them.
+
+## m2-close-b (branch `m2-close-b`, Sonnet)
+- **Reader menus (MENU-READER, MENU-ATT).** `Presentation/Reader/{ReaderMenus,ReaderCommands}.cs`, `App/Views/Reader/ReaderMenuOpener.cs`, `ReaderView.xaml(.cs)`.
+  - Review: the "Open" and "Open message" rows are left out on purpose. Opening an untrusted attachment with the system handler needs a decision (executables, .lnk, .hta); Bulwark's own Open is a browser download. "Open message" needs a reader UI for `Email/parse`.
+  - Review: "has blob" and "opened .eml" are not tracked, so a loaded message always counts as having its blob.
+  - View source reads the whole raw message through `AttachmentSaver.RawAsync` and cuts the display at 2 MiB. Check the memory use for a 50 MB message.
+  - The dialog was not drawn in a hidden run: the sample app has no account session, so the raw fetch answers "not signed in". Visual check is a hand test.
+- **Search marks.** `App/Views/List/Snippet.cs` (attached properties on the row's two TextBlocks) and `Core/Search/SearchSnippetSource.cs`. A changed filter now raises `Arrived` with the stale ids, and a batch that returns for an old filter asks again. Review the race: `SetFilter` clears and raises under the lock's release, and the retry in `RunBatchAsync`.
+- **Import and export entries.** `Presentation/Unified/TransferCommands.cs`, `App/Shell/SystemFilePicker.cs`, `UnifiedRegistration.cs`. The picker is compiled out of the Automation build (queued picks only). The real FileOpenPicker/FileSavePicker/FolderPicker, the window handle and the Uno/Linux path are untested (no Linux testing yet, no real input). Risk on Linux: Uno pickers need a portal on bare X11; a failure answers "nothing chosen".
+- **J-051 / J-074.** `Core/Mail/Archive/ArchivedItems.cs` (client for `x:ArchivedItem`, Bulwark `client.ts:13411-13500`), `ListQuery.CollapseThreads`, `ListPageFetcher`. Not wired to a UI: the trash recovery link (I-230) and a settings page are still open. Review the capability test: `Session.IsStalwart` only says the server is Stalwart; without an Enterprise licence the call answers `forbidden` and the link should hide on that error.
+- **Body typography.** `Core/Mail/Body/MailPageBuilder.cs` (15 px/1.6 Bento, 16 px/1.8 Nordic, 600 px measure for prose in Nordic: plain text and HTML without its own colours) from `prototype/winui/MailHtml.cs`. Review: the dark-pass page does not get the measure, only the themed and light pages. A hidden check of the computed style inside the frame was not possible (`wv-eval` runs in the shell page, not the frame), so the proof is `MailPageBuilderTests` and the screenshots.
+- **import-sim bg and the import stall (open).** `import-sim bg PATH MAILBOX` returns at once. With it, a 500-message import into FakeJmap showed UI-thread stalls of 1.3 to 6 s (round trips of `rows` and `size`, and gaps in the `rendering` probe), also on the unchanged `m2` build (1.3 s). The earlier "34.8 ms" figure came from a probe that missed it. Cause not found: not the list (the stall stays when the target folder is not on screen). Suspects: state-change handling per delivered message, or the in-process FakeJmap competing for threads. Import time also grows with the folder size in FakeJmap. Needs a profile in M3; a real-server import is a hand test.
+- **Bento dialog frame (27-29 ms).** Not reproduced: 6 Bento runs (light and dark, the first on a fresh process): worst gap 7.6 to 9.7 ms. Left open as "not seen again", not as fixed.
+- **feel-search.py** now waits until the list is steady for 350 ms before stopping the probe. Results: `spec/feel/M2/search/close-b-results.json` (search_results 51 frames, worst gap 9.6 ms; chip_remove 51 frames, 7.1 ms; the list never emptied).
+- **FakeJmap.** `Email/import` keeps the blob's Message-ID (the dedupe test depends on it); `x:ArchivedItem` is implemented behind `FakeJmapOptions.ArchiveCapability`; `collapseThreads` is honoured.
+
+## m2-close-a (stream: m2-close-a)
+
+Branch `m2-close-a` from `m2` (commits `56e9907` and the one after it). Closes interaction rows of the account popover, hover strip, sidebar, tags, unified menu and the Bulwark Restore / Move to Inbox rows. Everything below was checked in the hidden AUTOMATION build on sample data only; real pointer and keyboard paths are hand tests.
+
+- **The list is the one truth for the open folder (new rule).** `SidebarViewModel.OnListChanged` follows `MessageListViewModel.MailboxId` and `TagId`; `UnifiedSectionViewModel.IsOpen` follows `MailboxId`. Before, a command that opened the Inbox left the "All inboxes" header and the old highlight. Why review: it changes who owns `SelectedFolderId` (a folder opened by the palette, a `g` key or `unified inbox` now moves the highlight) and the order of three property notifications in `SelectFolderAsync` and `OpenTagAsync`. Where: `src/Barbican.Presentation/Shell/SidebarViewModel.cs`, `Shell/MailShellStartup.cs`, `Unified/UnifiedSectionViewModel.cs`, `Mail/MessageListViewModel.cs` (`TagId`, `OpenTagAsync`).
+- **Restore and Move to Inbox in the row menu (spec first).** Archive ancestry is computed twice: `MailMenus.InArchive` walks the menu folder list by depth, `SidebarViewModel.InArchiveTree` walks `ParentId`. They should agree; the second also decides the hover button and the `mail.move-inbox` command. Bulwark `archiveInboxTarget` also falls back to a non-shared Inbox for a shared account; not ported. Restore sends the messages back by `RestoreAsync` (origin role, else Inbox). Where: `Menus/MailMenus.cs`, `Actions/ActionCommandSet.cs`, `spec/menus.md` MENU-MAIL.
+- **Move to now hides Drafts and Sent** (Bulwark `lib/move-menu.ts:117`). The drag-to-folder path (`MailActionService.Moves.cs:24`) checks only `mayAddItems`, so a drop on Drafts is still allowed. Decide whether drops follow the menu.
+- **Select-all cap in the confirmation.** A selection of 10 000 messages now always asks, even with the confirm settings off, and says that the folder may hold more. Why review: it is a new always-ask rule next to D-7, and the count is the cap, not a server count. Where: `Actions/MailActionService.Moves.cs` (`CappedMessage`).
+- **Tags: filter, mark read, delete.** Tag definitions are `emailKeywords` in the prefs (`Tags/TagService.cs`); deleting a definition leaves `$label:` keywords on messages (as the confirmation says). The tag view leaves Trash and Junk out with `inMailboxOtherThan`. Mark all as read queries `hasKeyword` and `notKeyword $seen` up to 10 000 messages and writes them in one `SetReadAsync` (no per-account split, active account only). Where: `Tags/*.cs`, `Actions/MailActionService.Tags.cs`. Not built: "Show all N tags" (needs the per-tag visibility setting), tag counts, tag drag onto rows is the older `dnd-sim` path.
+- **Prompt for folder names.** `folder.new`, `folder.new-sub` and `folder.rename` used to fail with "Give the folder a name" from the menu; they now open the prompt dialog (`ActionCommandSet.NameAsync`). The prompt on the real dialog host was verified hidden (`dialog-state`); typing a name and the write are hand tests (M2-Q2).
+- **Account popover actions.** "Set as default", "Sign out of <address>", "Sign out of all accounts" run `IAccountMaintenance` after a confirmation through `IActionConfirmer`; without a dialog host they do nothing (fail closed). Alt+Shift+Up/Down reads modifier state with `InputKeyboardSource.GetKeyStateForCurrentThread` (the same read-only call `ShellPage` uses). Drag reorder is not built. Where: `Accounts/AccountsViewModel.cs`, `Views/Accounts/AccountPopoverView.xaml(.cs)`.
+- **Hover strip as icon buttons.** Buttons come from the `hoverActions` setting (default delete, star, read, archive; tag and spam optional). "Mark as read" uses the Check icon and "Mark as unread" the envelope, because the icon set has no open envelope. The Tag button opens the row menu Tag flyout under the button (`MessageListView.OnStripClick`). Floating mode and plugin row actions are not built (I-137, I-136).
+- **Unified: per-account rows and Shared section.** Per-account rows reuse `AccountsViewModel.Rows` and its switch command, so a refused account opens the sign-in form. The Shared section only lists the shared accounts that All inboxes reads (names from the JMAP Session); opening one account has no list source yet. `UnifiedSectionView` is now XAML (it was code-built).
+- **UNIFIED-ROW menu** is only header and Refresh (Bulwark `mailbox-context-menu.tsx:285-306`); "Empty trash in all accounts" needs a unified Trash row.
+- **Look.** The reference pictures of `docs/milestones/M1-look/ref` were re-accepted (the "+" in the Folders header moved 0.3 to 0.8 percent of the pixels). New sample-data pictures: `docs/milestones/M2-close-a-screens/` (unified, tag filter, hover strip in Bento dark and Nordic light). Popups are not in `shot`; the account popover was seen once with `wshot`.
+- **Tooltips (m2-close-a finish).** The sidebar "+" buttons, hover-strip buttons and Shared rows used `ToolTipService.ToolTip`, which the popup lint denies (ADR 0007); they now use `motion:Tip.Text` (in-window tip). The lint test caught it; no visual change expected. The hidden Automation build and `lookdiff check` were NOT re-run after this change: a hidden Barbican process (PID 42072, left by an earlier run in this worktree) locked the Automation output and was not stopped (not started by this agent). Re-run `tools/lookdiff.py check` once it is gone.
+
+## M2 hotfix: writes (stream: m2-hotfix-writes)
+
+- **Security boundary moved: the user's profiles are now unrestricted.** `src/Barbican.Core/Accounts/ReadOnlyPolicy.cs`
+  (`For`, `Unrestricted`, `IsReadOnly`) and `src/Barbican.Core/Storage/ProfilePaths.cs` (`IsAgentProfile`: `auto-*`, `smoke`,
+  `smoke-*`, `xrun-*`, `agent-*`). Before, "dev" and the empty profile were agent profiles, so the user's portable zip was read-only
+  on every account (HAND TEST 2). The agents' protection of `<readonly-account>` now rests entirely on agents never running in a
+  user profile. Review that every agent launch path is covered: `HiddenWindowOptions.Decide` (an AUTOMATION build or `--smoke` exits
+  on a named non-agent profile), `tools/auto-run.ps1` `Assert-AgentProfile`, `tools/linux-remote.sh` (`xrun-<name>`). Not covered by
+  code: an agent starting a Release build by hand without `--smoke` (visible window, already forbidden by CLAUDE.md) or running
+  `dotnet run` with `BARBICAN_PROFILE=dev`. Commit d779998.
+- **Stored read-only flags in "dev" are now ignored.** Earlier agent imports (`BARBICAN_IMPORT_RUST_ACCOUNTS=1` in "dev", before
+  this hotfix) may have left `<readonly-account>` in the dev profile's credential set flagged read-only; it is now writable there,
+  by design (the user owns it). Any agent that still runs a build in "dev" could write to it. `RustCredentialImport` refuses the
+  agent import outside agent profiles now. Commit d779998.
+- **CLAUDE.md line "C# dev builds use their own profile (`BARBICAN_PROFILE=dev`)" is stale**: dev is the user's profile; agents use
+  auto-*/smoke/xrun-*. Not edited by this stream (CLAUDE.md is the user's rules file); the user or the next review should update it.
+- **Real drag and drop was never wired** (no `CanDragItems`/`AllowDrop`/`Drop` anywhere); now the platform's in-app DnD:
+  `src/Barbican.App/Views/List/MessageListView.xaml(.cs)` (drag source), `src/Barbican.App/Views/Sidebar/SidebarView.xaml(.cs)`
+  (folder list drag source and drop target via `AddHandler(..., handledEventsToo)`, tag rows drop targets with a transparent
+  background), state in `DropController.BeginMailDrag(targets)/BeginFolderDrag/CanDropOnFolder/DropOnFolderAsync/DropOnTagAsync/
+  CancelDrag`. Unverified: real pointer dragging (hand test), the order of `Drop` and `DragItemsCompleted` (CancelDrag is a no-op
+  once a drop consumed the drag), Uno Skia's in-app DnD on Linux (compiles and tests green; never driven), `DragUIOverride` captions
+  on Uno. CanDragItems on the message list may interact with press-and-hold on touch. Commit ce83fb8.
+- **Plain `z` undo** added (`ShortcutTables.Mail`), Bulwark `hooks/use-undo-shortcut.ts:15-25`; Rust maps only Ctrl+Z. Bulwark parity
+  chosen over Rust because the `?` sheet already advertised it. Commit 45ef124.
+- **Sample runs hide account-policy bugs.** `SampleActiveMail.CanWrite` is always true and bypasses `AccountManager`, so the M2
+  verify could never see the read-only zip. The policy-to-client chain now has a unit test (`AccountManagerTests.
+  The_users_own_profile_writes_to_every_account_even_one_flagged_read_only`), but there is still no hidden run that signs into
+  FakeJmap through the real `AccountManager`; consider one before M3.
+- **`caption` automation command** (`src/Barbican.App/Shell/Automation/CaptionCommand.cs`) calls `ShellPage.AttachWindow` on the
+  hidden window (ExtendsContentIntoTitleBar on an off-screen, never-activated window); focus-guard stayed `own-is-foreground=no`.
+- **No tag keyboard shortcut** exists in Rust or Bulwark; "tag through the shortcut" was checked through the menus only. The palette
+  has no tag rows (`palette Tag` / `palette Red`: 0 rows) — a parity question for the menus stream.
+- **Not fixed here, owned by m2-close-a (not merged at the time of this hotfix):** tag menu rows Show messages, Mark all as read,
+  New tag, Rename, Delete tag, Manage tags have no registered commands (always disabled, also on a writable account); the sidebar
+  "+" (`sidebar.tags.add`), folder settings button and Compose are `IsEnabled="False"` in XAML; right-click on the folders header
+  and the avatar opens nothing (the menus exist: `menu-open FOLDERS-HEADER` / `ACCOUNT` work); rail Calendar, Contacts, Files and
+  Settings switch to apps that do not exist yet (M4-M6) and show nothing.
+- **Flaky test seen once** in Barbican.Presentation.Tests during the m2 merge run (1 failure, not reproduced in 3 later runs; name not captured). Worth a look for a timing dependency.
+
+## Fable review 3 (stream: fable-review-3)
+
+Report: [fable-review-3.md](fable-review-3.md), branch `fable-review-3` from `m2` at `91a0741` (reading only; nothing built, run or
+launched; Linux unverified). Verdicts on the M2 verify items 1 to 6, 11, 12 and 26 are marked in that section above
+("Fable review 3: ..."). For the next Fable pass, in this order:
+
+- **R3-01 after its fix: reads of unified rows.** Every read that takes a row id (body, thread, blob download, snippets, read
+  receipt, the reader's menus, the body cache key) must go to the row's own login and JMAP account with the real id. Check the
+  FakeJmap test with two logins that opens a row of each, and that a shared-account row opens too. Paths:
+  `Core/Mail/Unified/{UnifiedFetcher,UnifiedRows}.cs`, `Presentation/Mail/Loading/{MessageLoader,MessageFetcher}.cs`,
+  `Core/Search/SearchSnippetFetcher.cs`, `Presentation/Reader/ReaderBannerActions.cs`. Derived by reading, **not run**.
+- **R3-02: one `MailTarget` contract.** Six constructors fill `AccountId` and `EmailId` differently (list in the report). After the
+  fix, grep every `new MailTarget(` and every reader of `AccountId`; run Download (.eml) and View source from the row menu.
+- **R3-03: partial results of chunked writes.** `MailWriter.SetChunksAsync`, `DestroyAsync`, `UnifiedMailWriter.RouteAsync`,
+  `MailActionService.Removal.cs`: the rows put back must be exactly the rows the server did not change, and undo must cover the rest.
+- **R3-04: whether `<config>/plugins` is loaded** must match the decision (E-10). The load context is not a boundary; do not let a
+  comment say it is.
+- **R3-05: exceptions out of commands.** No runner catches them (`ShortcutCommands.Run` drops the task). After the shared runner
+  exists, check what `CrashGuard` does with a UI-thread exception (not read for this point).
+- **R3-06: the trust rule is only as good as the server's own header.** Stalwart adds Received and Authentication-Results on port
+  25 only (`crates/smtp/src/inbound/data.rs:482-501`, `crates/registry/src/schema/structs_impl.rs:28843-28875`). Re-check when the
+  default changes with a server version, and check that the app's own import cannot be used to plant a verdict.
+- **R3-08 before the archived-items view**, **R3-09** (search in a tag view), **R3-11** (what a sign-out leaves in the profile:
+  list the files per account first).
+- **Tests pass on a contract the app does not use.** `AttachmentSaverTests` build the target by hand with the real account id;
+  the app builds it through `UnifiedTargetResolver`. Prefer tests that take the target from the same resolver the menus use.
+- **No hidden scenario opens a unified row or runs a row-menu command on one.** The sample run has two FakeJmap logins
+  (`SampleUnifiedLogins`), so both are cheap to add.
+- **Not reviewed in this pass** (say so at the gate): anything running, Linux, R2-06 (the vault), `MailSync` stop paths,
+  `PluginHookBridge`, `TagRules`, Sieve, the palette and key router, the views' drag and drop code, the calendar invitation code,
+  images other than four M2 screenshots, and the plan documents listed in the report's section 5.
+- **Privacy**: the text of all 187 commits on every ref was searched with the private pattern: clean; identities are all noreply.
+
+## m2-fable-fix-3 (branch `m2-fable-fix-3`): Fable review 3 items R3-01, R3-02, R3-04, R3-05
+
+- **R3-01 read routing.** `Presentation/Unified/UnifiedReadRoutes.cs` resolves a unified row once into (login client, JMAP account =
+  shared account or the login's `MailAccountId`, server id) and keeps one `MailService` + `ClientBlobSource` per source while the
+  login's client stays the same. `MessageFetcher` keys the body cache by `UnifiedRows.SourceKey(login, shared)` and the server id, and
+  hands back bodies and threads with row ids again (`Tagged`), so the reader, conversation strip and actions keep speaking in row ids.
+  Review: the pinned authserv id and the server host follow the login, the folder roles the source key (`ReaderDepth.Shape` rolesKey).
+  Search snippets of unified rows go to their own login (`SearchSnippetFetcher.FetchRowsAsync`); a source whose login is not connected
+  or whose server refuses gets no snippets while the others still do. Test: `Presentation.Tests/Unified/UnifiedReadTests.cs` (two
+  FakeJmap logins with different account ids). Not done: the hidden scenario step (`unified on`, open row 1, assert body text) the
+  review asked for; the read-receipt path (`ReaderBannerActions.ReceiptAsync`) is changed but has no test.
+- **Decision (R3-01):** a read receipt for a row of a *shared* account is refused ("Receipts are sent only for mail of your own
+  accounts."): the receipt would go out from the user's own identity for mail addressed to the group (not checked against Rust).
+- **R3-02 MailTarget contract** (written on `Core/Mail/Model/MailTarget.cs`): `AccountKey` the login whose writer takes the action
+  (the account on screen for a unified row), `AccountId` the JMAP account or empty for the login's own, `EmailId` the list id. Code
+  that talks to a server asks `Login`, `JmapAccountId(loginMailAccountId)` and `ServerId`. This keeps the writers (which route by the
+  row id, `UnifiedMailWriter`) unchanged instead of the review's "EmailId = server id" variant; review whether that is the better
+  trade. Constructors: `UnifiedTargetResolver`, `ContextPointerRouter` fallback (empty, no longer the account key), `ReaderMenuOpener`
+  and `RxSaveCommand` (`MailTarget.OfOpen`), `LiveMailActions`, `MailActionService.Tags` (empty = own). Consumers moved to the
+  contract: `AttachmentSaver`, `EmailParseOpener`, `TnefExpander`, `QuickRuleService` (refuses a row of another login: "Switch to that
+  message's account"), `InvitationBannerSource` (reads the invitation through the row's login). Test: `Presentation.Tests/Unified/RowMenuSaveTests.cs`.
+- **R3-04 user plugins off.** `NativePluginHostOptions.ForApp` (Core) builds the app's roots without `UserRoot`; `UnifiedRegistration.AddPlugins`
+  uses it. The test is in Core.Tests (`Plugins/UserPluginsOffTests.cs`), not `CompositionGraphTests`: the App head's registration is not
+  reachable from a test project, so the test pins the factory the registration calls and loads a real plugin copied to
+  `<config>/plugins/x` (not loaded; loaded in a control run with the user root named). `PluginLoadContext`'s comment now says it is
+  not a security boundary.
+- **R3-05 transfers and the command runner.** `MailTransfer` catches IOException/UnauthorizedAccessException into a failed result with
+  the reason ("Import failed after N messages: ...") and ends any other run in `finally` (the exception still goes on). One runner,
+  `Presentation/Commands/CommandRunner.cs`, registered in `MenusPresentationRegistration`, used by ShortcutCommands, ContextMenuController,
+  PaletteController, RailView, SelectionBarView, MessageListView (hover strip), SidebarView and the automation `act` command: an
+  exception becomes an error toast ("That did not work: <message>") and a crash-log file (`CrashLog.Write`, source `command <id>`), a
+  cancellation says nothing. Decisions: whether a failed *result* is toasted stays as each surface had it (menus, palette, sidebar
+  yes; shortcuts, rail, bars no, because the actions toast their own failures); `DelegateAppCommand` itself does not catch (the
+  runner does, a catch there would toast twice). The crash-log folder fills with one file per thrown command (pruned at 50); check
+  that this is the wanted volume. `AttachmentSaver.WriteAsync` turns IO errors into a failed result (from the WIP commit e27dc3e).
+
+## M3 plan (stream: m3-plan)
+- **Uno.Sdk 7 move is on the critical path of stream editor-view** (`global.json` still pins Uno.Sdk 6.7.49 with SkiaSharp 3.119.2; `Barbican.Editor.Layout` needs SkiaSharp 4.156.0; `Directory.Packages.props` lines 53-62, ADR 0006 "M0 review"). The plan makes it step 0 of editor-view with a vendoring fallback (docs/milestones/M3-plan.md section 6.3). Review the move for a changed WinUI/Skia behaviour in the M1/M2 views. Paths: `global.json`, `src/Barbican.App/Barbican.App.csproj`.
+- **Loopback TCP as the only single-instance mechanism** (D-241) replaces PORT-PLAN 3.9's `AppInstance` and Unix socket. Security review: the token file permissions and the greeting check (`src/Barbican.Core/Instance/`, contract stub only at this commit).
+- **Contract stubs throw `PortPendingException`** until their stream lands; a default registration that throws is only ever reached if a stream forgets to replace it (`src/Barbican.Core/Compose/*.cs`, `SendPipelineRegistration.cs`).
+- **Default decisions without a user question** (M3 plan section 9), most worth a look: send warnings and external-recipient confirm live in `Barbican.Core.Compose` (pure) with the dialog in the composer shell; DSN, Require TLS, Encrypt and Classification are deferred (I-258); mentions are built (G-075), the org disclaimer is not (I-268).
+
+## M3 editor-view
+- **Uno.Sdk 7.0.22 move (D-246)**: check M1/M2 views for a changed WinUI or Skia behaviour (fonts, popups, flyouts) and the suppressions (`CsWinRT1032`, `CA1416`) in `src/Barbican.App/Barbican.App.csproj` and `src/Barbican.Automation/Barbican.Automation.csproj`. `global.json`, `Directory.Packages.props`.
+## M3 stream: editor-core
+- **Importer swap (D-M3B-02).** `src/Barbican.Core/Editor/HtmlImporter.cs` replaces Rust's hand tokenizer with an iterative AngleSharp DOM walk that feeds the same builder logic. Review whether browser-style repair of misnested markup can change what a real reply or signature imports as (the ten fixtures in `tests/fixtures/editor/mail` and the six ported import tests agree; no real mail corpus was run). Also the text-preservation test only proves visible text, not marks.
+- **Sanitising choices (D-M3B-05).** Scripting-scheme links and images are dropped on import, but `CleanQuotedHtml` and the quoted block's `Html` stay the raw (script/style/head stripped) original, exactly as Rust, and `Export` writes that HTML into the sent mail. Review whether the quote should also lose event-handler attributes and `iframe`/`object` before it is sent (`src/Barbican.Core/Editor/DocHtml.cs`, `HtmlExporter.cs` Quoted case).
+- **Plain mode makes formatting commands no-ops (D-M3B-03).** Rust only switched the input rules off; B-RTE-020 and Bulwark say the commands are ignored. Check against the toolbar behaviour of the real composer in plain mode (`EditorSession.cs`).
+- **Undo snapshots are whole-document clones** (300 steps). Fine for mail-sized bodies; a very large pasted document (tens of thousands of blocks) makes each step copy it. `EditorSession.Snapshot`.
+- **Windows spell checker COM (D-M3B-10).** `src/Barbican.Platform.Windows/Spelling/*`: source-generated COM, hand-declared vtables (slots copied from `spellcheck.h` from memory of the header, verified only by the working `en-US` check on the dev machine: Check, Suggest). `Add` and `Ignore` are not exercised by a test (they would change the user's dictionary). `CoInitializeEx` result is ignored as in Rust. `WindowsSpellCheckerFactory` is registered in `src/Barbican.App/Composition/PlatformServices.cs` (not an editor-core path, one added line).
+- **Shortcut table (D-M3B-07)** is TipTap's default keymaps written from the extension sources, not captured from a running Bulwark; compare against the real composer once (`EditorShortcuts.cs`).
+- **Export is byte-compared to Rust only through the ported tests and the ten snapshots** that were generated by this implementation (`BARBICAN_SNAPSHOT=update`, `tests/fixtures/editor/export`), then read by hand against `html.rs`; the Rust binary was not run to produce them.
+
+## M3 stream: send-pipeline
+
+- **FakeJmap is a model of Stalwart, not Stalwart.** The held-submission release job, `forbiddenFrom`, HOLDFOR limits (7 days) and `stateMismatch` were written from the Stalwart sources and Bulwark, not observed live; the integrate stage must confirm them on the test account (`tests/Barbican.FakeJmap/FakeApi.SubmissionHold.cs`, `FakeApi.Metadata.cs`).
+- **Send, undo and send now (D-M3A-02, -03, -04)**: `MailSender` (`src/Barbican.Core/Compose/MailSender.cs`, `SubmissionOps.cs`). Send now is cancel then resubmit; a race with the release is possible and reported as "already sent".
+- **Fail-closed hooks (D-M3A-02)**: onComposeSend modelled as an intercept.
+- **Cancel send leaves the copy when Drafts restore fails (D-M3A-05)**, a deviation from Rust.
+- **Reply recipients follow Bulwark, not Rust (D-M3A-06)**: `ReplyRecipients.cs`.
+- **Inline images of a reopened draft** are downloaded for display (24 images, 12 MB each at most): `ComposeSeeder.RestoreImagesAsync`.
+- **Template metadata**: the Inbox carries the entries (`TemplateStore.cs`); size limits of a metadata entry (Bulwark MAX_METADATA_ENTRY_BYTES) are not checked client-side.
+- **Additive contract changes**: `IDraftService.SaveAsync(draft, autosave, ct)`, `IScheduledSends.MaxDelayedSend`, `SendReceipt.Draft` and `EnvelopeRewritten`, `ToastRequest.SecondaryLabel/SecondaryAction` (the toast view must draw the second button), `IDocCodec` seam, FakeJmap options and a FakeMail.Cc/MoreTo/ReplyToEmail. AppComposition must call `AddBarbicanSendPipelineViewModels()`.
+- **Requests to other streams**: composer-ui implements `IScheduleDialogHost`, renders `WarningsRaised`, the toast second button, and calls `SendCoordinator`/`TemplatePickerViewModel`; `IDraftService.SaveAsync(..., autosave: true, ...)` for the 2 s autosave.
+
+- **Hidden TextBox IME path** (`src/Barbican.App/Views/Editor/EditorView.Input.cs`): composition events are wired and the sequence is tested with synthetic events only (`editor-ime`); the real IME (Windows and IBus/Fcitx) is unproven (G-091). The order of `TextChanged` and `TextCompositionEnded` on a real IME decides whether a commit could double; the code ignores changes while composing and clears the box on commit.
+- **Clipboard** (`OsClipboardBackend.cs`): the WinRT clipboard is read as an async snapshot, then pasted synchronously. Never exercised against the real clipboard (hidden runs use `MemoryClipboardBackend`). HTML written without `HtmlFormatHelper` on the Uno head.
+- **Text quality gate** (D-251): only dark theme at 100 % measured; check 125/150 % and light theme, and the Uno `SKCanvasElement` host on the VM.
+- **Model gaps recorded as decisions** D-247 to D-249, D-252: mention chips, RTL direction, cell colour, image move undo.
+
+## M4 plan (stream: m4-plan)
+- **Webcal address check is stricter than Bulwark** (D-M4-07, G-006): LAN, localhost, link-local, unique-local, IPv4-mapped and credentialed addresses are refused, http is allowed with a warning. Review the rule list and that the fetcher repeats it on redirects and on resolved addresses (`src/Barbican.Core/Calendar/Feeds/FeedRules.cs`, contract stub only at this commit).
+- **JSCalendar stays `JsonNode` and wall clocks stay `DateTime`** (D-M4-02): review that no stream introduces a typed event model that would drop unknown properties on a write. Paths: `src/Barbican.Core/Calendar/**`.
+- **The .ics import asks before it keeps the file's alerts, and the default keeps them** (D-M4-09, overridden by the user's rule that Bulwark's behaviour wins): the question appears only when the chosen events carry alerts (`ImportRules.HasAlerts`, `ImportViewModel.KeepAlerts` and the `cal.import.alerts` box), and "no" hands `ImportAsync` false so the alerts are stripped before the store call. Paths: `src/Barbican.Core/Calendar/Editing/{ImportRules,IcsImporter}.cs`, `src/Barbican.Presentation/Calendar/Editors/Dialogs/ImportViewModel.cs`, `ImportViewModelTests`.
+- **Contract stubs throw `PortPendingException`** until their stream lands; a default registration that throws is only reached if a stream forgets to replace it (`CalendarDataRegistration.cs`, `CalendarEditingRegistration.cs`, the six calls in `AppComposition.cs`).
+- **FakeJmap calendar arms** (`tests/Barbican.FakeJmap/FakeApi.Calendar.cs`) are written from the draft and Stalwart's source, not recorded from a server: review that their error shapes match Stalwart before cal-edit's write arm is trusted (`Principal/getAvailability` answers from event participants only).
+
+## M4 cal-data (stream: m4-cal-data)
+- **Ical.Net is pinned 5.1.1** in `Directory.Packages.props` (test-only oracle for `RecurrenceOracleTests`). cal-edit may pin another version in the same file: on merge keep one version and re-run the oracle test (300 random rules); a version change may move the D-M4-A01 differences.
+- **Reminder window and stale rules** (D-M4-A05, `src/Barbican.Core/Calendar/Reminders/ReminderRules*.cs`, `ReminderScheduler*.cs`): a year read window (`OwnAlertHorizon`, G-005: an event's own alert can be that far before its start, Bulwark's limit), 15 s check, 300 s refetch, acknowledged keys per login. Review the missed-while-closed logic (first check per run) and that a failing shared account never hides the user's own reminders. Tested on a virtual clock over FakeJmap only, never against a real server.
+- **Scheduler test timing** (`ReminderSchedulerTests`): the timer test drains the background checks before each manual check because `FakeTimeProvider.Advance` fires every 15 s tick at once; the gate skips an overlapping check by design.
+- **FakeJmap `after`/before filter** (`tests/Barbican.FakeJmap/FakeApi.Calendar.cs`) is written from Stalwart's calendar_event/query.rs, not recorded; a task with only a `due` counts at its due.
+- **`timeZone` setting** (D-M4-A06, `CalendarSettings.Zone()`): relies on `TimeZoneInfo.FindSystemTimeZoneById` accepting IANA names (ICU on Windows; Linux not run, deferred to M9).
+- **Not run: Linux** (the user deferred it to M9). The notification service and sound (B-CAL-035) are M8.
+
+## M4 cal-edit step 3 (invitations, import, feeds, availability)
+- **IcsReader** (`src/Barbican.Core/Calendar/Editing/IcsReader.cs`): a hand-written iCalendar reader instead of Ical.Net (D-M4-E01). Review its RRULE, EXDATE, TZID (Windows zone names pass through unchanged) and floating-time handling against real feeds; the server parse fallback is only exercised against the FakeJmap parse arm.
+- **Feed fetching** (`Feeds/CalendarSubscriptions.cs`, D-M4-E03): redirects are not followed and plain http is refused by `GuardedHttp`, so the plan's "http warned" is a warning on a feed that then fails. Decide whether `GuardedResponse` should expose `Location` for a per-hop `FeedRules.Check`.
+- **Subscription state** (D-M4-E02): kept in `calendar-subscriptions.json` with per-event hashes; nothing in cal-edit runs the refresh interval (no timer), check that cal-ui or cal-data owns it.
+- **Invitation answers** (`Invitations/InvitationService.cs`, D-M4-E04): verified only against FakeJmap's `CalendarEvent/set` (it records `sendSchedulingMessages`, Stalwart's iMIP behaviour for a created-with-answer event is from its source, not from a live server). No optimistic store patch for answers; the store is refreshed after the call.
+- **Availability** (`Editing/AvailabilityService.cs`): `Principal/query` filter by `email` and `Principal/getAvailability` argument names follow the draft and the fake; a real Stalwart (G-009) must confirm them before "Find a time" is trusted.
+
+## M4 stream: cal-views
+- Review `src/Barbican.App/Views/Calendar/**` (gestures, hover preview, print view) against Bulwark's calendar views: judgement calls are D-M4-C05..C10 in `spec/decisions.md`. Verified only through hidden automation on sample data (screens in `docs/milestones/M4-screens/`), never with a real pointer or on a real login; Linux untested (deferred to M9).
+- `CalendarGestures.WriteAsync` now resumes on the caller's thread (`ConfigureAwait(true)`); the previous `false` threw a COMException in the toast and rollback path. Check the same pattern in cal-edit's `CalendarWriter` when merging.
+- Perf probe numbers (5 000 tasks, 3 000 events): Agenda 21 ms, Month 16-35 ms, Week 68-85 ms, Day 16-41 ms: measures view model and layout, not the first paint of the ListView.
+
+## M4 stream cal-ui
+- **Typed date and time fields instead of pickers** (D-M4-D01): `src/Barbican.App/Views/Calendar/Editors/CalendarCardHost.Event.cs`. Review whether a picker is wanted; the card layout was never looked at (no calendar screen host on this branch, so no screenshot was taken).
+- **App views compiled, never run**: `CalendarCardHost*.cs` and `Automation/CalendarUiAutomation.cs` build in Debug and Automation but no hidden run happened; cal-views places `CalendarCardHost` (DI singleton) over its grid.
+- **Command and menu counts are constants** (`CalendarCommandSet.Count` 40, `CalendarMenus.Count` 6); composition tests assert them. Commit 16e4666 fixed an off-by-one (was 41).
+- **Requests to other streams**: cal-views adds `CalendarCardHost` as the top child of the calendar screen and routes the rail Tasks entry to `TasksViewModel`; the Tasks list view and reminder popup views are not written (view models only).
+
+## M5 plan (stream: m5-plan)
+- **Hostile-input limits are chosen, not measured** (D-M5-03, G-012): 16 M characters a file, 10 000 cards, 1 M characters a line, about 8 MiB a photo, 500 entries a kind. Review the numbers against what a real phone export contains and that no path allocates more than a few times a limit (`src/Barbican.Core/Contacts/VCardLimits.cs`, `ContactPhoto.cs`; contract and red tests only at this commit).
+- **FolkerKinzel is not used for vCard** (D-M5-05): a deviation from the PORT-PLAN wording; the hand-written mapping is pinned by Rust's tests. `src/Barbican.Core/Contacts/VCardParser.cs`.
+- **The contacts FakeJmap arms are written from RFC 9610 and Stalwart's source, not recorded from a server** (`tests/Barbican.FakeJmap/FakeApi.Contacts.cs`, `FakeContacts.cs`): review that the error shapes (`requestTooLarge` over `maxObjectsInGet`, `invalidPatch` for a keywords pointer on a card without keywords) match Stalwart before con-data's write arm is trusted.
+- **Permanent file deletes** (D-M5-10, D-7): the contract says the UI always asks; review that no `IFileWriter` path other than `PurgeAsync` and a delete inside the trash destroys (`src/Barbican.Core/Files/IFileWriter.cs`).
+- **The shell seam** (`src/Barbican.App/Shell/IAppScreenFactory.cs`, D-M5-07): con-ui generalises ShellPage once; review that the Calendar host and the mail screen keep their state while another app is shown.
+- **The two additive `MenuContext` members** (`Contact`, `File`, D-M5-08) are in the frozen M2 record; review that no later stream adds a third parallel member.
+## M5 stream: files-data
+
+- Review `src/Barbican.Core/Files/FileWriter.Trash.cs`: the trash is client-side (Stalwart keeps no deleted nodes), so a bug here loses user files. `TrashAsync` is a move into a dated batch and refuses (never destroys) what is already in the trash, in a shared account or the trash folder; `PurgeAsync` and `EmptyTrashAsync` are the only destroys. Check the group-by-parent batches (D-M5-C04) and the cleanup of an empty batch when a move failed. Verified against FakeJmap only (`FileWriterTests`); the live checks L-035 and L-036 are the integrate stage's.
+- Review `FileWriter.Copy.cs` `CopyTreeAsync`: one `/set` per tree level, creation ids `c0..cn`, `Blob/copy` per level when the account differs (J-036 files part), a visited set and a 100 000 node cap against a looping or huge server tree. A failure half way leaves the part already copied (no rollback); the caller sees the error and the store is refreshed.
+- Review `FileTransfer.Upload.cs`: conflict policy (D-M5-C06), `Replace` as an update of `blobId` (never delete and create), the create request deliberately not cancellable (a node is whole or absent), a blob left behind by a cancel (the server forgets unreferenced blobs; not verified live). Also the local walk (`ReadTree`): symlinks and reparse points skipped, depth 64, 100 000 entries.
+- Review `FileTransfer.Zip.cs` and `FileNames.ZipSegment` / `LocalName` as the security surface of this stream (zip-slip, Windows device names, bidi override characters, a 255 unit limit). `FileNameTests` pins them; nobody has tried a real archive in an unzip tool.
+- Review `FileStore.Push.cs`: a second event stream per login for `FileNode` (D-M5-C02). Backoff is `PushBackoff`; the stream is opened after the first `LoadAsync` and ended on `Dispose`. Untested live. If Stalwart limits event stream connections per user this should move into the mail engine.
+- Deviation: the plan's test `Names_are_checked_against_the_server_rules_before_an_upload` was wrong ("console.txt" is 11 bytes, the limit in the test 10); changed to "cons.txt" (D-M5-C01). Bulwark `fileNameProblem` is the oracle.
+- Deviation: `postExportAction` and `timeFormat` are in the plan's settings list for files-data but are not read by file transfers (D-M5-C07); `csharp_read_by` is set for the four filename keys only.
+- `docs`/`spec` edits outside my rows: `FakeJmapOptions.Files`, two lines of `FakeApi.cs`, two lines of `FakeJmapServer.Routes.cs` (D-M5-C09). J-036 (`Blob/copy`) and G-044 stay as they are: the row is shared with con-data (photo blobs, contacts live), who moves it to `done`; the files side is covered by `FileWriterTests.Copy_goes_across_accounts_with_Blob_copy_in_both_directions`.
+- Unproven (needs the integrate stage or a human): a real `<test-account>` run of upload, trash, restore, empty trash, share, copy across accounts (L-035, L-036); which FileNode shape the user's server answers (L-035 records it); the principal lookup for sharing (`ShareAsync` takes a principal id; finding it by e-mail or name is con-data's directory or files-ui, Rust `find_principal`).
+
+### Requests to other streams
+
+- files-ui: `FileEntry.MyRights` is the rights object of a shared node (`mayShare`, `mayAddChildren`, ...); `FileTrash.Items(entries)` and `FileTrash.Folder(entries)` are the trash listing and its folder; `FilePaths.Of(entries, key)` is the breadcrumb path (64 levels at most); `FileNames.CopyName` and `UniqueName` are the names the writer will choose, for a preview. `FileStore.DrainAsync()` and `Dispose()` exist on the class, not on `IFileStore`.
+- integrator: `spec/decisions.md` has four streams appending after the row D-M5-19; keep every row when the textual conflict comes. `tests/Barbican.FakeJmap/FakeJmapOptions.cs`, `FakeApi.cs` and `FakeJmapServer.Routes.cs` each have a small additive edit of mine (D-M5-C09), next to con-data's contact lines.
+## M5 stream: con-ui
+- **The shell seam** (commit c01e61e, `src/Barbican.App/Shell/ShellPage.xaml`, `ShellPage.xaml.cs`, D-M5-07): `ApplyAppAvailability` adds and removes only the apps of the registered factories, so Calendar's own availability is untouched; `ShowAppScreen` builds a factory's screen on the first visit and then only hides it. Review that switching Mail, Calendar and Contacts keeps each screen's state and that a login without the capability falls back to Mail.
+- **Contacts code was written against stubs**: con-data had not landed when this stream ended (`ContactFields`, `ContactDetail`, `VCardParser`, `ContactMerge`, `ContactPhoto`, the store, the writer, the lookup and the directory all throw `PortPendingException`). The view model, the commands and the dialogs catch it and show "not available yet"; the list, search, sort, menus, keys, group dialog, directory dialog and print were exercised (tests and a hidden sample run), but the contact form save, the import, the merge, the photo and the mail-side lookup were never run end to end. Re-run L-031, L-032, L-033 and the form after con-data merges: `ContactsFormModel`, `ContactsImportViewModel`, `ContactsMergeViewModel` in `src/Barbican.Presentation/Contacts/`.
+- **Form entry rows follow Rust's `fields_of`** (sections email, phone, address, url, im, date, related; `Kind` and `Kind2` index `ContactOptions`): I read the section names from `contacts_x.rs:121`, not from con-data's code, which was not there. If con-data names a section differently the form rows show nothing for it (`ContactsFormModel.Sections`, `ContactsFormDialogContent.Entry`).
+- **Patch on save** (D-M5-B11): `ContactsFormModel.Patch` sends whole top-level properties. A server that refuses a whole-property patch of a map (Stalwart refuses pointers into a missing map, not whole maps) was assumed fine; unverified against the FakeJmap set arm.
+- **Additive edits to M1/M2/M3 files** (D-M5-19): `src/Barbican.App/Views/Dialogs/{IDialogContent.cs,DialogHostView.xaml,DialogHostView.xaml.cs}` (two default members, a named button row); `src/Barbican.App/Views/Context/ContextView.xaml(.cs)` (the contact card slot of the sender panel); `src/Barbican.App/Views/Compose/ComposerView.xaml.cs` (a Directory toggle beside Cc and Bcc); `src/Barbican.Presentation/Input/{KeyRouter.cs,ShortcutCommands.cs}` (Contacts uses the key tables like Calendar; `ShortcutCommands` takes the contacts view model), `Menus/MenusPresentationRegistration.cs` (passes it), `Menus/MessageMenus.cs` (View contact row), `Commands/CommandIds.cs` (`ViewContact`), `Palette/{PaletteModel.cs,PaletteCommandMap.cs}` (the ct:* rows run contacts commands); tests `PaletteControllerTests`, `MenuItemListTests`, `MenusCompositionTests`, `AppCompositionTests` (counts and one label).
+- **Merge risk**: files-ui also edits `KeyRouter.cs` (the same `if (_shell.ActiveApp ...)` line) and `ShortcutCommands.cs` for the Files keys; `spec/decisions.md`, `docs/FABLE-REVIEW.md` and the registration counts in the three composition tests are appended by every stream.
+- **Not built, by decision**: the reader name popover (I-204, the card is in the sender panel), tel: links (D-M5-B06), the activity tiles (D-M5-B09), Shift-click ranges and a real-pointer drop on categories (I-350, I-357).
+- **Printing** (G-010, D-M5-12): the preview is drawn in the window and tested as a model; the OS path reuses `CalendarPrinter` and was never run. Needs a human with a printer.
+- **Hidden-run sample data** (`src/Barbican.App/Views/Contacts/Automation/SampleContacts.cs`, AUTOMATION builds only): made-up people at example.org; screenshots in `docs/milestones/M5-screens/` show only these.
+
+## webview-bg (stream: webview-bg)
+- **Background release of the body WebView2** (D-WV-01): `src/Barbican.Presentation/Mail/Loading/BodyBackgroundPolicy.cs`, `src/Barbican.App/MailBody/BodyShell.Power.cs`, `src/Barbican.App/Shell/ShellLifecycle.cs`. Review: (1) the trigger is `Window.VisibilityChanged` plus the presenter's Minimized state; it was verified only through the hidden `body background|foreground` command, never with a real minimise (rule: no real window driving), so check on a real minimise and restore that the body resumes with no flash. (2) Hide is `Visibility = Collapsed` followed by a retried `TrySuspendAsync` (the first call throws ERROR_INVALID_STATE): confirm no better way exists to set `IsVisible` from the WinUI control. (3) The close step drops the shown message into `_restore` and re-sends it on re-create, bypassing the loader (OnReady/OnShown are not called again). (4) New settings-schema row `webviewBackgroundCloseMinutes` changes the verbatim-Rust-schema hash test (SettingsSchemaTests); no settings page renders it yet (M6). (5) Linux/WebKitGTK path is a no-op, not built or run.
+## files-ui (stream: files-ui)
+- **Partial stream: Presentation only.** `FilesListRules`, `FilesPreviewRules`, `FilesViewModel` (places, tree, breadcrumb, selection, search, sort) are done and tested against `FakeFileStore`/`FakeFileWriter`; no App views, menus, dialogs, preview, commands or screen factory yet (the shell seam and files-data had not landed on their branches when this ran). Review that the unfinished list in the milestone report matches (`src/Barbican.Presentation/Files/`, `tests/Barbican.Presentation.Tests/Files/`).
+- **Rule judgement calls** (D-M5-D01, D-M5-D02): preview kinds beyond the test (audio, video, a short extension list) and the sort tie-break by natural name; the trash folder is dropped by name only when it is a directory. `src/Barbican.Presentation/Files/FilesListRules.cs`, `FilesPreviewRules.cs`.
+- **View model reads `FileTrash.Items` for the trash place**, which is a files-data stub until its S1 lands (untested for that reason).
+- **Files screen is a first cut** (commit after 94561ab): `src/Barbican.App/Views/Files/*` is code-built UI like CalendarScreen; checked only in a hidden sample-data run (list, grid, preview, delete and undo through automation), never with a real pointer, so selection with Ctrl/Shift (GetKeyStateForCurrentThread), drag and drop, inline rename and the OS file drop are unproven. `docs/milestones/m5-files-ui/*.png` are sample data.
+- **Not done:** I-228 (reader attachment preview) and the onAttachmentPreview hook, marquee selection, Share rows, a settings page for `filesSettings` (only read), the details panel shows the selection only. Shared test edit: the three composition tests' expected counts in `tests/Barbican.Presentation.Tests/Composition/AppCompositionTests.cs` and `Menus/MenusCompositionTests.cs` now add `FilesCommands.Count` / `FilesMenus.Count` (merge conflict risk with con-ui, which will edit the same lines).
+- **Sample store** `src/Barbican.App/Views/Files/Automation/SampleFiles.cs` implements IFileStore, IFileWriter and IFileTransfer in memory (AUTOMATION build, BARBICAN_SAMPLE=1 only); its trash has no dated batches.
+
+## M5 stream: con-data
+- **G-012, the hostile-input limits** (D-M5-03, D-M5-A03; `src/Barbican.Core/Contacts/VCardParser.Lines.cs`, `VCardParser.cs`, `ContactPhoto.cs`): review that no path allocates more than a few times a limit. The reader streams logical lines (no copy of the file); a line over `MaxLineChars` is cut, a photo line over `MaxPhotoChars` is dropped and counted, a card keeps at most 5 000 property lines and 500 entries a kind, a BEGIN inside a card starts it over. A picture is refused above 8 MiB and above 40 million pixels read from the header (`SKCodec`), but the full decode of an allowed picture (up to about 160 MB as RGBA) and the EXIF orientation (ignored, as in Rust) are not reviewed; the numbers are chosen, not measured. Tests: `VCardHostileInputTests`, the three hostile tests of `VCardParserTests`. L-034 on Linux is M9.
+- **Export cannot forge properties** (D-M5-A04, `VCardWriter.cs` `Clean`): every CR and LF is removed from a line after escaping. Rust wrote addresses, numbers and URIs raw. Check that dropping the break (rather than refusing the card) is the right call.
+- **Two Rust bugs fixed on the way** (D-M5-A06, D-M5-A07): editing the department lost every other unit of the organisation on each save, and a 29 February birthday in a common year had a negative "days until". Both are pinned in `ContactFormTests`.
+- **`ContactFields.Build` returns a patch, not a card** (D-M5-A02, `ContactFields.Build.cs`): the properties the form owns, null for what the form emptied. con-ui must send it as the patch of an update, and drop the nulls for a create (`ContactWriter.CreateAsync` does). The contract text said "the card after the form"; Rust's `build_card` returned the patch too.
+- **Push wiring** (`src/Barbican.Core/Sync/MailSync.cs`, `MailSync.Push.cs`, new `ContactPushTypes.cs`): the event stream also asks for `AddressBook` and `ContactCard` on a login with the contacts capability and the types go through the existing `ICalendarPush` relay (each store reads the types it knows). This is the one edit to M1 code and it changes the types asked of a real Stalwart; verified only against FakeJmap, where `PushHub` does not publish contact changes by itself, so the test sends a raw StateChange (`ContactStoreTests.The_engine_hands_a_contact_state_change_to_the_store_over_the_event_source`).
+- **Shared accounts are not tested against FakeJmap**: `FakeJmapOptions` has `SharedCalendars` but no shared contacts and `FakeApi.Method` rejects another account id for contacts (frozen M4 files). The store and writer mirror `CalendarStore` (ids "account~id", `_acc`, `_rid`, `_shared`; a failing shared account is skipped), so review `ContactStore.Load.cs`, `ContactIds.cs` and `ContactWriter.Server.cs` by reading. A move between accounts is refused.
+- **The directory is tested against a scripted client only** (`ContactScriptedClient`): FakeJmap has `Principal/query` for availability but no `Principal/get`. The request shape (a back-referenced get, `"#ids"`) follows RFC 9670 and Rust; confirm against the real server in the L-031 session. The fallback triggers only on `forbidden`.
+- **Photos** (D-M5-A08, new `IContactPhotos`, `ContactPhotos.cs`): a new interface because adding members to the frozen `IContactWriter` would break con-ui's fakes. Upload is `MailWriter.UploadAsync` into the card's account; the data: URI fallback triggers on a SetError naming `media` or an `invalidPatch`. A photo that is a web link is never fetched (the address would tell its owner who looks); a blob download stops at 8 MiB. J-036 stays `partial(M5)`: files-data's cross-account copy and my photo blobs both need a FakeJmap test before the row can be `done`.
+- **Hooks are fire and forget, intercepts are awaited** (`ContactWriter*.cs`, `ContactLookup.cs`): the 10 write hooks follow `CalendarWriter`; `MergeAsync` fires the update hooks for the kept card and the delete hooks for the others (it calls `UpdateAsync` and `DeleteAsync`), and a group created or deleted fires only `onContactGroupChange`, not the create or delete pair. Decide whether a group should fire the card hooks too.
+- **`onProvideRecipientSuggestions` fires in `IContactLookup.SuggestAsync` only.** The composer's autocomplete reads `SuggestionSources` through `ContactRecipientSources` and filters with the pure `RecipientText.Suggest`, which has no query at load time and no hook. Plugins therefore shape the reader and address-menu lookups but not the composer's list until composer-ui calls the lookup or the hook itself.
+- **`ImportAsync` result**: all created is `Ok(n)`; a card the server refuses makes the result a failure that carries the count (`Result.FailPartial`) after every chunk was tried; a call the server refuses as a whole stops it. con-ui must read `Value` of a failed result.
+- **Requests to other streams**: none that block. For the integrator, when FakeJmap is next touched: a `SharedContacts` option and `PushHub.Attach(FakeContacts)` and a `Principal/get` arm would let the three untested paths above be tested. The shared `HookCallSiteTests.cs` got one added test (`Con_data_m5_hooks_have_call_sites`) next to the other streams' M5 tests: expect an adjacent-line merge conflict to resolve by keeping every test. `spec/gaps.csv` G-044 and `spec/jmap.csv` J-036 are rows files-data also edits.
+
+## M5 integration pass
+- **Photo wiring and the blob photo** (D-M5-I02; `ContactsFormModel.SaveAsync`, `ContactsDetailView.LoadBlobPhoto`): a picked photo is set through `IContactPhotos` after the write, so a failed upload after a successful card write leaves a card without its photo and shows the error; the list rows do not fetch blob photos (initials only). Review whether the second write should be folded into one call.
+- **Data-loss guard in the form's patch** (D-M5-I01; `ContactsFormModel.Patch`): the old loop nulled every stored property the form result lacked (media, localizations, calendars, ...). It now removes only keywords, and media when no photo service is registered. Verify against a card with every JSContact property.
+- **tel: links reverse D-M5-B06** (D-M5-I06; `BrowserLaunchRules`, `ContactsJson.TelUri`, both launchers): a click hands plain digits to whatever program owns tel: on the machine. Review whether that is acceptable for a client whose threat model includes a hostile contact card (the number is shown next to the link, validated to digits and a plus, 3 to 20 long).
+- **Attachment preview** (D-M5-I08; `AttachmentSaver.ReadForPreviewAsync`, `AttachmentPreviewDialogContent`): the hook is a transform whose `Handled` flag is all the app reads; the plugin host (M6b) decides what else a taking-over plugin may return. The bytes are decoded by the platform image decoder (BitmapImage), the same exposure as the Files preview.
+- **Cascaded overlap lanes** (D-M5-I05; `WeekLayout.Slot`): a card can now cover part of an earlier one; the hit test goes top-down in draw order (later lane first). Check drag and resize on the cascaded cards with a real pointer.
+- **FakeJmap arms** (D-M5-I09): shared contact accounts, the directory and the contact push are fakes written from RFC 9610/9670 and Stalwart's source, not recorded from a server; the live checks L-031..L-036 are the proof.
+
+## M6 plan (stream: m6-plan)
+- **The shared seam and the in-memory fakes are the plan commit's** (`src/Barbican.Presentation/Settings/`, `src/Barbican.App/Settings/ISettingsPageFactory.cs`, `src/Barbican.App/Views/Settings/SetUiScreenFactory.cs`, `.../Settings/Sample/`): check that the fakes still match the real services' threading once set-data and srv-data land (D-M6-00; `SampleFakesThreadingTests` pins only the fakes, not the real classes), and that the minimal `SetUiScreen` was replaced, not left beside set-ui's.
+- **`M6NamingTests` is a rule written as a test** (prefix per owned namespace, unique simple names): review whether the namespace table in it still equals M6-plan section 3.3 at the end of the milestone.
+- **Composer-side hooks are one-line edits in M3 files** (D-M6-08): onIdentitySelect, onSignatureRender, onSelectReplyIdentity, onTemplateApply, onTemplateRender. Review that no behaviour was changed with them.
+- **Account security is coded without a live write** (D-M6-09): the FakeJmap arms are written from Stalwart's source (`crates/jmap/src/registry/mapping/`) and Bulwark's store, not recorded from a server. Review the secret handling (never logged, issued once) and the shape of the set requests against the source.
+- **`onSettingsSync` has its call site in import** (D-M6-A04): a deviation from the hook's catalogue meaning (settings sync between devices is not built).
+- **43 red tests were written against stub signatures**: where a stream finds a signature wrong it files a request; review that the red tests were not weakened to pass (compare `tests/` at the plan commit).
+
+## M6 coordination (parent)
+
+- **Assistant service/UI integration:** review the adapter between the settings page and the real assistant configuration and credential store, confirmation dispatch to the in-window dialog, and coverage of the Rust tool set. The paused streams use separate settings stores and a partial tool set; passing pure tests alone does not prove the integrated behavior. Paths: `src/Barbican.Core/Settings/Assistant/`, `src/Barbican.App/Views/Settings/`, and the integration adapters added during the close pass. Integration commits and executed checks will be recorded as they land.
+- **Evidence at takeover:** stream branches started at `c2d9652` (set-data), `a1e88a6` (set-ui), `b87f023` (srv-data), and `36efd7d` (srv-ui); integration branch started at `450ec55`. Some WIP commits removed red markers before tests ran. Require executed tests and inspected hidden sample captures before accepting completion. Linux remains deferred to M9; account-security writes remain FakeJmap-only.
+## set-data (M6, paused WIP)
+- Not compiling yet: AssistantJson.Push helper missing; analyzer fixes pending in AssistantClient, AssistantTools, SettingInfo. Review decisions D-M6-A (identity order key app.barbican.identityOrder, IAssistantKeys/Settings/Confirmation seams, edited FakeVacationAndSecurityArmsTests, FakeApi.cs, ReaderRegistration, ComposeSeeder).
+
+## M6 set-data
+
+- Review `src/Barbican.Core/Settings/Assistant/AssistantSession.cs`, `AssistantLoop.cs` (based on `c2d9652`): account histories now use per-account gates for ask/clear and deletion in automatic mode requires confirmation. Check cancellation, tool confirmation coverage, and account isolation under concurrent calls.
+- Review `src/Barbican.Core/Settings/Assistant/AssistantTools.cs` and `SettingsDataRegistration.cs` (based on `c2d9652`): the Rust tool set is still incomplete; B-AI-008 is not proven. The Windows suite passed 2,642 tests with four live/Linux skips before subsequent tool work; no live write was performed.
+- Review `tests/Barbican.FakeJmap/FakeApi.IdentitySet.cs`, `FakeApi.AccountSecurity.cs`, shared routing and `src/Barbican.App/Composition/Features/ReaderRegistration.cs` from `c2d9652`: coordinator approved integration of shared edits; check fake semantics and security data redaction against Stalwart.
+- Review `spec/settings.csv` and `SettingsCatalog.cs` from `c2d9652`: rows labelled not ported have not yet all been reconciled against actual readers or marked inert.
+
+- **The coordinator code-check scope so far:** inspected set-data checkpoint `d1f137c`, including `AssistantLoop.cs`, `AssistantSession.cs`, `AssistantTools.cs`, `AssistantClient.cs`, `AssistantSettings.cs`, `IAssistantKeys.cs`, `SettingsDataRegistration.cs`, the shared FakeJmap routing changes and `ReaderRegistration.cs`. Findings: automatic destructive tools needed confirmation; tool coverage was partial; UI settings and the client's configuration/key stores were disconnected. The worker added confirmation and session serialization; remaining tool work is still in progress. This is targeted integration checking, not a claim that every changed line has been reviewed.
+- **Coordinator checks of UI/service seams:** inspected the paused set-ui assistant/security pages and srv-data `VacationService.cs`. Findings: credential deletion needed confirmation; background prefs updates reached older bound consumers without dispatch; vacation's calendar checkbox only saved a flag. The UI worker added confirmations, the server-data worker is implementing calendar lifecycle behavior, and the coordinator fixed background preference dispatch in `ShellViewModel`, `SidebarViewModel`, `MessageListViewModel` and `FilesViewModel`. Regression evidence: 963 Presentation tests pass; 44 Platform tests pass with one Linux-service skip. The real hidden Security page failure and all merged UI/service scenarios remain to verify.
+- **Integration bridge review for the reviewer:** `src/Barbican.Platform/SecretAssistantKeys.cs` shares the settings page's profile-scoped credential entry; `src/Barbican.Presentation/Settings/Integration/AssistantDialogConfirmation.cs` dispatches confirmation and declines without a dialog host. Tests cover credential read/write/delete, sanitized write failures, dispatched acceptance/refusal, cancellation before opening, and the missing-host fallback. The coordinator added these after merging `d1f137c` as `08fe6f5`; actual provider calls remain unproven.
+## M6 srv-data
+
+- **Calendar block** (`src/Barbican.Core/Settings/Vacation/VacationCalendar.cs`, `VacationService.cs`, after `856f4f9`): review event ownership, UTC time conversion, metadata failure and multi-device races against Bulwark `lib/vacation-calendar.ts`. FakeJmap covers creation, update, future removal, started-event shortening, deleted-block preservation on load and a manually moved event; live server behavior, all-day zones, metadata failures and deletion across process restarts remain unproven (D-M6-C06).
+- **Sieve and vacation writes** (`b87f023`, `src/Barbican.Core/Filters/Rules/FilterService.cs`, `src/Barbican.Core/Settings/Vacation/VacationService.cs`): inspect rollback, locked scripts, Sieve metadata and multi-step failure behavior against Bulwark and Stalwart; FakeJmap round trips do not prove real-server compatibility. Live checks are deferred to integration.
+- **Folder metadata and template updates** (`b87f023`, `src/Barbican.Core/Settings/Folders/FolderAdminMetadata.cs`, `src/Barbican.Core/Settings/Templates/TemplateAdmin.cs`): review concurrent writes and interoperability, including the Barbican-owned pin key (D-M6-C07).
+- **Hook payloads and threading** (`b87f023`, `src/Barbican.Core/Plugins/Payloads/`, `src/Barbican.Presentation/Compose/ComposerViewModel.Attachments.cs`): call-site tests establish names only; plugin payload compatibility and all event threads need deeper verification. The composer edit is shared with set-data.
+### M6 set-ui
+
+- Review the sample-only prefs adapter and theme threading in `src/Barbican.Presentation/Settings/Ui/SetUiPrefsValues.cs` and `src/Barbican.App/Composition/Features/SettingsUiRegistration.cs` (WIP `a1e88a6`): `Put` runs on the caller thread to avoid a shell redraw crash; this does not establish the D-M6-00 off-thread-write contract. Integrate the real data service and verify dispatcher handling.
+- Review `src/Barbican.App/Views/Settings/SetUiAssistantPage.cs` (`a1e88a6`): its temporary `ai.*` prefs and global secret name do not match set-data's per-account settings and key APIs; wire and retest at integration before claiming a working real assistant. A sample run returned an answer; opening Security raised a caught exception, displayed as "Settings: No installed components were detected." in SetUiUi.GuardAsync. The precise exception origin remains unproven; a temporary stack capture produced no file.
+- Review security confirmation and assistant account/cancellation updates in `src/Barbican.App/Views/Settings/SetUiSecurityPage.cs`, `src/Barbican.Presentation/Settings/Ui/SetUiAssistantViewModel.cs`, and `SetUiViewModel.cs` (this follow-up to `a1e88a6`). Deletion confirmation was not exercised by the hidden sample; security writes and real-account switching remain unproven.
+- Inspect generic row behaviour and its coverage in `src/Barbican.App/Views/Settings/SetUiRowsView.cs` and `src/Barbican.Presentation/Settings/Ui/SetUiCatalog.cs` (`a1e88a6`): sample screenshots cover only a subset; empty or inert controls and cross-stream pages need integration verification. Linux and human interaction are deferred.
+
+- Review `src/Barbican.App/Views/Settings/SetUiChoice.cs` and its call sites (this follow-up): in-window chips replace prohibited ComboBox popups; visual layout and keyboard accessibility need further verification.
+
+## M6 assistant tools checkpoint
+
+- Review `src/Barbican.Core/Settings/Assistant/AssistantTools.cs`, `AssistantLoop.cs`, `AssistantSession.cs`, `IAssistantComposer.cs`: new typed tool paths need integrated fake-server coverage for calendar, contacts, attachments, filter edits and send. Drafts require the coordinator's composer adapter; confirm reply prefill survives. Filter rules depend on the srv-data implementation; do not claim B-AI-008 complete until integrated. Core tests passed 1,426 on Windows, including fake-server tag and scripted composer/confirmation tests; Linux and live service behavior are unproven.
+
+## M6 coordinator integration code checks (second pass)
+
+- **Checked server-data calendar step `89ce45b`:** compared `VacationCalendar.cs` and the `VacationService.cs` diff with `<bulwark>/lib/vacation-calendar.ts`, including ownership by marker/last-written times, update, future removal, started-block shortening, and externally deleted blocks. Inspected the four added FakeJmap lifecycle tests. UTC timed output, policy restrictions, metadata-write failures and shared calendars still need the reviewer's attention; tests do not prove those cases. Merged as `fe2118c`.
+- **Checked assistant tool checkpoint `325dfcf`:** inspected the filter, calendar, contact, attachment, send/draft, confirmation and session paths. Requested fixes for omitted draft Cc/Bcc, writable account-scoped calendar selection and configured timezone; further service tests are in progress on the stream. B-AI-008 remains open until integrated execution evidence and the composer adapter pass. Merged as `6c37fa1`.
+- **Security UI failure fixed by the coordinator:** `SetUiSecurityPage.cs` recreated row containers around controls still parented to old rows on every refresh. Reusing the complete rows removes the WinUI parenting exception. The hidden sample run on port 8929 opened Security, Account, then Security again; the automation tree contained the TOTP, app-password and API-key controls, and the inspected sample capture is `docs/milestones/M6-screens/integration/security-refreshed.png`. No credential was entered or issued in this check.
+- **Assistant configuration and draft bridge:** the coordinator connected `SetUiAssistantPage.cs` to `IAssistantSettings` and `IAssistantKeys`, serializes field saves, and refreshes controls on account changes. `AssistantComposerBridge.cs` dispatches normal composer opening, detects a cancelled replacement, and applies reply prefills without sending or explicitly saving a draft. Its tests exercise dispatched opening and refusal, recipient fields and reply text, and the missing-host case. The complete Windows suite passed after these changes: 2,695 passed, four live/Linux skips, zero failed. Both Windows and desktop heads built on Windows; this is not Linux execution evidence.
+
+## M6 srv-ui
+
+- Review the server pages, dialogs and view models introduced in 36efd7d (`src/Barbican.App/Views/SettingsServer/`, `src/Barbican.Presentation/Settings/Server/`): sample-only hidden checks cover rendering, not a real account, real pointer or IME. Verify each interaction and service error path after data integration.
+- Review threading in `SrvUiPageModel` and its six derived page view models: service results are dispatched before state mutation and discarded if the active account changed. The queued-dispatcher test covers filter load; real service events and overlapping same-account requests remain integration checks.
+- Review the selection and text-entry tradeoffs in `SrvUiKit`, `SrvUiVacationPage`, and `SrvUiTemplatesPage` (D-M6-D04/D05): cycling choices require repeated presses, dates are typed, template import/export is pasted text and HTML is edited as source. Validate accessibility and parity.
+- Requests to integrator: wire and test real data adapters and all six pages against merged services; inspect `spec/interactions.csv` and `spec/settings.csv` before claiming completion, as this stream has not asserted those rows. The plan's frozen settings seam is required to replace the stub screen.
+- The sample-only screenshots in docs/milestones/M6-screens/srv-ui/ show the six pages and three settled dialogs from the Automation build before the dispatcher changes; repeat them after integration. A retry of the apply capture shows the underlying page and dialog in WGC; XAML capture omits the overlay. Identity name retained focus and Sample UserABC after three successive type commands. Draft setters are plain properties, so those changes do not themselves invalidate the page; a later service reload can still replace an in-progress draft.
+
+- **Coordinator checks of srv-ui `1332306`:** inspected `SrvUiPageModel`, the filter/folder result paths, `SrvUiIdentitiesPage`, the settings-page factories and feature registration. The dispatched result helper drops a result for a different active account; same-account overlap/draft replacement still needs integration checks. Verified that identity draft setters are plain properties, so no per-keystroke PropertyChanged rebuild was established; the worker also exercised successive typing. Inspected synthetic identity, vacation and settled Apply captures.
+
+## M6 set-data integration follow-up
+
+- Review assistant tool changes after `325dfcf` in `src/Barbican.Core/Settings/Assistant/AssistantTools.cs`: account-filtered calendars, configured timezone, bounded attachment reads, filter rule validation and composer prefill. Fake-server tests cover ordinary paths; shared-account and task-only calendar selection remain limited because Stalwart does not expose supported components in Calendar/get (Bulwark `lib/jmap/client.ts:9075-9145`). The actual composer adapter and reply prefill need integrated UI verification.
+- Review `tests/Barbican.FakeJmap/FakeApi.AccountSecurity.cs`: the request log now redacts OTP URLs as well as codes and passwords. Fake-only account tests cover identities, password, TOTP and credentials, but are not proof of real Stalwart security-write compatibility.
+- Review `src/Barbican.Core/Settings/Pages/SettingsCatalog.cs`: the two mention and four filename preferences were removed from the inert list after checking their concrete readers; the UI owner is reconciling the remaining settings CSV.
+
+- **Code check of `5ec4e27` found a calendar-rights bug:** `AssistantTools.CreateEventAsync` tested mailbox right `mayAddItems`; calendars use `mayWriteAll` / `mayWriteOwn`. The coordinator corrected the filter and extended the FakeJmap calendar test with a read-only default and writable fallback. All nine assistant-tool integration cases passed on Windows after the correction.
+
+## M6 integration UI
+
+- Review the Files row mapping and serialized read-modify-write in `SetUiRowRules` and `SetUiViewModel`; `FilesSettings` consumes the values, but `ShowThumbnails` currently has no thumbnail-rendering consumer. The test covers defaults, simultaneous edits, and invalid choices, not live Files rendering.
+- Review accessibility reset in `SetUiRowsView`: it resets only keys exclusive to the accessibility page, skips shared keys, asks first, and stops on a refused write; it is sequential and can be partial if a plugin vetoes a later key. Cross-links navigate to target pages, with shortcut help using the existing command.
+- Review `AvatarService.RefreshAsync`: it clears in-memory and profile-local image cache, discards pre-refresh jobs by generation, then notifies owners to re-query; guarded HTTP and source preferences remain in effect. A disk error reports failure and may leave a partial clear. Review concurrency and cache-directory trust.
+- About refresh runs calendar and contacts refresh and requests mail delta sync for the active account. MailSync swallows its own errors, so the message says requested; this is not a full cache purge and cannot prove server freshness.
+- Sample mode now keeps real `SettingValues` on the isolated profile, including validation and hooks. Assistant provider switching replaces only blank or recognized provider endpoints, preserving custom addresses and the selected model; the page requires explicit model and endpoint text.
+- These changes use the existing native Settings rows and brushes; the newly approved Bento Balanced and Nordic Focus guidelines remain a broader UI adoption task, not a completed retheme.
+- Account and Security pages clear drafts, lists, issued secrets and OTP URI on account switches; delayed service results are rejected using an account generation, and delete confirmation checks the account again. The delayed regression covers A-to-B-to-A for quota and issued app-password secret. Real security writes remain untested by policy.
+- Assistant tool results for GetVacation and ListFilters contain server-controlled strings; review their prompt boundary and injection resistance alongside the existing email-data wrapping. No separate review was run.
+- The hidden sweep reached 16 dark pages before Assistant initialization asserted on profile file IO on the UI thread; the data owner is fixing initialization. No screenshot after the crash is treated as evidence.
+
+- **Coordinator check of `f0ca62f`:** inspected account-generation guards and the delayed quota/secret tests, generic setting actions, avatar queue/generation behavior and cache clearing. Requested a separate disk-IO lock because the refresh lock was also used by UI `TryGet`/`Request`; the close worker is correcting that UI-stall risk. Same-account overlapping edits and incomplete cache purges remain review considerations.
+
+## M6 settings concurrency
+
+- Review `src/Barbican.Core/Settings/Prefs/SettingWriteGate.cs`, `SettingValues.cs`, `SettingBackup.cs`, `AssistantSettings.cs` and `src/Barbican.Presentation/Settings/Integration/AssistantSettingsStartup.cs`: the shared gate coordinates the M6 service paths and exports, but does not make the two-file import crash-atomic or cover legacy direct `IPrefsEditor` writers. Interceptors run outside the gate and retry up to three times on changed prior values; notifications run after release and may arrive out of application order under concurrent writes. PrefsStore itself invokes its synchronous Changed event inside the write call; a handler that synchronously waits on another gated write can still deadlock. Tests cover controlled import, retry, production DI and slow profile loading, not those legacy/reentrant paths.
+
+## Approved Atlas and native polish direction
+
+- User approved Atlas alongside Bento Balanced and Nordic Focus and requested modern WinUI 3 polish. Review `design/UI-GUIDELINES.md`, `CLAUDE.md` and the approved Atlas reference images when assessing later adoption: horizontal deck keyboard/list semantics, small-window reader height, palette contrast, sender-panel toggling, material fallbacks and reduced-motion behavior need native implementation evidence. The gallery selection/labels were checked by a worker and the coordinator inspected the synthetic image; this documentation checkpoint does not implement a third production style or prove native material/performance behavior.
+
+## Studio selection correction
+
+- The user corrected the preceding Atlas selection to Studio. Current approved directions are Bento Balanced, Nordic Focus and Studio; Atlas is exploratory. `design/UI-GUIDELINES.md`, `CLAUDE.md`, handoff/progress and the gallery now record the corrected selection. Apply the modern WinUI polish requirements to these approved directions; verify Studio top-navigation focus order, context toggle, adaptive layout, palette contrast and material fallbacks during implementation. The preceding Atlas approval entry is historical and superseded.
+
+## M6 assistant history loading
+
+- Review `src/Barbican.Core/Settings/Assistant/AssistantSession.cs` and `IAssistantSession.cs`: `History` is memory-only and returns empty before `InitializeHistoryAsync`; load, ask and clear serialize per account, with file I/O outside the cache lock. The UI must call initialization on account/page changes and observe `Changed`; close integration owns that wiring. Tests cover slow reads, saved history reopening and clear during an in-flight ask; cancellation and I/O failure paths deserve further review.
+
+## M6 settings schema corrections
+
+- Review `src/Barbican.Core/Settings/settings-schema.json`, `Pages/SettingRules.cs`, and their tests (D-M6-A14): static options and typed numeric values follow Bulwark `lib/accessibility-settings.ts`, `lib/sub-addressing.ts`, `lib/proofreading/languages.ts`, `lib/message-list-order.ts`, `lib/notification-sound.ts`, `lib/unread-first.ts`, `lib/compose-placement.ts`, and `stores/settings-store.ts`. Dynamic identity and policy relay choices are intentionally empty until supplied by their owning UI. The composite account marker requires the UI to write two booleans; the validator rejects string labels to protect prefs. Custom delimiter and installed-checker language choices require UI integration; test and visually verify those interactions.
+
+- **Integration code check:** reviewed per-account history serialization, memory-only snapshot reads, async initialization, numeric select coercion, malformed-choice removal and their regression tests in `e945533` / `6ccd3ab`. UI initialization and dynamic/composite controls remain close-pass requirements; the stream Windows suite passed 2,737 with four skips, pending final merged-head verification.
+
+## M6 server message ordering
+
+- Review `Core/Mail/Lists/MessageListOrder.cs`, `Mail/Service/ListSortResolver.cs`, `ListPageFetcher.cs`, `Sync/ListDeltaFetcher.cs`, `MailSync.cs`, and `Presentation/Mail/MessageListViewModel.cs`: configured levels apply to server queries, pages and deltas; keyword polarity is probed read-only per client/account/session, with a one-minute inconclusive retry delay and a visible unsupported-keyword fallback. Email/get rows are reordered by query ids. Nonchronological rows suppress date headers to keep stable row keys unique. Eight Core order tests, 14 MailSync tests, 23 MessageListViewModel tests and one live-pref/scope regression passed on Windows. Unified global merge/paging and the actual Settings editor are owned by the close follow-ups; final full-suite and hidden UI evidence remain required. Text comparison across servers approximates their collation, as Bulwark does.
+
+## M6 account markers
+
+Implemented merged/virtual message-row account tint and dot from composite row source IDs, using the existing four-color account avatar palette. Bulwark `components/email/thread-list-item.tsx` lines 117-125 and 551-590 informed marker precedence; signed-in source username and shared-account name identify rows. The tint yields to checked-row feedback, and higher contrast uses a dot. Preferences rebuild existing rows. Paths: `src/Barbican.Presentation/Mail/{MailListSettings,MessageListViewModel,MessageRowViewModel,RowContext}.cs`, `src/Barbican.App/Views/{Fmt.cs,List/MessageListView.xaml}`, and `tests/Barbican.Presentation.Tests/Mail/AccountMarkerTests.cs`.
+
+Validation: focused tests 3 passed, full Presentation suite 996 passed, Windows Automation head compiled with zero warnings. This verifies XAML compilation, not visual contrast or screen-reader output on a real desktop. Four palette colors can collide; source color metadata is not available in the current account model. The fake integration exercises two own accounts; shared-account naming follows existing `SharedSectionViewModel.NameOf` but is not separately exercised here. The reviewer should review actual light/dark/high-contrast rendering and selection/checked feedback.
+
+- **Code check:** preserved configured-order reload and date-header guards during merge. The row container still named only the subject, overriding the richer child name for list-item accessibility; the coordinator changed `MessageListView.xaml.cs` to use `row.AccessibleName`. Actual screen-reader and visual marker checks remain close-pass evidence.
+
+## Calendar hook catalogue reconciliation
+
+- Eight M4 hooks remained pending in `spec/plugins/hooks.csv` despite concrete existing call sites in CalendarViewModel, EventEditorViewModel.Save and TasksViewModel. The coordinator inspected those sites and corrected the catalogue references. This records implementation sites, not proof that all eight were invoked during an end-to-end plugin run; M6b compatibility verification must exercise observer/transform payloads and permissions against these surfaces.
+
+## Assistant model validation
+
+- Provider switching can clear a recognized old default model. `AssistantClient` now rejects a blank model before key lookup or HTTP; five offline provider-client cases passed, including both providers with a blank model. Custom models remain the UI owner's responsibility to preserve when switching. No external provider was contacted.
+
+### M6 calendar identity and view
+
+- Review the calendar participant identity service and FakeJmap arm in `src/Barbican.Core/Calendar/CalendarParticipantIdentities.cs` and `tests/Barbican.FakeJmap/FakeApi.ParticipantIdentity.cs` (this commit): the selected address comes from `ParticipantIdentity/get` and `onSuccessSetIsDefault`; Stalwart silently ignores an unknown id so the service re-reads. Live writes were not run. Confirm account capabilities, error behavior and changes against the server during integration.
+- Review `src/Barbican.Presentation/Calendar/Editors/EventEditorViewModel.Save.cs` and `.../Calendar/Grid/CalendarViewModel.cs` (this commit): new events use the active account's default organizer without changing an existing event's organizer; account switches abort an in-flight lookup; calendar view writes are serialized. UI integration with the settings selector and live account switching remain to be verified.
+
+- **Code check of `76ab5ac`:** inspected ParticipantIdentity/get/set and effective-default verification, persisted month/week/day/agenda selection, new-event organizer preservation, production factory injection and monotonic account-version guards. Requested the A-to-B-to-A guard, selected organizer name, and production-composition regression; worker implemented them. Core identity tests (2), EventEditor tests (7) and calendar Presentation tests (118) passed in a clean verification worktree. Final merged Windows suite, Settings selector and hidden UI verification remain required; no live organizer write is claimed.
+
+## M6 unified ordering and paging
+
+Review `src/Barbican.Core/Mail/Unified/{UnifiedFetcher,UnifiedListSource,UnifiedSourcePage}.cs`, `tests/Barbican.Core.Tests/Mail/Unified/UnifiedInboxTests.cs`, and the `tests/Barbican.FakeJmap` sort fixture. The unified source requests each account's resolved server ordering, fills server-capped reads, merges using the common semantic comparator and returns at most one global page while advancing only emitted rows. A keyword refusal re-reads all accounts with a common value-only order and produces a visible warning; an ordering change during a later page requires a fresh list. Refresh retains failed-source rows and totals, updates positions, and expresses reordered existing rows as remove/reinsert deltas.
+
+Windows verification: Core suite 1494 passed before the final two added refresh regressions; final focused UnifiedInboxTests 13 passed. The fake implements sorting for test purposes and is not a full JMAP collation implementation. Cross-server text collation remains approximate, as noted in the shared order review; a partial source failure cannot establish the missing server's current global rank. A missing Email/get row fails that source explicitly rather than silently advancing an incorrect cursor. Review race behavior if multiple paging and refresh calls overlap; their network reads are not serialized.
+
+
+## M6 unified operation fencing follow-up
+
+The earlier concurrent-read concern above is addressed in `UnifiedListSource`: an async operation gate serializes refresh and paging, and first-page requests and reset advance a generation that fences older responses before state can commit. Disposal waits to release the gate until in-flight and queued operations leave. `UnifiedInbox.Dispose` owns source disposal. `ListDelta.Warning` carries keyword fallback discovered on refresh; the Presentation handler must display it. Controlled delayed tests cover older first pages, refresh versus load-more, query switches during refresh, disposal with a waiter, and refusal during refresh. Windows focused verification: UnifiedInboxTests 18 passed; unified Presentation tests 23 passed. Cross-server collation and temporarily unavailable source rank remain limitations from the previous note.
+
+- **Code check:** reviewed global consumed-row cursors, capped-server window filling, common unsupported-keyword fallback, reordering deltas and missing-row failure behavior. Requested generation fencing/serialized operations with safe disposal and refresh warning propagation; `8946a5b` addresses those with controlled delayed tests. The coordinator wired `ListDelta.Warning` into the visible list status and added a Presentation regression. Worker focused Core unified tests (18) and Presentation unified tests (23) passed; final merged suite remains the integration gate.
+
+## M6 srv-ui
+
+- Review the server pages, dialogs and view models introduced in 36efd7d (`src/Barbican.App/Views/SettingsServer/`, `src/Barbican.Presentation/Settings/Server/`): sample-only hidden checks cover rendering, not a real account, real pointer or IME. Verify each interaction and service error path after data integration.
+- Review threading in `SrvUiPageModel` and its six derived page view models: service results are dispatched before state mutation and discarded if the active account changed. The queued-dispatcher test covers filter load; real service events and overlapping same-account requests remain integration checks.
+- Review the selection and text-entry tradeoffs in `SrvUiKit`, `SrvUiVacationPage`, and `SrvUiTemplatesPage` (D-M6-D04/D05): cycling choices require repeated presses, dates are typed, template import/export is pasted text and HTML is edited as source. Validate accessibility and parity.
+- Requests to integrator: wire and test real data adapters and all six pages against merged services; inspect `spec/interactions.csv` and `spec/settings.csv` before claiming completion, as this stream has not asserted those rows. The plan's frozen settings seam is required to replace the stub screen.
+- The sample-only screenshots in docs/milestones/M6-screens/srv-ui/ show the six pages and three settled dialogs from the Automation build before the dispatcher changes; repeat them after integration. A retry of the apply capture shows the underlying page and dialog in WGC; XAML capture omits the overlay. Identity name retained focus and Sample UserABC after three successive type commands. Draft setters are plain properties, so those changes do not themselves invalidate the page; a later service reload can still replace an in-progress draft.
+
+- **Coordinator checks of srv-ui `1332306`:** inspected `SrvUiPageModel`, the filter/folder result paths, `SrvUiIdentitiesPage`, the settings-page factories and feature registration. The dispatched result helper drops a result for a different active account; same-account overlap/draft replacement still needs integration checks. Verified that identity draft setters are plain properties, so no per-keystroke PropertyChanged rebuild was established; the worker also exercised successive typing. Inspected synthetic identity, vacation and settled Apply captures.
+
+## M6 set-data integration follow-up
+
+- Review assistant tool changes after `325dfcf` in `src/Barbican.Core/Settings/Assistant/AssistantTools.cs`: account-filtered calendars, configured timezone, bounded attachment reads, filter rule validation and composer prefill. Fake-server tests cover ordinary paths; shared-account and task-only calendar selection remain limited because Stalwart does not expose supported components in Calendar/get (Bulwark `lib/jmap/client.ts:9075-9145`). The actual composer adapter and reply prefill need integrated UI verification.
+- Review `tests/Barbican.FakeJmap/FakeApi.AccountSecurity.cs`: the request log now redacts OTP URLs as well as codes and passwords. Fake-only account tests cover identities, password, TOTP and credentials, but are not proof of real Stalwart security-write compatibility.
+- Review `src/Barbican.Core/Settings/Pages/SettingsCatalog.cs`: the two mention and four filename preferences were removed from the inert list after checking their concrete readers; the UI owner is reconciling the remaining settings CSV.
+
+- **Code check of `5ec4e27` found a calendar-rights bug:** `AssistantTools.CreateEventAsync` tested mailbox right `mayAddItems`; calendars use `mayWriteAll` / `mayWriteOwn`. The coordinator corrected the filter and extended the FakeJmap calendar test with a read-only default and writable fallback. All nine assistant-tool integration cases passed on Windows after the correction.
+
+## M6 integration UI
+
+- Review the Files row mapping and serialized read-modify-write in `SetUiRowRules` and `SetUiViewModel`; `FilesSettings` consumes the values, but `ShowThumbnails` currently has no thumbnail-rendering consumer. The test covers defaults, simultaneous edits, and invalid choices, not live Files rendering.
+- Review accessibility reset in `SetUiRowsView`: it resets only keys exclusive to the accessibility page, skips shared keys, asks first, and stops on a refused write; it is sequential and can be partial if a plugin vetoes a later key. Cross-links navigate to target pages, with shortcut help using the existing command.
+- Review `AvatarService.RefreshAsync`: it clears in-memory and profile-local image cache, discards pre-refresh jobs by generation, then notifies owners to re-query; guarded HTTP and source preferences remain in effect. A disk error reports failure and may leave a partial clear. Review concurrency and cache-directory trust.
+- About refresh runs calendar and contacts refresh and requests mail delta sync for the active account. MailSync swallows its own errors, so the message says requested; this is not a full cache purge and cannot prove server freshness.
+- Sample mode now keeps real `SettingValues` on the isolated profile, including validation and hooks. Assistant provider switching replaces only blank or recognized provider endpoints, preserving custom addresses and the selected model; the page requires explicit model and endpoint text.
+- These changes use the existing native Settings rows and brushes; the approved Bento Balanced, Nordic Focus and Studio guidelines remain a broader UI adoption task, not a completed retheme.
+- Account and Security pages clear drafts, lists, issued secrets and OTP URI on account switches; delayed service results are rejected using an account generation, and delete confirmation checks the account again. The delayed regression covers A-to-B-to-A for quota and issued app-password secret. Real security writes remain untested by policy.
+- Assistant tool results for GetVacation and ListFilters contain server-controlled strings; review their prompt boundary and injection resistance alongside the existing email-data wrapping. No separate review was run.
+- The hidden sweep reached 16 dark pages before Assistant initialization asserted on profile file IO on the UI thread; the data owner is fixing initialization. No screenshot after the crash is treated as evidence.
+- Remaining keyless rows for notification enablement, tour, language, protocol handlers, spellcheck are explicitly labeled unavailable in the generic view. Contacts import/export rows open Contacts rather than directly invoking the file workflows. These remain incomplete, not claimed as finished. Calendar working days use seven in-window toggles over calendarWorkingDays; concurrent day edits are serialized. Calendar view, organizer identity and message order are being connected to their respective service contracts.
+- the coordinator code check of `f0ca62f` found the avatar refresh lock could hold disk IO while `TryGet` waited. Follow-up separates the background-only disk lock from the short state lock, with disk-before-state lock ordering. The delayed-fetch regression verifies old work cannot repopulate the cache; a deliberately slow filesystem was not simulated.
+
+- **Coordinator check of `f0ca62f`:** inspected account-generation guards and the delayed quota/secret tests, generic setting actions, avatar queue/generation behavior and cache clearing. Requested a separate disk-IO lock because the refresh lock was also used by UI `TryGet`/`Request`; the close worker is correcting that UI-stall risk. Same-account overlapping edits and incomplete cache purges remain review considerations.
+
+## M6 settings concurrency
+
+- Review `src/Barbican.Core/Settings/Prefs/SettingWriteGate.cs`, `SettingValues.cs`, `SettingBackup.cs`, `AssistantSettings.cs` and `src/Barbican.Presentation/Settings/Integration/AssistantSettingsStartup.cs`: the shared gate coordinates the M6 service paths and exports, but does not make the two-file import crash-atomic or cover legacy direct `IPrefsEditor` writers. Interceptors run outside the gate and retry up to three times on changed prior values; notifications run after release and may arrive out of application order under concurrent writes. PrefsStore itself invokes its synchronous Changed event inside the write call; a handler that synchronously waits on another gated write can still deadlock. Tests cover controlled import, retry, production DI and slow profile loading, not those legacy/reentrant paths.
+
+## Approved Atlas and native polish direction
+
+- User approved Atlas alongside Bento Balanced and Nordic Focus and requested modern WinUI 3 polish. Review `design/UI-GUIDELINES.md`, `CLAUDE.md` and the approved Atlas reference images when assessing later adoption: horizontal deck keyboard/list semantics, small-window reader height, palette contrast, sender-panel toggling, material fallbacks and reduced-motion behavior need native implementation evidence. The gallery selection/labels were checked by a worker and the coordinator inspected the synthetic image; this documentation checkpoint does not implement a third production style or prove native material/performance behavior.
+
+## Studio selection correction
+
+- The user corrected the preceding Atlas selection to Studio. Current approved directions are Bento Balanced, Nordic Focus and Studio; Atlas is exploratory. `design/UI-GUIDELINES.md`, `CLAUDE.md`, handoff/progress and the gallery now record the corrected selection. Apply the modern WinUI polish requirements to these approved directions; verify Studio top-navigation focus order, context toggle, adaptive layout, palette contrast and material fallbacks during implementation. The preceding Atlas approval entry is historical and superseded.
+
+## M6 assistant history loading
+
+- Review `src/Barbican.Core/Settings/Assistant/AssistantSession.cs` and `IAssistantSession.cs`: `History` is memory-only and returns empty before `InitializeHistoryAsync`; load, ask and clear serialize per account, with file I/O outside the cache lock. The UI must call initialization on account/page changes and observe `Changed`; close integration owns that wiring. Tests cover slow reads, saved history reopening and clear during an in-flight ask; cancellation and I/O failure paths deserve further review.
+
+## M6 settings schema corrections
+
+- Review `src/Barbican.Core/Settings/settings-schema.json`, `Pages/SettingRules.cs`, and their tests (D-M6-A14): static options and typed numeric values follow Bulwark `lib/accessibility-settings.ts`, `lib/sub-addressing.ts`, `lib/proofreading/languages.ts`, `lib/message-list-order.ts`, `lib/notification-sound.ts`, `lib/unread-first.ts`, `lib/compose-placement.ts`, and `stores/settings-store.ts`. Dynamic identity and policy relay choices are intentionally empty until supplied by their owning UI. The composite account marker requires the UI to write two booleans; the validator rejects string labels to protect prefs. Custom delimiter and installed-checker language choices require UI integration; test and visually verify those interactions.
+
+- **Integration code check:** reviewed per-account history serialization, memory-only snapshot reads, async initialization, numeric select coercion, malformed-choice removal and their regression tests in `e945533` / `6ccd3ab`. UI initialization and dynamic/composite controls remain close-pass requirements; the stream Windows suite passed 2,737 with four skips, pending final merged-head verification.
+- The composite account marker writes `tintListRowsByAccount` and `showAccountDot` sequentially; a veto on the second write can leave a partial change and is surfaced as an error. Calendar start/end edits also use ordered writes and can be partial on a later refusal. Custom sub-address delimiters and writing-language tags use the shared validated service.
+- `SetUiOrderEditor` maps in-window presets and up to three ordered levels to the coordinator's `MessageListOrder` data contract. Review dynamic tag choices, duplicate prevention, queued writes, server-capability feedback and large-text layout. Organizer selection in `SetUiCalendarIdentityEditor` must be checked against the final real service and on account switches.
+
+## M6 server message ordering
+
+- Review `Core/Mail/Lists/MessageListOrder.cs`, `Mail/Service/ListSortResolver.cs`, `ListPageFetcher.cs`, `Sync/ListDeltaFetcher.cs`, `MailSync.cs`, and `Presentation/Mail/MessageListViewModel.cs`: configured levels apply to server queries, pages and deltas; keyword polarity is probed read-only per client/account/session, with a one-minute inconclusive retry delay and a visible unsupported-keyword fallback. Email/get rows are reordered by query ids. Nonchronological rows suppress date headers to keep stable row keys unique. Eight Core order tests, 14 MailSync tests, 23 MessageListViewModel tests and one live-pref/scope regression passed on Windows. Unified global merge/paging and the actual Settings editor are owned by the close follow-ups; final full-suite and hidden UI evidence remain required. Text comparison across servers approximates their collation, as Bulwark does.
+
+## M6 account markers
+
+Implemented merged/virtual message-row account tint and dot from composite row source IDs, using the existing four-color account avatar palette. Bulwark `components/email/thread-list-item.tsx` lines 117-125 and 551-590 informed marker precedence; signed-in source username and shared-account name identify rows. The tint yields to checked-row feedback, and higher contrast uses a dot. Preferences rebuild existing rows. Paths: `src/Barbican.Presentation/Mail/{MailListSettings,MessageListViewModel,MessageRowViewModel,RowContext}.cs`, `src/Barbican.App/Views/{Fmt.cs,List/MessageListView.xaml}`, and `tests/Barbican.Presentation.Tests/Mail/AccountMarkerTests.cs`.
+
+Validation: focused tests 3 passed, full Presentation suite 996 passed, Windows Automation head compiled with zero warnings. This verifies XAML compilation, not visual contrast or screen-reader output on a real desktop. Four palette colors can collide; source color metadata is not available in the current account model. The fake integration exercises two own accounts; shared-account naming follows existing `SharedSectionViewModel.NameOf` but is not separately exercised here. The reviewer should review actual light/dark/high-contrast rendering and selection/checked feedback.
+
+- **Code check:** preserved configured-order reload and date-header guards during merge. The row container still named only the subject, overriding the richer child name for list-item accessibility; the coordinator changed `MessageListView.xaml.cs` to use `row.AccessibleName`. Actual screen-reader and visual marker checks remain close-pass evidence.
+
+## Calendar hook catalogue reconciliation
+
+- Eight M4 hooks remained pending in `spec/plugins/hooks.csv` despite concrete existing call sites in CalendarViewModel, EventEditorViewModel.Save and TasksViewModel. The coordinator inspected those sites and corrected the catalogue references. This records implementation sites, not proof that all eight were invoked during an end-to-end plugin run; M6b compatibility verification must exercise observer/transform payloads and permissions against these surfaces.
+
+## Assistant model validation
+
+- Provider switching can clear a recognized old default model. `AssistantClient` now rejects a blank model before key lookup or HTTP; five offline provider-client cases passed, including both providers with a blank model. Custom models remain the UI owner's responsibility to preserve when switching. No external provider was contacted.
+
+### M6 calendar identity and view
+
+- Review the calendar participant identity service and FakeJmap arm in `src/Barbican.Core/Calendar/CalendarParticipantIdentities.cs` and `tests/Barbican.FakeJmap/FakeApi.ParticipantIdentity.cs` (this commit): the selected address comes from `ParticipantIdentity/get` and `onSuccessSetIsDefault`; Stalwart silently ignores an unknown id so the service re-reads. Live writes were not run. Confirm account capabilities, error behavior and changes against the server during integration.
+- Review `src/Barbican.Presentation/Calendar/Editors/EventEditorViewModel.Save.cs` and `.../Calendar/Grid/CalendarViewModel.cs` (this commit): new events use the active account's default organizer without changing an existing event's organizer; account switches abort an in-flight lookup; calendar view writes are serialized. UI integration with the settings selector and live account switching remain to be verified.
+
+- **Code check of `76ab5ac`:** inspected ParticipantIdentity/get/set and effective-default verification, persisted month/week/day/agenda selection, new-event organizer preservation, production factory injection and monotonic account-version guards. Requested the A-to-B-to-A guard, selected organizer name, and production-composition regression; worker implemented them. Core identity tests (2), EventEditor tests (7) and calendar Presentation tests (118) passed in a clean verification worktree. Final merged Windows suite, Settings selector and hidden UI verification remain required; no live organizer write is claimed.
+
+## M6 srv-ui
+
+- Account settings now exposes default and reorder through IAccountMaintenance and listens to IAccountOverview on the UI dispatcher while loaded. Test multiple accounts, failed saves, accessible control names and rapid reorder on a real account; the sample uses fake account services.
+- The M6 interaction inventory was reconciled with source evidence and explicit planned deferrals. Partial rows identify remaining behavior and verification, not complete feature parity. Settings reader references were updated only where concrete source reads were found.
+- Full Windows Automation suite on merged 992c68f plus this work passed 2772 tests with four skips; the earlier attempt with the VSTest Filter parameter ran no tests because it conflicts with the MTP trait filter. Final integrated-head tests and screenshots remain required.
+
+- **Integration code check of `f51af40`:** inspected compound calendar/marker writes, string scope validation, async assistant initialization/history and provider switching, order/organizer editor lifecycle, and account default/reorder notification wiring. Synthetic first-open Assistant and advanced order-editor captures were inspected. The avatar disk-lock correction is included. General/notification/OS features retain explicit later-milestone limitations; accessibility quick panel, archive reorganization and remaining preference-reader audit are being completed before M6 closure. No final combined build or real write is claimed by this merge.
+
+## M6 search preference consumers
+
+- `MessageListViewModel` now consumes clearSearchOnFolderChange (default false) and searchDefaultScope (default all), following Bulwark defaults. Clearing a global search restores the browsing folder; explicit tag searches keep tag scope. `SearchListQueryShaper` uses GlobalMailFilter for all-folder searches so Trash/Junk are excluded unless explicitly requested. Queries are shaped before being stored/watched, preserving the same filter for initial page, paging and push deltas. Four new scope/preservation/watch regressions passed; the full Windows Presentation suite passed 1,016 tests. The prior folder-search test now explicitly selects the folder preference and retains its assertions. Final full-suite/hidden actual-service verification remain required.
+
+## M6 archive reorganization
+
+Review `src/Barbican.Core/Mail/Archive/{IArchiveReorganizer,ArchiveReorganizationReport,ArchiveReorganizer,ArchiveSnapshot}.cs`, settings registration, and `tests/Barbican.Core.Tests/Mail/ArchiveReorganizerTests.cs`. Bulwark `components/settings/message-list-settings.tsx:82-145` and `lib/jmap/client.ts:3204,4134` define root-only dated grouping, folder creation and move hooks. The service captures the requested account session, requires a stable complete paged snapshot before writing, respects object-set limits and reports known, unattempted and unknown outcomes. Single mode is a no-op; missing dates and plugin-vetoed groups are skipped. It uses the existing whole-mailbox-set move semantics.
+
+Nine fake-server tests pass on Windows: capped paging in year/month modes, existing folders, read-only, account isolation, folder/move veto, successful hook payloads, cancellation and later-chunk failure. No live writes performed. A transport failure or cancellation during a write can leave its server outcome unknown, explicitly reported; a remote mailbox can still change after the completed scan, so review retry/refresh messaging and confirmation in the UI. The Settings UI owns confirmation and report display.
+
+
+## M6 archive membership preservation
+
+The archive reorganization now removes only the root Archive membership while adding the dated destination, preserving other mailbox labels. This deliberately differs from Bulwark `batchMoveEmails`, which replaces all mailbox IDs. The existing `JsonNodeExtensions.AsNumber` rejects negative and fractional totals before conversion; service-level tests pin refusal before any writes.
+
+## M6 archive UI and anchor follow-up
+
+- Review the archive action in SetUiRowsView: it captures account and account generation, confirms before writing, serializes repeated presses, requests mail and folder refresh, and retains detailed known/unknown outcomes in page text. Account changes suppress late results. The test profile opened and cancelled the confirmation; no real archive write was run. Verify the account generation against rapid switches and inspect lengthy partial-result accessibility.
+- A first-open anchor initially stayed at the top because the asynchronous Info refresh rebuilt the rows. RowsView reapplies the active anchor after rebuilding and waits for nonzero geometry, with stale requests detached on unload or navigation; the hidden cold archive-anchor capture now shows the requested row. Review rapid navigation and scroll restoration under I-397.
+- Full Windows Automation suite for 7c0c847 plus archive UI and anchor work passed 2796 tests with four skips; Windows and desktop heads built with zero warnings. Final milestone-merged tests remain required.
+
+- **Integration code check:** reviewed stable pre-write scan, captured account, chunk outcomes, plugin vetoes and partial/cancel reporting. Requested preservation of unrelated mailbox memberships; the follow-up implements it with regression coverage (12 archive tests). Inspected all six synthetic captures and corrected Backup tiles in both contact sheets to use a sample relative path. This checkpoint applies the reviewed source and corrected captures without importing the earlier path-bearing screenshot commit into m6 ancestry. Final merged verification and portable packaging remain pending.
+
+## M6 preference persistence on close
+
+- Review `src/Barbican.App/Shell/WindowCloseController.cs` and the optional automation close callback: native Windows close is cancelled until the debounced preference store flushes, then close is posted to the UI dispatcher. I/O failure leaves the window open with an error toast. This fixes changes lost when closing within the 300 ms debounce. Linux native close remains deferred to M9.
+- Windows Automation build passed. Three isolated synthetic immediate-write/close/restart cycles preserved false, true, then removal of `groupListByDate`; each process exited naturally in 5.0–5.2 seconds. The final preference was restored to absent and the owned process stopped. Hidden checks prove the programmatic route; the system close affordance was code-reviewed rather than driven with real input.
+- User-approved temporary `m6-srv-ui` history sanitization was verified: the remote now points to clean `bdfce6b`, excluding the earlier path-bearing screenshots from branch ancestry. This does not assert removal of unreachable server caches.
+
+## M6 verification-code preference
+
+Review `Presentation/Reader/VerificationCodeBannerSource.cs`, `Presentation/Mail/{ReaderViewModel,MessageListViewModel,MessageRowViewModel,RowContext,MailListSettings}.cs`, the production reader factory, and the list and body views. `showVerificationCodes` gates fresh reader and list codes; existing body loading remains unchanged. Chips expire automatically using the injected clock, with five minutes of future-clock slack, and list copying rechecks current row, setting, and age. Reader copying uses the injected clipboard service and rejects a stale banner. Synthetic tests cover preference toggles, late banners, DI, preview-hidden extraction, freshness and fake clipboard; no real clipboard or message data was used.
+
+Focused tests 3 passed after the expiry timer addition; the full Presentation suite passed 1019 before that addition. Windows Automation head built with zero warnings after the change. Review real keyboard/pointer routing and screen-reader interaction for the list button, and live themes; no real desktop input or visual evidence was taken.
+
+
+## M6 tag row tint
+
+`tintListRowsByTag` now tints list rows from the first tag in the existing configured tag order, using the same accessibility-adjusted color as the tag chip; account tint takes precedence, and higher-contrast and checked rows suppress the subtle fill. The setting remains independent of tag-chip visibility. Bulwark `components/email/thread-list-item.tsx:573-590` defines precedence. Focused tests 3 passed and Windows Automation head compiled with zero warnings. Verify light, dark, selected and high-contrast appearance with a screen reader and real interaction during integrated visual review; no real desktop input was used.
+
+
+## M6 attachment activation preference
+
+`mailAttachmentAction` is read at attachment command execution: default preview uses the existing image/text/eml dialog and plugin transform; download or an unsupported/oversized preview uses Save as, never an OS file association. Normal card activation uses the same registered command and captured `MailTarget.OfOpen`; right-click retains MENU-ATT, whose preference-aware command is labeled Open. Direct execution rejects a stale attachment. Review `Core/Mail/Attachments/IAttachmentSaver.cs`, `Presentation/Reader/{ReaderCommands,ReaderMenus}.cs`, `App/Views/Reader/{ReaderMenuOpener,ReaderView.xaml.cs}` and reader composition. Bulwark references: `components/email/email-viewer.tsx:3370-3450`, `reader-attachments.tsx`.
+
+Windows full Presentation suite passed 1027; Automation WinUI head built with zero warnings. Five synthetic tests cover live preference, explicit save, unsupported and oversized fallback, and unified shared-account targeting; no external network or clipboard was used. Native pointer/keyboard activation and actual dialog/failure toasts remain integrated UI checks. The pre-existing preview download limit is based on advertised attachment size; `AttachmentSaver` currently buffers the actual download without enforcing that limit during streaming, which needs a separate bounded-download review.
+
+
+## M6 bounded attachment preview
+
+The advertised-size-only risk in the preceding note is addressed in `Core/Mail/Attachments/AttachmentSaver.cs`: preview reads at most 12 MiB plus one byte before refusing, without buffering the rest, and disposes the source on success, refusal or cancellation. Explicit saves and raw-message downloads retain their previous behavior. Six focused AttachmentSaver tests passed on Windows, including synthetic underreported oversized content, cancellation and a small successful stream; no live endpoint or write was used.
+
+### M6 accessibility quick panel
+
+- **Implementation and risks for the reviewer:** the `app.accessibility` command now opens the in-window panel through the existing shortcut, palette and optional rail entry. Quick choices and seven reference presets write the shared settings service; the panel offers preset undo. `src/Barbican.App/Theme/StyleState.cs` updates selected common dimensions from the live accessibility model, including primary list/sidebar text, quick-panel controls, rail and compose target sizes, and native focus thickness; `ToolbarLabelVisibility`, `ToolbarIconVisibility`, `SecondaryLabelVisibility` and `ShowToolbarLabels` are provided for reader integration. Off retains a minimum native focus outline intentionally. This is not global text scaling. `docs/milestones/M6-accessibility-quick-evidence.md` lists every fixed-size XAML view discovered, preset effects without established native consumers, and the pending font packaging and focus verification. Reference font assets were found as WOFF2; native packaging remains a separate stage.
+- **Evidence:** worktree based on `e28d4b2` plus this change: Windows Automation build passed; Core A11y tests 4/4 and production Menus composition/shortcut tests 2/2 passed. The isolated hidden sample verified shortcut/rail routing, contrast persistence, Motion preset and undo, Accessibility navigation, and constrained popup behavior. Normal and 1.5x captures were nonuniform and visually inspected. The non-activated hidden sample returned no focused XAML element and simulated Tab was unhandled; focus, trapping/restoration and a visible keyboard-focus screenshot are not established. No Linux/Uno, real-account write, real input or global scaling claim.
+
+- **Font-stage follow-up:** `src/Barbican.App/Assets/Fonts/` bundles unmodified native Atkinson Hyperlegible Next 2.001, Lexend 1.007 and OpenDyslexic 0.920 regular/bold, matching the Bulwark reference versions, with verbatim OFL notices and source/hash inventory. Windows Automation output included assets; the hidden sample visibly changed between all three families. Primary bold controls use OpenDyslexic Bold; dynamic-weight rows, unsupported-glyph fallback and Uno/Skia variable-font behavior still require proof. Privacy checking has a narrowly scoped exception for the upstream public author contact in the one mandatory license file; the same contact elsewhere is rejected and the hard private-pattern scan remains unchanged.
+
+## M6 reader stale-result guards
+
+Attachment commands now check the current active account along with the open message id, and recheck that account and the original body instance after an asynchronous preview read before presenting it. The production reader factory supplies the active account; an already-open preview's Save callback deliberately keeps its captured target. Late verification-code banners are revalidated against the current message and expiry before insertion. Synthetic tests cover colliding plain ids across accounts, delayed account or body changes, captured preview saves, and expiry before a late banner. AttachmentActionTests 9 passed, VerificationCodePreferencesTests 3 passed, and the Windows Automation head compiled with zero warnings. No real account write, network or clipboard was used.
+
+- **Close portability follow-up:** the full Automation solution build caught Windows-only approval state and a platform-dependent instance-method analyzer warning in `WindowCloseController`; both are now scoped explicitly. Both App targets compiled. The first combined test run passed 2,814 with four skips and exposed three headless composition failures from eager accessibility-dialog resolution, assigned for correction before the final rerun.
+
+### M6 toolbar and Compose placement
+
+- `showToolbarLabels` now controls reader action text in both Bento and Nordic; icons remain visible when text is hidden, and simple mode forces labels as in the reference. `composePlacement` defaults unknown or unset values to floating over the list, with sidebar and rail alternatives; each surface runs `CommandIds.Compose` for the active account. The list viewport reserves space beneath its rows for the floating control. Reference: `<bulwark>/lib/compose-placement.ts`, `components/email/email-viewer.tsx:1808`, `components/layout/navigation-rail.tsx:289` and `components/layout/sidebar.tsx:1773`. Native mountain-view and Pro layouts are not implemented by this change.
+- A preset undo that encounters a settings-write failure now retains all un-restored entries for retry. The accessibility command now resolves its dialog adapter lazily: headless composition can build a registry, while invoking the command without an adapter still fails explicitly.
+- Evidence: full Presentation suite 1,019/1,019 passed; added headless missing-adapter regression 4/4 AppComposition tests passed; Automation Windows build succeeded. Hidden synthetic profile on port 8921 opened a new composer from each of the three locations, showed both toolbar states in both themes, and showed labels when simple mode was on. An initially obscured row was fixed by reserving the viewport; the final nonuniform capture was visually inspected. The sample preferences touched by this work were reset and the sample process stopped. Linux/Uno and actual keyboard focus remain unverified.
+
+## M6 Sieve state protection
+
+`SieveScriptStore` retains the `SieveScript/get` state and sends it as `ifInState` with script creation, update and activation. A missing state allows viewing but refuses saving before upload; server `stateMismatch` remains a typed error. `IFilterService.SaveAsync` now requires the state from the caller's loaded `FilterState`; the Settings editor and assistant pass it, closing the interval before the service's fresh read as well as the read-to-set interval. The editor also refuses to reuse another account's loaded state. `SaveWithStateAsync` propagates `newState`; if a server omits it, the saved result has no version and the next save requires a reload.
+
+FakeJmap now advances script state on create/update/activation and rejects stale sets before mutation. Two-editor UI, stale-update/activation, and missing-state tests pass; Windows Core suite 1525 passed, Presentation suite 1031 passed before one additional focused two-editor test, and the Windows Automation head compiled with zero warnings. Vacation Sieve extras read and merge a fresh script and now use the same guard; its existing error reports that the auto-reply may already have been saved if extras fail. No live Sieve writes were run. Review server-specific `ifInState` and activation behavior when a safe restore workflow permits live validation.
+
+## M6 integration evidence and preview preparation
+
+- Direct code checks of the data/UI checkpoints found stale attachment results, lost preset-undo recovery values, eager headless dialog resolution, and missing Sieve optimistic concurrency. Worker fixes were independently reviewed before integration; further Sieve acknowledgement/modal-version checks remain underway. No separate reviewer review has run.
+- The current integration UI produced 92 nonuniform native XAML captures: all 23 Settings pages in Bento and Nordic, light and dark. All four inspection sheets were visually checked, and Backup fields used a synthetic relative filename. WGC refused the private desktop with an argument error; these captures do not prove the WGC flicker gate. Captures are ignored under artifacts/m6-sweep-current.
+- L-044 on the authorized isolated agent profile created a parent and nested tag, renamed the child, confirmed both deletions, restored the original absent emailKeywords value and verified the persisted cleanup after natural close. No message keywords were changed. Text events needed a UI yield before invoking the next control.
+- The native Backup workflow was checked using real services on the isolated agent profile: export original settings, export false groupListByDate, change to true, import false, confirm reset, then import the original snapshot. The owned process was closed after restoration. Sample mode intentionally uses a no-op backup fake and was not counted as real-service evidence. No real-account screenshots or security writes were made.
+- The user requested a build to try now. Prepare a verified Windows M6 preview before further milestone integration; this does not mark M6 complete or claim the M10 Studio/Focus redesign has landed.
+
+- **Preview delivered:** see `docs/milestones/M6-preview.md` for immutable aa0e96b package hash and the 2,833-pass Windows suite. Release/no-automation checks and extracted-executable smoke passed. This is an interim preview, with final M6 and M10 visual work explicitly pending; no main merge, tag or GitHub release publication.
+
+## M6 Sieve acknowledgement and modal guards
+
+`SieveScriptStore.SaveWithStateAsync` now requires the exact requested update ID or creation ID in the response, preserves matching `SetError`, and verifies the requested script is active at the acknowledged `newState` before reporting success. [RFC 9661 section 2.4](https://www.rfc-editor.org/rfc/rfc9661.html#section-2.4) says activation is conditional on all writes and invalid IDs may be ignored. If post-write verification fails or is cancelled, the result explicitly warns that the script may already have changed and asks for reload; vacation forwarding error wording also avoids claiming a confirmed failure. Fake tests cover an empty updated map plus refusal, unrelated acknowledgments for creation and update, and acknowledged but inactive scripts with no success notification.
+
+The filter modal captures the account that owns its loaded rules and their version when opened. Its save is refused if a background change notification reloads newer rules, or if the account changes, including a modal opened during an account transition. Focused FilterService tests 16 passed, FilterVersion tests 3 passed, and quick-rule tests 3 passed on Windows. No live Sieve writes were performed; post-write readback behavior should be checked against an actual server only after a safe restore workflow exists.
+
+## M6b contract preparation
+
+- Reviewed and integrated the 186-method/58-slot source inventory as `4fff9d4`; it identifies static and conditional checks without claiming executable authorization. `docs/milestones/M6b-contracts.md` records coordinator-owned package/grant/instance/RPC/API/slot seams, frame identity, native pre-load trust and unchanged fixture acceptance. Compiling contracts/red tests and complete transitive payload schemas remain required before production implementation. Microsoft frame/security documentation was checked for the proposed Windows identity boundary; the installed SDK still needs verification. No plugin runtime or security/compatibility test was executed by this documentation change.
+
+## M6 final settings consumer classification
+
+- The remaining 25 missing read-by entries were audited: 19 are explicitly inert under D-M6-A03 and already labeled unused by SettingsCatalog/SetUiRowsView, two recipient-mention preferences are read by ComposerService, and four Windows notification/badge preferences store values for M8. The latter now say they are not active in the product UI; M8 must replace that label when its real consumers land. This reconciles evidence without claiming inert settings work or that already-open composer drafts update live.
+
+## M6 executable hook gate
+
+- Added real-service execution cases in `tests/Barbican.Core.Tests/Settings/M6HookExecutionTests.cs`, real reply-seeding transform cases in `Compose/M6ComposeHookExecutionTests.cs`, and actual composer identity/template paths in `tests/Barbican.Presentation.Tests/Compose/M6ComposerHookExecutionTests.cs`. All 36 distinct M6 hook names are observed or transform a checked result across five passing cases (Core 4/4, Presentation 1/1). `spec/feel/M6/hooks-execution.json` maps every name to the executed case and hashes the tested files. This improves on the source-text call-site gate; it does not prove JS/native plugin bridge compatibility or permission projection, which are M6b obligations. Account security operations use FakeJmap only. Observer work is awaited with a bounded asynchronous wait because Fire queues it.
+
+## Updated whole-roadmap goal
+
+- The user now requests all roadmap implementation except Linux M9, then a review/fix loop until the reviewer is satisfied, then a UI walkthrough with look/feel/usability fixes. Current continuation/roadmap/progress instructions reflect the expanded scope. The brief stop preserved worker WIP and was immediately superseded by this new active goal; both UI workers resumed their exact files. This does not authorize main merges, tags, OS changes or real security writes beyond the standing rules.
+
+## M6 vacation concurrency and snapshot
+
+`VacationSettings.State` and `SieveState` carry the loaded VacationResponse and SieveScript versions. Saves reject missing or changed versions, use `ifInState` and exact singleton acknowledgement, and patch only changed fields. `IVacationService.LoadSnapshotAsync` does not reconcile the calendar; ordinary writable loads retain the source behavior in Bulwark `stores/vacation-store.ts:160` and `lib/vacation-calendar.ts:233-306`, while read-only loads never reconcile. The Settings editor must preserve the loaded versions and account identity.
+
+Stalwart 0.16.27 `crates/jmap/src/vacation/get.rs` and `set.rs` use the SieveScript collection for vacation state. For explicitly identified Stalwart clients on the same account, the acknowledged vacation state advances the expected Sieve state; a concurrent subsequent change produces a partial-result error. The managed script selector excludes the reserved `vacation` script, matching Bulwark `stores/filter-store.ts:422-429`. Fake tests cover vacation activation with existing filters, stale editors, post-write races, read-only loads, and non-reconciling snapshots. Windows Core: 1540 passed; Presentation: 1034 passed; no skips.
+
+The response and script updates are separate operations, so failures can leave partial changes; this is not crash-atomic. Calendar reconciliation remains source-backed and writable. No live writes or exact-restoration harness were run; restoration of raw dates, reserved scripts, activation and calendar events requires a reviewed conflict-safe procedure before live testing. Review the integrated Presentation version/account fencing and actual server behavior.
+## M6 srv-ui
+
+- Vacation HTML source is editable independently of the plain-text part and can be cleared; saved edits are guarded against newer form changes and background reload. Review HTML safety, account switching and explicit page reload of an unsaved draft; source text is not a visual rich editor. Organization vacation templates are a policy library in Bulwark, not personal mail templates. The policy service is absent; the page says unavailable and M7 must integrate the actual library, placeholder filling and deputy validation. No real vacation write was run.
+- VacationHtmlServiceTests covers the real VacationService against FakeJmap for HTML/plain save, reload and clearing; SrvUiViewModelTests covers in-flight newer HTML edits. Hidden sample on port 8929 rendered the form and saved fake bodies; no live write was run.
+
+## M6 srv-ui
+
+- Vacation forms now bind to the successfully loaded account and monotonic account generation; switch clears the old form, blocks saving until the new load succeeds and fences late A-to-B-to-A loads/saves. Save builds from the loaded record to retain upcoming server state tokens. A save already issued to its original account may finish there after a switch; its result is discarded. Delayed account-switch regressions cover both cases. Other server pages still require equivalent fencing (identities, templates, folders, filters and recovery).
+### M6 display time zone
+
+- **Implementation for the reviewer:** `SettingDisplayTimeZone` resolves configured IANA IDs using the platform zone database, with system-zone fallback for automatic or unavailable IDs. `TimeZonePickerContent` offers an in-window searchable zone list, marks unavailable entries, and writes through `ISettingValues`. Mail list and open-reader dates, calendar today/new-event defaults, compose scheduling and date labels, and contact date/print formatting now use the selected display zone. Existing calendar event zones and stored contact dates remain unchanged. UTC instants, timers and `TimeProvider` are unchanged. Reference: `<bulwark>/components/settings/time-zone-picker.tsx`, `<bulwark>/lib/time-zone-choices.ts`, and `<bulwark>/lib/timezone.ts`.
+- **Risks and limitations:** review OS-specific IANA/Windows conversion and daylight-saving behavior on Uno and non-Windows platforms. For an automatic system zone that cannot be converted to IANA, new timed event and task editors now refuse to write and prompt the user to select a supported zone; a retry resolves the setting again. Existing event zones and date-only items remain intact. Search includes the reference abbreviation groups. The ability to navigate from a live editor to Settings and return without losing its entered fields needs an end-to-end walkthrough; tests establish model retention and retry only. Existing events retain their own zones. No real-account writes or OS time-zone changes were performed.
+- **Evidence:** Core suite 1509/1509 and Presentation suite 1028/1028 passed; Windows Automation build succeeded with zero warnings/errors. Hidden synthetic profile searched Berlin and persisted `Europe/Berlin`; an unknown `Future/City` displayed unavailable/system fallback. The picker screenshot was visually inspected, sample preference restored, and sample process stopped. Test platform was Windows; no cross-platform runtime or live server verification is claimed.
+- **Follow-up evidence:** custom unmappable-zone tests cover zero writes and successful retry for quick events, full events and tasks, plus all-day/date-only saves. Core 1510/1510 and Presentation 1035/1035 passed; the first Core run timed out in an unrelated fake-server push test and passed on rerun. Windows Automation build passed with zero warnings/errors. The hidden sample search `CEST` returned Berlin; the sample process was stopped. `TimeZonePickerContent` uses the injected clock and local zone; zone setting validation rejects control characters and values longer than 256 characters; queued reader updates are fenced after disposal. No live write, OS time-zone change or cross-platform runtime validation was performed.
+
+- **Floating-zone review follow-up:** new event editors distinguish an explicitly selected floating zone (`null`) from an unresolved automatic zone; switching an all-day event to timed uses its default unless a floating choice was made, and an explicit zone survives retry. The availability query starts at the clock's UTC instant even if the display preference changes. Presentation suite 1039/1039 passed, including new regression cases. No live writes or OS changes; native editor-to-Settings return and field retention remain a walkthrough item.
+
+- **In-editor time-zone recovery:** each new timed quick event, full event and task offers a supported per-item zone picker; the full event also offers explicit floating time. The selection does not alter profile preferences, and quick-create More options carries its chosen zone to the full editor. Automation-only sample mode can opt into an unmappable synthetic clock. Hidden UI Automation exercised failed validation, picker selection and successful synthetic save for all three; all-day and floating creation also saved. Readback showed both event titles retained and the task appeared in the sample list. XAML captures `zone-recovery-xaml.png` and `zone-recovery-chosen.png` were nonuniform and inspected, showing the quick draft before and after selection. The XAML capture did not include the picker overlay, and WGC frames were uniform white, so visible picker layering is not proved. Presentation 1039/1039 passed; Windows Automation build passed before the final wording-only correction. No real input, OS zone changes or real writes.
+
+## M6 srv-ui
+
+- SrvUiPageModel now tracks monotonic account generations and loaded-account stamps. Identity and template pages clear their drafts on switches, refuse writes until the current account load succeeds, and discard late results. Delete confirmations also capture generation and selected id; pasted template import text is cleared on switch. Controlled tests reject stale writes and confirmations including A-to-B-to-A. A request already issued may finish on its captured original account; its late UI result is discarded. Folder, filter and recover work remains in progress.
+
+## M6 srv-ui
+
+- Folder settings load account-scoped mailbox snapshots from the captured session; writes require that snapshot and matching account generation, and success refreshes it. Colliding-ID and delayed A-to-B-to-A tests pass. The sidebar fallback is not used as a write source. Folder delete confirmations and unsent name fields are fenced on account switch. Vacation account switches now invalidate and clear the draft without automatically loading a hidden page: the visible page offers Reload and disables Save until a matching load succeeds, avoiding background calendar reconciliation. An explicitly opened/reloaded writable vacation page still uses the existing reconciliation behavior.
+
+## M6 srv-ui
+
+- Filter rules and folder choices now load for a captured account/generation. Editors, scans, apply dialogs and delete confirmations retain that generation; A-to-B-to-A rejects stale work and an already-issued apply may finish only on its original account. Recovery now passes an explicit account into its source and rejects stale rendered row actions even for colliding ids. Controlled regressions cover stale scans/editors and recovery collisions. The previous test assumption that the new account never reloads before modal construction was replaced with deterministic generation tests. Review same-account overlapping reload ordering and actual server behavior; no real writes were run.
+
+## M6 srv-ui
+
+- After integrating VacationSettings State and SieveState, SrvUiVacationAccountTests verifies the saved form retains both loaded tokens. The merged Windows Automation suite passed 2864 tests with four skips after removing an unused import from VacationHtmlServiceTests; both desktop and Windows heads built without warnings. Review the combined source on the final integration head.
+
+## M6 srv-ui
+
+- Rendered folder, filter, identity, template and vacation controls now retain their account generation and reject callbacks from stale controls, including A-to-B-to-A switches. Selected-row actions also check the captured selection; already-issued operations remain bound to their original account. Vacation draft edits during a pending save remain allowed. Windows Automation head built with no warnings; Presentation tests passed 1054/1054. The five affected pages opened in an isolated hidden sample; this does not prove live-server behavior. Review callback fencing and cross-account service behavior on the integration head.
+
+## M6 Settings rendering evidence
+
+- Review `spec/feel/M6/settings-rendering.json`: actual synthetic Mail-to-Settings transitions on 30f315b captured UI-thread cadence only (single run under shared build load). Peak frame gaps were 67.39 ms Bento and 31.47 ms Nordic; this is a follow-up performance observation for M10, not a regression verdict. WGC refused the private-desktop window, so L-053 flicker and idle rendering remain unverified. The owned synthetic process was stopped.
+
+
+
+## M6 filter write verification preparation
+
+Prepared, but did not register or execute, `FilterWriteCommand` under `AUTOMATION_WRITES` and Windows. Its captured-client backend uses the production `FilterService` (Rust `filters_x.rs:542,566`, `server_settings.rs:72`; Bulwark `stores/filter-store.ts`, `lib/filters/retroactive.ts`, `lib/jmap/client.ts:7533-7708`) and the existing `WriteTestGuard` and `WriteTestMessages`. Before writing it requires the actual writable and read-only lists, an automation profile, the same captured client and mail/Sieve account, exactly one active non-reserved script, a stable nonempty Sieve state, strict byte-roundtrippable UTF-8, no script transform/intercept hooks, a bounded complete mailbox snapshot, and a previously unused random token. A two-condition rule is applied only if the Inbox scan contains exactly the imported message and destination; the move is verified.
+
+The original script and recovery progress are stored in a bounded AES-GCM journal under the isolated profile; its unique key is in a distinct persistent Windows Credential Manager entry. A marker blocks another run. Each ambiguous create/import is journaled before the request and discovered only by the token; uncertain script saves or concurrent changes retain the record. Restoration checks the exact target and acknowledged state, uses conditional set, and verifies active script bytes and state. Cleanup removes only the token-marked message and the exact empty token-named mailbox, with a Mailbox state guard and a no-children check. A failed or revoked cleanup reports incomplete and retains the encrypted journal and key; preserve the isolated profile for recovery. Pre-write journal creation failures may also leave a marker requiring inspection. The journal is not a general recovery platform, and no claim of crash-atomicity or successful recovery after every transport ambiguity is made.
+
+FakeJmap import now retains the synthetic sender and headers needed by scan and guarded deletion, and its ordinary Mailbox/set honors ifInState. Fake-server tests cover success, errors, cancellation, authorization revocation, concurrent script changes, and stale mailbox state; Windows Automation tests 138 passed and Core tests 1540 passed, no skips. The Windows Automation -Writes head compiled with zero warnings. No live writes, account data, or port reservation were used. L-040 remains unverified until the coordinator reviews the command, persistent-key registration and recovery limitations and separately authorizes execution.
+
+
+Coordinator review tightened this preparation: only a whitespace-only original script or exactly `keep;` is accepted, excluding metadata, comments and any other external behavior. An unacknowledged script save now retains the message and folder as well as the journal, because the temporary rule may still be active. Unexpected exceptions after entering the runner, and journal-creation failures that might leave a marker, report incomplete cleanup and retain evidence. The created mailbox ID is also verified against the unique token-named mailbox before use. These restrictions may make an existing test account ineligible; the harness does not replace or create a script to make it eligible. The follow-up Automation suite passed 142 tests, including refusal of non-inert scripts, retention of all artifacts after an ambiguous script save, and refusal when the independently checked Inbox candidate count is not exactly one. The independent query also verifies that Email state remains equal to the scan state before and after the count, guarding against truncated scan pages.
+
+## M6 filter preflight registration
+
+- Directly reviewed f1263b8 and 2d5cd81, including captured-session routing, exact synthetic plan, inert original script, conditional restoration, lost-acknowledgement artifact retention and encrypted persistent journal. Registered the command only for Windows AUTOMATION_WRITES; `filter-write-test preflight` performs captured-script eligibility reads without creating recovery material or making server writes. Registration is not evidence of live success. All existing account allow-list checks remain mandatory. Live prerequisites and cleanup must be recorded before claiming L-040.
+
+## M6 harness test compilation correction
+
+- The full write-enabled run compiled both app heads cleanly but caught an unconditional production write symbol in the new unit-test project (2907 passed, one failed, four skipped). The fixture now uses a distinct test-only symbol for linked non-UI helpers; the actual automation command remains gated by AUTOMATION_WRITES and WINDOWS. The existing invariant that only Directory.Build.props may define the production symbol is unchanged, and a new invariant prevents the fixture symbol being defined in production projects/build props. Repeat the complete suite before packaging.
+
+## M6 Windows checkpoint and fresh portable
+
+- Source 583b40d passed the full write-enabled Windows suite (2909 passed / 0 failed / 4 skipped), both heads compiled cleanly, final spec/generated checks passed, and the fresh portable was staged without old smoke/preview files, extracted and smoke-tested. Embedded version matches 583b40d; SHA/size/smoke evidence is in spec/feel/M6/windows-release.json and M6.md. The unit-test compile-boundary fix preserved production write gating. No live filter/vacation write or Bulwark readback is claimed. WGC/popup layering and final sample natural shutdown remain unproved (the sample required owned-process stop after close; earlier real-profile close cycles and final Release smoke are separate evidence). Carry those specific limits into final reviewer/UI verification. The M6b preparation branch remains separate from this portable; the full roadmap goal is active. Also repaired the pre-existing unquoted comma in G-021 status while preserving its full text; the gap ledger now has consistent columns.
+
+## M6b isolated package/grant contract preparation
+
+- Added immutable content identity and grant snapshot models under Core/Plugins/Packages and Permissions, with four passing focused PluginBindingContractTests. They check changed bytes at unchanged id/version, generation/account mismatch, disabled grants, exact permission names, defensive collection copies and canonical/invalid hashes. The identity is not proof of package validation or a verified signature. The snapshot is not a live authority service: every broker use must obtain the current grant, and null account is only for a descriptor that is explicitly host-scoped, never a plugin-supplied account bypass. Plugin ids are opaque identifiers, not safe filesystem paths. No runtime, host API, consent UI or installation path is wired by this preparation. Runtime/RPC/API/slot seams and adverse acceptance tests remain to be frozen before independent implementation. This separate branch does not change the M6 portable source.
+
+## M6b account-context contract correction
+
+- Reviewed the worker's source audit in M6b-account-routing.md and directly checked sessionClient, account projection and composer handle resolution. The earlier preparation text incorrectly suggested a permanently account-bound runtime. The reference resolves the default active session at call time; local login keys, shared JMAP account ids and host-owned composer handles have distinct routing. Corrected the preparation before interface freeze. New per-call generation/lifecycle fences are Barbican safety requirements, not claimed reference guarantees. Account-grant value semantics are local-login scoped; they do not authorize an arbitrary JMAP id. No production broker or compatibility result is claimed.
+
+## M6b compiled draft service seams
+
+- Added host-internal package/authority/runtime/API/slot contracts and execution tier tracking. Ten focused contract cases passed, build zero warnings/errors; the first invalid wildcard filter ran no tests and was corrected. Binding disposal caches a cancelled lifetime token, JSON values outlive source documents, consent/permission inputs are defensively copied, and request types contain no claimed authority. This is not a sandbox or 186-method implementation. Binary/stream ownership, activity-port mediation and executable adverse acceptance tests remain before interface freeze and independent streams. Package definitions/provenance/snapshots remain inert descriptions, never proofs authorizing load; factories must fetch current validated installation and grants. Imported source audits distinguish storage ID/login namespaces, upstream hash/signature semantics, keystore certificate operations and runtime SDK/structured-clone gaps. D-M6b-01 allows reference-compatible forms only with submission/navigation denial; actual native tests remain required. Safe source business errors such as keystore:* still need an explicit error representation. No app composition, live request or native key operation changed.
+
+## M6b revocation foundation
+
+- Review `PluginRevocationCoordinator` and `PluginRuntimeBinding` generation barriers, cleanup ownership and timeout/retry races. All matching bindings become unusable before any teardown callback; concurrent revocations share pending work, failed cleanup remains retryable, and cancellation only stops the caller wait. Ten focused Windows Core tests passed, including notification faults and detached failed registrations. This is host bookkeeping, not live grant authority or a completed package disable/uninstall path; production composition and native teardown remain unverified. A hung native resource must keep package deletion/update pending.
+### M6b structured-clone values
+
+- `Core/Plugins/Protocol` defines an immutable snapshot graph and bounded versioned tagged codec for JSON scalars, undefined, buffers, typed/DataView slices, Blob, Date, Map, Set, BigInt and Error, including graph references and cycles. Ordinary objects never act as control tags. Builder and decoder copy binary data; accessors return copies. Graph values are managed objects with no disposable handles: dropping all references permits collection, but does not guarantee secure memory erasure. MessagePort remains browser-owned and is not serialized here. No browser transport, permission mediation or runtime implementation is claimed.
+- The tagged string form carries lone UTF-16 surrogate code units as manually encoded UTF-16LE/base64; ordinary strings remain compact JSON. JSON import reads raw token escapes and JSON export escapes code units, preserving lone surrogates, pairs, NUL and keys. An app-side JavaScript codec must implement the same wire format and budgets before compatibility can be claimed. Functions, DOM and unmodeled structured-clone types require explicit rejection; do not pass arbitrary CLR objects. `ToJson` rejects undefined, opaque values, non-finite numbers and cycles, expands acyclic aliases only within its output budget.
+- **Evidence and risks for the reviewer:** full Core suite 1578/1578 passed. Adversarial tests cover shared buffer/view offsets, empty binary, mutable-input copies, cycles, aliases, collision-like ordinary keys, extended kinds, malformed references/IDs/ranges, size/depth limits and UTF-16 cases. Independently review the parser, complexity budget, JSON escape handling, graph and stream limits before security reliance; JavaScript/WebView interoperability, renderer memory pressure, host authentication and integration remain untested. No builds outside Core tests, OS changes, live accounts or real input.
+
+- **Projection follow-up:** encoding a child value now emits only its reachable graph with remapped references, retaining cycles and aliases; tests verify unrelated sibling text and binary are absent. A typed view's entire backing buffer is reachable through the view, so callers projecting sensitive byte ranges must construct a separate sliced buffer before encoding. A lower-bound preflight rejects large base64/text payloads that cannot fit a small wire cap before serialization. Library defaults (512 KiB binary, 1 MiB wire) are conservative only; runtime adapters must supply operation-specific budgets, including the reference's 25 MiB file operations and corresponding encoding overhead. Full Core suite 1580/1580 passed. One scoped method-length exception remains on the bounded JSON writer; the decoder, node validator and JSON reader were split into smaller helpers. Browser interop and security integration still need verification.
+
+## M6b structured values across service seams
+
+- Directly reviewed helper projection compaction, immutable graph snapshots and bounded decoding before merging ea879bc. Replaced JSON-only bridge/runtime/slot payload seams with PluginValue, retaining explicit undefined versus null and binary buffer/view identity. Full merged Core suite 1590 passed, then 14 focused runtime contract cases passed with binary-copy/alias and exact keystore-code regressions. These are compiled contracts; production transport authentication, per-operation file limits, live authority and actual host adapters are still absent. Default codec caps must not silently constrain the source 25 MiB file APIs. Native key access/consent is not implemented by fixed business error codes. JavaScript parity, typed envelopes and full adverse acceptance remain required before contract freeze.
+
+## M6b live dispatcher fences
+
+- Added `PluginApiDispatcher` and internal `PluginInvocationContext`; 14 focused Windows Core cases passed with no warnings/errors. Dispatch authenticates the host profile/binding against fresh exact package/generation/tier authority, applies declared permission alternatives, captures local-login sessions once, rejects stale/ABA results, uses bounded caller deadlines and retains concurrency quotas for timed-out work until actual completion. Fixed native errors do not expose exceptions. Synchronous authority-change notifications close the mutation gate even between the last check and marking a write issued. An already-issued ambiguous write reports UnknownOutcome. These tests use inert fake sessions and adapter counters, not real backend operations or proof of all 186 API methods.
+- Later adapters must validate each schema/projection, resolve only host-delivered owner capabilities, call CheckCurrent immediately before MarkMutationIssued and actual mutation, and enforce backend read-only/state/revision rules. Authority implementations must publish changes and synchronous notifications coherently; runtime delivery must revalidate live authority too. Deadline cancellation cannot terminate arbitrary managed/native work; late work stays quota-accounted and cannot reopen its closed context. Real method registration/composition, resource handles, transport authentication, network/OAuth/keystore and complete fixture runs remain pending.
+## M6b protocol message schemas
+
+- Review `src/Barbican.Core/Plugins/Protocol/Messages/` and `tests/Barbican.Core.Tests/Plugins/Protocol/Messages/` against `lib/plugin-sandbox/protocol.ts:14-106,115-336` and its imported types. This stream is based on 13d3cb3; the 29 message variants are direction-checked. TypeScript structural extras are tolerated within graph budgets and never confer authority; graph and envelope limits are local operational policy and can reject otherwise source-valid large messages. Optional `undefined` is treated as absent. Slot membership is a snapshot of the source catalog and must be maintained alongside it. The validator does not verify message source, current grant, instance state, ownership of a ready activity port, nested API semantics, or hook result conversion; those remain separate integration gates. Graph budgets apply after decoding and cannot prevent pre-decoding allocation. Review finite-number and nonempty ID policies for compatibility with actual traffic.
+
+- coordinator directly compared all directional variants and nested schemas with protocol.ts before integrating; 63 focused integration tests passed. Bounded unknown structural fields remain tolerated and ignored as authority, matching the reference TypeScript envelope shape. These are shape checks, not a state machine, authenticated frame binding or per-method validation. Operation-specific file/bundle limits must replace conservative defaults at the runtime boundary.
+
+## M6b inert JavaScript package inspection
+
+`Core/Plugins/Packages/Inspection` reads a bounded ZIP into memory and returns an immutable validated-manifest JSON snapshot, permissions, warnings, normalized resource bytes, and three distinct SHA-256 values: original ZIP bytes, decoded JS bundle, and Bulwark canonical validated manifest plus JS. The explicitly supplied compatibility version is the Bulwark API compatibility level, not the Barbican product version. The overload accepting administrator private-origin policy copies the input; an HTTP credential origin is syntax-valid only for an exact supplied origin. This is not a grant, signature verdict, execution authority, or permission to make a network request; the later broker must independently apply current policy, consent, redirects and network protections. No JavaScript, native DLL, network endpoint or account is invoked by inspection.
+
+The upstream source is `lib/extension-package.ts`, `lib/extension-origins.ts`, `lib/plugin-types.ts`, and `lib/plugin-secrets/credentials.ts` from Bulwark 1.21.2. Inputs are capped at 5 MiB compressed, 200 entries, 512 KiB manifest, 20 MiB per resource, and an additional host-imposed 40 MiB inflated total (not an upstream default). Local and central ZIP headers must agree, ZIP CRCs are checked, path aliases, traversal, Windows device names, alternate streams, reparse/symlink entries and overlaps are refused. ZIP64 and multi-disk archives are deliberately refused as host compatibility restrictions, even if they could be small; upstream does not state these restrictions. Runtime consumers must use the validated manifest, not reparse the raw `manifest.json` resource as authoritative. User-supplied archives never establish managed, signed, privileged or enabled status.
+
+Tests include the unchanged upstream API-probe manifest/JS packaged as a ZIP, version boundaries, nested roots, streaming data descriptors, path attacks, CRC corruption, decompression limits, schemas/credentials/origins and a Node-generated canonical hash fixture with lone UTF-16 surrogates plus 150 deterministic binary64 vectors. These vectors are useful differential evidence, not a proof over every floating-point/Unicode value; further cross-runtime fuzzing and archive interoperability review are warranted. Native package sidecars, trust/consent/persistence, runtime loading and all live network/keystore behavior remain future work.
+
+- coordinator directly reviewed ZIP structure/path hardening, immutable resources, manifest normalization and upstream code/approval hashing before merging the inspector. Renamed the API probe case to IsInspected to avoid implying execution. Full integrated Windows suite: 3074 passed / zero failed / four skips (3078 total), zero build warnings/errors; `artifacts/m6b-foundation-full-windows-tests.log` is local evidence. Inspection is not signature verification, consent, installation, runtime activation or fixture operation compatibility.
+
+## Atomic production plugin session captures
+
+- `AccountManager` now exposes `IAccountSessionSnapshots` under its existing lock, with a selection generation incremented in both active-key assignment paths. `PluginSessionSource` adapts those host-only snapshots to dispatcher captures. This avoids deriving authority from asynchronously delivered account events. Thirty-one AccountManagerTests passed against FakeJmap, including new A-to-B-to-A, sign-out/recreated login and in-notification checks; zero warnings/errors. An initial unqualified method prefix ran zero tests; the corrected class suffix ran the full 31 cases. Explicit non-active owners remain valid through an unrelated active switch, but replaced/removed sessions are rejected by reference identity. Production DI/runtime consumption and exact shared JMAP resource routing remain pending; no real account was accessed.
+### M6b JavaScript value codec
+
+- `src/Barbican.App/Assets/plugins/plugin-value-codec.js` is a standalone browser ES module for the native v1 graph transport, not a frame runtime or authentication layer. Its async encoder snapshots the graph and mutable buffers before awaiting Blob bytes; decoder checks tags, identity/references, UTF-16, limits, view bounds and duplicate JSON fields before reconstructing values. `tools/tests/plugin-value-codec.test.mjs` and the two golden JSON fixtures are shared with `PluginValueParityTests`: JS-created bytes are read by C#, and a C#-verified graph is read by JS. Node adversarial checks cover getters, toJSON, prototype-key poisoning, cycles, shared backing, limits and mutation across Blob await. A view intentionally retains its whole backing buffer; projection must copy a slice when other bytes are private.
+- **Risk for the reviewer/coordinator:** browser JS cannot reliably detect a Proxy without triggering traps. Encode only authenticated structured-clone event values in a trusted parent realm with captured/controlled intrinsics, never arbitrary live plugin objects. Accessor properties and unsupported cloneable kinds including sparse arrays currently fail explicitly rather than coerce. On this Node runtime ordinary cloned Error objects expose an accessor-valued stack; the narrowly guarded built-in accessor follow-up below permits the observed intrinsic while continuing to reject arbitrary getters. Real WebView2 behavior is not established. No iframe, WebView2, capability boundary, DOM, live server, network or bootstrap integration is implemented or verified. The Node fixture is not a package signature canonicalization format.
+- **Evidence:** `node tools/tests/plugin-value-codec.test.mjs` passed; full Core suite 1582/1582 passed, including two cross-language parity tests. Existing protocol C# files gained reference headers only. Linux and actual WebView2 runtime remain untested.
+
+- **Error/Date/Blob parity follow-up:** in a trusted parent realm initialized before plugin code, the JS codec accepts only the captured Error stack getter/setter identity while the captured formatter and Error prototype chain remain unchanged and name/message are data properties; arbitrary getters and modified stack formatters are rejected without invocation. Node tests exercise real structured-cloned Error and hostile accessors. This depends on realm provenance and captured intrinsics; a runtime with a different stack descriptor fails closed until measured. Native Date validation now rejects values JavaScript TimeClip would alter (fractional, infinite, out-of-range and negative-zero), and Blob MIME must already be browser-normalized printable lowercase ASCII. JS and Core parity tests exercise these boundaries. Node parity/adversarial checks passed and full Core suite 1591/1591 passed. No actual WebView2 frame or browser integration was run.
+
+- coordinator reviewed the browser encoder/decoder, duplicate-key parser, prototype-safe reconstruction, mutable-buffer snapshot ordering and exact C#/JS golden comparisons, plus guarded intrinsic Error stack handling and Date/Blob parity corrections. Node checks passed on the merged tree; complete Windows suite passed 3088 / zero failed / four skips (3092 total), zero warnings/errors. Actual WebView2 clone/prototype/accessor behavior, frame binding and lifecycle are still unproved; generic live objects/Proxy are outside encoder input and authenticated structured-clone provenance is mandatory. No production runtime is implied by a passing Node codec.
+
+- coordinator added IAccountSessionSnapshots as an alias of the existing AccountManager singleton in AccountsRegistration. The existing complete composition graph test resolves every service and explicitly proves snapshot/account-manager reference identity; passed with zero warnings/errors. Plugin runtime/package/API composition still waits for the real implementations; this alias alone does not activate plugins.
+
+- coordinator fixed an invalid legacy-codepage byte introduced in PluginValueParityTests by writing the intended non-ASCII MIME test as an explicit Unicode escape in valid UTF-8 source. The required red-check source scanner now runs; all 11 parity cases passed with zero warnings/errors. The scanner previously failed before discovering red tests, so earlier targeted red execution is separate evidence.
+## M6b composer mediation acceptance checkpoint
+
+- Review `src/Barbican.Core/Plugins/Api/Composer/` and `tests/Barbican.Core.Tests/Plugins/Api/ComposerMediationAcceptanceTests.cs` based on 9647d85. The three source-defined production factory seams are deliberately pending; the RED tests do not prove implementation. Assess binding-scoped host handle exposure, owner capture, revision and membership checks across awaits, pre/post-read 25 MiB limits, binary slicing, exact projection and subject sanitization. The host must supply an atomic editor revision guard where available; a client-side fence cannot retract a remote write. ReadOnlyMemory and list inputs remain host-owned until implementations explicitly snapshot them. Other API families, hooks and network/keystore are not covered by this checkpoint.
+
+- coordinator directly reviewed the 13 composer production-factory acceptance cases in 68194dc (capability exposure/non-active owner, source fields, denied permissions/zero resolution, subject cleaning, forged IDs, 25 MiB before/after, zero bytes/slices and await-time handle/revision/membership/session changes). Full integrated red-check passed: 13 expected failures, zero unexpected passes or wrong reasons. The three methods remain PortPending here; C is released to implement this family while preserving the full 186-method/four-hook-kind scope and test-first sequence for remaining families. Requested DTO defensive snapshots and source attachment-metadata provenance tests before final implementation review.
+
+## M6b package lifecycle RED preparation
+
+This checkpoint adds test-first `PluginPackageManager` and `PluginScopedStorage` production stubs plus host-owned `IPluginPackageStore` / `IPluginUserStorageStore` seams under `Core/Plugins/Storage` (namespace `Barbican.Core.Plugins.Persistence` avoids shadowing existing `Core.Storage` references). Every lifecycle/storage operation intentionally throws `PortPendingException`; no package manager, persistence adapter, authority implementation, native loader or UI is wired. The proposed authenticated package store exposes immutable owned index bytes and revision-checked atomic commits; its trusted implementation must authenticate with a host-held secret, snapshot input before its first await, read back durable state, and fail closed for missing/locked keys, corrupt indexes, ambiguous commits and content hash mismatches. Fake stores in these tests are not evidence of authentication in production.
+
+Eighteen individually marked RED facts exercise the intended real production classes, not alternate test-only managers: review ID/hash binding, expiry and replay, changed code and permission/account scope, forged source labels, cleanup barriers, corrupted index/content, before/after-commit failure and restart, profile/plugin/local-login storage isolation, stale session capture, retained data across consented updates, and JSON.stringify/UTF-16 quota behavior. Executed with `BARBICAN_RED=1` through `tools/build.ps1`: 18 failures, all `Port pending: M6b package lifecycle`, zero passed or skipped. These are desired failures, not completed behavior. The source parity UTF-8 fix in `PluginValueParityTests.cs` is the exact coordinator-provided upstream file, included to restore the red scanner.
+
+The Barbican-native `native-plugin.json` format is a host proposal, not a Bulwark format: schemaVersion/api 1, explicit relative main assembly and a complete path-to-SHA256 dependency map, all bounded and covered by whole-archive consent. A separately built test-only sentinel fixture contains a module initializer and constructor/manifest markers in a process-owned temporary directory; its source is excluded from the test runner assembly. The RED pre-consent tests inspect package bytes through the actual pending manager and expect no sentinel activity. Later implementation must also exercise a positive explicitly consented native load of the sentinel; until then absence of activity alone is not proof. Keep existing bundled spam-score separate and UserRoot disabled until authenticated hash-bound native full-trust consent and verified dependency containment exist. No foreign DLL was loaded, no OS credential store or account was accessed, and no live network operation was performed.
+
+The provisional `PluginValue` storage seam needs source-compatible `JSON.stringify` conversion (including undefined, Date, cycles and nonfinite numbers) and UTF-16 quota accounting; transport graph codec JSON is not a substitute. Recheck trusted runtime binding and captured local-login generation before and after awaits and immediately before commits; a shared JMAP resource ID is not a storage namespace. The package store, native sidecar schema, crash consistency, secret-backed authenticator and integration registration remain for coordinator review before implementation.
+
+- coordinator reviewed package baseline bae9758 before release: actual manager/store/scoped-storage seams, detached authenticated index contract, one-use staged consent, durable pending cleanup tests and isolated no-load native sentinel. Combined full red-check passed 31 expected failures (18 package plus 13 composer), no wrong reasons; complete Core suite passed 1728/1728 on the merged baseline with no warnings/errors. The worker contact timeout did not recur in this full run and remains historical evidence. Package implementation is released incrementally; manager drafts 88008eb/5fc604a are not integrated here because direct review required immediate binding invalidation even on durable-write failure, teardown outside the manager gate, prior-generation-bound reviews and preserving/refusing unverified privileged tier. Native positive loading, authenticated production persistence and exclusive profile authority still need their own actual evidence.
+### M6b runtime tests-first checkpoint
+
+- The intended production entry points in `src/Barbican.App/Plugins/Sandbox/` and `Assets/plugins/plugin-sandbox-parent.js` are explicit `PortPending` stubs, not a working or registered runtime. Automation.Tests links those same UI-free App files. Twenty-two individually marked native red facts cover package/grant revalidation, revocation-before-navigation and rollback, isolated profile naming, owner/route/direct-frame ingress, claimed identity, account dispatch, lifecycle barriers, resource policy and bounded owned calls. `tools/red-check.py` confirmed all 22 fail at their intended production `PortPending` entry points and none pass or fail for another reason; the existing non-red Automation suite passed 142/142. The size-cap case constructs a valid graph exceeding the native limit under explicitly larger encoder limits; malformed input has its own test. The navigation-order test uses a synthetic adapter and does not prove actual untrusted browser code cannot run. API ingress is tested only after authenticated ready and init issuance, without waiting for init-done. Thirty-three standalone Node cases against the real pending parent entry cover source message variants and frame/port/lifetime scenarios; all currently fail with `Port pending`. These are executable obligations, not evidence that any security or runtime behavior works.
+- Actual WinUI WebView2 adapter, isolated profile/resource routing, response lifecycle, package authority wiring, bootstrap build and UI/frame integration do not exist yet. Reference `scripts/build-plugin-sandbox.mjs` uses esbuild, React/ReactDOM, PostCSS/Tailwind and Tabler; the local reference checkout has its lockfile but no installed node_modules or generated sandbox assets. Implementation must copy reviewed source into the C# repo, install exact locked dependencies in a repo-owned build directory, record licenses and reproducibility, and leave the reference tree unchanged. Validate unchanged API-probe and proofreading fixtures plus a real slot through the production factory. Native direct-frame oversized payload allocation, actual WebView2 source/WindowProxy behavior, captured Error intrinsics, callback/stream quotas and all lifecycle/account races still require adverse hidden integration tests; the JS synthetic WindowProxy objects are unit-test doubles only. No Linux, real input, OS changes or live account writes were performed.
+
+- **Runtime red-test review follow-up:** `PluginSandboxOwnedCalls` now distinguishes reusable prop callback capabilities (replaced atomically and invalidated on disposal) from one-shot pending replies and streams that accept multiple chunks until end. Red cases cover sibling ownership and quotas. Parent bridge red cases separately require opaque `null` origin for host-selected untrusted frames and the exact trusted origin plus frame identity for host-selected privileged frames; message-claimed tier is not authority. Native policy reds also distinguish host-selected privileged flags from untrusted flags and reject the native-full-trust tier as a JavaScript sandbox. `tools/red-check.py` reports 26/26 expected PortPending failures and no other failures; 35/35 standalone Node cases report the pending parent bridge. Resource-policy string tests specify expected flags/CSP only: actual form, network, navigation and WebView2 behavior remain unimplemented and unverified.
+
+- Pause checkpoint: user paused the full goal. Reviewed runtime baseline f1729fb is integrated as intended RED tests only; combined verifier reports 57 expected failures/zero wrong reasons. Runtime/package/composer implementation drafts remain on their worker branches, with exact unverified local WIP recorded in PROGRESS.md. No new implementation or test run after pause; only preserving the already verified merge and handoff.
+
+## Coordinator: full-range storage Date conversion
+
+- Added PluginEcmaDate.Format for JavaScript Date.toJSON across the complete TimeClip range, including year zero, negative years and signed six-digit extended years. Tests were ported and executed first (two expected PortPending failures), then both passed against 108 deterministic native Node Date JSON vectors and invalid internal-time checks; build zero warnings/errors. Reproducible generator and golden vectors are under tools/tests. This helper closes the DateTimeOffset range gap but is not yet wired to the worker scoped serializer or proof of complete storage compatibility. User resumed the original full goal; the previous pause table is retained as a checkpoint.
+
+## Coordinator: first concrete composer adapters integrated
+
+- Curated the reviewed composer-only changes through a0a538c from C, leaving unfinished hooks/preview drafts separate. Actual GetSnapshot/SetSubject/ReadAttachment adapters now enforce binding-exposed owner handles, source projection, revision/member/session guards, detached byte slices/metadata and 25 MiB cap; SetSubject requires a host-shared stable-ID/profile 60-per-minute limiter, source controls/bidi/JS whitespace cleaning and fixed business errors. Large draft output has explicit graph budgets. Full merged Core suite passed 1754/1754 with zero warnings/errors. Fake host-backend tests and native codec round trips do not prove real editor transactions, browser file limits, host DI or unchanged-fixture behavior; those remain required.
+
+## Coordinator: user-requested pause and pushed work
+
+- User paused and explicitly requested marking progress, committing and pushing. Integration remains reviewed composer source 5b2f33e with full Core 1754/1754; all worker branches saved/pushed clean at runtime9672f0c, packagesf6363b8 and mediationa8608ad. New native-inspection draft does not compile (three method-length diagnostics), final ingress regression run was interrupted, and presentation limiter remains unreviewed/Red despite two earlier focused passes. Exact limits and next actions are in PROGRESS.md. Bootstrap staging retains unresolved verbatim third-party license notices outside Git; no privacy exception, scan weakening, new test or implementation after pause. Agents reported no remaining owned app/build process. Full roadmap/review/UI objective remains paused and incomplete.
+
+
+## M6b coordinator public-license guard and pause
+
+- the coordinator directly inspected `tools/privacy-check.sh`, `tools/tests/privacy-public-license.test.py` and the verbatim `tools/plugin-runtime-build/third-party-licenses/clsx--license`. Required upstream public attribution is exempt only at that exact path with the reviewed LF-normalized SHA-256; changed bytes fail closed. Five isolated Git-fixture tests passed, including worktree and committed-revision scans and continued rejection at alternate paths or unrelated private data. No general email/domain exemption was added. The reviewer should check path/content binding and future dependency-license updates; this does not authorize publishing user data.
+- User pause preserves worker checkpoints c3982dc (worker runtime), f37b0b5 (worker packages) and 6367077 (worker mediation), separately from reviewed integration source 5b2f33e. No worker draft is integrated by this pause. See PROGRESS.md for evidence and limits, especially actual WebView isolation, stale queued-response delivery fences, native activation barrier, authenticated-store crash recovery and real preview/print host enforcement.
+
+## Explicit Windows mail WebView environment
+
+- Reader and smoke now pass an explicit profile directory and browser options to WebView2, and verify the selected directory before navigating. Hidden startup sets only the app profile, not a process-wide WebView2 directory. Four focused environment tests passed; the Windows App Automation project built without warnings; hidden `auto-8929` smoke reached shell-ready and exited 0, with its expected profile directory present. Review `Composition/WebViewEnvironment.cs`, `Composition/MailWebViewStartup.cs`, and both startup call sites. Actual plugin factory integration and two-environment browser isolation are not yet verified. The full Automation solution build hit a separate NativeSentinel configuration mismatch.
+
+## M6b Bulwark theme foundation
+
+- Review the uncommitted palette mapping in `tools/Barbican.GenTokens/TokenSet.cs` against Bulwark 1.21.2 `app/globals.css` and `app/accessibility.css`: native brush names are semantic approximations, existing sender tint pairs remain legacy, and host branding/custom themes are not implemented. The generated default is Bulwark; explicit stored Bento/Nordic choices keep their historical palettes. Bulwark currently uses the Bento shape dictionary until the parallel shell/layout work replaces it; this slice does not establish visual parity.
+- `ShellViewModel.SetSystemDark` has no platform caller in the existing app, so system theme changes and startup OS scheme are not yet wired even though synthetic resolution tests pass. OS contrast still flows through the existing accessibility source. Coordinate platform theme observation and shell integration before claiming startup or runtime OS-theme parity; no real UI was exercised here.
+
+## M6b Bulwark inbox chrome
+
+- Review `Views/List/MessageListView.xaml`, its code-behind, and `Views/Sidebar/SidebarView.xaml` and its code-behind: the default toolbar follows `mail-app.tsx:6633-6690`, while optional sidebar Compose follows `sidebar.tsx:211-213,2728-2763`. The existing list menu is intentionally reused; it offers Refresh, Mark folder as read and Select all, not every upstream folder action. Grouping and message ownership were not changed.
+- Windows Automation build passed without warnings. Hidden sample port 8936 exercised toolbar selection and menu, captured both floating and sidebar Compose layouts, and invoked sidebar Compose to open the synthetic editor. Bento and Nordic list title/search bounds were checked; full keyboard navigation, high contrast, narrow layouts and legacy sidebar Compose remain to be independently verified. No live account or browser was used.
+# M6b composer parity stream
+
+- Review the Bulwark-only composer surface, field geometry, typography, and
+  borderless footer actions in `src/Barbican.App/Views/Compose/ComposerView.xaml`,
+  `ComposerView.xaml.cs`, and `RecipientFieldView.cs`. This is a scoped source-based
+  approximation of `components/email/email-composer.tsx:5674-5786,5940-5948,6144-6161,6479-6542`
+  in Bulwark 1.21.2, not a claim of complete visual parity. Check scaled text,
+  narrow layouts, theme switching and high contrast; editor formatting chrome,
+  missing reference toolbar controls and window behavior are outside this pass.
+  Windows Automation build passed; hidden synthetic 1424×884 WGC captures on
+  port 8935 show the fields and footer in light and dark. Two captures per mode
+  differed only at the blinking caret. Subject, Send and Attach had nonzero
+  bounds. These captures are local native evidence, not a reference comparison;
+  keyboard, high contrast, text scaling and narrow-layout checks remain open.
+
+## Solo Bulwark default mail pass — paused
+
+- Review the change following `585056f` in `src/Barbican.App/Views/{Reader,Sidebar,List}`,
+  `Shell/ShellPage.xaml.cs`, `Styles/Controls.xaml` and `Theme/`. The new sidebar
+  switcher uses the existing account popover. The wide composer now considers
+  saved pane widths. Evidence, rendering boundaries and two suite failures
+  are in `docs/milestones/M6b-solo-parity.md`. No milestone approval requested.
+
+## M6b solo reader and composer verification
+- Review reader metadata, folder colours, reply hint and composer resizing against the local evidence in docs/milestones/M6b-solo-parity.md. The complete Windows tests passed. Conversation, delivery and pop-out parity are still open.
+
+- Grouped-inbox preview following a414598. Review conversation ownership during representative changes and the independent cursor for whole-folder actions in MessageListViewModel.Actions.cs. Expanded cards and the unread-first layout remain open.
+
+- Verify the composer maximize and restore path against email-composer.tsx lines 5140 and 5550. Both new and docked sample drafts retained their saved IDs and contents through the measured round trips. Native Escape routing is source-checked only.
+
+## M6b conversation cards
+
+- Review the independent body lifetime and unified owner routing in ConversationCardView, MessageLoader and ReaderViewModel. The selected message retains its original body shell. Secondary bodies use separate restricted shells, with external content blocked.
+- ConversationPrintDialog renders one card as text for printing. Hidden Windows sample verification stops at its preview. Shared-account replies need shared compose support. Card-specific Reply all, Forward, attachments, read marking and plugin body transformations remain open.
+
+- Follow-up: card Reply all and Forward inherit the same source login/server ID and restrictions as Reply. Read delay starts on body reveal. Native settings have no trusted per-account organisation device policy or managed-account signal (I-108, M10), so per-account noPrint remains unproven. Do not treat the print preview as managed-policy compliant.
+
+### M6b Windows composer window
+
+- Review the native close guard and single-view transfer in
+  `src/Barbican.App/Shell/ShellPage.ComposerWindow.cs` and
+  `src/Barbican.App/Shell/WindowCloseController.cs`. The repeatable synthetic
+  scenario is `tools/check-composer-window.py`. Normal interactive window
+  placement and the OS file picker await hands-on review.
+- Follow-up to b79ef0c serializes replacement and undo/reopen at the leave guard. Concurrent open tests cover both routes. Hidden sample 9022 checked the minimum child (464 by 544 client pixels at scale 1), docked return, discard, and visible close confirmations. Native activation and monitor-to-monitor scaling await hands-on review.
+
+## Review of queued plugin delivery (2026-11-20)
+
+The reviewer withheld approval of the `86f47f4` / `30db863` candidate.
+The Windows sender has no production caller. The session checks grant and
+account state before the writer converts the encoded payload to text and posts
+it. The session lock leaves grant changes and account switches free to race
+the final native post. The fake transport tests change authority before the
+delivery callback starts.
+
+Approval requires a concrete adapter reached from the production factory,
+an ordering guarantee for account and grant invalidation through the real
+post, and deterministic coverage of an account switch, grant revocation
+and binding cancellation at that boundary. The reviewed commits were
+inspected in place. The Windows suite and portable smoke at `06ad154`
+cover the baseline before those commits.
+
+## Review of local plugin package recovery (2026-11-20)
+
+Integrated the local package manager, profile lease and authenticated package
+store from the package stream through `ca662d0`. Fixed the installed-package
+limit before content writes, separated the committed and pending index files,
+and serialized authority publication with shutdown revocation. An unreadable
+inactive index now permits checking the other file against the same secret.
+An overlapping manager close returns after the revocation barrier starts.
+
+The package index records cleanup intent before candidate bytes are written
+and records retirement with uninstall or replacement. Listing packages retries
+failed cleanup. Authority lookups do not trigger archive I/O for cleanup.
+Reinstalling the same hash cancels its retirement, and enabled packages retain
+enough generation capacity for durable disable after restart.
+
+The reviewer closed the findings above after re-review of these paths. The package
+acceptance class passed 26 tests. Windows Automation passed 3,219 tests with
+four skips, zero failures, and a build with zero warnings or errors. Store
+tests used temporary folders and in-memory secrets. Production App and Add-ons
+composition, JavaScript activation, native user package loading, and signed
+managed acquisition remain outside this verification.
+
+## Review of the installed Add-ons view (2026-11-20)
+
+Settings now lists installed packages through the authenticated profile
+store. The view reports saved enabled status, with refresh and usable
+loading, empty and error states. Local installation and runtime actions
+are still pending.
+
+The reviewer approved the read-only list after the host held its lease through
+each listing and isolated each automation process's package files alongside
+its in-memory secret. Two hidden launches on ports 9081 and 9082 used the
+same synthetic profile. Both opened Add-ons, refreshed to the expected
+empty state, captured it, and closed through the normal controller.
+Windows Automation passed 3,219 tests with four skips, zero failures and
+a clean build. Populated rows and Windows credential-store access were
+not exercised by the hidden sample.
+
+## Review of local ZIP installation (2026-11-20)
+
+Settings Add-ons now reviews local ZIP archives and requires consent to
+the exact staged package and selected connected accounts. Update review
+displays permission and account changes. Leaving the page or switching
+apps discards pending reviews. Approved installs and updates stay disabled.
+
+The reviewer approved the source after the navigation, consent, account eligibility
+and account label fixes. Windows Automation passed 3,220 with four skips
+and zero failures. The Automation and Release builds were clean. Hidden
+synthetic run 9087 refused installation before consent, discarded reviews
+on cancel and both navigation paths, showed an added permission, and listed
+versions 1.0.0 and 2.0.0 as disabled after their approved installs. The run
+had no connected mail account and supplied an inert fixture in place of the
+native file picker. Picker interaction and populated account selection
+remain unverified.
+
+## Review of Windows bootstrap resource policy (2026-11-20)
+
+The isolated bootstrap policy accepts exact document routes and verified
+manifest assets for their declared resource purposes. The reviewer closed the flag
+and cross-purpose findings. All 22 focused Windows Automation policy cases
+passed. The privileged document route remains unavailable. Native WebView
+wiring and enforcement are separate pending work.
+
+## Review of queued Windows plugin replies (2026-11-20)
+
+The synchronous post now stays inside the live package grant, held profile
+lease, captured account selection, and runtime binding. Serialization
+finishes before the write guards are held. Missing lease or revoked grant
+suppresses delivery. Stale account captures permit a value-free error only.
+
+The reviewer approved this ordering after the lease and lifetime fixes.
+The Windows Automation suite built cleanly and passed 3,269 tests with four
+skips and no failures. Coverage includes concurrent grant disable, account
+switch, lease release, binding close, and synthetic ingress. The production
+WebView factory and end-to-end browser enforcement remain pending.
+
+## Review of Windows sandbox startup and parent bridge (2026-11-20)
+
+The startup seam loads the verified entry point and binds it to the current
+package grant. Revocation waits for canceled activation to unwind and disposes
+any instance returned during teardown. A failed disposal of the activated
+instance can be retried. Queue saturation closes the parent transport and
+signals the native session to revoke the binding.
+
+The reviewer approved the startup lifetime and queue fixes within that scope. The
+Windows Automation build was clean and 3,281 tests passed with four skips
+and zero failures. All 46 JavaScript bridge tests passed. The Windows build
+contains the three bridge scripts. Production WebView activation, frame
+navigation enforcement, and end-to-end runtime verification are pending.
+
+## Review of Windows sandbox activation acknowledgements (2026-11-20)
+
+The session accepts one authenticated initialization outcome after posting
+init. Initialization failure revokes the binding before any further ingress
+or delivery. Caller cancellation is preserved. The navigation gate admits one
+trusted parent and one child at the selected route. The native event adapter
+uses the session's own WebView, handles navigation and renderer failures,
+denies popups, permissions and downloads, and requires revocation before
+detaching its event handlers.
+
+The reviewer approved the acknowledgement, navigation and event adapter changes
+after review fixes. The Windows Automation build had zero warnings and
+errors, with 3,292 tests passed and four skipped. The adapter has no
+production registration yet. WebView creation, resource filtering, and
+actual browser events still require integration and verification.
+
+The staged reference runtime's lock and generated manifest matched their
+pinned hashes. A rebuild matched the CSS byte-for-byte and the JavaScript
+after normalizing generated import filenames. The repository privacy scan
+flagged a generated chunk and required upstream notices, so the runtime
+bundle is still preserved in local staging with the notices intact.
+
+## Review of Windows plugin view and bootstrap inputs (2026-11-20)
+
+The Windows view factory reserves a new browser profile exclusively, checks
+the mount around native initialization, and queues teardown on the UI thread.
+Profile deletion waits for successful control close and confirmed browser
+exit. An unconfirmed exit leaves the reserved folder on disk. The init
+message projects verified code and approved grant fields, and parses the
+validated activation registrations. The current startup input omits the
+optional slot fill flag.
+
+The bootstrap verifier returns immutable bytes only after the exact eight
+files match pinned lengths and SHA-256 values. It requires a trusted root.
+The original local staging matches all eight pins. The reviewer approved these
+source changes. Windows Automation built with zero warnings or errors and
+passed 3,300 tests with four skips. Production registration, serving the
+bootstrap documents, and running an isolated add-on in WebView2 are pending.
+
+## Review of the Windows WebView2 startup proof (2026-11-20)
+
+The Windows startup adapter prepares fixed parent and isolated child
+documents and immutable native response streams before navigation. Requests
+default to HTTP 403 and may receive only approved routes and resource
+types. The view owns response streams through native close, including
+partial attachment. The event subscription authenticates the session's
+top-level native core and exact source. WebView2 delivered a different
+managed sender wrapper in the hidden test, which explained the original
+readiness timeout.
+
+The reviewer approved the scope after the resource lifetime and sender changes.
+Windows Automation passed 3,303 tests, with four skips and zero failures.
+The exact source also passed a hidden synthetic background activation on
+WebView2 157.0.4341.60. The probe used the pinned local runtime, received the
+expected single hook registration from the child, closed the session, and
+exited zero. The probe bypasses normal app composition and uses a new
+automation profile, no account or real input.
+
+Production add-on registration and distribution are pending. The WebRTC
+and redirect restrictions are declared in the two document responses.
+Actual network isolation, hook invocation and visible slot behavior still
+require end-to-end verification.
+
+## Review of the Windows JavaScript hook round trip (2026-11-20)
+
+The runtime invokes a hook registered by its authenticated activation.
+Each frame has bounded pending requests with unique IDs, accepted only
+after posting and consumed once. The host checks the live grant before
+posting arguments and before returning the result. Cancellation and session
+closure remove pending requests. Expected native failures return a generic
+transport error, and plugin error details stay inside the sandbox.
+
+The reviewer approved the transport scope after reviewing the failure handling.
+Windows Automation passed 3,308 tests with four skips and zero failures.
+The hidden WebView2 probe delivered the synthetic argument to the registered
+hook, received the expected value, closed the session, and exited zero.
+Per-hook permission and account policy at the production hook bus are
+pending, along with slot rendering and later protocol variants.
+
+The pinned probe runtime is a local test input. The published Bulwark
+1.21.2 tag resolves to 933bc18f517135e38245821c5cc1bc7117ce2d64.
+Thirty of 32 staged runtime source files match that commit by Git blob
+hash. The remaining differences are a slot description and a runtime
+comment. The build script and license match. The reduced staging lock has
+different Tailwind CSS resolutions, so the existing bundle's tag-exact
+release provenance has not been established.
+
+## Review of the exact Bulwark runtime and WebRTC observation (2026-11-20)
+
+The runtime verifier now pins the eight files built from the published
+Bulwark 1.21.2 release revision 933bc18f517135e38245821c5cc1bc7117ce2d64
+and its full lockfile. Two fresh checkouts and separate dependency caches
+produced byte-identical files on this Windows machine using Node 26.11.1
+and npm 11.20.0. All eight lengths and hashes were independently matched
+against the application pins. This replaces the earlier test-only bundle.
+[Bulwark 1.21.2 source](https://github.com/bulwarkmail/webmail/tree/933bc18f517135e38245821c5cc1bc7117ce2d64)
+
+The default hidden probe passed with the exact-release bundle. A separate
+hidden run observed the browser's enforced WebRTC restriction inside the
+opaque child on WebView2 157.0.4341.60. That run used a fresh profile, named
+a local reporting group with no destination, and passed only on the matching
+browser report. The original headers produced an inconclusive report check.
+The reviewer approved the scoped diagnostic and pins. Windows Automation passed
+3,309 tests with four skips and zero failures.
+[Chromium's WebRTC reporting implementation](https://chromium.googlesource.com/chromium/src/+/d82acd12a7d48882d45071d5dd96d3a5f25fb19d%5E%21/)
+
+The runtime artifacts and notices are retained in local build staging.
+The emitted-code audit identified the third-party license texts for the
+runtime. The icon chunk still triggers the privacy scanner. Production
+registration, portable packaging, independent-machine reproducibility,
+and broader network and slot behavior remain pending.
+
+## Review of Windows runtime preparation and lifecycle observers (2026-11-20)
+
+The preparation script exports the pinned upstream Git revision to an
+exclusively created folder outside both checkouts. It uses isolated tool
+processes with an explicit environment, the full release lockfile, and
+verified Node and npm versions. It reproduces the Windows checkout's CRLF
+conversion and checks the eight filenames, byte lengths and hashes against
+the app inventory. The in-repo script passed an independent clean build
+with deliberately invalid ambient Node and npm settings, and rejected both
+an existing output directory and a destination inside a checkout. The reviewer
+approved the final script.
+
+The lifecycle adapter projects the five approved empty observer events
+to a live, untrusted background binding using Bulwark's implicit lifecycle
+permission. It uses a fixed empty object, checks the current grant, and
+detaches on binding closure. The reviewer approved the scoped adapter. Windows
+Automation passed 3,314 tests with four skips and zero failures. The runtime
+owner still needs to attach the adapter once per activated binding.
+
+Two independent checks located the icon chunk's one distinct privacy
+pattern match in the locked public dependency source. The generated chunk
+and runtime notices remain in local staging. The repository privacy
+scanner and artifact distribution policy remain in force.
+
+## Review of shared Windows package authority (2026-11-20)
+
+The app package host now builds the sandbox factory with the same leased
+manager and revocation coordinator used for installed-package changes.
+The factory attaches the five safe lifecycle observers only for its own
+activated binding and gives their cleanup to the tracked startup lifetime.
+
+The reviewer approved the shared authority and observer ownership. The Windows
+Automation suite passed 3,315 tests with four skips and zero failures.
+The focused case verifies allowed lifecycle delivery, exclusion of a mail
+hook and observer detachment after revocation. Live Windows package
+activation and production composition remain pending.
+
+## Review of Windows leased activation and slot rendering (2026-11-20)
+
+Separate hidden Windows runs with fresh automation profiles passed using
+the exact Bulwark 1.21.2 runtime. The package probe used a fixed synthetic
+archive, an authenticated package store, the held profile lease, and an
+in-memory secret service. It refused the disabled install, started under
+the new grant after enablement, observed the empty lifecycle payload through
+a fixed in-memory API witness, detached on disablement, and refused the old
+grant after re-enable. The probe disabled the fixture again during cleanup.
+
+The slot probe rendered a fixed synthetic component and checked its exact
+text and 123 by 37 CSS pixel bounds. The native query was confined to the
+captured child frame and required its exact URL and opaque origin. The
+probe leaves production placement, focus, and resize routing to later tests.
+The reviewer approved both hidden probes and their cleanup. Windows Automation
+passed 3,315 tests on rerun with four skips. The preceding run had one
+failure whose identity was not retained.
+
+## Review of bounded Windows add-on shutdown (2026-11-20)
+
+Profile shutdown permanently closes runtime registration and invalidates
+all tracked bindings before it waits. Concurrent shutdown callers share
+the bounded teardown result. The package host releases its profile lease
+after that wait and reports unsuccessful cleanup. The window logs pending
+add-on teardown separately from preference flush failures.
+
+The reviewer approved the shutdown scope. A stalled synthetic runtime verified
+that both shutdown callers see failure, startup is refused, and the
+profile lease can be acquired again while delayed cleanup completes.
+Windows Automation passed 3,317 tests with four skips and zero failures.
+Both native probes passed again. Normal app composition started and closed
+successfully in a separate hidden sample profile.
+
+## Review of optional Windows portable packaging (2026-11-20)
+
+The portable packager accepts a pair of optional directories for the
+eight app-pinned bootstrap files and the nine runtime license texts.
+It stages them in the ZIP alongside the publish output and adds a source
+reference without writing to the publish tree. This mode checks the
+payload paths, verifies ZIP entry names and hashes, and refuses to replace
+an existing archive. The existing invocation still produces its original
+archive layout.
+
+The reviewer approved the local packaging change. Synthetic fixtures passed on
+Windows PowerShell 5.1.26100.9818 and PowerShell 7.6.9. They checked the
+ZIP layout and hashes, existing output, invalid or incomplete arguments,
+junctions, and rejection of output inside the source before directory
+creation. Mapped drives, SUBST drives, concurrent output creation, and
+packaging a real application publish remain untested. No release archive
+was produced. Distribution still requires artifact privacy and notice review.
+
+## Review of Windows background add-on activation (2026-11-20)
+
+The normal Windows shell restores enabled untrusted JavaScript add-ons
+using the packaged, hash-pinned runtime. The Add-ons page enables, starts,
+disables and removes a local package through the same profile lease. It
+shows a live runtime acknowledgement separately from saved enablement.
+Imports and updates still require fresh review and install disabled.
+Explicit Start and Enable can retry a transient package-store failure.
+
+The opaque child requires an enforcing local WebRTC policy report before
+loading the SDK. The trusted check configures no ICE servers or report
+destination and performs no negotiation. Missing or report-only evidence
+leaves the SDK unloaded. This verifies the same-frame WebRTC gate on the
+tested WebView2 version. Broader network behavior and other installed
+browser versions remain outside this evidence.
+
+Shutdown first refuses new starts and invalidates tracked add-ons. The
+window retains its dispatcher and the host retains the profile lease
+while a startup that has yet to register drains. A deterministic fixture
+kept one runtime active and blocked a second before tracking. Disabling
+the second took effect before it could activate, and the shutdown
+barrier invalidated the first before releasing the lease.
+
+The reviewer approved the final slice. Windows Automation passed 3,320 tests
+with four skips and 48 Node checks passed. A private Windows walkthrough
+with the exact Bulwark 1.21.2 files used normal Settings composition to
+review and install a synthetic package disabled, enable it, observe it
+running, disable and re-enable it, cancel one removal, and confirm
+another. Both removal prompts were constrained to the window. The slot
+and network probes passed separately. The Windows Release build completed
+with zero warnings and errors. No real account or real input was used.
+Account API adapters, additional hook families, visible slot placement
+and final portable verification remain open.
+
+The catalogue checker now reads the existing conversation loading label
+as UTF-8. It reports no duplicate or dangling IDs and still reports 12
+M6b Red cases, eight for packages and four for runtime.
+
+## Review of Windows add-on owned calls and scoped storage (2026-11-20)
+
+The runtime registry rejects reuse of retired callback, reply and stream
+identities. Externally supplied identities have bounded histories. Native
+hook requests use owner-specific monotonic identities and keep a single
+high-water mark, including after a reply is consumed. Hook replies now
+use this registry in the Windows transport. Slot callback and stream
+routing still need production consumers.
+
+The scoped storage service uses the current grant and a captured login.
+It serializes writes within a namespace, applies the reference UTF-16
+quota to the projected JSON, and reserves capacity for the native response.
+Durable snapshots are encrypted, use opaque scope names and authenticate
+the revision and scope. A blocked erase leaves the add-on disabled and
+available for removal retry, including after the package host reopens.
+Same-namespace rollback by a locally privileged process is outside the
+user-data integrity claim.
+
+The reviewer approved both scopes after fixes. A hidden Windows package probe used
+the production dispatcher and encrypted store with two fixed synthetic
+sessions and in-memory secrets. It exercised all four JavaScript storage
+calls, isolation across switches, retained data across a fresh runtime
+grant, and removal. Storage activation remains limited to this probe
+pending durable erasure for individual and full sign-out in the app.
+Windows Automation passed 3,348 tests with four skips. The private Settings
+walkthrough also passed install, enable, disable, cancel removal and
+confirmed removal on this source. Number formatting was checked against
+representative JavaScript boundary values.
+The specification checker still reports two M6b Red cases for native
+package consent and inert discovery.
+
+## Review of Windows add-on storage at sign-out (2026-11-20)
+
+The normal Windows shell now registers the four scoped storage methods.
+Fresh and restored logins receive storage access only if the app held
+the exclusive profile lease before establishing the login. A successful
+fresh vault read is required for storage access on restore. A previously
+restored session keeps its original eligibility after a lease handoff.
+
+Sign-out fences new storage captures and final publication before erasing
+the selected login's snapshots and abandoned staging files. Full sign-out
+removes all add-on storage and includes remembered logins absent from
+the current window. Single-row sign-out clears all scopes only when the
+fresh remembered account list confirms the last login. Empty storage
+trees and full erasure can proceed independently of the add-on vault key
+and package index. A competing profile owner or a failed data erase
+leaves the account signed in and reports the failure.
+
+The reviewer approved the account lifetime, scoped mutation and erasure paths.
+The synthetic regressions cover a stale in-memory login, a stale vault
+cache before restore, a remembered login absent from another window,
+queued sign-out across sign-in, and a staged write reaching publication
+after its login was fenced.
+
+Windows Automation passed 3,364 tests with four skips. A hidden native
+WebView2 run verified selective and full erasure through the hosted storage
+API across synthetic reauthentication. The normal private Windows Settings
+walkthrough also passed package install, enable, disable and confirmed
+removal. The Windows Release build passed with zero warnings and errors.
+The active-account race tests use synthetic mail sessions. No real account
+was used.
+
+## Review of inert Windows native add-on import (2026-11-20)
+
+The ZIP inspector recognizes one exact native sidecar, validates its schema
+and declared hooks, and requires a complete flat DLL filename and SHA-256
+inventory. It rejects a dual JavaScript and native manifest and ZIP
+directories with payloads. The inspector hashes DLL bytes without parsing
+PE metadata. CLR compatibility and dependency binding remain activation
+requirements. [Microsoft's PE reader input guidance](https://learn.microsoft.com/en-us/dotnet/api/system.reflection.portableexecutable.pereader?view=net-10.0)
+
+Settings has separate native full-access consent. The authenticated package
+index records that decision for the exact archive and keeps the package
+disabled. Renewing review checks the fresh archive against the installed
+identity even when the loaded definition is cached. A changed archive
+requires a new decision. Native user-package activation remains unavailable.
+
+The reviewer approved inert inspection and disabled installation. The sentinel
+checks verify that the fixture never enters the process assembly list and
+that inspection, rejection, approval and reload produce no initializer,
+constructor or manifest activity. They also cover tampering, ambiguous
+manifests, malformed metadata and changed bytes during renewed review.
+
+Windows Automation passed 3,369 tests with four skips. The private
+Settings walkthrough canceled one native review, approved the next one,
+confirmed the imported package stayed disabled, and removed it. The
+existing hidden JavaScript package and storage probe passed. The M6b
+specification checker reports no remaining Red cases. Native activation,
+hook and slot integration, and the M6b portable remain open.
+
+## Review of Windows native add-on activation (2026-11-20)
+
+A separate Enable action starts an approved native add-on. The runtime
+reopens the authenticated package, checks the complete archive against the
+enabled grant, and obtains startup authority from the held profile lease.
+It loads the reviewed entry point and its managed dependencies from memory.
+The native manifest must match the approved ID, version, API and hook list.
+The app keeps bundled plug-in discovery and data directories separate.
+Native package activation works independently of the WebView bootstrap.
+
+Windows routes imported native reader details and the five empty window and
+connectivity observers through the managed API. Other native hook projections
+and slot contributions remain open. Native add-ons run with the application's
+full access after approval. Their API can supply a profile data directory and
+has no on-disk archive directory.
+
+Disable and shutdown invalidate the binding immediately. Teardown drains
+initialization, admitted callbacks and their cancellation handlers before
+disposing the loaded plug-in. A timed-out hook returns to the caller while
+teardown continues to track the foreign work. The window and profile lease
+stay open when the shutdown cleanup budget expires, and closing again retries
+the cleanup. The reviewer reviewed the fixes for the reader deadline and lease
+ownership races and approved the changes.
+
+Windows Automation passed 3,371 tests with four skips. The private
+Settings walkthrough canceled a review, approved and installed the
+synthetic package disabled, enabled it, verified its detail in the
+reader, disabled it, verified the detail was gone on the next message,
+and confirmed removal. Windows Release built with zero warnings and errors
+and excludes the Automation fixture. The M6b specification checker passed
+and still reports the plug-in OAuth callback as unwired.
+
+## Review of Windows add-on OAuth delivery (2026-11-20)
+
+An add-on with an active `http:fetch` grant and a registered background
+callback can request a random, single-use state. The state selects the
+exact leased profile, approved package and grant generation. A valid
+provider response is projected into the registered JavaScript callback.
+The app drops expired, replayed, malformed and revoked flows and reports
+generic browser results. Add-on OAuth runs on its own loopback route, and
+account sign-in continues through the existing account OAuth flow.
+
+Windows uses an ephemeral IPv4 loopback redirect. Starting a newer flow
+renews the shared listener's idle deadline while each state keeps its own
+15-minute expiry. The host verifies the authorization-code request and
+S256 PKCE challenge, asks before opening the provider in the system browser,
+and rechecks the exact grant after consent. The user sees the add-on ID and
+provider host. Generic external-link routing and add-on token exchange
+through the full host HTTP API remain open.
+[RFC 8252 on desktop redirect URIs and PKCE](https://www.rfc-editor.org/rfc/rfc8252.html#section-7.3)
+
+The reviewer approved the browser authorization, state ownership and listener
+renewal changes after the review fixes.
+
+Windows Automation passed 3,383 tests with four skips. The private
+WebView2 package probe used the pinned Bulwark bootstrap and two installed
+synthetic add-ons. It verified JavaScript state and redirect creation,
+owner-only delivery from the real loopback listener, replay rejection,
+and refusal after disabling the owner. Browser launch approval used a
+synthetic launcher in the dispatcher tests. The separate private slot
+probe passed. Windows Release built with zero warnings and errors. The
+specification checker reports the M6b OAuth hook wired.
+
+## Review of Windows add-on website approval (2026-11-20)
+
+Settings shows the HTTPS websites requested by a JavaScript add-on with
+`http:fetch` before asking for consent. Approval records the exact list
+for the reviewed archive and grant generation. The sandbox receives the
+approved list. The bridge checks it alongside permissions and account
+scope when revalidating the current grant. The installer ignores malformed
+website patterns.
+
+Older authenticated installations keep their existing permissions and
+receive an empty website list. The installed add-on's Review websites
+action opens its existing archive for review. Approval advances its grant
+generation and leaves the add-on disabled until the user enables it. The
+host HTTP request adapter and redirect checks are still open.
+
+The reviewer approved the review, legacy migration and projection changes.
+Windows Automation passed 3,386 tests with four skips. The private
+Settings walkthrough verified exact and wildcard website display,
+cancel, explicit approval, disabled installation and removal. The
+private WebView2 OAuth probe continued to pass. Windows Release built
+with zero warnings and errors.
+
+## Review of Windows add-on HTTP fetch (2026-11-20)
+
+Windows exposes `http.fetch` through the authenticated add-on API
+dispatcher. Settings starts with add-on web requests blocked. The profile
+can allow them for reviewed websites, subject to the managed
+`NO_THIRD_PARTY_TRAFFIC` setting. The host checks the live grant and
+profile policy on each hop and before returning the response.
+
+The guarded transport sends HTTPS requests to approved DNS origins and
+exact ports. It checks resolved addresses before connecting and refuses
+answers with a private address. The transport uses no ambient cookies,
+proxy or credentials. Browser fetch method rewrites apply to redirects.
+Cross-origin redirects drop add-on-supplied headers and refuse body
+replay. Managed and profile controls are checked before DNS and each
+connection attempt. [Fetch Standard redirect handling](https://fetch.spec.whatwg.org/#http-redirect-fetch)
+
+The response cap is 25 MiB after decompression. The native wire carries
+one binary copy and the trusted parent reconstructs the SDK's text field
+before sending the result to the add-on. A single gzip, Brotli or deflate
+encoding is supported. The guarded adapter rejects layered encodings.
+[.NET decompression behavior](https://learn.microsoft.com/en-us/dotnet/api/system.net.http.socketshttphandler.automaticdecompression?view=net-10.0)
+
+The private WebView2 run verified the exact permission-denied result for
+an unapproved redirect and delivered a full synthetic 25 MiB response as
+both text and bytes. The first run exposed stack exhaustion in the
+base64 validator. The replacement retains the preflight size checks and
+requires an exact canonical round trip. The corrected JavaScript bridge
+passed 49 checks. Windows Automation passed 3,405 tests with four skips.
+The private Settings walkthrough toggled the profile policy on and off.
+Windows Release built cleanly with the corrected decoder and excludes the
+synthetic transport. The reviewer approved the final transport and decoder changes.
+
+## Review of Windows composer add-on actions (2026-11-20)
+
+The Windows composer mounts account-scoped add-on actions in its header
+and uses a constrained overflow menu when space is limited. A click
+exposes the exact draft to the owning background runtime. Snapshot,
+subject and attachment methods check the live grant and account. Subject
+writes compare revisions on the UI thread. Attachment reads require the
+current draft's opaque attachment identifier and exclude inline originals.
+
+Composer snapshots omit generated signatures, reply attribution and
+quoted messages. Saved MIME lacks reliable authorship information, so
+reopened drafts withhold imported body text from add-ons. Newly typed
+text remains available. Tests cover repeated subject values, stale draft
+handles, reopened content, and inline attachment isolation.
+
+The reviewer approved the composer, overflow menu and Windows Automation
+account adapter. Windows Automation passed 3,409 tests with four skips,
+and Windows Release built with zero warnings and errors.
+The private desktop walkthrough reviewed and enabled the byte-for-byte
+Bulwark `plugin-api-probe` fixture for an in-process mailbox. Its
+`Probe: case subject` action updated the draft through both the header
+button and the constrained menu at 480 logical pixels. The sample
+account adapter is available only to Windows Automation with both
+`BARBICAN_SAMPLE=1` and `BARBICAN_SAMPLE_ADDON_ACCOUNT=1` on an
+automation profile. Reader actions currently register during activation.
+Reader mounting, file preview, printing, send hooks and compose-link
+checks remain open.
+
+## Review of Windows reader actions and add-on preview (2026-11-20)
+
+The reader mounts authorized add-on actions beside the message toolbar.
+A constrained menu holds the actions when the reader is narrow. The
+ordinary reader supplies the message ID only to add-ons with read
+permission. The native post checks the selected reader snapshot, active
+account session, registered action, running frame and held package grant.
+Cross-account reader selection and per-card actions remain open.
+
+`ui.openFile` accepts up to 25 MiB of PDF or raster bytes with a matching
+signature. It sanitizes the displayed filename and limits each add-on to
+five previews a minute. Windows renders PDFs one bounded page at a time
+and decodes raster images in memory. The dialog opens only after the first
+page or image decodes and the profile lease and exact grant are checked at
+presentation. Disabling the owner cancels the dialog. Windows codec
+availability governs raster support. Printing, download and full image
+behavior parity remain open.
+
+The reviewer approved the reader and preview changes after the dialog lifetime,
+grant and byte allocation fixes. Windows Automation passed 3,416 tests
+with four skips. Windows Release built with zero warnings and errors.
+The unchanged Bulwark fixture opened `Akte 01-2026.pdf` through both the
+toolbar button and the overflow menu on the private sample desktop.
+Native dialog state confirmed the preview opened and stayed within the
+window. Closing the preview and disabling the installed add-on both
+dismissed it. The private desktop capture command did not produce a
+screenshot.
+
+## Review of Windows compose links (2026-11-20)
+
+Windows routes `mailto:` links and the desktop `bulwark://new` target
+through the composer. The desktop target accepts add-on parameters and
+opens a blank message. A second launch can forward either link to an
+existing instance of the same profile through its authenticated loopback
+handoff.
+
+The composer service returns the exact new draft. A canceled account
+choice, stopped request, or canceled replacement produces no draft for
+the add-on hook. Link parameter names are lowercased and bounded. The
+first value wins and the longest matching registered add-on ID owns the
+parameter. The general mailto interceptor receives a URL with the
+add-on parameters removed.
+
+`onComposeFromLink` waits for initial add-on startup and delivers
+`{ composerId, params }` to the owner with both composer grants. The
+native post checks the exact draft, account session, running binding and
+package grant. The draft is exposed through the same revision-backed
+composer API used by toolbar actions.
+
+The unchanged Bulwark fixture updated the synthetic draft after both the
+desktop second-launch handoff and the native mailto route. The first
+duplicate won in the desktop case, and a link carrying only an unknown
+add-on's parameter retained its original subject. The reviewer approved the
+delivery and startup wait. Windows Automation passed 3,422 tests with
+four skips and Windows Release built with zero warnings and errors.
+The Windows protocol association and Bulwark's browser URL remain open.
+
+## Review of Windows add-on send hooks (2026-11-20)
+
+Windows connects `onBeforeEmailSend` and `onTransformOutgoingEmail`
+to the normal send pipeline. Both require `email:send` for the sending
+account. The outgoing snapshot keeps the composer ID used by toolbar
+actions. An explicit veto or failed check stops the send. If a
+transformation changes who receives the message, the checks run again.
+
+The host keeps the account, sender, identity, composer ID and attachments
+from the original snapshot. Keyword changes require `email:write`. Up
+to ten valid outgoing keywords survive, including custom keywords,
+`$flagged` and tags. The server copy keeps the host-managed `$seen`
+state. Reopened drafts carry their existing eligible keywords.
+
+Each HTTP attempt checks the captured account and contributing package
+grants at transport handoff, after a connection slot and credentials
+become available. A credential renewal or forbidden-sender retry checks
+again. Operations on an already accepted held send use the captured
+account session through cancellation, resubmission, restoration and
+cleanup.
+
+In the opt-in private Windows run, the byte-for-byte Bulwark fixture saw
+the same composer ID in its toolbar action, send check and transform. The
+in-process JMAP server's Sent copy contained `akte-01-2026`, `$flagged`
+and the host's `$seen`. A separate fixture with only `email:send`
+changed the subject and could not add keywords. Its veto kept the draft
+open and produced no Sent copy. The ordinary Windows service graph
+started in a clean automation profile. The reviewer approved the checkpoint.
+Windows Automation passed 3,431 tests with four skips, and Windows
+Release built with zero warnings and errors.
+
+Send checks derive external recipients from sending-account identity
+domains. Organization domains, attachment text excerpts, custom outgoing
+headers and JavaScript send takeover and completion hooks remain open.
+
+## Review of Windows send completion (2026-11-20)
+
+Windows delivers `onAfterEmailSend` to current JavaScript add-ons with
+`email:read` for the sending account. The payload uses the accepted email
+and submission IDs, the JMAP mail account, actual post-transform recipients
+and subject, the originating composer ID, and a UTC schedule when present.
+The native post rechecks the captured account session, runtime and package
+grant. Observer failures leave the accepted send and other observers alone.
+
+Regular sends without an undo hold and explicitly scheduled sends notify
+after acceptance. An undo hold defers the event until expiry. Undo drops the
+event and Send now reports the replacement submission accepted by the
+server. Held events are keyed by account and submission. An interrupted
+cancel keeps the event pending until a status read resolves the outcome.
+Pending events and reconciliation timers are held in memory for the life of
+the app.
+
+The reviewer approved the delivery, reconciliation and automation changes.
+Windows Automation passed 3,436 tests with four skips, and Release built
+with zero warnings and errors. The private Windows
+walkthrough used in-process JMAP and verified hold expiry, Send now, Undo,
+the scheduled timestamp, observer failure isolation and the read grant.
+The synthetic send profile advertises `FUTURERELEASE` for these checks.
+JavaScript send takeover remains open.
+
+## Review of the raw JMAP submission service (2026-11-20)
+
+The Core service submits an RFC 822 message with its original bytes and
+an explicit envelope. It checks the From header against the selected
+identity. Upload and submission both require the caller's current
+authority for the captured account. The import and submission travel in
+one JMAP request so the submission can reference the new message.
+
+The service supports filing the message in Sent and submitting without a
+retained copy. A definite refusal triggers best-effort cleanup of the
+temporary draft. A lost or contradictory response returns an unknown
+outcome and preserves the server's state for reconciliation.
+
+The reviewer approved the Core and transport changes. Windows Automation passed
+3,449 tests with four skips. Windows Release built with zero warnings and
+errors. The synthetic tests cover exact bytes,
+explicit recipients, the server's implicit filing response, account
+refresh, lost responses after acceptance and cleanup after refusal.
+
+JavaScript raw send and compose takeover remain open. The host needs to
+apply the sending account's classification policy before exposing either
+capability.
+
+## Review of Windows add-on notifications (2026-11-20)
+
+Windows JavaScript add-ons can display success, error, information and
+warning toasts through the existing notification host. The host labels
+each toast with the installed add-on's name and ID, also used in the
+accessibility announcement. It revalidates the profile grant and live
+frame when displaying the toast. Each add-on shares a limit of five
+notifications per ten seconds across its frames and severities.
+
+The reviewer approved the changes. Windows Automation passed 3,462 tests with
+four skips. Windows Release built with zero warnings and errors. A
+private Windows walkthrough attached the normal shell to its hidden
+window, installed and enabled a synthetic add-on without account grants,
+and verified its attributed warning with the newline and bidi control
+removed from the displayed message.
+
+The ordinary methods accept strings and primitive values. Complex
+objects and the persistent progress and dismiss methods remain open.
+
+## Review of Windows add-on progress notifications (2026-11-20)
+
+JavaScript add-ons can show persistent progress and dismiss it through
+an opaque handle assigned to the exact frame. An unknown or already
+closed handle has no effect. Closing a toast or ending its frame releases
+it. Progress shares the ordinary notification burst limit and allows up
+to five active progress notifications per add-on and 32 per window.
+Ordinary notifications and their actions remain visible outside the
+scrolling progress list.
+
+The reviewer approved the display, ownership and cleanup changes. The private
+Windows walkthrough used a synthetic add-on composer action to display
+attributed progress. It verified dismissal through the add-on, the
+native Close button, and disabling the add-on while progress remained
+visible. Windows Automation passed 3,468 tests with four skips, and
+Windows Release built with zero warnings and errors.
+
+## Review of the organization-policy reader (2026-11-20)
+
+The Windows service graph registers a reader for an explicitly trusted
+Bulwark policy origin. That trust binds to one OAuth login and its exact
+JMAP server URL. The reader requests the fixed policy endpoint and
+checks the provider route, captured session and credential state at
+handoff. It requires authenticated domain coverage and a complete policy
+body. Principal lookup verifies group membership when shared account
+addresses are present.
+
+The reader resolves printing restrictions, print watermarking and
+outgoing classification labels, applying domain scopes before group
+scopes. It discards a response if the provider or login changes while
+the request is pending. Public, malformed and uncovered responses yield
+no policy snapshot. Transport tests use a synthetic provider.
+
+The reviewer approved the reader and its authority checks. Windows Automation
+passed 3,499 tests with four skips, and Windows Release built with zero
+warnings and errors. The new cases cover exact endpoint
+binding, public and uncovered responses, internationalized domains,
+OAuth revocation and provider or login replacement during a read.
+
+Native provider enrollment and the add-on print and raw-send policy
+checks remain open.
+
+## Review of Windows policy-provider enrollment (2026-11-20)
+
+Windows Account settings can connect a policy provider for the current
+OAuth login. Consent names the canonical HTTPS origin and the selected
+login. A candidate replaces the current provider only after an
+authoritative response and a final check of the login, account selection
+and previous route. Disconnect revokes the route for that login.
+Connections last for the current sign-in session.
+
+The reviewer approved the changes. The private Windows walkthrough used an
+in-process OAuth account and policy endpoint to connect, read a print
+restriction, reject a replacement while keeping the previous provider,
+and disconnect. Windows Automation passed 3,512 tests with four skips.
+Windows Release built with zero warnings and errors.
+
+The connection panel reports the provider's policy. Enforcement in
+add-on printing and raw sending remains open.
+
+## Review of policy-controlled Windows add-on printing (2026-11-20)
+
+Windows accepts HTML or PDF through `ui.print`. HTML is sanitized and
+converted in an offline WebView before entering the PDF page renderer.
+Preparation is bounded to 30 seconds, 25 MiB of PDF data and 20 pages.
+The print path requires verified permission from every connected account.
+A watermark required by any account is applied to every prepared page
+using the active login's address and a UTC timestamp.
+
+The package lease, running frame and account policy are checked at
+dialog admission and again when supplying the source, preview or output
+pages. A print call reports success once the dialog is displayed. The
+window lease remains in place until the claimed print task ends.
+
+The reviewer approved the changes. The private Windows walkthrough inspected
+the prepared HTML and PDF page trees, including a contrasting watermark
+on each sample page. A second profile with verified no-print policy
+delivered zero pages. Revoking the provider after admission also
+prevented page delivery. Automation substituted a synthetic page sink
+for the native dialog. Windows Automation passed 3,519 tests with four
+skips. Windows Release built with zero warnings and errors. Physical
+printer output remains unverified.
+
+## Review of Windows standalone raw sending (2026-11-20)
+
+Windows add-ons with an active-account `email:raw-send` grant can call
+`jmap.sendRaw` to keep a Sent copy or `jmap.submitRaw` to submit without
+one. The host verifies the selected login, exact JMAP session and sender
+identity. It requires verified provider policy for that sender and checks
+the current policy again before submission. Optional classification
+replaces add-on-supplied classification headers with the verified default
+when one is configured, preserving the MIME body. Required classification
+blocks standalone calls. The caller can supply a separate recipient
+envelope, including blind recipients, or derive an envelope from To and Cc.
+
+The host checks the upload receipt before referencing the blob and submits
+the import and submission in one JMAP request. Receipts report observed
+server timing and recipient refusals. A lost submission response remains an
+unknown outcome. A consistent, complete refusal can remove the Sent copy.
+
+The standalone path takes up to 25 MiB of binary input and accepts
+scheduled timestamps with a time-zone offset. Composer takeover and
+composer-selected required labels remain open.
+
+The reviewer approved the source, including the upload and receipt guards.
+Windows Automation passed 3,557 tests with four skips. Private Windows
+walkthroughs with an in-process server verified both SDK methods and
+their Sent-copy results, default classification, blind recipient
+delivery through a separate envelope, and recipient derivation. A
+required-label policy and an unconnected provider each produced zero
+uploads and zero submissions. Windows Release built with zero warnings
+or errors.
+
+## Review of Windows composer classification and takeover (2026-11-20)
+
+The Windows composer offers a classification picker under the verified
+policy for its sending login and effective From address. The send pipeline
+rechecks the choice and applies the label headers and subject prefix
+after outgoing transforms on the standard path. A required label with
+no default or selection stops submission. The picker uses the constrained
+menu used elsewhere in the composer.
+
+JavaScript `onComposeSend` runs after send checks and before transforms.
+Each handler gets a one-use token scoped to its runtime and the current
+composer attempt. The raw path checks the original sender, subject,
+envelope, release options, current policy, and the grants of every
+contributing handler. It never falls through to the standard path after
+an attempted raw submission. A verified receipt completes the composer
+send and starts cleanup of the original saved draft. An abort or false without a
+receipt leaves the composer open. An uncertain result keeps the draft
+and tells the user to verify the submission before retrying.
+
+The upstream raw methods require privileged tier as well as `email:raw-send`.
+The previous checkpoint had the account and policy checks but omitted the
+tier check. Both methods now enforce it in the dispatcher and at host entry
+before a claim or upload. Windows managed-signature enrollment and privileged
+JavaScript startup are pending, so the shipped package manager cannot yet
+activate the privileged raw path.
+
+Classification selection is held by the open composer. Persistence across
+a saved draft reload and inherited classification for replies and forwards
+remain open. Compatibility with third-party signing and encryption
+packages requires additional runtime verification.
+
+Windows Automation passed 3,569 tests with four skips. Windows Release
+built without warnings or errors. The private synthetic walkthrough
+verified required-label refusal, choosing a label, and a normal Sent
+copy with the chosen prefix. Abort and false without a receipt left
+the composer open with zero sends. An unprivileged takeover kept its
+original saved draft. A separate profile with an unprivileged
+`email:raw-send` grant attempted both raw methods and produced zero
+uploads and zero submissions. Tests used an in-process policy provider
+and mail server.
+
+## Review of managed add-on acquisition (2026-11-20)
+
+The managed acquisition service requires separate approval of an HTTPS
+provider and an Ed25519 public key for the exact signed-in OAuth account.
+It uses Bulwark's context sign-in route to obtain a session cookie,
+reads the instance registry, and fetches the eligible bundle from the
+same origin. It rechecks the provider, account, JMAP session and OAuth
+state at each request. It keeps the cookie in memory for this acquisition
+and rejects redirects. Existing organization-policy consent grants no
+managed acquisition access.
+
+The builder verifies strict UTF-8 code against the registry SHA-256 and
+the pinned Ed25519 key. It constructs a package archive from the registry
+manifest fields and the signed entrypoint. Development, device-refused
+and ordinary-tier records cannot produce a privileged candidate. A normal
+local import still cannot acquire managed authority or privileged grants.
+
+This checkpoint covers acquisition and verification. Windows provider
+enrollment UI, managed package approval and persistence, and privileged
+WebView startup remain open. The new path is exercised with synthetic
+HTTP and signing keys. Windows Automation passed 3,595 tests with four
+skips. Windows Release built without warnings or errors.
+
+## Review of managed add-on installation (2026-11-20)
+
+Windows Add-ons accepts an administrator-provided HTTPS origin, public
+signing key and add-on ID. It shows the exact selected account and
+provider before requesting separate consent to share the OAuth access
+token. After signature and registry verification, it shows the package
+permissions, signer fingerprint and explicit privileged installation
+consent. Canceling or leaving the page stops an in-flight review.
+
+The installed record binds the verified origin, signer, account and
+archive to the authenticated package index. A local import and a
+different managed source cannot replace the same ID. Updating a managed
+package requires a new verified review and consent. The account,
+provider and profile lease are checked when each request starts and
+when the authenticated index pointer is written. Unauthorized staging
+bytes do not become an installation.
+
+Managed packages are installed disabled. Windows currently withholds
+their runtime grant and executable resources until privileged startup
+is available.
+
+Windows Automation passed 3,607 tests with four skips. A private Windows
+desktop verified the two consent steps, signer fingerprint, permission
+list and disabled installation using the synthetic provider. A second
+review with a different key returned a signature mismatch and preserved
+the installed row. The disabled row exposed no Enable action.
+Windows Release built without warnings or errors. The M6b specification
+gate and generated hook check passed. The reviewer approved this checkpoint.
+
+## Review of the Windows managed WebView transport (2026-11-20)
+
+The Windows host selects the frame's tier from its runtime binding. It
+serves a managed child at `https://managed-plugin.invalid` and keeps the
+native bridge on `https://plugin.invalid`. Fixed navigation routes,
+origin-specific assets and the parent message handler restrict which
+document can reach the bridge. The ordinary child retains its opaque
+origin. Connection and content policies limit both frame types.
+
+The runtime preparation script applies a checked source patch to the
+pinned Bulwark 1.21.2 release. The managed child reads its parent origin
+from one fixed marker in host-supplied HTML. The upstream archive and full
+dependency lock reproduced the original inventory. Two patched builds
+agreed, and a fresh run of the preparation script verified all eight
+patched assets. Only the runtime script and manifest hashes changed.
+
+On a private Windows desktop a synthetic managed background frame
+completed two hook round trips at the expected origin. It could not read
+the parent's document, and its direct native post reached no dispatcher.
+The ordinary opaque bootstrap passed separately with the same assets.
+JavaScript host, parent and network suites passed 50 checks. The legacy
+parent suite returned the same eight passes and 27 failures at the
+previous revision and with this patch.
+
+Windows Automation passed 3,610 tests with four skips. Windows Release
+built without warnings or errors. The M6b specification gate and generated
+hook check passed. The reviewer approved the transport checkpoint.
+
+This checkpoint verifies transport and background bootstrap. Runtime
+authorization for installed managed add-ons, a managed slot walkthrough,
+and an end-to-end composer send takeover remain open.
+
+## Review of the managed startup proof (2026-11-20)
+
+The package manager can request fresh verification for a previously
+approved managed installation. Before sending credentials, it checks
+the installed provider and signer against the route approved for the
+owning login. The package generation, profile lease and provider session
+fence each provider request. Reconstructed archive identity covers
+registry metadata as well as the signed code, so matching code alone
+cannot authorize a changed manifest.
+
+The proof releases the verified entrypoint only inside a synchronous
+host callback while the installation and provider are still current.
+Removal, replacement and loss of the provider or profile authority close
+the proof. A reinstall of identical bytes has a new generation and cannot
+restore a stale proof. Installed managed packages remain disabled until
+the Windows activation flow consumes this proof at the code handoff.
+
+Windows Automation passed 3,615 tests with four skips. Windows Release
+built without warnings or errors. The M6b specification gate and generated
+hook check passed. The reviewer approved the proof checkpoint.
+
+## Early review of managed activation (2026-11-20)
+
+The activation grant exists for the current verified provider and
+account session. The authenticated installation stays disabled. The
+runtime generation, authorization at the native write, and exact
+installed archive govern WebView initialization and privileged delivery.
+
+| Finding | Correction and executable check |
+|---|---|
+| A previously admitted storage write could publish after the managed provider lost authority. | The grant now encloses final storage publication. A paused write resumes after withdrawal and leaves both revision and bytes unchanged. |
+| An organization-policy refresh could acquire the policy lock before the account lock while managed send or print acquired them in the opposite order. | Both routes now acquire account and JMAP authority before the route locks. A barrier test overlaps policy refresh with an account-fenced delivery and requires both to complete. |
+| A failed teardown prevented Enable and Retry from recovering. | An activation attempt first finishes pending cleanup. Tests inject failed teardown after explicit Disable and session expiry, verify no fresh provider request during failure, then confirm retry issues a newer generation. |
+
+A test with two contributing managed grants withdraws one and verifies
+the delivery callback is never called. The focused Windows Debug run
+passed 62 tests. The reviewer approved the three fixes after
+reviewing the new source and the reported tests. This is the early
+authority review. The combined milestone acceptance is still open.
+
+The private Windows sample later verified managed and ordinary startup,
+managed Disable and account loss, a composer action contribution, and
+the signed takeover with one in-scope submission. The fixture refused
+an out-of-scope recipient and kept the draft. [Walkthrough](milestones/M6b-solo-parity.md#managed-add-on-activation-and-takeover)
+
+## Windows checkpoint at 3791df4
+
+The reviewer explicitly approved revision
+`3791df4143ad616727721464a032779c5bce2e40` as a Windows checkpoint.
+The reviewer inspected the source, the light and dark comparisons, compact footer,
+Discard confirmation, managed Running and revoked states, and the denied
+draft. It reviewed the keyboard and send transcripts, the after-ready
+refusal probe, and the Windows build and extraction logs. The three
+earlier authority findings stayed closed. The reviewer reported no new blocking
+regression in this checkpoint.
+
+Windows Automation passed 3,623 tests with four skips. Release built
+with zero warnings and errors. The strict M6b catalogue and generated
+hook checks passed. The extracted portable reported the candidate
+revision and reached shell-ready in 933.1 ms before exiting with code 0.
+[Candidate evidence](milestones/M6b-solo-parity.md#windows-checkpoint-at-3791df4)
+
+At this revision, the unchanged proofreading fixture reached Enabled ·
+Stopped because `composer.registerChecker` lacked a native adapter.
+Generic dialogs, scoped mail-read results and denials, and the remaining
+production slot integrations still require implementation and executable
+evidence. [M6b API evidence and open methods](milestones/M6b-api-inventory.md#windows-execution-evidence-for-the-november-20-continuation)
+
+## Typing checker review
+
+The reviewer approved the source fixes for the typing-checker
+findings. Suggestion application holds the binding and registration
+fences through the edit. Pending signer teardown blocks draft disclosure.
+Policy refresh runs separately from typing, and a newly resolved denial
+invalidates queued disclosure even during overlapping reads. The host filters
+malformed annotations and verifies all contributing bindings before showing
+results. The queued provider withdrawal produced zero additional WebView
+posts. This was approval of the fixes under review. The integrated M6b
+candidate and portable still require final approval.
+[Windows checker evidence](milestones/M6b-solo-parity.md#typing-checker-on-windows)
+
+## m6b/dialogs: ui.alert, ui.confirm, ui.prompt
+- Review `src/Barbican.Core/Plugins/Api/Dialogs/PluginDialogMethods.cs` against Bulwark `host-api.ts:2236-2290` and `host-dialog.ts`. Bulwark's methods take an options object (`{title, message, confirmLabel, cancelLabel, danger}`; prompt takes `fields` and returns a name-to-value map), not a bare message string; a bare string reads as no options, as in Bulwark. Deliberate differences: blank titles and labels fall back to the defaults, control and bidi characters are stripped (Bulwark only cuts), no `**bold` rendering, no per-dialog "turn off" menu, title shown at most 200 characters, a dialog queues behind a host dialog that is already open.
+- Stale handling is Barbican's: the open dialog re-checks `CheckCurrentAsync` every second and the binding lifetime closes it; the call then fails with `StaleContext` instead of Bulwark's cancel result.
+- The App presenter and content (`src/Barbican.App/Views/Plugins/PluginDialog*.cs`) compile on both heads but have not been exercised in a hidden Automation run: focus trap, Enter and Escape, and the reduced layout are unverified at runtime.
+
+## M6b scoped mail reads (m6b/scoped-mail)
+
+- Review `src/Barbican.Core/Plugins/Api/Mail/**` (`email.get/list/search/getThread/getThreadCount`, `mailboxes.list`, `jmap.getKeywords`): every method needs `email:read` for the captured login, results are built field by field (no model reflection), and the answer is dropped when authority or session changed. The grant is demanded again per call with the captured account key.
+- Judgement call: shared-account reads. Bulwark names a shared folder through its store; Barbican resolves an explicit `accountId` only against the captured session's non-personal mail accounts (`PluginMailRouting`) and only for get, thread and thread count. `email.list`/`email.search` cannot name a shared folder because `mailboxes.list` lists the own tree only. FakeJmap does not serve shared accounts, so the shared path has no positive test.
+- Deviation: `auth` (parsed Authentication-Results) is not part of the read view, because Barbican trusts the header only when its authserv-id is pinned (AuthServTrust). `source` omits the auth and spam sections and is cut at 2 MiB.
+- Deviation: `jmap.getKeywords` walks `Email/query` pages (up to 25,000 messages) through `IMailService.QueryAsync`; Bulwark's Keyword/get extension does not exist on Stalwart.
+- Uncertainty: `email.getThreadCount` reads the message with a one-byte body-value limit to find its thread id; check the Stalwart behaviour of `maxBodyValueBytes: 1`.
+- Model note: `EmailBody` list properties can be null after deserialization of a real FakeJmap message; the projection guards every list. The cause was not investigated.
+
+## Assistant as a bundled native add-on (m6b/assistant-addon, D-M6b-08)
+
+- **Host services reach every native add-on, imported ones included.** `NativePluginHostOptions.Services` fills `PluginContext` for bundled plug-ins and for approved archive packages alike (`src/Barbican.Core/Plugins/Native/NativePluginHost.cs`, `Host/PluginHostServices.cs`). The tools (`Host/HostTools.cs`) include `send_email`, `delete_messages`, `set_vacation`, `change_setting`; the confirmation before a write is enforced by the add-on (`AssistantLoop`), not by the host, so a hostile imported add-on could call them without asking. Native add-ons are already full trust, but review whether the tools and secrets should be offered to imported packages at all, or only after a separate consent line.
+- **Secrets.** `Platform/SecretPluginSecrets.cs` maps (`assistant`, `api-key`) to the old `ai-api-key` entry, other add-ons to `addon-secret/<id>/<name>`. Review the scoping (an add-on cannot name another's id; full-trust code can still read the store directly).
+- **Adopted legacy data.** `settings.json["assistant"]` (numbers and booleans read as text), `<data>/assistant/*.json` (copied, never moved) and the `ai-api-key` entry. Unverified against a real profile; covered by `PluginSettingsStoreTests`, `PluginHostServicesTests`, `SecretPluginSecretsTests` only.
+- **Settings page and nav.** The nav entry `assistant` (SettingsNav) is still static; the page (`App/Views/Settings/SetUiAddonPage.cs`) shows "turned off" when the add-on is not running. Bundled add-ons are listed in Settings > Add-ons (`AddonsPageFactory.Bundled.cs`) with Disable / Enable that applies at the next start; they cannot be uninstalled.
+- **Behaviour changes.** The system prompt names the account key instead of the JMAP username; the provider-switch default swap and text-row empty values are done through the generic rows (empty text is stored as an empty string).
+- **Not exercised.** No real provider, no live account; the chat and rows were checked against the sample add-on page and fakes.
+
+## M6b account, tag and template methods (m6b/api-account)
+
+- Review `src/Barbican.Core/Plugins/Api/Account/**`, `App/**`, `MailTags/**` and `Templates/**` against Bulwark `host-api.ts:188-202,1560-1870,2217-2436`, `host-api-account.ts` and `host-api-settings.ts`. All share `PluginScopedMethod`: the active login is captured at call time, the permission is demanded for that login, authority is rechecked after every backend await, and a write checks authority immediately before it is issued and calls `MarkMutationIssued` (a later stale check is `UnknownOutcome`).
+- Judgement call: tag writes use a Core class (`PluginTagDefinitions`) over `IPrefsStore`/`IPrefsEditor` with the same `emailKeywords` key and `TagRules` as the UI's `TagService`, not `TagService` itself (Presentation is not visible to Core, and `TagService` cannot add a tag with a chosen id or reorder). The sidebar reads that setting, so it updates when an add-on writes. Please confirm this counts as the "same service".
+- Judgement call: Bulwark stores `addedBy` inside each definition; Barbican's tag parser drops unknown fields, so ownership and `visibility` live in a separate `pluginKeywordMeta` setting. If a user deletes a tag and re-creates one with the same id between two add-on calls, the old owner entry stays until the next write prunes it.
+- Judgement call: `user.getAccounts` lists only the logins the add-on's grant names (Bulwark lists every browser account). `user.logout`, `user.returnToOwnAccount` and `user.findPeople` were not built (not read-only, and no scoped directory service).
+- Namespace note: the tag folder is `Api/MailTags`, not `Api/Keywords`, because a namespace called `Keywords` shadows the `Keywords` model type inside `Plugins.Api.Mail`.
+- Not verified: the template methods run over an in-memory `ITemplateAdmin`; the real Inbox-metadata store was not exercised through the add-on API. `PluginAccountApiRegistration` builds on the Windows head but has not been run in the app.
+
+## M6b calendar and task methods (m6b/api-calendar)
+
+- Review `src/Barbican.Core/Plugins/Api/Calendar/**` and `Api/Tasks/**` (`calendar.listCalendars/getEvents/getEvent/createEvent/updateEvent/deleteEvent/undoDelete/respond`, `tasks.list/get/create/update/delete/setComplete/acknowledgeAlert`) and `src/Barbican.App/Composition/Features/CalendarAddOnApiRegistration.cs`. Permissions are Bulwark's (`host-api.ts:308-321`, `assistant/c.ts:24-26`): `calendar:read`, `calendar:write`, `calendar:respond`, `tasks:read`, `tasks:write`. Each is demanded again for the captured login; every write is `mayMutate`, calls `CheckCurrentAsync` then `MarkMutationIssued` immediately before the writer, and the dispatcher turns a stale check after that into an unknown outcome.
+- Judgement call: writes are gated by the calendar's own `myRights` (mayWriteAll; mayWriteOwn for an event the user organises or that has no owner; mayDelete for deletes; feed calendars never), read from the calendar store's JSON, never by mailbox rights. A refusal is `PermissionDenied`, which cannot be told apart from a missing grant at the wire; the add-on only gets the fixed error text.
+- Judgement call: reads come from the live `ICalendarStore` snapshot (what the views show), not a JMAP query as in Bulwark; a series is expanded with the grid's own overlap rule. `isTasksOnly` is always false (Barbican has no task-only calendars) and the virtual Birthdays calendar is not offered.
+- Judgement call: `calendar.respond` reuses the reader banner's steps but refuses up front when the user is not among the participants (Bulwark adds the event and then fails). The "another add-on stopped the answer" case is recognised by the typed `HookStoppedError` that `InvitationService` returns.
+- Judgement call: the undo token store (30 minutes, 50 per add-on, bound to add-on and login, spent on success) is in memory in `PluginUndoTokens`; tokens do not survive a restart.
+- Uncertainty: task maps merge against the store's copy, not a fresh server read (Bulwark `withServerMaps`); a concurrent change from another client between the push and the call could be overwritten for a map written whole. A due day is stored as a LocalDateTime (`T00:00:00`) like the Tasks view, not Bulwark's bare date.
+- Open: `ui.openCalendar` and `ui.openTask` are not implemented (no shell navigation service); the registration has only been compiled on both heads, not exercised in a hidden Automation run.
+
+### Outstanding for the final Fable review: add-on calendar replies send mail (coordinator, November 21)
+
+`calendar.respond` (merged from `m6b/api-calendar`) sends an iTIP reply through `InvitationService`, so it sends mail on the user's behalf after a `calendar:respond` grant. Under CLAUDE.md this wants an early Fable review; this session defers every Fable review to the final release, so it is recorded here instead. Bring: the allowed and denied paths in `PluginCalendarRespondTests`, the participant pre-check, and the hook-stop detection, now a typed `HookStoppedError` from `InvitationService` instead of a message-text match.
+
+### Outstanding for the final Fable review: add-on on/off controls moved (coordinator, November 21)
+
+Two screen packages changed the controls that decide whether add-on code runs; both reuse the existing enable/disable commands and automation ids, and neither changes the consent or approval flow. WP-11 (`m6b/wp11-settings`) replaced the Settings > Add-ons Enable/Disable buttons with one switch per add-on card (`Views/Settings/SetUiAddonCard.cs`). WP-8 (`m6b/wp8-dialogs`) added a "Turn off <add-on>" item to the add-on dialog's header menu, which disables the add-on and closes the dialog (`Views/Plugins/PluginDialogContent.cs`, now declared in XAML through `DialogHeaderMenuView`). Bring: the dialog replay (`tools/dialog-probe-replay.py`, including "disable the add-on closes the dialog"), the Add-ons page captures, and a check that a managed (organization-policy) add-on's switch cannot override policy. Candidate `e19cb5e` passed 3,974 tests (4 skipped), the Release build and the generator, rules and spec checks.
+
+
+## M6b rules, settings and notification methods (m6b/api-rules-settings)
+
+- Review `src/Barbican.Core/Plugins/Api/MailRules/**` and `Api/AccountSettings/**` and `src/Barbican.App/Composition/Features/RulesSettingsAddOnApiRegistration.cs` (14 methods: `filters.list/create/undo`, `sieve.isSupported/getActiveScript/validateScript/regenerate`, `vacation.get/set`, `identities.update`, `accountData.get/set`, `plugin.getConfig`, `notifications.show`) against Bulwark `assistant/c.filters.ts`, `assistant/c.ts`, `host-api-settings.ts`, `host-api-account.ts`, `host-api-notify.ts`, `host-api.ts:196-217,302-356`. Tests: `PluginRulesMethodsTests`, `PluginAccountSettingsMethodsTests`.
+
+### Outstanding for the final Fable review: add-on auto-reply and sender identity changes (worker, November 21)
+
+- `vacation.set` (`vacation:write`) turns on an auto-reply that sends mail on the user's behalf. Gate as in Bulwark: refused (PermissionDenied, nothing written) while the out-of-office forwards mail or while that cannot be read; changes go through `IVacationService.SaveAsync` (VacationRules, `onBeforeVacationUpdate`). Judgement call: "cannot be read" is `SieveState is null` with Sieve advertised, because the service does not expose a forward-unknown flag; a hand-edited (locked) script is not detected as unknown. The reply period is whole UTC days; other moments are refused.
+- `identities.update` (`identity:write`) changes name, Reply-To and signatures of a sender identity (never the address) through `IAccountIdentities.UpdateAsync` (`onBeforeIdentityChange`). The "another add-on stopped it" result is now a typed `HookStoppedError` from `AccountIdentities`, no message-text match (vacation still uses a reference-equal error). HTML signatures use `MailSanitizer`, not Bulwark's allowlist.
+- `filters.create` adds rules but refuses forward, redirect, reject, discard, keep; the shared-folder check needs `urn:ietf:params:jmap:mail:share` and was not exercised against a server. Undo removes the rule only while the script is still at the state its save produced.
+- `plugin.getConfig` has no administrator store behind it before M7 (always `{}`); `notifications.show` shows a toast only (no system notification, link or bell entry). `accountData.*` reaches only the login's own account.
+- Not exercised: the registration on the Windows head (builds on both heads, not run in a hidden Automation session), no live server.
+
+
+## M6b mail-action, draft and compose methods (m6b/api-mail-actions)
+
+- Review `src/Barbican.Core/Plugins/Api/MailActions/**`, `src/Barbican.App/Plugins/PluginComposeLauncher.cs`, `PluginMailUndoHistory.cs` and `src/Barbican.App/Composition/Features/MailActionsAddOnApiRegistration.cs` (13 methods: `email.move/archive/setKeyword/removeKeyword/updateKeywords/batch/undoBatch/getAttachment/getAttachmentText/getRaw`, `drafts.create`, `compose.open`, `compose.reply`). Tests: `tests/Barbican.Core.Tests/Plugins/Api/PluginMailActionsTests.cs` (43 cases, the real dispatcher over FakeJmap).
+- **`email.forward` is deliberately not implemented, so no add-on method in this set sends mail.** It needs what Bulwark's `host-api-forward.ts` does before a single byte goes out: the per-add-on, per-address approval store the user can revoke, the host-drawn "Allow" dialog, the pre-send checks and finalisers (external-recipient warning, disclaimer, classification label), other add-ons' `onBeforeEmailSend`, the undo delay and the `$forwarded` mark. Barbican has those pieces in the composer pipeline (Presentation), not as a service an add-on method can call. Left closed rather than half-gated; it belongs with the send pipeline work.
+- Allowed, denied and confirmation paths, method by method:
+  - `drafts.create` (`email:write`): allowed saves one draft through `IDraftService` (the composer's own save: Drafts folder, `$draft`, the account's first identity) after the body is sanitised with `PluginBodyHtml` (no script, no remote image); at most 10 a minute. Denied (a neighbouring permission such as `compose:open`) reaches no server and saves nothing. Nothing is sent and no confirmation is needed: the user opens the draft and sends it. Attachment references (`blobId`, `name`, `type`, `size`) are attached as given, as in Bulwark; the server decides whether the blob exists.
+  - `compose.open` / `compose.reply` (`compose:open`): allowed opens the composer through `IComposerService` (its leave guard asks first when a draft is being written; the user keeps it and the add-on gets `Failed`). The user still decides whether to send: the launcher has no send path. `compose.reply` opens only for the message the reader shows in the add-on's own login (`Unavailable` otherwise). Shared budget of 5 a minute. Denied reaches nothing. Deviation: the composer prefill is plain text, so an HTML body arrives as its text, and attachment references are not attached to an opened composer.
+  - `email.move`, `email.archive`, `email.batch` and the keyword methods (`email:write`) change the user's mail but send nothing. Moves and archives run the list's own intercept and observer hooks (`onBeforeEmailMove`, `onBeforeEmailArchive`, ...); an intercept that says no leaves the mail where it was. Moves need an own folder (batch also: not the trash, not shared with anyone, checked on the server and failing closed); 20 moves a minute shared across the three methods; batch is at most 200 messages and `email.undoBatch` is bound to the add-on, the login and the kind, 30 minutes, once.
+  - `email.getAttachment`, `email.getAttachmentText`, `email.getRaw` (`email:blob-read`): the blob must be an attachment of a message the add-on names (never an arbitrary blob), 25 MB at most (text: 20 MB), text reads 30 a minute.
+- Judgement calls: batch counts per message (Bulwark answers all-or-nothing from its store); archive goes to the Archive folder itself, not the per-year or per-month folders of the archive mode; the administrator "archiving off" switch has no Barbican setting; `Remove` on the undo-history seam runs the entry in the background because `IUndoService` cannot drop one without running it (the batch's undo is once-only, so the add-on's own undo awaits the same run).
+- Open: not run in a hidden Automation session (both heads build; the App launcher and history adapters have no tests of their own, only the Core adapters do); `email.getAttachmentImage`, `search.run/clear`, `tabs.*` and `ui.*` navigation methods are not implemented (reasons in the API inventory).
+
+## M6b navigation, refresh and download methods (m6b/api-navigation)
+
+- Review `src/Barbican.Core/Plugins/Api/Navigation/**`, `src/Barbican.App/Plugins/PluginAppNavigator.cs`, `PluginFileSaver.cs`, `SystemFilePicker.PickSaveFileAsync`, `TransferPicks.SaveFileAsync` and `src/Barbican.App/Composition/Features/NavigationAddOnApiRegistration.cs` (7 methods: `ui.openEmail`, `ui.openCalendar`, `ui.openTask`, `ui.refreshRowBadges`, `ui.rerenderEmail`, `ui.rerenderFetchedEmails`, `ui.downloadFile`). Tests: `tests/Barbican.Core.Tests/Plugins/Api/PluginNavigationTests.cs` (60 cases, the real dispatcher over FakeJmap). Small additions to existing view models: `MessageListViewModel.RefreshBadgesAsync`, `MessageLoader.ReopenShown`, `TasksViewModel.Contains`.
+- **What an add-on can make the UI do** (the whole list):
+  - `ui.openEmail` (`email:read`): show one message in the reader that the add-on's own login can read (the message is read through the captured login first; the add-on never names a login). The app switches to Mail and selects the row, or opens the summary of a message outside the loaded list. 30 a minute.
+  - `ui.openCalendar` (`ui:calendar-action` or `calendar:read` for month, week, day and agenda; `ui:tasks` or `tasks:read` for tasks): switch to Calendar and one of its five views. Never another screen, never a date. 10 a minute.
+  - `ui.openTask` (`ui:tasks` or `tasks:read`): open the task editor, only while Calendar is already on screen and the task is loaded; it never switches apps. 20 a minute.
+  - `ui.refreshRowBadges`, `ui.rerenderEmail`, `ui.rerenderFetchedEmails` (no permission, as in Bulwark): ask the add-on hooks to run again for the rows on screen, the open message and the shown list. The last two re-read from the server (message from cache), so 6 a minute each; badges 12 a minute, extra calls dropped.
+  - `ui.downloadFile` (`ui:download-file`): offer one file (string or bytes, 25 MiB at most). The user always sees the platform save dialog and picks the place; the add-on never names a path. One dialog at a time, 5 a minute.
+- **What is refused:** an account the login does not show, a message the login cannot read, and (deviation) a shared account's message (the reader opens the active login's own mail only): `Unavailable` with no reader call. A login that is no longer the one on screen when the UI turn runs: refused by the navigator. A grant that is revoked or an account that changes before or during the call: no move; during the save dialog the grant is checked again right before the write and nothing is written. Programs, scripts and active documents (`exe`, `msi`, `bat`, `cmd`, `ps1`, `js`, `html`, `svg`, `xml`, ... plus `dll`, `reg`, `pif`, `cpl`, `msc`, `wsh`, `wsc`, `appx`, `msix`, `jnlp` which Bulwark does not list) by extension and by content type; names lose path separators, control and bidi characters. Unknown keys in an argument object, a non-string filename or content type, a view that is not one of the five.
+- **Bulwark deviations:** no "foreground" rule exists in Bulwark's host side for these methods, so none was added beyond the active-login capture and the stale checks every scoped method has. Bulwark's second `ui.openEmail` budget (5 permalink loads a minute outside the mail page) has no equivalent because the shell always opens in place. Rerender limits are new. Downloads write to disk instead of handing a browser a blob, so the picker, the size cap and the one-at-a-time rule are new, and there is no organisation device policy to consult (`downloadAllowed`). Closing the dialog resolves undefined like a save (the add-on cannot tell). `ui.openCalendar` returns `false` when the Tasks view is switched off or when the active login changed. On Windows the WinUI save picker creates the empty file when the user picks it; if the grant is revoked while it is open, that empty file stays.
+- **Left closed, with reasons:** `search.run` and `search.clear` (need Bulwark's JMAP filter normaliser for an add-on-supplied filter, plugin-filter state in the list and search box view models and a removable chip in the search box, all on the message list screen owned by the theme and list work), `tabs.*` (the message list has no category tabs to drive).
+- Open: the App adapters (`PluginAppNavigator`, `PluginFileSaver`) have no tests of their own (they need the live view models) and were not replayed in a hidden Automation run; the hidden build answers `ui.downloadFile` from queued picks only (`TransferPicks.Queue`), never a dialog. `ui.rerenderEmail` re-opens the shown row through `MessageLoader`, which counts as an open in its statistics and may re-run the configured mark-as-read timer for a message that is already read.
+
+## M6b app settings, directory, sign-out and save-attachments methods (m6b/api-app-user)
+
+- Review `src/Barbican.Core/Plugins/Api/App/PluginApp*Settings*.cs`, `PluginSetting*.cs` (the allow-list table and value checks), `Api/Account/PluginUserFindPeople.cs`, `PluginUserLogout.cs`, `PluginDirectoryCache.cs`, `Api/Files/PluginFilesSaveAttachments.cs`, `src/Barbican.Core/Files/FileBlobSaver.cs` and `src/Barbican.App/Composition/Features/AppUserAddOnApiRegistration.cs` (9 methods: `app.searchSettings`, `app.getSettings`, `app.describeSettings`, `app.setSettings`, `app.undoSettings`, `user.findPeople`, `user.logout`, `files.saveAttachments`; `user.returnToOwnAccount` is closed) against Bulwark `assistant/c.settings.ts`, `lib/settings-schema.ts`, `host-api-app.ts`, `host-api-account.ts:100-212`, `host-api.ts:194-209,501-523`, `assistant/d.ts:506-546`, `lib/files-save.ts`. Tests: `PluginAppSettingsTests`, `PluginUserDirectoryTests`, `PluginFilesSaveAttachmentsTests`.
+
+### Outstanding for the final Fable review: settings writes, sign-out and Files writes by add-ons (worker, November 21)
+
+- Allowed: `app.setSettings` (`settings:change`) writes only the keys of `PluginSettingsTable`, which is Bulwark's `SETTINGS_SCHEMA` cut to the keys that have a row in Barbican's settings catalog and that something reads (an `unwired` row is refused as `unavailable`). It goes through `ISettingValues.SetAsync` (Coerce, `onBeforeSettingChange`, prefs, `Changed`, so the open Settings page updates), reads the value back (another add-on's veto gives `stopped`) and returns an undo token (this add-on, this login, 30 minutes, once). `app.getSettings` and `app.describeSettings` (`settings:read`) report plain values only, under Bulwark's `SHARED_SETTINGS` list cut the same way; `app.searchSettings` (no permission) searches the catalog's labels and descriptions, never values. Rate limits are Barbican's (60 reads, 30 writes a minute; Bulwark has none).
+- Denied: credentials, server and administrator settings, add-on permission and sandbox state, anything that sends data elsewhere (`pushRelayUrl`), `externalContentPolicy`, trusted senders, signatures, `sessionTimeout`, debug and sync switches, tags and filters, `locale`/`language` and the list kinds (no catalog row). The delete and privacy safety nets move toward safe only (`confirmDelete`, `confirmBulkDelete` on; `permanentlyDeleteJunk`, `senderFavicons`, `showAvatarsInJunk` off). `deleteAction` cannot be "permanent", `sendDelaySeconds` not 60 (Bulwark's lists). The test `The_table_matches_the_catalog...` checks the table against the catalog and the denied list.
+- Confirmation path: `user.logout` (`auth:emit`) signs the captured login out through `IAccountMaintenance.SignOutAsync` only after the user accepts the host dialog (`ui.confirm`'s presenter: the add-on is named, the text is the host's, danger styling). Bulwark signs out without asking; this is a deliberate tightening because signing out erases the stored credentials. Declined is `Cancelled`, a dialog that cannot be shown is `Unavailable`, neither touches the login; the grant, add-on and login are rechecked after the answer and before the sign-out. A sign-out that ends the add-on's own authority is reported as an unknown outcome (the dispatcher cannot answer an add-on whose authority is gone).
+- Closed: `user.returnToOwnAccount` (Barbican has no impersonation session, no return endpoint and no banner). `user.findPeople` (`directory:read`) reads the contacts directory service (20 results, 10 lookups a minute, 5 minute listing, `complete` false when the server does not list its directory); Barbican has no administrator directory scope, and a login whose "Show directory" setting is off answers an empty, incomplete listing.
+- Files: `files.saveAttachments` (`files:write` and `email:read`, both demanded for the captured login) files the attachments of a message by blob id through `FileBlobSaver` into the user's own drive only (never a shared drive or the Files trash), at most 20 attachments, each passing `onBeforeFileUpload`, 20 writes a minute counted before anything is read; the blob must be an attachment of the named message. `Blob/copy` for a shared mailbox is implemented (RFC 8620 6.3) but not exercised against a server.
+- Not exercised: the registration on the Windows head (builds on both heads, not run in a hidden Automation session); no live server; no run of `user.logout` through the real dialog presenter.
+
+
+## M6b composer questions in the shared dialog host (m6b/composer-parity, CP-07)
+
+The composer's questions were code-built cards on the composer's own scrim. They are now dialogs of the shared host (`DialogHostView`, one per window: the shell's, or the detached composer window's own), drawn by `ComposerQuestionContent`, `ScheduleDialogContent` and `EditorDialogContent`. Review `src/Barbican.Presentation/Compose/ComposerViewModel.Send.cs` (`ConfirmSendAsync` and the three `Ask*` methods), `ComposerViewModel.Close.cs`, `src/Barbican.App/Views/Compose/ComposerView.Questions.cs` and `src/Barbican.App/Views/Dialogs/**`.
+
+- **The rule that did not move.** The view model owns every answer. A question completes with the id of one of its buttons or with null; `SendAsync`, `OpenScheduleAsync`, `RequestCloseAsync` and `DiscardAsync` continue only on their own go-ahead id (`"send"`, `"save"`, `"discard"`) and treat everything else, null included, as "do not send / do not close / do not discard". The view only shows the question and hands back what the host returned (`RunQuestionAsync`): a host that closes without an answer, a cancelled token or a composer that goes away completes the question with null, never with a go-ahead id. A closed composer or a replaced one completes its open question with null (`Finish`, `AskAsync`), as before.
+- **Allowed paths** (a send, a schedule or a close happens): warnings answered `"send"` (Send anyway / Schedule anyway), then, when the setting asks, the external-recipient question answered `"send"`, then, when nothing else asked and the setting is on, the send confirmation answered `"send"`; schedule dialog completed with a validated future time, then the same questions; leave answered `"save"` (saves first, closes only if the save worked) or `"discard"`; discard answered `"discard"`.
+- **Cancelled paths** (the user picks Back, Cancel or Review): the same ids, `"cancel"`; nothing is sent, the composer stays open with its text.
+- **Dismissed paths** (Escape in the card, the host's dialog service completing with null, a cancelled token): null. Tests in `tests/Barbican.Presentation.Tests/Compose/ComposerSendGateTests.cs` cover dismissing the warnings, the external question, the send confirmation, the schedule dialog, the schedule's warnings, the leave question and the discard question, and assert `h.Sender.Sent` is empty each time.
+- **Behaviour change to check.** The external-recipient list used to be one bullet inside the single warnings dialog; it is now its own question, asked after the warnings (Bulwark asks it separately, once per send). Both must be answered "send", so the gate is no weaker, but a message with both a warning and an external recipient now asks twice. The quick reply (`ReaderView.QuickReply.cs` `AskInlineAsync`) still shows each question as a confirm over its first choice; the external lines read "To: address" there.
+- **Not exercised.** The shared host and the detached window's host were built on both heads and the Automation configuration but not driven through every dialog in a hidden run; the Linux head is deferred to M9. A click on the scrim does nothing (host rule), so there is no mouse path that answers a question without a button.
+
+## M6b add-on pages in the rail (m6b/sh10-addon-pages, SH-10)
+
+- **What an add-on can put in the rail.** With `ui:app-page` it calls `ui.setPages([{id, title, icon?}])`: at most 3 pages, ids `[a-z0-9][a-z0-9-]{0,31}` unique within the add-on, titles 1 to 40 characters (trimmed), icon names `[A-Za-z0-9-]{1,40}`; an unknown icon draws the puzzle piece. Each page is a rail entry after the built-in apps with the tooltip "title (add-on name)". The list replaces the add-on's earlier one; an empty list removes it. 20 calls a minute per add-on.
+- **What it can open.** `ui.openPage(pageId, path?)` shows one of the add-on's own pages (the registry is keyed by the calling runtime's package, never by an argument, so another add-on's page id is `InvalidArguments`); the path is at most 2000 characters with no `.` or `..` segment. It answers true when the shell took the move. It cannot reach any other screen, and no call changes mail, accounts or settings.
+- **Lifetime.** The entries belong to the runtime binding: disabling, revoking or removing the add-on ends the binding, which removes its pages and, when one was open, returns the shell to the app it left. A stale grant or an older grant generation registers and opens nothing.
+- **Review.** `src/Barbican.Core/Plugins/Pages/*`, `Api/Navigation/PluginUiSetPages.cs`, `PluginUiOpenPage.cs`, `src/Barbican.Presentation/Shell/RailViewModel.cs` (`SyncPages`), `ShellViewModel.OpenPluginPage`. Tests: `PluginPagesTests` (denial with neighbouring permissions, invalid arguments, limits, foreign add-on, stale grant, rate, ended runtime, generations) and `RailPluginPagesTests`.
+- **Not done.** The page surface is a native placeholder (title, add-on name, path, a note): no `app-page` frame is mounted by any host, so the add-on's own content cannot show yet. The user-defined sidebar apps and the apps modal of `sidebar-apps-modal.tsx` are not built (no `sidebarApps` setting persistence, no inline web view). Linux not run (deferred to M9).
+
+## M6b add-on page frames and day labels (m6b/addon-frames, SH-10, AO-03)
+
+- **What an add-on can now show.** An add-on that offers the `app-page` slot (its background `activate` exports `slots['app-page']`) and holds `ui:app-page` draws its own page: the rail entry opens `PluginPageScreen`, which starts a **Slot-kind runtime** of that add-on (`PluginSlotFrames.StartAsync`) with props `{ pageId, path }`, the host theme snapshot (dark flag, font stack, a few colour tokens) and `fill` from the slot offer (`PluginRuntimeStart.Fill`, sent in the init message as Bulwark runtime.tsx:1522). The frame is a WebView of its own, sized by the sandbox's `slot-resize` message (new in `PluginSandboxSession`, honoured only for a Slot binding after init, height clamped to 2000 as slot-layout.ts); a `fill` frame takes the whole area. Leaving the page, the add-on stopping or the page/path changing ends the frame. `ui.setDayLabels` (permission `ui:calendar-action`) puts text under the day heads of the day/week views and a dot in the mini month.
+- **Isolation did not change.** The frame goes through the same `PluginSandboxFactory` chain as the background runtime (package, grant and tier rechecks, revocation tracking, entrypoint hash, one data folder per view, navigation gate with `?frame=slot`, the same API dispatcher and permission demands). The only differences are that its WebView is interactive and mounted in the page, and that the mount reaches the factory through an `AsyncLocal` read before the UI hop, so two concurrent starts never share a mount. The host asks for the slot only when the add-on's running background instance offered it at activation and the grant holds `ui:app-page`.
+- **Review.** `src/Barbican.App/Plugins/PluginSlotFrames.cs`, `Views/Plugins/PluginPageFrameHost.cs` and `PluginPageScreen.cs`, `Plugins/Sandbox/PluginSandboxSession.cs` (`ReceiveSlotResize`), `PluginSlotMount.cs`, `IPluginSlotFrameInstance.cs`, `Shell/ShellPage.AddOns.cs` (second factory for visible frames). Core: `Plugins/Calendar/*`, `Api/Navigation/PluginUiSetDayLabels.cs`. Tests: `PluginDayLabelsTests` (denial with neighbouring permissions, argument checks and limits, foreign add-on, stale grant, rate limit, ended runtime, older grant generation).
+- **Not verified.** The page frame was built on the Windows head and the existing suites pass, but no hidden run drew an add-on page: the pinned sandbox bootstrap bundle (`Assets/plugin-sandbox-bootstrap`) is not part of the repository build output on this machine, so the sandbox cannot start here. Day labels were not seen drawn either. Slot-frame props cannot change while a frame runs (a new path restarts the frame; Bulwark pushes `props-update`).
+- **Not done, and why.** `ui.openDialog` needs the `onResult` callback channel (`callback-invoke` / `InvokeCallbackAsync`), which the session does not implement yet; `ui.setPanel`, `ui.setSidePanel` and `ui.setSectionTitle` need the side panel beside the mail and add-on sidebar sections, neither of which exists in the shell; `ui.setListFilters` needs plugin filter chips in the message list (shared with the open `search.run` chip work); `ui.registerPrintTheme` / `unregisterPrintTheme` need the Printing page of Appearance settings and a theme-aware print pipeline. The same frame host (`PluginSlotFrames`) is what those surfaces will mount into.
+
+## M6b add-on dialogs and the first hidden run of add-on frames (m6b/addon-dialogs, SH-10, AO-03)
+
+- **What an add-on can now do.** `ui.openDialog({ title?, slot: 'plugin-dialog', extraProps?, width?, fill? })` (Bulwark host-api.ts:2287-2310) shows the add-on's own `plugin-dialog` slot frame in the shared dialog host (`PluginSlotDialogContent`: a "From the add-on" line, the options menu with "Turn off", a Close button, Escape closes) and resolves to the value the slot passes to its `onResult` prop, or null when the user closes the dialog. The method needs no permission of its own (Bulwark null); the slot's catalogue permission `ui:observe` is demanded from the calling runtime's grant before anything opens, then again by `PluginSlotFrames.StartAsync` when the frame starts, and the add-on must have offered the slot at activation. One dialog per add-on and 20 a minute, shared with `ui.alert`/`confirm`/`prompt`; width clamped to 280-1200; the call ends with `StaleContext` when the add-on stops or is disabled, its grant generation, permissions or accounts change, or the context goes stale (checked once a second while open and again before the result is delivered).
+- **The callback channel (the part to review).** `PluginHostCallbacks` is a per-frame table of host functions, handed to the frame through `PluginRuntimeStart.Callbacks`; the host puts `{ __pluginCallback: id }` markers (random 96-bit ids) into the frame's props and the sandbox (Bulwark's own runtime) turns them into functions that send `callback-invoke`. `PluginSandboxSession` now handles `callback-invoke` like an `api-request`: trusted parent only, only after init, same request-id budget, the live grant must still be the one the frame started under (`HasAuthorityAsync`), the handler runs from THIS frame's table only (an id of another frame, a cleared table, or a frame started without callbacks answers "Unknown plugin operation."), a throwing handler answers a generic error (no exception text), and the `callback-response` is written only while the grant is current and the binding alive. The only handler wired is `onResult`, which completes the dialog once (a second call answers nothing); the table is cleared when the dialog ends. `IPluginRuntimeInstance.InvokeCallbackAsync` (the host calling a function the frame registered) is still unavailable; nothing needed it.
+- **Evidence.** Unit: `PluginOpenDialogTests` (13: argument checks, denial with neighbouring permissions that leaves the slot free, defaults and limits, answered/closed/failed results, no presenter, stopped add-on, changed grant, stale while open, stale result dropped, shared one-dialog and 20-a-minute limits, cancellation, the props builder), `PluginSandboxCallbackTests` (8: found and answered, undefined and throwing handlers, unknown id, another frame's id, before init / direct frame / foreign view, changed grant, revoked while running and after dispose, the table). Hidden run (`tools/frames-probe-replay.py`, Automation build, synthetic sample account, a synthetic add-on, the pinned bootstrap taken from `BARBICAN_BOOTSTRAP_DIR`): 36 steps, 0 failed. Page: frame mounted at 56,32 sized 1224x687 in a 1280x720 window (beside the 56 px rail), props `pageId=overview path=reports/2026` drawn by the add-on's React component. Day labels: "Probe day" registered for today and a dot for a free day; `cal.head.label.<date>` found under the date in the day and week views, `cal.cell.label.<date>` beside the date in the month view (added in this branch; Bulwark draws the label there too, calendar-month-view.tsx:696), the dot on the free day in the mini month. Dialog: opened with title "Probe dialog" and the "From the add-on Sample frames probe" line; a WebView2 mounted in it and sized 412x79 inside the 480 px card; the slot read `folder=/docs` and `onResult=function`; Close resolved the call to null; a slot that clicked its own button after 4 s answered `{"picked":"/docs/a.txt","n":2}` and the dialog closed; `slot: 'message-row-actions'` was refused ("Invalid plugin operation arguments.") with nothing drawn; disabling the add-on with its dialog open closed the dialog; an add-on without `ui:observe` got "Plugin permission denied." and nothing drawn. `popup-guard` open 0 closed 0, and the run never took the foreground. Screenshots stay in `artifacts/auto/<port>/frames/` (not committed).
+- **Making the bootstrap available without committing it.** The pinned bundle is not in Git. The portable package carries it (`tools/package-portable.ps1 -BootstrapDirectory`, `Assets/plugin-sandbox-bootstrap`). New and opt-in: an AUTOMATION build of an `auto-*` profile reads it from the absolute folder in `BARBICAN_BOOTSTRAP_DIR` (`ShellPage.BootstrapRoot`), so nothing is copied into the build output; every file is still checked against its pinned size and SHA-256 (`PluginSandboxBootstrapAssets`), and a Release build ignores the variable. The replay script's header lists the whole start-up.
+- **Fixes the run needed.** The month view drew no day labels (Bulwark does): added to `MonthGridView`. Dialog content was 18 px wider than the card leaves it (the dialog host keeps a 16 px column gap even without the icon): the content now takes the width the card leaves.
+- **Risks and decisions for the reviewer.** (1) `ui.openDialog` accepts only the `plugin-dialog` slot; other slot names are `InvalidArguments` (Bulwark would draw any own slot in the dialog). (2) Bulwark's `anchor: 'trigger'` popover and the slot's `setDialogButtons` footer / `dialogButtonClick` prop are not built; a frame that calls `props.setDialogButtons` gets "Unknown plugin operation." and draws its own buttons. (3) A confirm or prompt cannot be stacked on the add-on's own dialog (Bulwark allows one); the shared one-dialog gate refuses it with `Conflict`. (4) A frame can call any callback in its own table with any arguments; the only one is `onResult`, whose value goes to the same add-on's background runtime through the normal response path with the wire limits. (5) The mini month still draws the add-on dot with the busy dot (one shared dot), not Bulwark's separate corner mark. (6) Not run on Linux (deferred to M9).
+
+## M6b reader safety: links off in a reported message and the phishing report (m6b/reader-safety, G-049, G-050)
+
+This decides which mail is sent and which links open, so it is for early review. **Bulwark 1.21.2 has no link-text-versus-address warning.** `lib/phishing-links.ts` only turns off the links of a message that carries `$phishing`, and `email-viewer.tsx` opens every other link without a question; no mismatch check or ask-before-open prompt was ported because none exists to match (G-049 is reworded in the backlog and `spec/gaps.csv`). If a mismatch warning is wanted it is new product work, not parity.
+
+- **Links off (no mail sent).** `PhishingLinks.TurnOff` (AngleSharp, port of `turnOffLinks`) strips `href`, `xlink:href`, `target`, `rel`, `ping`, `download` and `tabindex` from every `a` and `area`, marks them `data-link-off` / `aria-disabled`, adds the tooltip, a dotted look and a screen-reader note. `MessageLoader.Show` applies it to the page of every message whose keywords hold `$phishing` (also a plugin-replaced body), so the shell has no address to route and `ShellMessageKind.Link` never fires for it. The banner is `PhishingMarkBannerSource` (first in the stack). The transform parses on the UI thread, only for a reported message.
+- **The report (mail sent, to one address).** `PhishingReportFlow` runs from `mail.report-phishing` ("Report phishing…" after "Report spam" in the mail menu and in the reader's More menu, only while `IPhishingReportSetups.Cached(account).IsOn`). It filters with `PhishingReportRules.IsReportable` (not Sent, Drafts, scheduled, `$draft`, or already `$phishing`), re-reads the policy, asks "Report phishing?" naming the address (nothing is sent on Cancel or Escape), then sends **one report per message** through `PhishingReporter` and moves each reported message to Junk with `$junk`, `$phishing` and `$seen` (`MailActionService.MoveReportedToJunkAsync`, the spam hooks still run, Undo moves it back and clears `$junk` and `$phishing`; the report stays sent).
+- **Where the address comes from.** Only the host-trusted organisation policy (`OrganizationPolicyService`, an OAuth login with an approved provider): `organisation.phishingReport.address` and `.format`, a scope replaces each leaf. An address that is not one (`EMAIL_RE` plus `RecipientText.IsValidEmail`) is dropped, never used, and does not reject the rest of the policy; anything but an authoritative answer means off. Nothing in the message, the sender or the page can choose the recipient.
+- **How it is sent.** `RawMessageSender.SendAsync` with `SubmitOnly` (Email/import into Drafts, `EmailSubmission/set` with the explicit envelope `[address]`, `onSuccessDestroyEmail`: no Sent copy), from the login's own non-wildcard identity (`ReporterIdentity`), the original embedded byte for byte as `message/rfc822` (forward) or in an RFC 5965 `multipart/report` (ARF). Bulwark attaches the forward by blob id; a raw submission has no such path, so the original is downloaded from its own account first (refused before the download when it would not fit `maxSizeUpload`). Like Bulwark it skips the composer's checks, finalisers, labels and add-on send hooks. Never on a read-only account.
+- **Evidence.** Core (35 with the policy tests): `PhishingLinksTests`, `PhishingReportRulesTests`, `PhishingReportMimeTests` (ARF fields, 7bit/8bit/binary, original byte for byte, RFC 2231 name that cannot break out), `PhishingReporterTests` over FakeJmap (envelope is the admin address only, identity, upload contains the original, no Sent or Drafts copy, off sends nothing, a missing message sends nothing, an oversize message is not downloaded; both formats), `PhishingReportPolicyTests`. Presentation: `PhishingReportFlowTests` (no address asks nothing; Cancel sends and moves nothing; one report per message and the Junk move with the flags; Undo; a failing report moves nothing; own mail, drafts and reported mail skipped; the command; the menu row; the banner) and `MessageLoaderPhishingTests`. A defect found by the tests and fixed: an `Email/get` with no result threw instead of failing.
+- **Hidden run (Automation build, port 47751, profile `auto-readersafety`, sample account with `BARBICAN_SAMPLE_PHISHING_REPORT=1`: policy `phishingReport` address `security@example.org`, one message whose link text names one site and whose address goes to another).** After connecting the sample policy provider in Settings (consent box, Verify and connect): the row menu read `... Report spam | Report phishing... | ...`; the picked command opened the `Report phishing?` confirm dialog (nothing sent while it was open); `dialog-answer ok` gave the toast `Reported to security@example.org and moved to Junk.` with Undo; the message was in Junk with banner `phishing-mark!` and every body link without `href` (the shell's click handler only posts `a[href]`, so no `link:` message can fire); `sample-sent-keywords` found no Sent copy; `act mail.undo` said `Undone` and the message was back in the Inbox with no banner and its two links intact. No mismatch banner or ask-before-open prompt exists in Bulwark, so none was looked for.
+- **Not exercised / risks for the reviewer.** No live server and no real address: every test and the hidden run send to `security@example.org` over the in-process fake. The Junk move when a plugin's `onBeforeEmailSpamToggle` says no is silent (the shared removal flow reports nothing), so the report can go out and the message stay put. `Original-Rcpt-To` uses the To recipient that equals the reporter (Bulwark reads `Delivered-To`). The policy cache that decides whether a menu row shows is two minutes old at most, and a stale "on" is caught by the re-read before the question.
+
+## M6b system toasts and the tray icon (m6b/toasts-tray, G-059, G-045/SH-08)
+
+This lets a notification act on mail and registers the app with Windows, so it is for early review. Nothing here was run against a real toast, tray icon or registration: development used unit tests over fakes and hidden runs, both with the Null notifier and the fake tray.
+
+- **Activation arguments are untrusted input.** A click arrives as a string from the operating system, also into a freshly started process, and any local program able to activate the app's notification handler can send one. `ToastArguments.TryParse` accepts only version 1, a known command, exactly the keys that command needs, no repeated or unknown key, printable values of at most 256 characters (an account key may hold its one line feed), the whole string at most 1024 characters; anything else returns null and nothing happens. The Windows adapter carries the string as one base64url value (`ToastArguments.ToWire`) so the system's own `key=value;key=value` syntax cannot alter it. What a valid string can do is small: open a message, mark it read, archive it (both through `MailActionService`, so the read-only refusal, the plugin hooks, the undo entry and the toast all apply), and snooze, dismiss or open a reminder that is on screen. It cannot delete, send, reply or change settings. The account must be signed in (an unknown account does nothing); Archive is refused for an account that is not the one on screen, because the Archive folder it moves into is the active account's; a message that is neither in the last 100 announced nor readable from the active account is not acted on. A click that arrives before any account exists waits for two minutes at most (eight at most) and is then dropped.
+- **Hand-off to a running instance.** When Windows starts a second process for a click, `SingleInstanceStart.ForwardToast` hands the string to the running instance over the existing token-protected loopback hand-off (`barbican-toast:` + the string, accepted by `InstanceHandoff.ReadRequest` only when it parses) and the new process exits before any window or registration. A malformed string is not forwarded.
+- **Registration scope.** `AppNotificationManager.Default.Register()` writes the per-user toast registration (HKCU AppUserModelId and the COM activator that starts Barbican for a click while it is closed). It is called only by `WindowsDesktopNotifier` constructed with `toasts: true`, which `DesktopShellRegistration` does only for a normal Windows run (`HiddenWindowMode.Normal`: not an Automation build, which has no such notifier at all, and not a `--smoke` run). `Barbican.exe --unregister-notifications` calls `UnregisterAll()` and exits; there is no installer, so no automatic uninstall hook exists. `Unregister()` runs on process exit and removes only this process's activator, so a later click can still start the app. A failed registration leaves mail working without toasts.
+- **What a toast shows.** Only what Bulwark's notice shows: sender as the title, subject as the body (or the preview when there is no subject, as Bulwark does), "N new messages" for several, the account name when more than one account is signed in, the app icon. No body text beyond that and no addresses. Buttons: Mark as read and Archive (Archive only for the account on screen). Content hidden: "New mail" with no buttons. Title and body are cut at 120 and 240 characters.
+- **Tray.** `WindowsTrayIcon` (Shell_NotifyIcon, no registry) hangs on the main window through a window subclass, only in a normal run. All behaviour is in `TrayController` (tested with `RecordingTrayHost`, which Automation builds register, plus an automation `tray` command: `state`, `press open|check|dnd|quit`, `close`). The new setting `keepRunningInTray` (default on) makes the close button hide the window; Quit in the tray menu, `WindowCloseController.CloseAsync` (automation, programmatic close) and a missing tray icon really close. Alt+F4 also hides. A system shutdown is not specially handled.
+- **Reminders.** A due calendar reminder raises a toast with Snooze 10 min and Dismiss only while the window is hidden or minimized, not for missed reminders, not in Do not disturb, at most four per batch; the tone follows the scheduler's `Sound` flag.
+- **Not covered / risks.** (1) No real toast, registration, tray icon, toast click, cold-start activation or Explorer restart was exercised; the `AppNotificationManager` and `Shell_NotifyIcon` calls are compiled and reviewed only. (2) Whether Windows hands a click on a running app to the running process directly or starts a second process was not observed; both paths are handled. (3) Opening a message from a cold start reads it from the server only when its account is the active one. (4) Bulwark's Delete, Reply and Copy-code buttons are not built. (5) The toast's display name and icon come from what the unpackaged registration records plus the logo override; the name Windows shows was not seen. (6) Closing to the tray leaves the add-on runtimes and sync running, as intended; the first-close hint (a one-time note that the app is still running) is not built. (7) Linux has no tray or toast until M9.
+
+### CA-03 event editor pickers: one hidden run lost typed fields (open, low)
+
+- **Path:** the hidden automation run that typed start and end times straight after opening a new event, with no pause between commands, saved the event at its defaults. The same commands with short pauses, and a later run typing the date and times directly, saved correctly.
+- **Reading so far:** the text fields commit a complete time while typing (`TimeFieldModel.Type`) and a partial one on blur, so a typed "10:00" cannot be lost by the field itself. The likely cause is that the automation commands arrived before the editor card had built its fields. This has not been isolated.
+- **Retest:** run the create sequence without pauses, but wait for the card's field automation ids (`cal.editor.*`) before typing. If it still loses input, the fault is in the editor, not the harness.
+
+### Flaky under load: ContactSharedDirectoryPushTests (open, test only)
+
+- **Path:** `The_fake_server_pushes_a_contact_change_and_the_store_follows_without_a_hand_made_state_change` waits 10 s for a real push over FakeJmap's event stream. It failed once in a full `tools/build.ps1 test` run after the CT-02/G-011 merge, with other builds running, and passed three runs in a row on its own.
+- **Fix to make:** drive the push through the fake clock or a signalled hub instead of a wall-clock wait, then rerun the full suite twice.
+
+## M6b daily build and local update channel (m6b/auto-update, ADR 0009)
+
+This runs code the app downloaded from a folder, so it is for early review. Decision, trust model and rollback: [ADR 0009](adr/0009-local-update-channel.md).
+
+- **What runs.** An installed daily build (marker `install-kind` = `daily`, own profile `daily`) reads the channel folder at start and every 4 hours, verifies an ECDSA P-256 / SHA-256 signature over `manifest.json`, then the zip's size and SHA-256 (hashed while copied into staging), requires a strictly newer version, and shows a toast. Restart (or the next start, at most twice per version) re-verifies from staging, extracts beside the install folder (zip-slip refused) and starts a PowerShell helper (encoded command, values only in environment variables) that swaps folders, waits 60 s for the new build's started marker and otherwise restores the previous folder and remembers the version as failed.
+- **Key handling.** The private key is generated once into the gitignored `.local/` of the main checkout and never printed or committed; the public key is the constant `UpdatePublicKey.Value`. Whoever reads the private file can sign builds the app will run.
+- **Evidence.** Core tests `tests/Barbican.Core.Tests/Updates` (78: manifest parsing, signature valid / tampered manifest / wrong key / wrong curve / malformed, tampered zip with the same size, older version, replay, staged zip tampered after staging, failed-version skip, extractor zip-slip, profile decision, the swap helper run for real on temp folders: success, rollback, missing folder, relaunch arguments). End to end on this machine with temp install, temp channel and throwaway profile `smoke-updtest` (headless `--update-selftest`, no window): 0.6.9001 installed by `install-daily.ps1`, detected, staged, applied and relaunched as 0.6.9002 (previous build kept as `.prev`); then a signed 0.6.9003 whose exe exits at once was applied, not reported started within 60 s, rolled back to 0.6.9002 and skipped afterwards.
+- **Found by the run.** The relaunch passed its arguments as one string, so the relaunched build lost `--update-selftest` and started as a normal visible app for the seconds until the tool call ended its process tree. Fixed (arguments enumerated and quoted one by one) with a test; no account or real profile was involved (throwaway profile, no sign-in).
+- **Not covered.** The in-app toast, the About row and "Restart now" were compiled but not driven in a hidden run. The helper trusts the extracted folder (same-user attacker already wins). No Authenticode. A build that writes the started marker and then misbehaves is not rolled back. Linux not built or tested (deferred to M9).
+
+## G-043 owner sharing (m6b/g043-sharing): Fable early review, 2026-11-22
+
+**Candidate:** `2fc4d1b6` (one commit on `4984b56`), reviewed read-only by Fable because it decides who can access an account's data. **Decision: APPROVE WITH CONDITIONS; merge allowed, conditions due before the integrated M6b candidate.**
+
+- **Evidence given to the reviewer.** Coordinator check: `ShareRights` presets equal Bulwark `lib/jmap/share-rights.ts` value for value, `Detect` mirrors `matches` (keywords follow seen). Worker report: Core 2997, Presentation 1639 passed. Live, both test accounts, 2026-11-22: `tests/Barbican.Jmap.Live -Class *Sharing*` 4/4 (folder, calendar, address book: read-only grant read but not writable by the second account, changed to read & write, removed and no longer visible; self-share refused; un-offered level not sent; directory listed or restricted).
+- **Sound per the reviewer:** every preset names every right (un-offered rights sent as explicit false); the whole entry is replaced, never merged; refusals happen before any request; patch key escapes `~` before `/` (RFC 6901); success needs the id in `updated`; shared-in calendars and books never reach the primary account; the dialog cannot fire a write from a reload; Custom cannot be picked.
+- **Finding 1 (low), fixed.** Failing path: `MailboxRights.From` counts a missing `mayShare` as granted, so Share was on for a folder of another account without the right. Expected: Bulwark `mailbox-context-menu.tsx:330` needs `mayShare === true` there. Fix: `MailboxRights.MayShareExplicitly`, `IMenuDataSource.OwnMailAccountId`; `FolderMenus` requires the explicit right when the folder's account is not the login's own. Retest: `A_folder_of_another_account_needs_mayShare_to_be_explicitly_true` (no rights, `{}`, false: off; true: on; own folder keeps the old rule).
+- **Finding 2 (low), fixed.** Failing path: on a folder of another account, the self check compared the owner's id, so the user's own principal was offered and accepted. Expected: the user cannot grant themselves. Fix: `ShareService.Refusal` also refuses the login's own account id of that kind; the dialog also leaves it out. (Bulwark has the same quirk; this is stricter.) Retest: `A_folder_of_another_account_is_written_to_that_account_and_the_user_cannot_share_it_with_themselves`, `On_a_folder_of_another_account_neither_the_owner_nor_the_user_is_offered`.
+- **Finding 3 (condition), done.** The write to a folder of another account was not pinned. Test above asserts `Mailbox/set` carries the owner's `accountId`. Rerun after the fixes: Core `*Share*` 33/33, Presentation `*Share*` 21/21.
+- **Finding 4 (informational, no action).** `Detect` ignores rights outside the table, as Bulwark does; it can understate access, never widen it.
+- **Open conditions.** (a) Exercise the dialog in a hidden Automation run with synthetic data (grant, change, remove, a Custom row, a refused change); FakeJmap first needs mailbox `shareWith` and `urn:ietf:params:jmap:mail:share`. (b) Known gaps with owners: the folder menu has no offline check for any row, Share included (Bulwark `:388`), owner menus, M6b; the admin `sharingRights` lock is not ported, and if Barbican ever reads that policy, `WriteAllowed` must reach `ShareService.Refusal` (it calls `Offered(kind)` with writes always allowed) before release.
+- **Coordinator decision (owner asleep, asked to decide):** merge now, since Fable allows it and the fixes narrow access only; (a) and (b) stay open on this entry until the M6b candidate.
+- **Condition (a), hidden run, 2026-11-22 (branch `m6b/g043-dialog-run`).** FakeJmap now models mail sharing: `FakeJmapOptions.MailShareCapability` (session and account advertise `urn:ietf:params:jmap:mail:share`), a stored `shareWith` per mailbox, `Mailbox/set` `shareWith/<principal>` patches (RFC 6901 unescape, null removes, reported in `updated`), `FakeApi.RefuseShareUpdates` (`notUpdated` forbidden with a description), covered by `tests/Barbican.Core.Tests/Sharing/FakeJmapShareTests.cs` (5). The sample run with `BARBICAN_SAMPLE_SHARING=1` (automation profiles only) seeds three example.org people and a Custom grant (`mayReadItems`, `mayRename`) for `p-sam` on the folder Projects; `share-sim state|dialog|refuse on|off` (spec/automation-protocol.md) reads the fake's stored map and the open dialog's model. Repeatable: `tools/share-dialog-run.ps1` (Automation build, `-PrivateDesktop`, own port; no input, no real account).
+  - Per step (every stored map read back from the fake, every dialog state from the model, toasts from `toast-last`): open `rclick folder Projects` + `menu-pick Share…`: dialog `Ready`, one row `Sam Sample` = Custom, candidates Alex and Robin (Sam and the owner left out). Add Alex: `Access granted`, stored entry is exactly the Read preset (ten rights, un-offered ones explicit false), row Read. Change to Read & write: `Access updated`, stored entry is the Read & write preset, row ReadWrite. The Custom row's choices list Read, Read & write, Manager and no Custom button. Remove Alex: `Access removed`, stored map back to Sam's grant only. Refusal on: add Alex shows the server's own text `You do not have permission to share this folder.` (error toast), a remove of Sam is refused the same way, stored map unchanged; refusal off, Close: no dialog left.
+  - **Bug found by the run (low), fixed.** Failing path: the folder menu's Share… was off for the login's own folder and, had it been on, would have written to account id = the login's key. Cause: `ContextPointerRouter.Mailbox` and `MessageListView.OnFolderActions` build `MailboxRef(key, key, ...)` (the key in the account-id slot), and `FolderMenus` (finding 1/2 code) took that for another account's JMAP id: the own-folder rule was skipped (FakeJmap's `myRights` has no `mayShare`, a missing right counted as not granted) and `ShareArg` carried the key as `accountId`. The live sharing test passed because it called the service without a menu. Expected: an own folder is the login's own account (target without an account id), as for `MailTarget` (review 3 R3-02). Fix: `FolderMenus` treats an empty account id or one equal to the login's key as the own account and passes no account id then. Retest: `An_own_folder_the_menu_openers_name_by_an_empty_id_or_the_login_key_is_shared_in_the_own_account` (both spellings), the finding-1 and finding-2 tests unchanged and green, and the hidden run above (menu row enabled, writes accepted).
+  - **Not covered.** No screenshot: `wshot` fails on the private desktop (WGC) and the in-window dialog is not in `shot`'s tree, so the evidence is model state, fake state and toasts, not pixels; the dialog's look against Bulwark stays with the M6b visual pass. Condition (b) unchanged.
+- **Condition (b), offline part, done (2026-11-22).** The folder menu now follows Bulwark mailbox-context-menu.tsx:185-187 and :344-466 offline: the note "You're offline. Some actions need a connection." under the path, and New subfolder, Rename, Share…, Import, Refresh, Empty and Delete off; Mark read (outbox) and Export stay. `IMenuDataSource.IsOffline` reads `IConnectivity`. Test `Folder_menu_offline_says_so_and_turns_off_what_needs_the_server`; full suite 5144 total, 0 failed. The `sharingRights` lock stays open (no policy source in Barbican yet; owner admin, M7).
+
+## G-075 @mentions (m6b/g075-mentions, merged 2026-11-22): coordinator note for the M6b candidate
+
+Coordinator decision (owner away, asked to decide): merged without an early Fable review. The recipient-add path (`ComposerViewModel.Picked`, M3) is unchanged; this change only narrows what the list offers: To and Cc recipients, then contacts not on the message, and contacts only when `mentionAddsRecipientTo` is to or cc, so a Bcc recipient is never named in the body (Bulwark email-composer.tsx:2015-2041). Labels, filter and mailto escaping follow lib/recipient-mentions.ts (`MentionLabels`, tested). Hidden run on the sample account: "@an" listed two contacts, Enter inserted the mailto link and added the person to To. Please look at it with the candidate. Still open (row partial): atomic chip, chip card, reader click card, chips from a reopened draft.
+
+## G-067 sidebar apps (m6b/g067-sidebar-apps): Fable early review, 2026-11-22
+
+**Verdict:** approve with 4 conditions (2026-11-22). All four are fixed and retested in a hidden Automation run on a private desktop against a loopback-only synthetic server
+(`tools/sidebar-app-run.ps1`, with `tools/sidebar-app-site.py`; the clicks are DevTools-protocol mouse events inside the page, no system input). Evidence comes from the app itself:
+`sidebar-apps state` (the page's title and address, and what the web view cancelled or denied) and `sidebar-apps launches` (what the fake browser launcher was asked to open).
+
+1. **Unprompted system-browser launches.** Failing path: `NewWindowRequested` passed any http(s) address to the launcher, so a page's timer could open the user's browser. Fix: the launcher is only asked when `e.IsUserInitiated` is true and `SidebarAppRules.NewWindowTarget` accepts the address (plain http or https, no credentials, at most 2048 characters); the request is always handled, so there is never a second web view. Retest: a timer-driven `window.open` gave 0 launcher calls; a trusted click on a `target=_blank` link gave exactly 1. 10 unit cases cover the rule.
+2. **Native sign-in and certificate dialogs.** Failing path: a 401 with `WWW-Authenticate` or a client-certificate request would raise a native dialog. Fix: `BasicAuthenticationRequested` and `ClientCertificateRequested` are cancelled (the latter handled too). Retest: the 127.0.0.1 page returning 401 under `-PrivateDesktop` ends on the failed navigation with `auth` recorded and no dialog.
+3. **`window.print()`.** Probe before the fix: the page stopped at the call (`print-start` reported, `print-returned` never), so the engine's print UI opens for a script call. Fix: the one injected script of this host, a single `AddScriptToExecuteOnDocumentCreatedAsync` that makes `window.print` a non-writable no-op in every frame (commented in the code with this reason). Re-probe: `print-returned` is reported, the app stays on its page.
+4. **Denied-case evidence** (each once, app still active, launcher untouched): 302 to `ms-settings:` cancelled in the app handler (`nav-ms-settings`, the page stays on its title and address); 302 to `file:` refused by the engine as an unsafe redirect (`failed-RedirectFailed`, nothing from the file is shown; the page is replaced by the engine's error page); script navigation of the top frame to `data:` refused by the engine, the page stays; a `Content-Disposition: attachment` response cancelled (`download`); `getUserMedia` answered `NotAllowedError` and geolocation code 1 in the page. Permission denials are now `SavesInProfile = false`; an older build's stored denial answers without a request, so the run treats the page reports as the proof.
+
+**Notes**
+- Accepted risks: plain http apps, cross-origin navigation inside an app (OAuth logins need it, as in Bulwark), cookies and site data persisting in the app's profile. Follow-up owned by M6b settings: a "Clear sidebar app data" action (deleting an app does not clear its data today).
+- All inline apps share one browser profile (`SidebarAppsWebView2`), separate from the mail reader's and the add-ons'. An app can see cookies another inline app set for the same site.
+- An inline app can reach loopback and LAN addresses, exactly as a browser tab can.
+- Hook shape: Bulwark emits `onSidebarAppOpen` / `onSidebarAppClose` only for a user-defined inline app, with `{ appId }` = its app id (hooks/use-sidebar-apps.ts:56-60, `lib/plugin-hook-catalog.ts:332-333`). Barbican's `ShellViewModel.TryActivate` also fired them with built-in route names, which differed. Fixed: those two calls are removed from `TryActivate`; only `SidebarAppsController` fires them, with the app id. The hook-coverage test no longer expects them from the shell.
+- **Final decision (Fable, 2026-11-22): APPROVE b3681d35**, conditions 1-4 closed. Follow-ups done at merge by the coordinator: the print no-op is also defined on `Window.prototype` (non-writable, non-configurable), so `Window.prototype.print.call(window)` no longer reaches the native dialog; the `Blocks` evidence list is capped at the last 50 entries. The weak `media` case of `tools/sidebar-app-run.ps1` stands as documented (the page's own reports are the proof).
+
+### Flaky under load: ContactStoreTests (open, test only, 2026-11-22)
+
+- **Path:** `The_engine_hands_a_contact_state_change_to_the_store_over_the_event_source` hit its 10 s wait once in a full `tools/build.ps1 test` after the G-024 merge, with another build running. Three runs of the class on its own passed, and the next full suite passed (5301 total, 0 failed). Same pattern as ContactSharedDirectoryPushTests above.
+- **Fix to make:** drive the event source through a signalled hub or the fake clock instead of a wall-clock wait.
+
+### G-024/G-033 rich signatures: coordinator note (merged 2026-11-22)
+
+Signature HTML is sanitised on save (`AccountIdentitySignatureHtml`, D-M6b-G024): equal to or stricter than Bulwark lib/email-sanitization.ts:181-242, except that ul/ol/li are kept because Bulwark's own toolbar makes lists that its sanitiser would flatten; style values that load a resource are dropped; images only https or base64 raster. Template bodies come from the editor's exporter. Merged without an early review (no access, add-on or send decision); please look at it with the candidate.
+
+## G-070 themes (m6b/g070-themes, merged 2026-11-22): coordinator decisions for the M6b candidate
+
+No early review: themes neither decide account access, run add-on code nor send mail. Theme import reads an untrusted ZIP, so the coordinator read `ThemePackageReader` and `ThemeCssReader` before merging. The package is capped at 2 MB, with 200 entries and 512 KB per file counted as the bytes inflate. The UTF-8 decode is strict, unsafe paths are refused and nothing is written to disk. Only the 38 colour tokens survive, and only as hex, rgb or rgba literals; nothing a theme contains is executed or fetched.
+
+Decisions taken while the user was away ("do what's best for the app; note decisions"):
+1. **The OS accent applies to the default look**, as in Bulwark's desktop shell (lib/desktop/system-accent.ts:16-57, desktop-host.tsx:309-330). It applies only while the theme setting is System, no theme is active and high contrast is off, and only when the colour clears 3:1 against the page and 4.5:1 for text. This is a visible change: a Windows user with a teal accent now sees teal buttons. It is kept because the default theme is a native clone of Bulwark, and Bulwark's desktop app behaves this way.
+2. **Import and Remove controls exist** although Bulwark 1.21.2 has none in its UI. Its themes arrive from the admin dashboard, and Barbican has no such server. The import validation is stricter than Bulwark's.
+3. **Themes apply to the Bulwark style only.** Bento and Nordic keep their own palettes, and the gallery says so.
+Open for M7: the organisation theme policy (forced or disabled themes, the default colour mode) and the Linux accent source.
+
+## SH-11 phone layouts and S-proInterface (merged 2026-11-22): coordinator notes for the M6b candidate
+
+SH-11 (775ed684): phone layouts for Calendar, Contacts, Files and Settings. They are gated on Bulwark's phone width, and the desktop layouts are unchanged at 1300 px (worker's hidden run). The drawers sit in the window tree with no popups. Partial: the Files details panel and search, the event detail card on a phone, and Escape and focus return for the drawers are still to do.
+
+S-proInterface: the Pro tab strip. Mail is the pinned tab and the other apps open as closeable singleton tabs. While it is on, Settings drops its Back-to-mail header (pro-tab-bar.tsx, settings-app.tsx:1242). The coordinator's own hidden run (port 8871, sample data) gave these results:
+- `pro on` followed by `open calendar` showed the strip at y=32, 36 px high, with no stray scrollbar (screenshot checked).
+- `pro off` put the calendar host back at y=32, so the strip takes no room. Its `bounds` still report the collapsed element's stale numbers.
+
+Decision while the user was away: merge it as partial. The setting is off by default and the strip is the core of Bulwark's Pro shell. Email, folder, compose and search tabs, split panes, persisted tabs and per-login shared mailboxes stay open on the backlog row.
+
+## G-063 right-to-left editing and G-073 structured-mail cards (merged 2026-11-22): coordinator notes for the M6b candidate
+
+G-063 (b4e5286b): each paragraph stores its own direction, and the export writes `dir` only for rtl or ltr. Bulwark writes `dir="auto"` on every block (text-direction.ts:1-62). Decision: Barbican writes nothing for auto, so ordinary mail stays byte-identical to before. The toolbar button shows only with `rtlEditingSupport` on (rich-text-editor.tsx:1327-1340). Open: Align-left also shows as pressed on an rtl block. The composer-level path was not run hidden; build and tests cover it.
+
+G-073: cards show in the reader only, never in list rows (Bulwark email-viewer.tsx:6415-6426). A card needs a trusted message: the server's aligned DKIM pass, not a forward, not a personal-mailbox sender, and untruncated HTML (lib/structured-mail/trust.ts). The coordinator checked these points before merging:
+- Markup is parsed with AngleSharp with scripting off, and nothing is fetched.
+- The input is bounded: 8 MB of HTML, 50 JSON-LD blocks of 200 000 characters each, JSON depth 32, and 12 cards.
+- Card links are only http or https with no user info, and they open through `CheckedLinkRouter`.
+- The sample screenshots in docs/milestones/M6-screens/g073-*.png show synthetic data, and a byte scan found no home paths in them.
+
+Decision: Bulwark's admin gate `structuredMailEnabled` becomes a per-user setting, default on, with no toggle yet. It is partial: still to come are the .pkpass source, airport and IANA zone resolution, "Add to calendar", product images and the lookalike/public-suffix domain check (simplified for now).
+
+## Fable review of G-070 theme import and G-073 structured-mail cards, 2026-11-22 (at fd32b532, read-only)
+
+**Decision:** G-070 approved with conditions; G-073 approved with conditions.
+
+**G-070 findings**
+1. **Medium:** the CSS scan is quadratic. `ThemeCssReader.cs:37` copies the rest of the file with `text[i..].Trim()` for every statement. Failing input: a 512 KB `theme.css` of `;`. Expected: linear time and a cap on rules. **Condition.**
+2. **Medium:** a load/save race in `ThemeCatalog` (`:199-213`, `:170`). A mutation that runs before `_loaded` completes writes `themes.json` without the themes imported earlier. Expected: mutations wait for the load. **Condition.**
+3. **Low:** `Load` catches only `JsonException`. Duplicate keys throw `ArgumentException` and file errors throw `IOException`, which faults the load. In a package, the same case is reported as "Invalid ZIP file".
+4. **Low:** a theme's name and author keep bidi and format characters (`ThemePackageReader.cs:202`).
+5. **Low:** a theme may set an alpha-0 foreground or one equal to its background. The gallery must still let the user remove such a theme.
+
+**G-073 findings**
+1. **High:** forged Authentication-Results on authenticated submission. `AuthTrace.cs:26-66` accepts any Authentication-Results with the server's id that sits below the first Received. Bulwark also refuses when that Received records a submission (`email-headers.ts:167-191`, `SUBMISSION_PROTOCOL_RE`). Failing input: a user on the same server submits with a forged From and their own `Authentication-Results: <server>; dkim=pass header.d=airline.example`. The card, the verified chip and one-click unsubscribe would all trust it. Expected: no server results. This is a defect in the shared reader-trust path, older than G-073. **Condition.**
+2. **Medium:** a DMARC fail does not veto (`StructuredTrust.cs:64`; Bulwark `trust.ts:154`). **Coordinator decision:** add the veto, as Bulwark does.
+3. **Medium:** the host check in `StructuredCardText.cs:85` can be evaded. Failing inputs: fullwidth and ideographic dots, spaced dots, `xn--` TLDs. Expected: NFKC normalisation and look-alike dots treated as dots. **Condition.** Without a public-suffix list, `IsOutsideSender` and alignment treat `github.io` as a parent of `attacker.github.io`. Bulwark's alignment has the same gap. Recorded as open.
+4. **Low:** no cancellation or size cap before `HtmlToLines`, and microdata re-queries for each nested scope.
+
+**Coordinator decision:** fix every condition plus the low findings that cost little (G-070 3-5, G-073 2 and 4) on `m6b/fable-fixes-themes-cards`. Retest with failing-input tests for each finding.
+
+**Fixes** (branch `m6b/fable-fixes-themes-cards`; each test uses the failing input of its finding; retest: full `tools/build.ps1 test` 5555 total, 5546 passed, 9 skipped (live/Linux-only), 0 failed; `build.ps1 rules` and `spec-check.py` clean)
+
+| Finding | Fix | Test | Retest |
+|---|---|---|---|
+| G-070 1 quadratic CSS scan | `ThemeCssReader` scans by index with a cursor and cached next `{`/`;`, no `text[i..]` copies; caps of 2000 rules and 5000 declarations | `ThemeFableFixTests.A_512_KB_stylesheet_of_one_repeated_statement_is_read_in_linear_time` (`;`, `a{}`, spaces, a repeated rule; under 2 s) | pass |
+| G-070 2 load/save race | `Install`, `Activate`, `Remove` wait for the initial load (`WaitForLoad`) before touching `_custom`; the file reader is an internal seam for the gated test | `A_mutation_before_the_load_finished_waits_for_it_and_keeps_the_saved_themes` | pass |
+| G-070 3 load exceptions, duplicate-key manifest | `Load` also catches `ArgumentException`, `IOException`, `UnauthorizedAccessException`, `InvalidOperationException` (empty catalog, `Trace.TraceWarning`); a duplicate key (found lazily by `JsonNode`) reports "Invalid manifest.json (duplicate keys)" | `A_broken_themes_file_gives_an_empty_catalog_and_a_load_that_does_not_fault`, `A_load_that_throws_an_io_error_does_not_fault_the_catalog`, `A_manifest_with_a_duplicate_key_is_an_invalid_manifest_not_an_invalid_zip` | pass |
+| G-070 4 bidi/format characters | `ThemePackageReader.IsUnsafeChar` (control, Cf, line/paragraph separators) refuses them in name, author, id fields, description and in `themes.json` entries | `A_name_or_author_with_a_bidi_or_format_character_is_refused` (U+202A/E, 2066/9, 200B/E/F) | pass |
+| G-070 5 unreadable theme | Smaller change: `ThemeOverlay.Compose` keeps the base text and page keys when the composed text is alpha-0, the page is alpha-0 or both are the same colour, so the gallery stays readable and the theme removable; the rest of the theme applies | `ThemeOverlayTests.A_theme_whose_page_text_cannot_be_read_keeps_the_base_text_and_page` | pass |
+| G-073 1 (High) forged results on submission | `AuthTrace` refuses the results when the topmost Received matches `SUBMISSION_PROTOCOL_RE` (Bulwark `email-headers.ts:167-191`); Stalwart 0.16.27 `smtp/inbound/data.rs:1060-1065` writes ESMTPSA/ESMTPA on its own submission, followed by its Authentication-Results; mail submitted over JMAP gets neither (as Bulwark notes, only the server can tell that apart) | `AuthTraceTests.Results_below_a_received_that_records_an_authenticated_submission_are_not_trusted` (5 protocols), `..._for_ordinary_inbound_mail_still_count`; consumers: `InvitationBannerTests.A_forged_authentication_results_on_an_authenticated_submission_does_not_allow_one_click` (no results, verdict Unknown, no one-click) | pass |
+| G-073 2 DMARC veto | `StructuredTrust` returns `SenderNotVerified` when `AuthenticationResults.IsSpoofed` (dmarc fail, or spf fail with no DKIM pass; `email-headers.ts:30-39`, `trust.ts:154`) | `StructuredMailTests.A_dmarc_fail_vetoes_even_next_to_an_aligned_dkim_pass` | pass |
+| G-073 3 host evasion | `StructuredCardText.Safe` checks an NFKC probe with U+3002/FF61/2024/FE52/FF0E as dots, ` . ` closed up, and `xn--` labels accepted as TLDs; the displayed text is unchanged | `A_card_text_with_a_look_alike_dot_in_a_foreign_host_is_dropped`, `A_card_text_naming_another_host_in_disguise_is_dropped` (spaced dot, `shop.xn--p1ai`), `Fullwidth_letters_in_a_foreign_host_are_dropped`, `Ordinary_sentences_and_the_senders_own_host_survive_the_host_check` | pass |
+| G-073 4 cap, cancellation, microdata | `CardsOfCancellable` applies the 8 MB cap to the HTML and text parts before the trust check (`HtmlToLines`); the token reaches the extractor (`ExtractCancellable`, `ReadCancellable`; new names because an optional token would trip xUnit1051 on every old call); microdata properties are indexed once per document instead of one subtree query per scope | `A_message_above_the_size_cap_gives_no_cards_without_reading_it`, `A_cancelled_extraction_stops`, `Deeply_nested_microdata_scopes_are_read_in_linear_time` (400 nested scopes, 20000 properties, under 3 s) | pass |
+
+Not changed: the public-suffix gap (`github.io` as parent of `attacker.github.io`) stays open as recorded. The tests were written together with the fixes and run once green; the red-first run on the old code was not done as a separate step.
+
+**Retest 1** (Fable retest of be14d1be: G-070 APPROVE, G-073 APPROVE WITH CONDITIONS; fixes on `m6b/fable-fixes-themes-cards`; each new test was run against the unfixed code first)
+
+| Outstanding finding | Status |
+|---|---|
+| G-073-1 forged AR: SMTP path fixed; **JMAP path OPEN** | Live check on the two test accounts (`LiveForgedAuthResultsTests`, `BARBICAN_LIVE_WRITE=1`): a message whose own headers start with a forged `Received: ... by <server-id> with ESMTP` and `Authentication-Results: <server-id>; dkim=pass header.d=<brand>`, submitted over JMAP EmailSubmission from `<test-account>` to `<test-account-2>`. Delivered header order: Delivered-To, X-Spam-Status, DKIM-Signature, DKIM-Signature, Message-Instance, DKIM2-Signature, Received (the forged one, keyword ESMTP), Authentication-Results (the forged one), From, To, Subject, Message-ID, Date, Content-Type. Stalwart prepended no Received and no Authentication-Results of its own (one of each in the message); the forged pair is not first but sits below the server's signature headers. `AuthTrace.ServerResults` therefore trusts it and `DkimGate.ServerDkimPass` passes for the forged domain. The test pins this (and the cleanup: both accounts hold no message with the probe subject afterwards). A server-side trace or another client signal would flip the assertions and make the test guard the fix. |
+
+| Finding | Fix | Test | Red then green |
+|---|---|---|---|
+| 1 (medium) `Safe` cut inside a surrogate pair, then `Normalize` threw `ArgumentException` (every card of the message vanished) | cut on a rune boundary; the probe normalises in a guard and falls back to the unnormalised text | `A_text_cut_at_the_length_cap_inside_an_emoji_still_gives_a_card_text_and_never_throws` | red: `ArgumentException: String contains invalid Unicode code points` from `IcuNormalize`; green |
+| 2 (low) `XN--` case, one-sided spaces, `[.]`, `(.)`, `{.}` | `(?i:xn--...)`; defanged dots replaced; one-sided spaced dot closed up only after a letter and before a lower-case word, so "10. Please" stays | `More_disguised_hosts_are_dropped` (6 inputs), `Ordinary_sentences_with_a_number_before_the_full_stop_are_still_shown` (guard, green before and after) | red: 6 of 6 shown; green |
+| 3 (low) `IndexProperties` walked ancestors per element, no ct, no cap | owners come from one pass in document order (nearest itemscope per element), ct check every 1024 elements, `MaxTags` 150000 checked before the parse and in the walk | `Eight_megabytes_of_unclosed_nested_elements_with_a_property_attribute_are_read_in_bounded_time` (480000 `<div itemprop=x>`, 5 s bound) | red: no result after over 4 minutes of CPU, run killed; green |
+| 4 (low) `Changed` raised inside Load's guarded read | the load completes first (`TaskCompletionSource`), then each subscriber runs in its own guard | `A_changed_handler_that_throws_does_not_fault_the_load_or_later_mutations` | red: `NotSupportedException` from the subscriber surfaced; green |
+| 5 (low) per-char bidi/format check passed tag characters | `IsUnsafeText` checks by rune (control, Cf, U+2028/9) and refuses an unpaired surrogate; a lone surrogate also no longer throws out of the manifest handling | `A_name_with_a_tag_character_or_a_lone_surrogate_is_refused` (U+E0001, E0041, E007F), `A_name_with_a_lone_surrogate_is_refused_without_throwing` | red: all four failed (tag characters accepted; the lone surrogate threw `InvalidOperationException`); green |
+
+Retest: full `tools/build.ps1 test` 5570 total, 5560 passed, 10 skipped (live and Linux-only), 0 failed; `build.ps1 rules` and `spec-check.py` clean.
+
+### Retest 2 (Fable, at cd550a6f): decision
+
+**G-070 theme import: APPROVE. G-073 structured-mail cards: APPROVE.** Merged into `m6b/bulwark-ui`. The full suite at the merge ran 5580 total, 0 failed, 10 skipped. An earlier run had one unnamed failure that did not repeat; it is grouped with the timing flakes under load (ContactStoreTests, UpdateHelperTests, CalendarStoreTests), which stay open.
+
+Outstanding findings carried into the M6b candidate:
+- **G-073-1, JMAP path open.** On JMAP EmailSubmission, Stalwart adds no Received or Authentication-Results of its own, so a user on the same server can forge a trusted DKIM pass. The live test `LiveForgedAuthResultsTests` pins this. It is tracked for the server and does not block (Fable).
+- **Public-suffix gap.** Without a public-suffix list, `github.io` counts as a parent of `attacker.github.io` in alignment. Bulwark's alignment has the same gap.
+- **Low.** `PropertyValue` reads `TextContent` for each property, which is quadratic under deep nesting; it stays cancellable.
+
+Coordinator decision: build Fable's defence-in-depth rule as a follow-up. AuthTrace would trust no results while a header that the server does not write on inbound delivery sits above the topmost Received, such as a submission-time DKIM-Signature, DKIM2-Signature or Message-Instance. First, record the header order of a real inbound message on a test account to build the allow-list. The rule cannot close G-073-1 because a domain without a signing key gets no signature, but it fails safe.
+
+### Follow-up: submission heuristic (m6b/authtrace-submission, 2026-11-22)
+
+Evidence (header names only, placeholders; live on the test accounts, read-only for the inbound sample):
+- Real inbound mail from outside, `<test-account>` mailbox (the only outside message among its 50 newest; the other 49 carry no Received, they are sent or imported copies; `<test-account-2>` held none): `Delivered-To, X-Spam-Status | Received, Authentication-Results, ...`. AuthTrace trusted its results. `LiveInboundHeaderOrderTests` reports this per run.
+- JMAP submission `<test-account>` to `<test-account-2>` (`LiveForgedAuthResultsTests`): `Delivered-To, X-Spam-Status, DKIM-Signature, DKIM-Signature, Message-Instance, DKIM2-Signature | Received (forged), Authentication-Results (forged), From, ...`.
+- Stalwart 0.16.27 source: its own writes above the topmost Received on inbound delivery are only `Delivered-To` and `X-Spam-Status` (`crates/email/src/message/ingest.rs:249-352`); Received, Authentication-Results, Received-SPF, Return-Path and the `X-Spam-Result`/`X-Spam-Score` lines are written below it (`crates/smtp/src/inbound/data.rs:482-560`, `:763-773`); the signature lines come from submission signing (`crates/smtp/src/queue/spool.rs:376-401`). No ARC sealing on inbound was found.
+
+Rule: `AuthTrace.ServerResults` returns nothing when any header above the topmost Received is not `Delivered-To` or `X-Spam-Status` (case-insensitive). It fails safe (an unknown header costs the chip, never grants it) and is defence in depth only: for a domain Stalwart does not sign for, a JMAP forgery has nothing extra above its Received and **G-073-1 stays open** there (pinned by the unit test `Open_gap_G073_1_...`).
+
+Tests: `AuthTraceTests` gained the real-inbound order (trusted), the JMAP-submission order (untrusted), an unknown header above (untrusted, three names) and the open gap; the old "forged header above the block" case now expects an empty result. The live forged test asserts the forged pass is not trusted when signature lines sit above the Received. Live result (`BARBICAN_LIVE_WRITE=1`): `LiveForgedAuthResults` passed, both accounts cleaned (count 0); `LiveInboundHeaderOrder` passed. Full `tools/build.ps1 test`: 5585 total, 0 failed, 11 skipped; `rules` and `spec-check.py` clean.
+
+## ML-10 add-on message-list tabs: Fable early review, 2026-11-22
+
+Candidate: `m6b/ml10-category-tabs` at 9c5172b4 (category tabs an add-on registers with `tabs.set`, strip above the message list). Verdict: **APPROVE WITH CONDITIONS**. Conditions 1 to 3 are fixed in the follow-up commit with the tests below; findings 4 to 6 are fixed in the same commit.
+
+### Findings
+
+1. **Per-login grant bypass (medium).** `PluginUiTabs` ran with `needsLogin: false` and `Demand(permission, null)`, and `PluginGrantSnapshot.Authorizes` skips the account check for a null key; the registry is one singleton for all logins. Failing path: an add-on granted on login A sets a tab, the user switches to login B; B's inbox is filtered and counted and `tabs.getState` returns B's counts. Expected: strip, filter and counts apply only while the active login is in the owning add-on's grant `AccountKeys`; getState returns no counts for a login that is not granted; set and clear demand the permission for the active login.
+2. **Tab id first come first served is really lowest order wins (medium-low).** The merge dedups after `OrderBy(Order)`, and a re-Set moves the owner to the back. Failing input: A sets `promo` (order 100), then B sets `promo` (order -1): A's tab disappears. Expected: the earlier registrant keeps the id; its re-Set keeps its place. The header comment and the test at `PluginListTabsTests.cs:112` said otherwise.
+3. **Bidi and control characters kept in labels (low-medium).** Failing input: a label `A<U+202E>B`, a label with `\n`, a label of only U+200B. Expected: the cleaning of `PluginDialogText` then the emptiness check; the all-invisible label is refused.
+4. **Recount only when the number of tabs changes (low).** Bulwark recounts on any change of the tab set (message-list-tabs.tsx:76-82). Failing input: replacing [a,b] with [c,d] shows the old counts.
+5. **Tabs removed with the calling frame (low).** Bulwark keeps tabs until the add-on unloads (or `tabs.clear`). Failing path: a slot frame sets tabs, closes, and takes the tabs the background frame set with it.
+6. **No depth or node-count cap on a tab query (low).** Only the 16 KiB byte cap existed. Expected: a depth cap (16) and a node cap (1000), Bulwark's behaviour otherwise.
+
+### What holds
+
+- **Permission enforcement.** `ui:message-list-tabs` is demanded for every method; a neighbouring permission is denied and leaves nothing behind; a stale grant, an ended runtime and a rate-limit overrun change nothing; one add-on cannot set, replace or clear another's tabs.
+- **No widening.** The active tab's fragment is always ANDed with `inMailbox` (`ListTabFilters.InFolder`), so a tab query can narrow the folder but never reach mail outside it; the default tab is NOT of the others (RFC 8620 5.5); Metadata conditions that panic Stalwart 1.0 are refused anywhere in the tree.
+- **Count oracle.** The per-tab unread count is the same query as Bulwark's `getCategoryUnreadCounts` (inMailbox AND notKeyword `$seen` AND the tab filter, one row, `calculateTotal`), bounded at 12 `tabs.refreshCounts` calls a minute per add-on.
+- **Composition.** The filter goes only into a plain folder query nobody else shaped (no tag, no search, not the unified inbox, a served role); unread-first, paging, push deltas and sort reloads carry the same filter; with no tabs the query and the list are unchanged.
+
+### Could not check
+
+- Revocation timing: a permission-only revoke may not invalidate the runtime binding promptly, and `PluginRuntimeBinding.Invalidate()` alone fires no `Changed` (the registry prunes on the next read or when a binding's lifetime token fires), so tabs of an add-on whose permission was just revoked can stay visible for a moment.
+- `_shaper.Shape` on a query that already carries a tab filter: the tab filter is applied after the shaper, and only to a query without a `Filter`; whether a future shaper that sets `Filter` on a plain folder query would drop or double the tab condition was not exercised.
+- Folder counts for a shared account's folders: `ListTabCounts` queries the login's own account; the counts of a shared-account folder (another JMAP account id) were not checked.
+### Fixes
+
+| Finding | Fix | Test | Red / green |
+|---|---|---|---|
+| 1 | Every `tabs.*` method needs the signed-in login and demands the permission for it; the registry keeps the grant's login keys per registration and shows a login only its own add-ons' tabs (`StateFor`); counts are stored per login; the list and strip read `StateFor(active login)`, and a change of login reloads and recounts | `F1_tabs_set_is_refused_when_the_active_login_is_not_in_the_grant`, `F1_getState_clear_and_refreshCounts_are_refused_once_the_active_login_leaves_the_grant`, `F1_the_registry_shows_tabs_and_counts_only_for_logins_in_the_owning_grant` (Core); `F1_a_login_the_add_ons_grant_does_not_name_gets_no_strip_no_filter_and_no_counts` (Presentation) | method-level tests red on 9c5172b4 (tabs.set succeeded and getState answered for a login outside the grant), green after; the registry and Presentation tests use the new API and were written with the fix (green first) |
+| 2 | Ids are taken in registration order before any ordering; a re-Set updates its entry in place | `F2_the_earlier_registrant_keeps_a_tab_id_whatever_the_order_and_a_re_set_keeps_its_place` | red, then green |
+| 3 | Labels pass `PluginDialogText.Clean`, then format characters (zero width, BOM, word joiner) are dropped, then trimmed and checked for empty | `F3_labels_are_cleaned_of_bidi_and_control_characters_then_checked_for_empty` (5 rows: U+202E, `\n`, only U+200B, only bidi and spaces, BOM and word joiner) | red (5 rows), then green |
+| 4 | The count signature is the tab ids and their filters plus the login, not the number of tabs; recounts on any change | `F4_replacing_the_tabs_with_the_same_number_of_other_tabs_counts_again` | red (3 count queries, expected 6), then green |
+| 5 | A registration belongs to the add-on and lives while any of its runtime bindings lives | `F5_a_closing_slot_frame_does_not_remove_the_tabs_its_add_on_set_from_the_background_frame` | red, then green |
+| 6 | One walk of the filter: depth at most 16, at most 1000 nodes, no Metadata key | `F6_a_filter_deeper_than_16_levels_or_with_more_than_1000_nodes_is_refused` | red, then green |
+
+Red run before the fix: `PluginListTabsTests` 10 failed of 38 (F1 x2, F2, F3 x5, F5, F6) and `ListTabsTests` 1 failed of 8 (F4). After the fix: 39 of 39 and 9 of 9.
+
+Full `tools/build.ps1 test` after the fixes: 5684 total, 0 failed, 11 skipped; `rules` and `spec-check.py` clean.
+
+### Retest 1 (at 38d89717): APPROVE WITH CONDITIONS
+
+Verdicts: F1 to F4 and F6 hold; F5 holds in part (N2); `NoSession` for a login outside the grant is accepted as a refusal.
+
+- **N1 (condition).** `RefreshCountsAsync` read with the service captured at the start but wrote under the login active after the await; its only guard was the folder id, which can be equal across accounts. Failing inputs: the login changes mid-count with the same folder id (A's counts stored as B's); the user signs out mid-count (`SetCounts("")` throws, unobserved). Expected: capture the login key before the await; discard if the key changed or is null; never throw.
+- **N2.** `tabs.set` called only from a slot frame: when that frame closes the tabs vanish while the background frame runs. Expected: tabs last until the add-on unloads.
+- **N3.** U+200C and U+200D were dropped from labels. Expected: kept between visible characters (a Persian label with ZWNJ, a joined emoji survive unchanged).
+- **N4.** Visually blank labels passed: U+3164, U+2800, U+115F, U+1160, U+FFA0, alone or with spaces. Expected: refused.
+- **Item 5 (not checked by Fable).** `PluginSessionCapture.LocalAccountKey` is `Session.Account.Key`; `IActiveMail.AccountKey` is `IAccountManager.Active.Key`. Both come from the same `AccountInfo.Key` of the account manager's entry; confirmed by a test that signs in once and compares both (no mapping change needed).
+- **Hidden run on the final commit** (Automation build, sample mailbox, `tabs-sim`): `state` hidden, 5 rows; `set` strip visible with `primary` 3 rows (e36, e31, e21); `select flagged` 1 row (e40); `select files` 1 row (e24); `select primary` 3 rows; `clear` hidden, 5 rows again. The sample has one login, so no login switch was run; the switch is covered by the unit tests.
+
+| Finding | Fix | Test | Red / green |
+|---|---|---|---|
+| N1 | The login key, mail service and folder are read together before the queries; the result is stored only when all three are unchanged after them, a null or empty key returns nothing, and a failed read is caught | `N1_counts_read_for_one_login_are_not_stored_when_the_login_changed_mid_count_even_with_the_same_folder_id`, `N1_signing_out_mid_count_discards_the_counts_and_never_throws` (Presentation) | red (2 failed: counts stored for the other login; `ArgumentException` on an empty key), then green |
+| N2 | A registration lives while any frame of the add-on lives (`PluginRuntimeBinding.LiveOf(package)`, host-side list of live bindings); watches attach to every live frame at set time and the entry is pruned when none is left | `N2_tabs_set_only_from_a_slot_frame_stay_when_that_frame_closes_while_the_background_frame_runs`; the F5 and runtime-ends tests now use their own package ids | red (expected 3 tabs, got 0), then green |
+| N3 | ZWNJ and ZWJ are kept when a visible character sits on both sides, dropped elsewhere | `F3_N3_N4_labels_...` rows: Persian ZWNJ, joined emoji, joiners at the ends and between spaces | red (2 rows), then green |
+| N4 | A label with no visible character (spaces and the filler letters U+115F, U+1160, U+3164, U+FFA0, U+2800) is refused | same theory, 6 rows | red (6 rows), then green |
+| Item 5 | none needed | `The_active_mail_key_and_the_plugin_capture_key_are_the_same_account_key` (Presentation, real sign-in on FakeJmap) | green first (a pinning test) |
+
+Red run before the fixes: `PluginListTabsTests` 9 failed of 50 (N2, N3 x2, N4 x6), `ListTabsTests` 2 failed of 11 (N1 x2). After: 50 of 50 and 11 of 11.
+Full `tools/build.ps1 test` after retest 1: 5698 total, 0 failed, 11 skipped; `rules` and `spec-check.py` clean.
+
+### Retest 2 (at d57043f1): APPROVE WITH CONDITIONS
+
+Verdicts: the wrong-login counts (N1), join controls (N3), filler labels (N4) and account keys (item 5) hold; `LiveOf`'s locking is sound.
+
+- **C1 (condition).** `LiveOf` matched only the package id, not the grant generation. Failing path: an add-on sets tabs, the user revokes `ui:message-list-tabs` or updates the add-on; it restarts at generation n+1 before the old frame's lifetime cancels; the new frame keeps the entry alive, so the inbox stays filtered by a query whose grant is gone, with stale login keys. Expected: the entry records the generation and profile that set it and counts only live frames of that generation and profile; otherwise it is dropped.
+- **Leak.** `Set` attached every live frame strongly to the entry, so a frame created and never closed pinned the tabs. Expected: no strong reference to a frame.
+
+| Finding | Fix | Test | Red / green |
+|---|---|---|---|
+| C1 | `LiveOf(package, generation, profile)`; the entry stores the generation and profile of the runtime that set it; liveness, pruning and the end-of-frame check use them; an older generation can no longer set or clear over a newer entry | `C1_a_restart_at_a_newer_generation_does_not_keep_the_tabs_of_the_old_one` (revoke or update: old frame ends while the new one lives, tabs gone, then `tabs.set` of the new generation registers them again), `C1_a_newer_generation_setting_tabs_replaces_the_old_ones_and_an_older_frame_can_no_longer_set_or_clear`, `C1_a_frame_of_another_profile_does_not_keep_the_tabs` | red (2 of 3 failed; the replace test already held), then green |
+| Leak | the entry holds no frame; the lifetime callbacks hold the entry, not the reverse, and `LiveOf` is a weak list | `Leak_a_frame_dropped_without_closing_does_not_pin_the_tabs` (GC) | red, then green |
+
+Each test uses its own package id because the list of live frames is process wide. Red run: `PluginListTabsGenerationTests` 3 failed of 4; after the fix 4 of 4 (`*PluginListTabs*`: 54 of 54).
+Full `tools/build.ps1 test` after retest 2: 5702 total, 0 failed, 11 skipped; `rules` and `spec-check.py` clean.
+
+### Retest 3 (at dd7650eb): APPROVE
+
+Three low items, fixed before the merge.
+
+| Item | Fix | Test | Red / green |
+|---|---|---|---|
+| L1: every `tabs.set` registered a new lifetime callback on every live frame and none was ever unregistered | one watch per entry and frame (`Owned.Watches`, keyed by the frame's instance id); a re-set drops the watches of frames that ended and adds none twice; removal disposes them all; `WatchedFrameCount` is a test aid | `L1_setting_tabs_again_keeps_one_watch_per_frame` (100 sets on the same frames: 2 watches; 0 after `Remove`) | red (the count did not exist: a stub returned 0, expected 2), then green |
+| L2: a frame opened after `Set` was not watched: background sets, a slot frame opens, the background ends, the slot ends, and no `Changed` fires so the strip stays | when a watched frame ends and another live frame of the same package, generation and profile remains, the entry now watches every live frame (late ones included); when the last one ends, the entry is dropped and `Changed` fires | `L2_a_frame_opened_after_set_is_watched_so_the_last_frame_ending_raises_Changed` (exact sequence, `Changed` counted before any read of the registry) | red (expected 1 change, got 0), then green |
+| GC test | the GC-dependent leak test is replaced by a deterministic one: `Invalidate()` a frame without disposing it and the tabs are gone (the entry holds no frame, the live list is weak) | `A_frame_that_is_invalidated_without_being_disposed_no_longer_holds_the_tabs` | green first (a replacement test, not a fix) |
+
+Still not checked (Fable): a login switch in the hidden run (the sample mailbox has one login), and revocation ordering against a real runtime (the tests use synthetic bindings).
+Full `tools/build.ps1 test` after retest 3: 5704 total, 0 failed, 11 skipped; `rules` and `spec-check.py` clean.
+
+## G-082 outbox: Fable early review, 2026-11-22
+
+**Candidate:** `m6b/g082-outbox` at 30789980 (the send path: a send asked for offline is kept in a persisted per-account outbox and goes out once the server answers). **Verdict: APPROVE WITH CONDITIONS.** Conditions 1-4 were required; 5, 7, 8 and 9 were to be fixed as described and 6 if cheap. This is an early review of the send path, not the milestone approval.
+
+**Coordinator decision:** the outbox is always on in Barbican (no opt-in, no "Keep mail on this device" switch). A desktop client should never lose a send to a dropped connection. Bulwark gates its outbox behind the offline-store opt-in only because the browser store is optional; Barbican has no such store and the outbox adds no access to anything the user could not already send.
+
+### Findings
+
+| # | Sev. | Failing input on 30789980 | Expected |
+|---|---|---|---|
+| 1 | High (condition) | The send request gets HTTP 500, 502 or 504 (`ProblemError` status >= 500) after it left: `Classify` made it Refused, so the entry was Failed and "Send again" sent it blind. "Send again" on an Uncertain entry set it Waiting without a lookup. | A status >= 500 or a lost response after the request left is MayHaveArrived, so Uncertain, then the Message-ID lookup (Bulwark flush.ts:101-104). Only a 4xx or a method error before acceptance is Refused; 408 and 429 wait for the next try. "Send again" on an Uncertain entry looks it up first and resends only when the lookup finds nothing or cannot tell. |
+| 2 | High (condition) | A send hook or add-on check registered while the message waited: the flush sent it unchecked. A plugin enabled but not running did not stop queueing. | At flush the checks a live send runs (hooks, add-on send check, classification) are asked again; if one applies the entry is Held for the composer, never sent unchecked (Bulwark stricterNow, flush.ts:361). At queue time an enabled add-on that is not running counts as checking (pluginsNotRunning, offline-mode.ts:520-530). |
+| 3 | Medium (condition) | `CompositeSignOutCleanup` dropped the queue in `PrepareAsync`, before the sign-out was certain; the confirmation did not mention it; a send queued between Prepare and detach survived the sign-out. | The outbox is dropped last, after the accounts detached; the confirmation says how many unsent messages will be deleted; queueing for a signing-out account is refused; an aborted sign-out lets queueing go on. |
+| 4 | Medium (condition) | `Save` throws (disk full, locked file) inside `QueueAsync`: the entry stayed in memory and the call threw. | The entry is removed again and the call returns a failure the composer shows. |
+| 5 | Decision | A queued attachment whose blob expired on the server fails the send with "attach it again", and the row only offers Send again, which can never work. | "Open in composer" on the failed row: text, recipients, identity back, the missing attachment named. Storing attachment bytes locally stays open (see the row). |
+| 6 | Cheap-if-possible | The lookup only searches Drafts and Sent. | Also search by Message-ID across all mailboxes. **Not done:** Stalwart's `header` and `text` filters do not find a Message-ID (dedupe.ts header comment), so it needs a paged read of every mailbox. Left to the row. |
+| 7 | Low | The lookup found a held (pending) or cancelled submission and the user saw "Sent from the outbox". | Said as it is: "Already waiting on the server to be sent", "Not sent, its send was cancelled earlier". |
+| 8 | Low | The server draft a queued send replaced could be sent again from Drafts, or deleted without the queued send knowing. | The draft shows "In the outbox"; sending it from Drafts is refused; deleting it cancels the queued send after a confirmation. |
+| 9 | Low | The outbox was started from `OutboxBannerView` Loaded; sign-out of all accounts left a queue file that failed validation. | A start-up task starts it with the safe flush; sign-out of all accounts deletes every queue file, including invalid ones. The 0600 file permission is a TODO for M9 (Linux). |
+
+### Found sound by Fable
+
+- The exactly-once core: the Message-ID fixed at queue time, the entry written as Sending before the request, Sending at the next start read as Uncertain, the lookup before any resend.
+- Account isolation: the entry, the message and the session agree on the account; the file name is a hash of the account key; a file whose entries name another account is dropped on load.
+- Identity re-check at send time (stricter than a live send), no credential in the queue (asserted by a reflection test), the concurrency of the gate and the flush guard, and "always on" adding no risk.
+
+### Could not check (Fable)
+
+The live behaviour of a real 502 from Stalwart in front of a reverse proxy, and a real offline start (these are covered by fake-server tests and the live test with a simulated connection only).
+
+### Fixes
+
+Red = the new test failed on 30789980 (run recorded 2026-11-22: 9 tests, 7 failed, the two 4xx cases passed). "Compile-red" = the test uses a member that did not exist yet, so it did not build on 30789980.
+
+| Finding | Fix | Test | Red / green |
+|---|---|---|---|
+| 1 | `MailSender.Queued.cs` Classify: `ProblemError >= 500` is MayHaveArrived, 408/429 NotStarted; `OutboxService.RetryAsync` marks an Uncertain entry `RetryRequested` and the settle step looks it up first | `OutboxReviewTests` (status theory 500/502/504/400/403, Send again looks up first) | red (500, 502, 504, retry) / green; 400 and 403 green before and after |
+| 2 | `SendChecksApplyAsync` at queue time and at flush (`OutboxSendKind.Held`, `OutboxStatus.Held`, `NeedsComposer`); `IOutgoingAddOnSend.HasSendHooksAsync` also true for an enabled add-on that is not running; a classification lookup that is not Missing fails closed (OrganizationPolicyService answers Missing only for an account without a policy route, offline it says Unavailable, so the gate refuses) | `A_send_hook_that_appeared_while_the_message_waited_stops_it_unchecked`, `A_held_message_is_not_sent_and_offers_the_composer` | red / green; the second compile-red |
+| 3 | `IAccountSignOutCleanup.CompletedAsync/AbortedAsync`, called by `AccountManager` after the detach; `OutboxService.BeginSignOut/EndSignOut`; the sign-out dialog says "N unsent messages in the outbox will be deleted" | `A_send_queued_after_sign_out_began_is_refused...`, `Signing_out_of_all_accounts_drops_every_queue` (changed), `A_held_row_offers_the_composer_and_the_sign_out_note_counts_the_messages` | compile-red / green |
+| 4 | `QueueAsync` catches the save failure, removes the entry, returns a failure | `A_queue_that_cannot_be_written_is_not_kept_and_says_so` | red / green |
+| 5 | `NeedsComposer` on a failed blob-not-found send; `OutboxReopen.From`; "Open in composer" on the row (`OutboxViewModel.OpenInComposerAsync`) | `A_missing_attachment_blob_is_a_failure_that_only_the_composer_can_mend` | compile-red / green |
+| 6 | not done (see above) | - | - |
+| 7 | `OutboxDoneWhy` from the submissions' `undoStatus`; notices Scheduled and Canceled | `A_lookup_that_finds_a_held_or_cancelled_submission_says_so...` | compile-red / green |
+| 8 | `QueuedForDraft`; `MailSender` refuses a send of the queued draft; the Drafts row shows "In the outbox"; `MailActionService` asks before a delete and cancels the queued send | `The_server_draft_a_queued_send_replaces_cannot_be_sent_again_from_drafts`, `Deleting_the_draft_of_a_queued_send_cancels_that_send...`, `A_draft_with_a_send_in_the_outbox_is_marked_in_the_list` | red / green; the other two compile-red |
+| 9 | `OutboxStartup` (`IStartupTask`) calling the safe flush; `IOutboxStore.DeleteAll` on sign-out of all | `A_completed_sign_out_drops_the_queue_and_a_queue_file_that_failed_validation` | compile-red / green |
+
+
+### Retest 1 (acc95b4c): APPROVE WITH CONDITIONS
+
+**Verdict:** no silent lost-send window remains; conditions 1-4 below were required, 5 and 6 were checks, 7 a rerun of the hidden scenario. Every new test failed by an assertion on acc95b4c (the API it needs was added first, with the old behaviour); the run is recorded: Core 6 tests, 5 failed (the sixth, queue-time Unknown add-on refuses, is a control that was green), Presentation 2 tests, 2 failed.
+
+| # | Sev. | Defect (failing input on acc95b4c) | Expected |
+|---|---|---|---|
+| R1 | Medium (condition) | After a completed sign-out the outbox kept refusing queueing: `DropAccountsAsync` never cleared the sign-out block, only `AbortedAsync` did. Sign out of all accounts, sign in again, send offline: "This account is signing out" until restart. An exception or cancellation between Prepare and Completed called neither. | Dropping clears the block; `SignOutManyAsync` ends the sign-out in a `finally`. |
+| R2 | Medium (condition) | Held was permanent for conditions that pass: the start-up flush before the add-ons started, a failed `packages.ListAsync`, an Unavailable policy lookup all became Held with NeedsComposer. Any enabled add-on that was not running counted, even one without a send hook. | "Cannot be read yet" or "still starting" is NotStarted (retried at the next flush); Held only when a check really applies. Match Bulwark pluginsNotRunning: only enabled add-ons that declare a send hook count. |
+| R3 | Low-medium (condition) | Send again skipped the 30-second lookup wait (`LastAttemptAt = null`): response lost, click Send again within seconds, the lookup misses, duplicate. | Keep the wait and say "Checking whether it was sent…", then look up. |
+| R4 | Low | "Open in composer" deleted the entry even when no composer opened, and the seed had no DraftId. | Delete only after a confirmed open; the seed carries the DraftId so the composer edits that draft and the lock is released. |
+| R5 | Check | A draft save creates a new server draft and destroys the old one, so the `QueuedForDraft` lock would slip to a new id. | Refused while the send waits (decision: refuse). |
+| R6 | Check | blobNotFound reached Classify only through a message-text match (`SubmissionOps.Plain` made it a `ValidationError`). | Matched by type. |
+| R7 | Rerun | Hidden scenario. | Recorded below. |
+
+**Decisions.** R2: Bulwark's pluginsNotRunning (offline-mode.ts:520-530) counts an enabled plugin that guards sends (`guardState` not null) and is not running, whatever its status except disabled/installed. Barbican counts an enabled add-on whose manifest `hooks` include onBeforeEmailSend, onComposeSend or onTransformOutgoingEmail: a running owner or one that failed to start (Error) needs the composer (Present, hold); one still starting, an add-on host that has not initialised, or an unreadable list is Unknown (queue refused at queue time, NotStarted at flush); add-ons without a send hook, UI-only add-ons and disabled ones never count. The start-up flush needs no extra wait: Unknown at flush is NotStarted and the outbox retries after 30 s (OutboxService.RetryAfter), by which time the add-on host has started.
+
+**Hidden Automation run (BARBICAN_SAMPLE=1, port 8853):** offline; three sends queued (count 3); online: "Plain A" sent once (sent log has it once), "Failing B [fail]" Failed with its reason, "Held C [hold]" Held; Send again on B refused again by the sample server and stayed Failed; "Open in composer" on C opened a composer with its recipient, subject and body and removed it from the outbox (count 1).
+
+| Defect | Fix | Test | Red / green |
+|---|---|---|---|
+| R1 | `DropAccountsAsync` clears the block for what it dropped; `AccountManager.SignOutManyAsync` aborts the prepared cleanups in a `finally` unless they were completed or aborted | `After_a_completed_sign_out_the_same_account_can_queue_again_and_so_can_all_accounts` | red (queue refused) / green. The `finally` has no unit test (AccountManager needs a full sign-in rig). |
+| R2 | `SendCheck` (None/Applies/NotYet) and `SendHookState` (None/Present/Unknown): NotYet is NotStarted at flush, refused at queue time; `PluginOutgoingSendHooks.HasSendHooksAsync` counts only send-hook add-ons | `An_add_on_that_cannot_be_told_yet_at_flush_waits_for_the_next_try_instead_of_being_held`, `At_queue_time_an_unknown_add_on_state_still_refuses_the_queue` | red (Held) / green; the second is a control. The policy-Unavailable branch has no test (OrganizationPolicyService needs a live route); it follows the same `SendCheck.NotYet` path. |
+| R3 | `RetryAsync` keeps `LastAttemptAt`; the settle step waits; `OutboxRules.Status` says "Checking whether it was sent…" | `Send_again_keeps_the_lookup_wait_...`, `A_send_again_that_waits_for_its_lookup_says_it_is_checking`; `Send_again_on_an_uncertain_message_looks_it_up_first...` now advances the wait | red / green |
+| R4 | `IComposerService.TryOpenSeedAsync`; the view model deletes only after it returns true; `OutboxReopen` carries `DraftId` | `The_entry_stays_when_the_composer_did_not_open`, `The_reopened_message_edits_the_server_draft_it_replaced` | red / green |
+| R5 | `DraftService.SaveAsync` refuses a draft with a queued send | `A_draft_with_a_queued_send_cannot_be_saved_over_...` | red / green |
+| R6 | `BlobNotFoundError`; `Classify` matches the type | `A_missing_attachment_blob_is_a_failure_that_only_the_composer_can_mend` (existing, stays green) | green before and after (a type change, not a behaviour change) |
+
+
+### Retest 2 (f2d5f243): APPROVE WITH CONDITIONS (one condition)
+
+**Verdict:** no double-send and no silent lost-send window; one condition (1), two low findings (2, 3), two tests owed before the milestone (4), one check (5). New tests failed by assertion on f2d5f243 (Core 4 of 5, Presentation 1 of 1; the API each needs was added first with the old behaviour). The two tests of item 4 cover earlier fixes: the sign-out one was proven red by removing the `finally` (expected 1 abort, got 0) and restoring it; the policy one is red through the new `CheckWait` assertion.
+
+**Condition 1, undeclared send hook (finding and decision).** The runtime does not reject it: an add-on's hooks are what its sandbox reports in `init-done` (`PluginSandboxInitMessage.ParseActivation`, src/Barbican.App/Plugins/Sandbox/PluginSandboxInitMessage.cs:81-90, used at PluginSandboxWindowsStartup.cs:49) and `PluginBackgroundRuntimes.HookOwners` (PluginBackgroundRuntimes.cs:40-42) trusts them; no comparison with the manifest. Bulwark does not reject it either: its guards are "the plugins the last start saw registering onBeforeEmailSend, and before any start a plugin with the `email:send` permission, to be safe" (lib/plugin-send-guards.ts:17-19). Decision: match Bulwark. A send hook is only effective for an add-on holding the `email:send` grant (`PluginOutgoingSendHooks.Owners` filters by it), so `SendGuardRules.IsGuard` (Core) counts every enabled add-on that requests `email:send` or declares a send hook; an undeclared registration cannot slip past, and an enabled guard that is not running yet is Unknown (queue refused, flush NotStarted).
+
+| # | Defect (failing input on f2d5f243) | Fix | Test | Red / green |
+|---|---|---|---|---|
+| 1 | An add-on requesting `email:send` whose manifest lists only another hook is not counted; it registers onBeforeEmailSend at runtime and the queued send goes unchecked | `SendGuardRules.IsGuard` by permission or declaration, used by `PluginOutgoingSendHooks` | `An_add_on_that_may_send_counts_as_a_guard_whatever_its_manifest_declares` | red / green |
+| 2 | A check that stays unreadable waits for ever under "Waiting for a connection" | `OutboxSendResult.CheckWait`; the row says "Waiting for add-on X to start" or "Waiting for the label policy"; `OutboxEntry.WaitTries`/`WaitReason`; after `MaxCheckTries` (10) the entry is Held with that reason and a notice; a plain connection wait resets both | `A_check_that_stays_unreadable_says_what_it_waits_for_and_after_ten_tries_is_held_...`, `A_plain_connection_wait_does_not_count_toward_the_hold_...` | red / green (the second is a control) |
+| 3 | A failed lookup after Send again leaves the row stuck (nothing schedules another try) | `SettleUncertainAsync` schedules a retry in the catch | `A_lookup_that_fails_after_send_again_is_tried_again_by_itself` | red / green |
+| 4a | Coverage: a cleanup that throws after Prepare must end the sign-out | `finally` in `SignOutManyAsync` (retest 1) | `A_cleanup_that_throws_after_prepare_is_told_the_sign_out_ended` | red with the `finally` removed (0 aborts) / green restored. A cancelled sign-out reaches the same `finally`; the manager gives Completed/Aborted no cancellable token, so no separate test |
+| 4b | Coverage: a policy that cannot be read at flush waits, nothing is sent | `ClassificationCheckAsync` NotYet; `ComposerClassification.ResolveAsync` made virtual as a test seam | `A_policy_that_cannot_be_read_at_flush_waits_instead_of_holding_and_nothing_is_sent` | red (`CheckWait` / reason) / green; also asserts queue time still refuses |
+| 5 | Check: does the close-time autosave hit the "send waiting in the outbox" refusal? `Finish(sent: true)` closes the composer at queue time, and every save path returns when closed, so a normal close does not. A save already in flight when Send was pressed could, and showed "Not saved" | `QueuedDraftError`; `SaveCoreAsync` treats it as saved without a status line or toast (the content is already in the queue) | `A_draft_whose_send_waits_in_the_outbox_is_not_reported_as_a_failed_save` | red / green |
+
+
+### Retest 3 (e4a265f0): APPROVE (early review of the send path, not the milestone), two low defects
+
+| # | Defect (failing input on e4a265f0) | Fix | Test | Red / green |
+|---|---|---|---|---|
+| 1 | `HasSendHooksAsync` answered Present when every guard was running even with no owner of a send hook: an enabled, running add-on that requests `email:send` but registers no send hook refused every offline send and held every queued entry | the decision moved to Core as `SendGuardRules.StateOf`: initialised, all guards running and no owner (checked first by the caller) is None | `Running_guards_that_registered_no_send_hook_do_not_stop_a_send_and_a_starting_one_still_waits` (also covers Unknown for a starting guard or an uninitialised host, Present for a failed one) | red (expected None, got Present) / green |
+| 2 | `WaitTries` was persisted and not reset on load: an entry at 9 tries and one slow add-on start after a restart was Held | reset `WaitTries` and `WaitReason` when a queue is loaded | `The_count_of_tries_that_waited_for_a_check_starts_again_after_a_restart` | red (expected 0, got 9) / green |
+
+**Checks.** No bundled add-on requests `email:send`: the two bundled add-ons (plugins/Barbican.Plugin.Assistant, plugins/Barbican.Plugin.SpamScore) carry no such permission (the only `email:send` in the tree is the automation fixtures and the host code), so the outbox is not off for anyone. A grant can only be given for a permission the manifest requests: `PluginPackageManager.cs:373` rejects an approval whose permissions are not exactly the requested set (`definition.RequestedPermissions.SetEquals(decision.ApprovedPermissions)`) and `:135` drops a stored entry whose permissions differ from the requested set on load; `PluginGrantSnapshot.Authorizes` (`PluginGrantSnapshot.cs:52-54`) then checks the granted set.
+
+## G-068 protocol links (mailto, webcal): coordinator notes, 2026-11-22
+
+**Owner approval and the one-time OS test.** Per-user registration happens only from Settings (never at start or install). The owner approved one test on this PC: register `mailto` under HKCU, check it, remove it. The test passed. Afterwards every key it wrote was absent: the `Barbican.Url.mailto` and `Barbican.Url.webcal` ProgIDs, `Clients\Mail\Barbican`, and the `RegisteredApplications` value. `Classes\mailto` matched its state from before the test. `webcal` registration was not exercised on the OS and is covered by unit tests only. The approval does not extend to further registry tests.
+
+**Integration finding (test, not product).** After the merge onto G-082 the test `In_active_session_mode_a_link_waits_while_a_message_is_being_written_and_opens_when_it_closes` failed every time. The composer's close event hands the waiting link to the router. The router's open then waits on the composer's open lock, which the closing call still holds, so the new composer appears on a later continuation. The product behaviour is correct (the link opens right after the close). The test read `Current` too early and now waits for it within a bound (5f003933). Not exercised: the open mode in a hidden run. That needs an OS-delivered link, which the hidden automation cannot send without registration.
+
+## G-031 idle app lock: Fable early review, 2026-11-22
+
+**Candidate.** Branch `m6b/g031-session-timeout`: first review at f559b290, retest 1 at 06c2eba1, merged at 0a77828b.
+
+**Scope.** Pref `sessionTimeout` (minutes, 0 = never, the default) with a warning card. On expiry the window locks:
+- every content region and open popup is closed or collapsed;
+- keys are blocked and the detached composer is hidden;
+- drafts are flushed first (8 s cap);
+- notifications carry no content, and toast clicks only show the window;
+- mailto and webcal links wait until unlock.
+
+Unlock means re-entering the password of a fixed account, checked by an authenticated `Core/echo` on the typed origin; nothing is stored. Wrong tries get 3 free, then a backoff from 5 s to 60 s, persisted. The lock persists across restart. A two-press "Sign out of all accounts" escape is offered.
+
+**Coordinator decisions.**
+- A desktop app locks; it does not sign out as Bulwark's org policy does. Stored credentials stay.
+- No local password compare when the server is unreachable: the lock screen says so.
+- Windows Hello/PIN and `maxHours` stay deferred (M7 policy).
+
+**Findings, fixes and retests.**
+
+| # | Failing path | Expected | Fix | Test (red / green) |
+|---|---|---|---|---|
+| 1 (must) | `ShowScreen` → `ReleaseLockWithoutAccounts` released the lock on an empty account list: a vault read error, a faulted restore or a partial sign-out-all | release only after a fully successful sign-out-all with no password account left | shell release removed; `ReleaseAfterSignOutAsync(signOutSucceeded)` | `No_account_visible_is_not_proof_that_the_accounts_are_gone` (expected False, got True) / green; `A_sign_out_that_failed_after_detaching_the_accounts_leaves_the_window_locked` green |
+| 2 (must) | flyouts, popups and tooltips stayed open over the lock | none visible or actionable once locked | close `GetOpenPopupsForXamlRoot`, dismiss the tip, collapse `Overlay`, sweep every 250 ms while locked | hidden `tools/applock-run.ps1`: pre-fix "FAILED no popup is open once locked" / after the lock openPopups=0, overlay Collapsed |
+| 3 | a session answered by another origin counted as proof of the password | unlock only on an authenticated same-origin answer | authenticated `Core/echo`; the client is disposed | `A_session_that_arrives_from_another_origin_is_not_proof_of_the_password` (Unlocked) / green |
+| 4 | the backoff reset on restart | the wait survives a restart | failures and blocked-until saved in applock.json, capped when the clock is set back | `The_waits_survive_a_restart` (ThrottleRemaining null) / green |
+| R1 (retest 1) | queued links opened on a pool thread, two drains at once | open on the UI thread, one at a time | dispatcher-posted drain with a re-entry guard | `Links_that_waited_for_the_unlock_open_through_the_dispatcher_not_on_the_thread_that_raised_the_event` (opened on the pool thread) / green |
+
+The advisories were taken: 5 (deadline check on focus and a 15 s timer), 7 (links queued), 8 (store fails closed and reports a failed save), 9 (the client is disposed), 10 (delivered toasts are cleared when the lock begins) and 12 (composition tests). 6 and 11 are recorded as leftovers on the G-031 row.
+
+**Decision.** Fable: APPROVE on security at retest 1. The R1 functional fix was checked by the coordinator; no re-review was needed.
+
+**Not exercised.** Real pointer and keyboard input, a real OS toast, the detached composer window while locked, sleep and resume, a live server, Linux.
+
+## G-075 mention chips: Fable early review, 2026-11-22
+
+Candidate `m6b/g075-mention-chips` d4fbe7c8: an @mention is an atomic chip of the composer body (a run with `Marks.Mention`, also its mailto link), a selected chip opens a card (Copy, Add to To/Cc, Remove mention), and a click on a mention link in a message opens a person card in the reader. The reader card is fed by `mention:`/`press` page messages and the chip can come from imported HTML, so the review looked at what a message or a pasted draft can make the card, the clipboard, the To field and the mailto router do. Verdict on d4fbe7c8: CHANGES.
+
+| # | Failing path | Expected | Fix | Test (red / green) |
+|---|---|---|---|---|
+| F-1 (medium) | reader card: `name = Participant(email) ?? label` showed the link's text as who the person is (`<a href="mailto:attacker@evil.example">@IT Helpdesk (helpdesk@yourcompany.example)</a>`); the composer card did the same with the chip's label | participant name, else contact name, else the address, never the link text (recipient-popover.tsx:63, :85-93; email-viewer.tsx:6806-6807) | `?? label` dropped in `MailBodyView.OnMention` and `EditorView.ShowMentionCard` | hidden run: `body inject mention:10,20,38\|mailto:stranger@evil.example\|@Trusted Boss` then `body mention-card` was "TB" / "Trusted Boss" before, now `SE \| stranger@evil.example`; a participant still shows the header name (`Planner`) |
+| F-2 (medium) | the decoded mention address was not validated: `%E2%80%AE` (bidi override), `%0D%0A`, `%00`, `a@b,c@d`, `;` or `@@` reached the card, Copy, `MailtoRouter`, View contact and (importer) `Marks.Mention` / the To field | a mention is one plain mailbox, else not a mention (gate drops, importer keeps a plain link) | `Mentions.IsPlainMailbox` in `TryFromLink` (shared by gate, importer, reader): at most 320, no control/format/white space, none of `, ; < > "`, one "@" with both sides; shell.js `mention()` returns false when the href has `\|` | `ShellMessageTests.AMentionThatIsNoMentionIsDropped` (6 new rows) and `MentionChipTests.Only_a_mailto_link_reading_at_Name_is_a_chip` (5 new rows) red (12 failures), green; `ShellScriptTests.AMentionLinkWithTheSeparatorInItIsNoMentionAndAScrollDismissesTheCard` |
+| F-3 (medium) | Enter on a selected chip called `AddMentioned`: Shift+Right then Enter silently added an address that came from imported HTML (quote, paste, reopened draft) | Enter may reopen the card, never adds; adding is the card's Add button only (mention-chip.tsx:216-218) | the add branch removed from `MentionEnter` | hidden run: `compose-body-load-html <p>Hi <a href="mailto:zed@x.example">@Zed</a></p>`, select the chip, Enter twice: To unchanged (`to=[]`), card open with the notice; `compose-mention-do Add to To` then To has `zed@x.example` |
+| F-4 (low-medium) | `HtmlExporter` wrapped the anchor around the formatting (`<a><strong>@Ada</strong></a>`), which `mentionFromLink` (recipient-mentions.ts:230), our importer and shell.js read as a plain link | anchor innermost with only the text, marks outside, `class="mention"` (mention-chip.tsx:51) | exporter writes the mention anchor first and skips the outer link wrap for a mention run | `A_formatted_chip_exports_with_the_anchor_innermost_and_the_mention_class_and_is_a_chip_again` (red, green) |
+| F-5 (low) | reader card: top not clamped to the view, no close on Escape, body scroll or a press outside | card inside the view; closes on Escape, scroll, press | top and left clamped to `[8, layer - card - 8]`; `key:\|Escape` and shell `scroll` close it; a window pointer press outside the card closes it | hidden run: `body inject mention:10,999999,1000000\|...` gives `bounds=10,471,302,105 layer=640,584`, `mention:999999,20,38\|...` gives `bounds=330,66,...`; `body inject key:\|Escape` then `closed`; `ShellScriptTests` pins the scroll and mousedown handlers |
+| F-6 (note) | on Uno Skia X11 the web view is a native overlay; the Canvas card may render under it | recorded | M9 item on the G-075 row | not checked on Linux |
+
+Retest: `tools/build.ps1 test` 6246 total, 0 failed, 12 skipped; hidden Automation run (port 8982, private desktop, sample data) as in the table. Not exercised: a real click inside the mail frame (needs OS input; the host path is the injected message), Escape and scroll from a real frame, Linux.
+
+**Re-review of 0c932be0: APPROVE (security).** Low follow-ups taken before the merge (no re-review needed):
+
+| # | Failing path | Expected | Fix | Test (red / green) |
+|---|---|---|---|---|
+| N-1 | `MailBodyView` added and removed `new PointerEventHandler(OnWindowPress)`: each a new instance, so the removal did nothing and handlers piled up, keeping the view alive | one delegate instance, removed from the root it was added to, also on Unloaded | `_windowPress` field and `_pressRoot`; `CloseMentionCard` (called from Unloaded) removes with the same instance | code; the hidden run opens and closes the card three times |
+| N-2 | `IsPlainMailbox` looked at UTF-16 units: supplementary format characters (U+E0001, U+E0020-E007F, U+1D173) and lone surrogates passed | by code point: reject Format, Control, Surrogate, PrivateUse, OtherNotAssigned, invalid runes | `EnumerateRunes` with `Rune.GetUnicodeCategory` | `A_plain_mailbox_has_no_format_private_surrogate_or_unassigned_code_points` (9 rows red, green) |
+| N-3 | `Block.Chip` and `EditorSession.InsertMention` did not check the address | the model refuses what the importer refuses | `Chip` requires `IsPlainMailbox`; `InsertMention` inserts a plain link when it fails | `A_chip_with_an_address_that_is_no_plain_mailbox_is_a_plain_link_or_plain_text` (red, green) |
+| N-4 | an address used as the card title was trimmed, hiding the domain | the whole address visible | the title wraps when it is the address (a name is still trimmed) | code, capture |
+| N-5 | `press` was posted for every scroll event, and not for the shell page itself; the reader card did not look up the contact name though this table says it does | once per scroll burst, every frame and the top document; participant, then contact (`IContactLookup`), then the address | `scrolled()` with a 300 ms latch on every frame and on `document`; `FillContactNameAsync` builds the card again when the contact arrives | `ShellScriptTests.AMentionLinkWithTheSeparatorInItIsNoMentionAndAScrollDismissesTheCard` (red, green) |
+
+Bulwark's Escape (recipient-popover.tsx:219-220) only closes the popover and does not stop the event, so `BodyShell` also lets the key reach the key table; no early return.
+
+## G-055 message pop-out windows: Fable early review, 2026-11-22 (three rounds)
+
+**Scope.** Several message windows at once, each with its own reader (`ReaderScope`), the three window prefs in Settings, restore at start. It touches who can write to an account (a window of one login while another is active), runs add-on hooks and the app lock over every window.
+
+**Round 1 (4ca8538a): CHANGES.** Fixed in dc9b7387.
+
+| # | Failing path | Fix | Retest |
+|---|---|---|---|
+| F1 (high) | an app that starts locked: the pop-out registry was told nothing (the presenter did not exist yet), restore opened windows under the lock screen | the shell sets the lock on attach; restore returns while locked | `A_lock_set_before_the_presenter_is_attached_still_opens_nothing` |
+| F2 (high) | a window of B while A is active ran Delete/Archive/Move/Tag through A's folder tree and list | `PopOutWriteGuard`: toolbar, menus, header tag, card reply, quick reply refused unless the login is active | `PopOutReviewTests` (Delete/Archive/MarkRead/Reply refused, menus shut, active login runs) |
+| F3 | header tag removal used the global list | built from the window's own message, same guard | guard tests |
+| F4 | inline images read through the active account | own fetcher over the window's login | build and hidden run |
+| F5 / F6 | restore after unlock not wired; the list kept signed-out logins, was written with the choice off, dropped other logins' entries | `PopOutRestoreList`, restore after unlock, file deleted when off | `PopOutReviewTests` list tests |
+| F7 | a presenter that throws left the window registered; stale comments, dead `ReaderInWindow` | try/finally in the controller; clean-up | `A_window_that_throws_while_opening_leaves_nothing_registered...` (red first) |
+
+**Round 2 (dc9b7387): CHANGES.** Fixed in d30bf0f3.
+
+| # | Failing path | Fix | Retest |
+|---|---|---|---|
+| N1 (high) | banner actions ran on the active login's services (draft Discard = Email/set destroy in A) | banner actions guarded (copy and open-link only for any login), account-reading banner sources and the read receipt gated | `PopOutReview2Tests` |
+| N2 (high) | keys in a card of a pop-out drove the main window | `NoKeyRouter` for card shells | router test |
+| N3 | attachment commands and MENU-ATT read the main reader and the active account | `ReaderSurfaces`; selection add-ons hidden in a window | real command tests (save, copy name, closed window) |
+| N4 | the saved list was pruned before the account list loaded | prune only after `AccountsStartup` | `A_list_loaded_before_any_account_is_known...` |
+| N5 | `MailActionService` trusted its caller | refuses other-login targets when it resolves Trash/Archive/Junk/Inbox; a window's menu closes on account change | harness tests |
+| N6 | hooks carry no account | `GatedHookBus` | hook tests |
+
+**Round 3 (d30bf0f3): CHANGES (narrow).** Fixed in the next commit, tests red first (4 red, then green).
+
+| # | Failing path | Fix | Retest |
+|---|---|---|---|
+| R1 (med) | with M open in the main reader and in a pop-out, a main-window Rename/Save/Copy name acted on the pop-out's reader | `CommandContext.ReaderSurface`/`MenuContext.ReaderSurface` carry the window (from `MenuAnchor.Surface`); `ReaderSurfaces` is keyed by window; a context with no surface always uses the main reader | `With_the_same_message_open_in_the_main_reader_and_in_a_window_a_main_rename_renames_the_main_reader_only` (red), `A_rename_made_in_the_window...` |
+| R2 | unified-row exemption in `RefuseOtherAccount` | removed (every unified target carries the account on screen); `UnifiedTrashRoleTests` fixed to the contract | `A_unified_row_id_does_not_excuse...` (red) |
+| R3 | a faulted/cancelled `AccountsStartup` counted as loaded | `PopOutRestore.AccountsLoaded` (IsCompletedSuccessfully) | `A_start_up_that_failed_or_was_cancelled...` (red) |
+| R4 | window web view hooks, link check on the global bus | shells and the link router use the scope's gated bus; trusted senders and avatars are profile-wide and stay shared; `GatedHookBus` header says the risk is precautionary | build, hidden run |
+| R5 | `MoveAsync`/`RemoveFromFolderAsync` took other-login targets | `RefuseOtherAccount` added | `Move_and_remove_from_folder_refuse...` (red) |
+
+Also: banners held back for a login that was not active are made when it becomes active (the shown message is opened again).
+
+**Not exercised.** A hidden run with two real logins (sample data has one), a live Email/set, a start-locked run.
+
+**Round 4 (c5663ced): CHANGES (narrow).** Fixed in the next commit, test red first.
+
+| # | Failing path | Fix | Retest |
+|---|---|---|---|
+| F1 (med) | after R4 the web views of a pop-out had a bare `CheckedLinkRouter`, which ignores `mailto:`: mailto links in a body or a conversation card did nothing | the views get `GuardedLinkRouter(ComposerLinkRouter(scope links, MailtoRouter))`: mailto opens the composer while the window's login is active and is refused with a toast otherwise (like Reply); http(s) goes through the gated link check; banner actions keep the plain check | `A_mailto_link_is_refused_with_a_toast_when_the_windows_login_is_not_the_active_one` (red), `A_mailto_link_reaches_the_composer_router_while...`, other links always routed |
+| low | the guard did not stamp its window on the contexts it runs | `PopOutWriteGuard.Surface`, stamped in `Run` | `The_guard_stamps_its_window...` |
+| low | `wasActive` stale after a reload of the view | re-seeded in the Loaded handler | build |
+
+The reopen when a window's login becomes active (`Loader.ReopenShown`) rebuilds the page, so the message body's scroll position goes back to the top; the attachment rename, the open details panel and the quick-reply text stay (the reader keeps its state for the same message id; `AttachmentRenameTests`). Not checkable hidden: the sample data has one login, so a window is always active. A mailto click was not injected in the hidden run (the automation cannot click inside the web view).
+
+## Organisation policy consumers: Fable review (m6b/org-policy-consumers, G-086, G-070, G-031, RD-05, G-052)
+
+Candidate f633cda0. Fable's decision: CHANGES. Findings, fixes and retests:
+
+| Finding | Failing path | Fix | Retest |
+|---|---|---|---|
+| F1 (must) forward suppresses the HTML disclaimer | a forward's non-cite quoted block exported as a plain `<div>` and `QuotedHtmlSanitizer` kept `data-*`, so a forwarded `data-org-disclaimer` counted as already present and this sender's was not added | non-cite quoted block exported as `<div data-quoted-html="">` (Bulwark quoted-html.ts); `QuotedHtmlSanitizer` strips `data-org-disclaimer` and `data-quoted-html` from foreign content (and its fast path no longer skips them) | `DisclaimerForwardTests` (export marks the island and strips foreign markers, the sanitiser strips both, a forward holding another sender's `data-org-disclaimer` ends with this sender's wrapper and the text part has it once, over the real `DocHtmlCodec`); `DocHtmlImportTests` expectation updated to the island div |
+| F2 (low) resend after Undo | table template and image-only template | tested: one disclaimer per part (the content, not the wrapper, is what the line check finds) | `A_message_sent_again_after_undo_keeps_one_disclaimer_per_part` (table, image-only) green without a wrapper change |
+| F3 (must) sign-in clock wiped each start | `OrganizationPolicyStartup` ran `Apply` before the stored accounts were restored; `Observe([])` pruned every time | `ISessionClock.Observe` only adds, `Prune` is separate and runs only after `AccountsStartup.Completion` succeeded (`SessionPolicyCoordinator.MarkAccountsRestored`); the eager Apply is gone | `OrganizationPolicyHubTests` (empty Observe forgets nothing, Prune does), `SessionPolicyCoordinatorTests` (empty list at start then populated keeps the kept time; a gone login is forgotten only after the restore) |
+| F4 (must, decision) organisation deadlines fail closed | OAuth-only profile: an org idle or maxHours deadline never locked | org deadlines lock with no verifier; lock screen without a password field, only "Sign out of all accounts" (`AppLockController.CanUnlock`, `LockView`); the user's own limit and Lock now with no verifier keep today's behaviour | `OrganizationSessionLimitsTests` (idle and maximum lock without a verifier, unlock refused, `ReleaseAfterSignOutAsync(false)` stays, `(true)` opens; the user's own limit and Lock now still never lock); hidden run `org-policy no-password`: locked after the limit, `LockView` Visible, sign-out button present, a password refused, captures `artifacts/org-policy/lock-no-password-<style>-<mode>.png` |
+| F5 (med-low) Apply interleaving | two Applies could hand the lock stale limits | one lock around reading, observing, pruning and `SetOrganizationLimits` | `Concurrent_applies_end_with_the_newest_policy` |
+| F6 (low) records | rows said nothing about restarts, public domains, deviations | G-031, G-086 and G-052 rows say: the policy does not survive a restart (memory-only routes) until the provider is reconnected, persistence is M7; a provider listing a public domain makes it internal (admin authority, as Bulwark); accepted and recorded: lenient parsing, keep-last-policy on a failed read, NoPolicy lifts limits, unlock restarts every login's clock (deviation) | rows read |
+
+Decisions recorded: (a) organisation deadlines fail closed, the user's own settings do not; (b) the lock's way out for an OAuth-only profile is signing out of every account; (c) the policy is memory-only until M7.
+Not exercised: a real policy server or mail server, Linux, a multi-hour wait for the maximum length. Note: the red step for F4/F3 was compile-red (new members), for F1 and the coordinator behaviour-red (first run: 8 failures, 5 of them these tests).
+
+### Retest 2 (38f0ca05 re-review: F1, F2, F5, F6 closed; N1-N3 and the F2 advisory)
+
+Each new test was run RED separately first (stubs with the old behaviour, so the failures are behavioural): 6 failed of 6283 (N1 x2, N2 x2, N3, and the Undo-through-the-seeder test, whose first assertion was wrong, see below), then green after the fix.
+
+| Finding | Failing path (red) | Fix | Retest |
+|---|---|---|---|
+| N1 (must) the user's "Lock after" disabled org deadlines on OAuth-only profiles | no verifier, user 1 min + org idle 5: `Deadline` was the user's minute and nothing ever locked; user 1 min + org Max: `LimitKind` was Idle | `AppLockController.Target()` leaves the user's `_timeout` out while `!_verifier.IsAvailable`; deadline and warning show the organisation's | `OrganizationSessionLimitsTests`: user 1 + org idle 5 locks at 5, user 1 + org Max locks at Max, user-only still never locks and Lock now still refused |
+| N2 (must) restart while locked shows sign-out-only for a password profile | `AccountsReady` did not exist (always ready) and `SignOutOnly` was true while no verifier was yet available; nothing redrew when the accounts came back | `AppLockViewModel` takes the restore task and the account overview: `AccountsReady`, `SignOutOnly = AccountsReady && !CanUnlock`, `Changed` on the overview's `StatusesChanged` and on restore completion; `LockView` is neutral ("Loading your accounts…", no sign-out button, password disabled) until restored | `AppLockViewModelTests` (neutral until restored then asks for the password; OAuth-only ends sign-out-only); hidden run phase 2: a lock left by an earlier run, restarted with a verifier that is unavailable until `org-policy password` (BARBICAN_SAMPLE_VERIFIER_LATE=1): hint was the sign-out-only line, after the notice it read "Enter the password for ..." and the password unlocked it |
+| N3 (should) quiet restore failure pruned the clock | restore reported done with `restored=false` (failed vault, empty list) and the coordinator still pruned: `session-clock.json` lost the login | `AccountManager.VaultError`; `AccountsStartup.RestoredAuthoritativelyAsync` is false on a vault error; `OrganizationPolicyStartup` then neither prunes nor reads | `SessionPolicyCoordinatorTests.A_restore_that_was_not_authoritative_never_prunes_and_one_that_was_does` (the vault-error detection itself is one property over `AccountStore.LastError`, not driven through a real failing vault) |
+| F2 advisory | image-only: `CarriesInHtml` has an empty needle (no text lines), so it returns false and the disclaimer WOULD be appended again; the earlier test was green only because Doc import drops an external-URL image and the wrapper, so the reopened body had no image and exactly one was added, not because it was detected | added the data-URI image variant (the image survives import) and the Undo path through `UndoAsync` and `ComposeSeeder` EditDraft with `DocHtmlCodec`, then a send again | `An_embedded_image_disclaimer_is_not_added_twice...` and `Undo_through_the_seeder_and_a_send_again_leaves_one_disclaimer_per_part` pass: one disclaimer per part. Recorded in G-086: reloaded forward drafts lose the island (Bulwark's line rule) |
+
+**Review 3 (80e842b0): APPROVE.** N1, N2, N3 and the F2 advisory closed. Coordinator applied advisory A1 at merge: `AppLockViewModel.AccountsReady` is also true once a password can be checked, so a slow server no longer keeps the password box disabled (test `A_checkable_password_ends_the_neutral_wait_before_the_restore_has_finished_connecting`). Open advisories, not blocking: A2 the image-only disclaimer match has no "at the end" condition (a body image with the disclaimer's src counts as carrying it); A3 after a non-authoritative restore the session clock is not pruned that run, so a fresh sign-in can keep an older sign-in time and meet `maxHours` early (fail-closed direction; an unlock restarts the clock). Both stay with G-086 / G-031.
+
+## Account security: Fable review, 2026-11-22 (G-027..G-030, branch m6b/account-security)
+
+**Review of b7986bd3: CHANGES.** No lockout, no secret in a log, no read-only bypass was found. Eight findings, all fixed on the branch (tests written with the code; the new tests were not run red against the old code first, they were green on their first run). Not exercised: any live write (D-M6-09).
+
+| # | Failing path | Expected | Fix | Test |
+|---|---|---|---|---|
+| F1 (med) | the two-step, public-key and encryption dialogs wrote to whichever account was active when the button was pressed (the requests carried only the model) | a dialog writes only to the account it was opened for, and closes when the account on screen changes | the three requests carry `AccountKey` and `AccountVersion`; `ConfirmTotpAsync`, `AddPublicKeyAsync` and `EnableEncryptionAsync` check `Current(key, version)` before the service call ("The account changed. Start again."); `SetUiSecurityViewModel.CloseOnAccountChange` makes each open dialog answer false (the two-step dialog empties its secret box) | `SetUiSecuritySwitchTests`: one test per dialog (service not called), the close notice and its release |
+| F2 (med) | a background request sent with the old header between the server accepting the new password and the switch got a 401, `RenewAfterRejectAsync` answered NeedsSignIn and the latch closed | the account stays signed in | `StaticAccessTokenSource.HoldForPasswordChange`; `IAccountCredentials.BeginPasswordChange` is taken before the /set and released after the switch or the failure; the renewal waits for the release (30 s at most) and then compares headers | `AccountManagerTests.Credentials`: the refused request is retried with the new password; a released hold changes nothing; `AccountSecurityTests` hold taken and released on success and failure |
+| F3 (med-low) | Copy used `Clipboard.SetContent`: Win+V history and cloud roaming | a secret stays out of the history and is not roamed | `IClipboardService.SetSecret` (default: `SetText`); `SystemClipboard` uses `SetContentWithOptions` (`IsAllowedInHistory` and `IsRoamable` false) on Windows; the three Copy buttons use it. Uno on X11 has no such option: plain text, the documented limit | `SecretClipboardTests` (fallback and private copy) |
+| F4 (low) | after two-step was turned on the remembered password (no code) was refused at every start | no request with it; the next sign-in asks for a code | `ForgetRememberedPasswordAsync` after a successful enable; a password entry without a password asks for the sign-in without sending anything; the status says so | `AccountManagerTests.Credentials`: restart sends no request and the row asks to sign in; `AccountSecurityTests`: forgotten after a success only |
+| F5 (low) | a) an account signed out after the server accepted the password was told it has no password; b) the boxes stayed filled when the vault write failed; c) the status did not say the password changed | a) and c) "The password was changed ..."; b) the form is done | `AccountSecurityPasswordChangedError`; the model counts it as accepted, so the page clears the boxes | `AccountManagerTests.Credentials`: signed-out account, a one-time-code session ends through the latch, a vault that cannot be written (new `MemoryVault.FailSaves`); `SetUiSecurityViewModelTests` |
+| F6 (low) | `IpProblem` accepted short forms, hex, scope ids, brackets, `/0` and ranges with host bits | four-part decimal IPv4, plain IPv6, no `/0`, no host bits | `AccountSecurityRules.IpProblem` | theory rows in `AccountSecurityRulesTests` |
+| F7 (low) | `BeginTotpAsync` gave a secret and QR to a read-only account; write forms were drawn for it; a long server description was shown; a wrong password or code used the server's words | none of those | `BeginTotpAsync` uses `WritableSession`; `IsReadOnly` hides every write form and button; `Failure` caps the description at 200 characters and uses plain words for `currentSecret` and `otp` properties | `AccountSecurityTests` (read-only Begin, capped description, plain words) |
+| F8 (optional) | nothing warned that mail encrypted to a key whose private half the user does not hold cannot be read | a line in the encryption dialog | added | capture |
+
+Retest: `tools/build.ps1 test` 6358 total, 0 failed, 12 skipped; hidden Automation run `tools/security-run.ps1` (sample data, all three styles, light and dark) now also reads the automation tree while the two-step and the secret dialogs are open: no secret, key or URI in it. Not exercised: a real clipboard history on Windows (the options call is not reachable from a hidden run), a live server.
+
+**Retest 2 (re-review of dc68d94d): F1, F2, F3, F5, F6, F7, F8 closed; CHANGES for two new findings.** Each new test was run RED against the code of dc68d94d first, then the fix was made.
+
+| # | Failing path | Expected | Fix | Test (red, then green) |
+|---|---|---|---|---|
+| N1 (blocks F4) | `ReplacePasswordAsync` wrote the new password to the vault and to `e.Stored` unconditionally, so after two-step was turned on (password forgotten) a password change remembered the code-less password again: 401 at every start | the password is written only while the remembered entry has a non-empty password and the live source carries no one-time code | `AccountManager.ReplacePasswordAsync` and `AccountStore.UpdatePasswordAsync` (a non-null password is written only over an existing one) | `A_password_change_after_two_step_does_not_remember_the_password_again`: red (vault held a password), green (vault Password null, a restarted manager sends zero requests, NeedsSignIn) |
+| N2 | the change's own `x:AccountPassword/set` refused with 401 waited 30 s on its own hold | it ends at once with an `AuthError` and the latch closed | `StaticAccessTokenSource`: an `AsyncLocal` set by the hold exempts the holder's flow in `RenewAfterRejectAsync`; the cap uses `WaitAsync(timeout, TimeProvider, ct)` (`Time`, set from the manager's clock) | `A_password_change_refused_with_401_ends_at_once_and_closes_the_latch`: red (10 s wait, the test's own limit), green |
+| extra | holds did not nest (a second hold replaced the gate, the first to end could release the others) | the wait ends when the last hold ends | hold counter | `Nested_holds_release_the_renewal_only_when_the_last_one_ends`: red, green |
+| extra | the F2 test waited with `Task.Delay(300)` and `IsCompleted` | a deterministic signal | `StaticAccessTokenSource.WaitingRenewals` (internal) counted and polled | `A_request_refused_while_the_password_change_is_in_flight_is_retried_with_the_new_password` |
+| extra | nothing showed that a refused request during a hold that ends without a switch closes the latch | it does | (existing behaviour) | `A_refused_request_during_a_hold_that_ends_without_a_switch_closes_the_latch` (green on first run, a characterization) |
+| extra | a vault that failed to drop the remembered password after two-step went on was silent | said | `AccountSecurityTwoStepOnError`; the model keeps two-step on and shows the words | `A_remembered_password_that_could_not_be_dropped_is_reported_while_two_step_stays_on`: red, green |
+| extra | `SetContentWithOptions` returning false still said "Copied" | "Copy failed" | `IClipboardService.SetSecret` returns bool, `SecretCopy.Copy`, the Copy button shows "Copy failed" | `SecretClipboardTests` (red: did not compile against the void member) |
+
+The F2 and F4 tests cannot compile against b7986bd3 (the members they use did not exist), so their red was shown instead by switching the two fixes off locally on the current code (the renewal never waits; `ForgetRememberedPasswordAsync` does nothing): 5 failed (`A_request_refused_while_..._is_retried_with_the_new_password`, `A_refused_request_during_a_hold_that_ends_without_a_switch_closes_the_latch`, `Nested_holds_...`, `After_two_step_is_turned_on_a_restart_sends_no_request_with_the_remembered_password`, N1); the fixes were restored and the same tests are green.
+
+Retest: `tools/build.ps1 test` 6365 total, 0 failed, 12 skipped (one unrelated timing test, `TasksViewModelTests.Thousands_of_tasks_...`, failed once under load and passed on its own re-run); `tools/security-run.ps1 -Port 8895` passed. Not exercised: a real clipboard history, a live server.
+
+**Review 3 (4006a34b): APPROVE** (coordinator record). N1, N2 and the extras closed. Open advisories, not blocking: A1 the AsyncLocal exemption also covers hook handlers started from the change flow (narrow it to the /set call, or fire OnPasswordChange after the switch); A2 two nested holds in one flow clear Holder early (not reachable in product); A3 AccountStore.UpdatePasswordAsync summary should state the "only over an existing password" rule.

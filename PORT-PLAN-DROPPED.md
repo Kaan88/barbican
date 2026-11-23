@@ -1,5 +1,7 @@
 # Barbican port plan: Rust/Slint to C# (WinUI 3 on Windows, Uno on Linux)
 
+> **Dropped 2026-11-23.** The C# port reached Rust parity only after days of work, and theming stayed broken after many passes. Barbican stays on Rust/Slint; the C# repository is archived. This file is kept as a record only.
+
 Written 2026-11-17, after the user's decision to retire Rust/Slint. This is the master plan. It is the first document to move into the new repository, and every milestone report links back to it.
 
 Inputs read for this plan:

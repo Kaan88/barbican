@@ -1,0 +1,585 @@
+// Barbican design tokens (design/mockups, design/README.md): palette, tints, shape and type
+// per style, the line-icon set and the stroke icon. Imported by app.slint and dashboard.slint.
+
+export global Theme {
+    in-out property <bool> dark: true;
+    // Settings > Accessibility > Contrast "More" (Bulwark data-contrast="more")
+    in-out property <bool> more-contrast: false;
+    // Settings > Appearance > Style: 0 Bento (every panel its own tile), 1 Nordic (one surface, pills and circles),
+    // 2 Bulwark (the default: a native clone of Bulwark 1.21.2; its palette is the `Bulwark` global below, its shape is read here)
+    in-out property <int> style: 0;
+    out property <bool> bento: style == 0;
+    out property <bool> nordic: style == 1;
+    out property <bool> bulwark: style == 2;
+
+    // ---- palette (design/mockups BNTokens: one palette, dark first) ----
+    out property <color> ground: dark ? #0a0a0a : #f4f4f5;
+    out property <color> tile: dark ? #141414 : #ffffff;
+    out property <color> tile2: dark ? #1a1a1a : (nordic ? #f7f7f8 : #fafafa);
+    out property <color> line: more-contrast ? (dark ? #9ca3af : #4b5563) : (dark ? #262626 : #e5e5e5);
+    out property <color> track: dark ? #2e2e2e : #ececec;
+    out property <color> text: more-contrast ? (dark ? #ffffff : #000000) : (dark ? #fafafa : #0a0a0a);
+    out property <color> body: more-contrast ? (dark ? #ffffff : #000000) : (dark ? #d4d4d4 : #2b2b2b);
+    out property <color> dim: more-contrast ? (dark ? #e5e7eb : #1f2937) : (bento ? (dark ? #b0b0b0 : #525252) : (dark ? #a3a3a3 : #5f5f5f));
+    out property <color> faint: more-contrast ? (dark ? #d1d5db : #374151) : (bento ? (dark ? #8f8f8f : #6b6b6b) : (dark ? #858585 : #6e6e6e));
+    out property <color> accent: more-contrast ? (dark ? #93c5fd : #1d4ed8) : (dark ? #f0577a : #c8234a);
+    out property <color> on-accent: more-contrast ? (dark ? #000000 : #ffffff) : (dark ? #16070c : #ffffff);
+    // M6b round 3: a visible ladder against the surface the pill sits on (Nordic light: the ground #f4f4f5 was 1.09:1); selected is always stronger than hover
+    out property <color> sel: more-contrast ? (dark ? #1e3a8a : #dbeafe) : (dark ? #5a1a2e : (nordic ? #f8d0da : #fbd5de));
+    out property <color> sel-text: more-contrast ? (dark ? #ffffff : #000000) : (dark ? #ffd5df : #8c1733);
+    out property <color> popup: dark ? #1c1c1c : #ffffff;
+    // meaning tints (bg/fg pairs): rose today, mint waiting/done, sky travel/work, amber attention
+    out property <color> rose-bg: dark ? #f0577a24 : #fde4ea;
+    out property <color> rose-fg: dark ? #ffb3c4 : #8c1733;
+    out property <color> mint-bg: dark ? #34d39921 : #dcf5e8;
+    out property <color> mint-fg: dark ? #86efc4 : #17603f;
+    out property <color> sky-bg: dark ? #60a5fa24 : #dfeafd;
+    out property <color> sky-fg: dark ? #a8cbff : #1e3f8a;
+    out property <color> amber-bg: dark ? #fbbf2421 : #fdf1d3;
+    out property <color> amber-fg: dark ? #fcd679 : #7a4a06;
+    // tint-bg / tint-fg turn a colour into a tile pair: the four tint hues (what mail::tint hands
+    // out per sender: rose, sky, mint, amber) map exactly, any other colour (tags) gets the same treatment
+    public pure function tint-bg(c: color) -> color {
+        if c == #f0577a { return rose-bg; }
+        if c == #34d399 { return mint-bg; }
+        if c == #60a5fa { return sky-bg; }
+        if c == #fbbf24 { return amber-bg; }
+        return dark ? c.with-alpha(0.15) : c.mix(#ffffff, 0.16);
+    }
+    public pure function tint-fg(c: color) -> color {
+        if c == #f0577a { return rose-fg; }
+        if c == #34d399 { return mint-fg; }
+        if c == #60a5fa { return sky-fg; }
+        if c == #fbbf24 { return amber-fg; }
+        return dark ? c.mix(#ffffff, 0.5) : c.mix(#000000, 0.55);
+    }
+
+    // ---- older names, mapped onto the palette so screens not yet restyled keep working ----
+    out property <color> bg: ground;
+    out property <color> rail: ground;
+    out property <color> side: tile;
+    // M6b round 3: hover is at least 1.15:1 against the tile it sits on (dark #2a2a2a on #141414 1.28; light Bento #e9e9ec on white 1.21, Nordic #e3e3e7 on the
+    // #f4f4f5 ground 1.16) and always weaker than the selected fill (`sel`); one value for every control, row and icon button
+    out property <color> hover: bento ? (dark ? #2a2a2a : #e9e9ec) : (dark ? #2a2a2a : (nordic ? #e3e3e7 : #f2f2f3));
+    // pressed row or button (the WinUI prototype's Pressed, prototype/winui/Palette.cs; approved by the user over the mockups)
+    out property <color> pressed: bento ? (dark ? #3a3a3a : #d6d6db) : (dark ? #3a3a3a : (nordic ? #d2d2d7 : #e9e9eb));
+    out property <color> chip: dark ? #262626 : #ececec;
+    out property <color> raised: dark ? #1a1a1a : #f4f4f5;
+    out property <color> zebra: dark ? #111111 : #fafafa;
+    out property <color> bubble: tile2;
+    out property <color> reader: tile;
+    // the other-month day numbers: faint, 4.5:1 on the surface (round 3; #a3a3a3 was 2.5:1)
+    out property <color> muted-day: faint;
+    // keyboard focus outline (Bulwark --focus-ring-color)
+    out property <color> ring: more-contrast ? (dark ? #ffffff : #000000) : accent;
+    out property <string> icons: "Segoe Fluent Icons";
+
+    // ---- semantic colours (Bulwark app/globals.css:31-125). The legacy styles keep their own palette, so they only
+    // get the Bulwark status colours; accent-fill is the legacy selection pair. ----
+    out property <color> destructive: dark ? #ef4444 : #dc2626;
+    out property <color> destructive-fg: dark ? #0a0a0a : #ffffff;
+    out property <color> success: dark ? #16a34a : #22c55e;
+    out property <color> success-fg: #ffffff;
+    out property <color> warning: dark ? #ca8a04 : #eab308;
+    out property <color> warning-fg: #ffffff;
+    out property <color> info: dark ? #60a5fa : #3b82f6;
+    out property <color> info-fg: #ffffff;
+    out property <color> secondary: dark ? #262626 : #f8fafc;
+    out property <color> secondary-fg: dark ? #fafafa : #0f172a;
+    out property <color> input: dark ? #262626 : #e5e5e5;  // round 4: the neutral card border (was the blue-slate #e2e8f0 of Bulwark, visible next to the neutral #e5e5e5 cards of Bento and Nordic)
+    out property <color> popover-fg: text;
+    // Bulwark --accent / --accent-foreground (not the primary colour, which is `accent` here)
+    out property <color> accent-fill: sel;
+    out property <color> accent-fill-fg: sel-text;
+    out property <color> unread: accent;
+    out property <color> chart-1: dark ? #60a5fa : #3b82f6;
+    out property <color> chart-2: dark ? #4ade80 : #22c55e;
+    out property <color> chart-3: dark ? #fbbf24 : #f59e0b;
+    out property <color> chart-4: dark ? #f87171 : #ef4444;
+    out property <color> chart-5: dark ? #a78bfa : #8b5cf6;
+
+    // ---- feedback states: the one set every control state reads (Styles/Feedback.xaml) ----
+    // neutral hover and pressed: list rows, menu items, buttons without a fill
+    out property <color> feedback-hover: hover;
+    out property <color> feedback-pressed: pressed;
+    // icon buttons and ghost buttons: Bulwark tints them with --accent; the legacy styles keep the grey hover
+    out property <color> feedback-icon-hover: hover;
+    out property <color> feedback-icon-pressed: pressed;
+    out property <color> feedback-icon-hover-fg: text;
+    // a toggle that is on (toolbar.tsx TOOLBAR_ACTIVE: primary/10, hover primary/15) and its pressed state
+    out property <color> feedback-active: sel;
+    // one step stronger than `sel` in both legacy styles (round 3: Bento's hover on an active toggle was the same colour)
+    out property <color> feedback-active-hover: dark ? #6a2036 : (nordic ? #f4bfcc : #f7c4d0);
+    out property <color> feedback-active-pressed: dark ? #7a2842 : (nordic ? #efaec0 : #f2b2c1);
+    out property <color> feedback-active-fg: sel-text;
+    // selected list row (thread-list-item.tsx: bg-accent, still bg-accent on hover)
+    // round 3: the selected row is the accent-tinted `sel` in both legacy styles (Bento's was grey, Nordic's weaker than hover), so a selected message row reads like a selected folder
+    out property <color> feedback-selected: sel;
+    out property <color> feedback-selected-fg: text;
+    // a selected row or pill under the pointer: one step stronger than selected (it never falls back to the plain hover grey), then pressed
+    out property <color> feedback-selected-hover: feedback-active-hover;
+    out property <color> feedback-selected-pressed: feedback-active-pressed;
+    // the filled (primary) button, round 3: hover and pressed step visibly in one direction and never lose the label's 4.5:1. Dark legacy lightens (the label is dark),
+    // light legacy and more contrast darken (12 % and 24 % towards black)
+    out property <color> feedback-primary-hover: more-contrast ? (dark ? #81addf : #1a45be) : (dark ? #f26f8d : #b01f41);
+    out property <color> feedback-primary-pressed: more-contrast ? (dark ? #7096c0 : #163ba4) : (dark ? #f4869f : #981b38);
+    // a disabled filled button: a muted fill with muted text (legible, unlike the accent at 50 %: white on #c8234a at 50 % is 2.3:1); Bulwark button.tsx:42 disabled:opacity-50 is kept for every other button
+    out property <color> disabled-fill: dark ? #2e2e2e : #ececec;
+    out property <color> disabled-fg: dim;
+    // an option of a segmented control that sits on a filled track (Bulwark: the unselected option is bg-input): hover and pressed step away from that fill
+    // round 4: derived from the track, not from hover (the off toggle track is #ececec and Bento's hover #e9e9ec was no step from it; the segment track bg-input #e2e8f0 was darker than the hover);
+    // light steps down 1.16:1 from the input track and 1.24:1 from the toggle track, dark steps up 1.28:1 and 1.17:1, pressed one more step
+    out property <color> feedback-segment-hover: dark ? #3a3a3a : #d4d5da;
+    out property <color> feedback-segment-pressed: dark ? #4a4a4a : #c3c4ca;
+    // the unread wash of a message row (Bulwark: bg-accent/30 was 1.06:1 on the row; the legacy styles show no wash)
+    out property <color> unread-wash: dark ? #3b82f633 : #3b82f614;
+    // a destructive menu row on hover (context-menu.tsx: bg-destructive/10)
+    out property <color> feedback-destructive-hover: dark ? #ef444433 : #dc262624;   // round 5: dark 20 % (14 % was 1.14:1 on the composer's #0a0a0a)
+    // pressed is one step stronger (round 3: pressed was the hover fill, so a destructive icon button gave no press feedback)
+    out property <color> feedback-destructive-pressed: dark ? #ef444452 : #dc26263d;
+    // the one keyboard focus ring colour (Bulwark --focus-ring-color)
+    out property <color> feedback-focus: ring;
+
+    // ---- shape and spacing (style dependent) ----
+    // window ground padding and the gap between tiles (Nordic: rail and folders sit on the ground)
+    out property <length> pad: nordic || bulwark ? 0px : 14px;
+    out property <length> gap: nordic || bulwark ? 0px : 12px;
+    // rail column width, and where an app's content starts (x of everything right of the rail)
+    out property <length> rail-w: bulwark ? 56px : (nordic ? 76px : 64px);
+    out property <length> shell-x: bulwark ? 56px : (nordic ? 76px : 14px + 64px + 12px);
+    // tiles: side panels (rail, folders), panes (list, reader, context; the Nordic surface), summary tiles
+    // Bulwark panes are flush (radius 0), cards are rounded-lg (8)
+    out property <length> r-tile: bulwark ? 8px : 24px;
+    out property <length> r-pane: bulwark ? 0px : (nordic ? 28px : 26px);
+    out property <length> r-summary: bulwark ? 8px : 22px;
+    // controls (Nordic: every control is a pill, so use min(height / 2, r-…)); Bulwark rounded-md = 6
+    out property <length> r-button: bulwark ? 6px : (nordic ? 999px : 12px);
+    out property <length> r-field: bulwark ? 6px : (nordic ? 999px : 14px);
+    out property <length> r-row: bulwark ? 0px : (nordic ? 0px : 18px);
+    out property <length> r-nav: bulwark ? 6px : (nordic ? 22px : 14px);
+    // sidebar rows, one set for every app sidebar (mail folders, Contacts, Files, Calendar; M6b round 2 N7). Bulwark: list rows are full-width, square, min-h-8
+    // (contacts-sidebar.tsx:329, files-sidebar.tsx:36, calendar-sidebar-panel.tsx:376) with px-3, flush to the sidebar's edge (the mail folder rows are the density's 28).
+    // Bento and Nordic take the mail folder pill (height, radius, side padding, and the inset of the pills from the sidebar's edge) on every page.
+    out property <length> sb-row-h: bulwark ? 32px : (nordic ? 44px : 38px);
+    out property <length> sb-row-r: bulwark ? 0px : (nordic ? 22px : 14px);
+    out property <length> sb-row-px: bulwark ? 12px : (nordic ? 16px : 11px);
+    out property <length> sb-inset: bulwark ? 0px : (nordic ? 14px : 12px);
+    // the Settings nav (settings-app.tsx:1299: py-2 = 36 high, rounded-md, inside a px-3 list); the other styles use the row values above
+    out property <length> sb-nav-h: bulwark ? 36px : (nordic ? 44px : 38px);
+    out property <length> sb-nav-r: bulwark ? 6px : (nordic ? 22px : 14px);
+    out property <length> sb-nav-inset: bulwark ? 12px : (nordic ? 14px : 12px);
+    out property <length> r-chip: 99px;
+    // dialogs and popovers are rounded-lg (8) in Bulwark; the legacy popup radius is kept
+    out property <length> r-popup: bulwark ? 8px : (nordic ? 16px : 14px);
+    out property <length> r-dialog: bulwark ? 8px : 16px;
+    // the context menu panel is rounded-md (6); its rows are square (context-menu.tsx:663-667)
+    out property <length> r-menu: bulwark ? 6px : 12px;
+    out property <length> r-menu-item: bulwark ? 0px : 8px;
+    // toasts are rounded-md (toast.tsx:92)
+    out property <length> r-toast: bulwark ? 6px : 12px;
+    // squircle (Bento) or circle (Nordic) for an avatar or icon button of this size
+    public pure function round(size: length) -> length {
+        return nordic ? size / 2 : size * 0.37;
+    }
+
+    // ---- type scale (BNTokens): title 28/800, section 19/700, body 14.5/400 (line 1.7), meta 12/600 ----
+    out property <length> fs-title: 28px;
+    out property <length> fs-section: 19px;
+    out property <length> fs-body: 14.5px;
+    out property <length> fs-meta: 12px;
+}
+
+/// Motion tokens (design/MOTION.md). Animations only decorate: every state change applies at
+/// once and a second input retargets a running animation. Every duration is multiplied by `k`,
+/// which is 0 when motion is reduced (Settings › Accessibility › Reduce motion, or Windows
+/// "Animation effects" off while that setting follows the system).
+export global Motion {
+    // set from Rust (motion::apply / motion::watch_system)
+    in-out property <bool> reduce: false;
+    // set from Rust while the list selection moves faster than an animation (key repeat)
+    in-out property <bool> rapid: false;
+    out property <float> k: reduce ? 0 : 1;
+    // feedback: hover, press, focus ring, selection highlight (80–120 ms)
+    out property <duration> fast: 100ms * k;
+    // message-list row feedback: like fast, but snaps while the selection is moving quickly
+    out property <duration> list: rapid ? 0ms : fast;
+    // enter: menus, popups, flyouts, tooltips, dialogs, toasts (120–180 ms, ease-out)
+    out property <duration> enter: 150ms * k;
+    // late content (async panels) arriving while keys repeat: instant, so it never flashes per step
+    out property <duration> late: rapid ? 0ms : enter;
+    // exit, for the few things that animate out at all (≤ 100 ms, ease-in)
+    out property <duration> exit: 90ms * k;
+    // the incoming view after an app or view switch (content is there on the first frame)
+    out property <duration> view: 110ms * k;
+    // hover time before a tooltip shows: a wait, not motion, so it stays with reduce motion
+    out property <duration> tip-delay: 350ms;
+    // where an entering popup starts from, and how far a toast slides in
+    out property <float> pop-scale: reduce ? 1 : 0.96;
+    out property <length> rise: reduce ? 0px : 8px;
+    // ---- feedback transitions: the colour of a state change eases over one of these (Styles/Feedback.xaml, Motion/FeedbackTransition.cs) ----
+    // Bulwark `transition-colors` (150 ms, 371 uses): rows, icon buttons, toggles, anything that only recolours
+    out property <duration> color: 150ms * k;
+    // Bulwark `transition-all duration-200` on every Button (components/ui/button.tsx:42)
+    out property <duration> button: 200ms * k;
+    // Bulwark menu rows `transition-colors duration-150` (components/ui/context-menu.tsx:663)
+    out property <duration> menu: 150ms * k;
+    // non-motion feedback numbers kept with the durations: the opacity of a disabled control (Bulwark disabled:opacity-50)
+    // and the keyboard focus ring (accessibility.css:115-136: 2 px outline, 2 px offset; the Accessibility setting widens it)
+    out property <float> disabled-opacity: 0.5;
+    out property <length> focus-width: 2px;
+    out property <length> focus-offset: 2px;
+}
+
+/// Motion curves (kept out of `Motion`: easing properties cannot cross into Rust). `enter`
+/// decelerates (ease-out: half way after ~20 % of the time) for things arriving and for
+/// feedback; `exit` accelerates (ease-in) for the few things that animate out. No overshoot.
+export global Ease {
+    out property <easing> enter: cubic-bezier(0.2, 0, 0, 1);
+    out property <easing> exit: cubic-bezier(0.4, 0, 1, 1);
+}
+
+/// The Bulwark palette: the default style's colours, authored once here (Bulwark 1.21.2 app/globals.css:46-93,127-187 and
+/// app/accessibility.css:290-329). gen-tokens evaluates it for dark/light and normal/more contrast, and requires it to define
+/// exactly the colour properties of `Theme`, so a token cannot exist for the legacy styles only. Derived names follow the
+/// native brush names (ground = --background, tile = --card, tile2 = --muted/secondary, accent = --primary, sel = --selection ...).
+export global Bulwark {
+    in-out property <bool> dark: true;
+    in-out property <bool> more-contrast: false;
+
+    out property <color> ground: dark ? #0a0a0a : #ffffff;
+    out property <color> tile: dark ? #141414 : #ffffff;
+    out property <color> tile2: dark ? #262626 : #f8fafc;
+    out property <color> line: more-contrast ? (dark ? #9ca3af : #4b5563) : (dark ? #8080804d : #e2e8f0);
+    out property <color> track: dark ? #262626 : #f1f5f9;
+    out property <color> text: more-contrast ? (dark ? #ffffff : #000000) : (dark ? #fafafa : #0f172a);
+    out property <color> body: text;
+    out property <color> dim: more-contrast ? (dark ? #e5e7eb : #1f2937) : (dark ? #adadad : #59687c);
+    out property <color> faint: dim;
+    out property <color> accent: more-contrast ? (dark ? #93c5fd : #1d4ed8) : (dark ? #fafafa : #185aea);
+    out property <color> on-accent: more-contrast ? (dark ? #000000 : #ffffff) : (dark ? #171717 : #ffffff);
+    out property <color> sel: dark ? #3b82f640 : #dbeafe;
+    out property <color> sel-text: more-contrast ? (dark ? #dbeafe : #1e3a8a) : (dark ? #93c5fd : #1e40af);
+    out property <color> popup: dark ? #1c1c1c : #ffffff;
+    // the sender tint pairs stay the legacy ones until the avatars are redesigned
+    out property <color> rose-bg: dark ? #f0577a24 : #fde4ea;
+    out property <color> rose-fg: dark ? #ffb3c4 : #8c1733;
+    out property <color> mint-bg: dark ? #34d39921 : #dcf5e8;
+    out property <color> mint-fg: dark ? #86efc4 : #17603f;
+    out property <color> sky-bg: dark ? #60a5fa24 : #dfeafd;
+    out property <color> sky-fg: dark ? #a8cbff : #1e3f8a;
+    out property <color> amber-bg: dark ? #fbbf2421 : #fdf1d3;
+    out property <color> amber-fg: dark ? #fcd679 : #7a4a06;
+
+    out property <color> bg: ground;
+    // sidebar.tsx:2656 and mail-app.tsx:6375: the rail and the folder column are bg-secondary (#262626 dark, #f8fafc light)
+    out property <color> rail: dark ? #262626 : #f8fafc;
+    out property <color> side: rail;
+    // hover:bg-muted (275 uses) is #262626 in dark, #f1f5f9 in light, but Bulwark's own value is no hover at all on its secondary surface in dark (the rail, the
+    // folder column and the settings nav are bg-secondary #262626 = muted) and 1.05:1 in light. M6b round 3 keeps the muted hue and steps it so the ladder is
+    // visible on every surface: dark #333333 (1.20:1 on #262626, 1.46 on #141414), light #e6ebf2 (1.15 on #f8fafc, 1.20 on white), pressed one more step
+    // (dark #404040, light #d3dce8); both are weaker than the selection fill (bg-accent), which stays Bulwark's own. Bulwark has no pressed state.
+    out property <color> hover: dark ? #333333 : #e6ebf2;
+    out property <color> pressed: dark ? #404040 : #d3dce8;
+    out property <color> chip: tile2;
+    out property <color> raised: tile2;
+    out property <color> zebra: ground;
+    out property <color> bubble: tile2;
+    out property <color> reader: ground;
+    out property <color> muted-day: dim;
+    out property <color> ring: more-contrast ? (dark ? #ffffff : #000000) : (dark ? #d4d4d4 : #2563eb);
+
+    // semantic colours (globals.css:31-125)
+    out property <color> destructive: more-contrast ? (dark ? #fca5a5 : #b91c1c) : (dark ? #ef4444 : #dc2626);
+    out property <color> destructive-fg: dark ? #0a0a0a : #ffffff;
+    out property <color> success: dark ? #16a34a : #22c55e;
+    out property <color> success-fg: #ffffff;
+    out property <color> warning: dark ? #ca8a04 : #eab308;
+    out property <color> warning-fg: #ffffff;
+    out property <color> info: dark ? #60a5fa : #3b82f6;
+    out property <color> info-fg: #ffffff;
+    out property <color> secondary: dark ? #262626 : #f8fafc;
+    out property <color> secondary-fg: dark ? #fafafa : #0f172a;
+    out property <color> input: dark ? #262626 : #e2e8f0;
+    out property <color> popover-fg: text;
+    out property <color> accent-fill: dark ? #1e3a8a : #dbeafe;
+    out property <color> accent-fill-fg: dark ? #dbeafe : #1e40af;
+    out property <color> unread: more-contrast ? (dark ? #93c5fd : #1d4ed8) : (dark ? #60a5fa : #3b82f6);
+    out property <color> chart-1: dark ? #60a5fa : #3b82f6;
+    out property <color> chart-2: dark ? #4ade80 : #22c55e;
+    out property <color> chart-3: dark ? #fbbf24 : #f59e0b;
+    out property <color> chart-4: dark ? #f87171 : #ef4444;
+    out property <color> chart-5: dark ? #a78bfa : #8b5cf6;
+
+    // feedback states (see Theme for what each is for)
+    // One hover language (round 3). Bulwark has two: the Button component's ghost and outline variants hover with bg-accent (button.tsx:49), the sidebar, the rail
+    // and every list row hover with bg-muted (sidebar.tsx:209,533,556,808, navigation-rail.tsx:622-850, settings-app.tsx:1303, 275 uses). Two schemes in one
+    // window made the same 32 px "+" button blue in one sidebar and grey in the next, and bg-accent is also the selection fill, so a hovered ghost button
+    // looked selected. Rows, rail buttons, icon buttons and ghost buttons all take the muted ladder (the majority rule); bg-accent stays the selection and the active tint.
+    out property <color> feedback-hover: hover;
+    out property <color> feedback-pressed: pressed;
+    out property <color> feedback-icon-hover: hover;
+    out property <color> feedback-icon-pressed: pressed;
+    out property <color> feedback-icon-hover-fg: text;
+    // toolbar.tsx:16 bg-primary/10 text-primary hover:bg-primary/15 (navigation-rail.tsx:648 the active rail item is bg-primary/10 too). Round 4: 10 % was 1.2:1 on the dark rail (#3b3b3b on #262626)
+    // and lighter than the hover fill on the light rail, so the active item read weaker than a hovered one; one step up in each (15 %, hover 20 %, pressed 25 %), still the primary tint and still text-primary
+    out property <color> feedback-active: more-contrast ? (dark ? #93c5fd26 : #1d4ed826) : (dark ? #fafafa26 : #185aea26);
+    out property <color> feedback-active-hover: more-contrast ? (dark ? #93c5fd33 : #1d4ed833) : (dark ? #fafafa33 : #185aea33);
+    out property <color> feedback-active-pressed: more-contrast ? (dark ? #93c5fd40 : #1d4ed840) : (dark ? #fafafa40 : #185aea40);
+    out property <color> feedback-active-fg: accent;
+    // thread-list-item.tsx:731: a selected row is bg-accent, and stays bg-accent on hover
+    out property <color> feedback-selected: accent-fill;
+    out property <color> feedback-selected-fg: accent-fill-fg;
+    // a selected row or pill under the pointer: one step stronger than bg-accent, then pressed (the plain hover grey would make it look less selected)
+    out property <color> feedback-selected-hover: dark ? #2447a6 : #cbdefc;
+    out property <color> feedback-selected-pressed: dark ? #2a53c0 : #b9d3fb;
+    // button.tsx:48 hover:bg-primary/90 over the page is lighter than the fill on a light page and the pressed /80 lighter still (#467c8b -> #578996 -> #6a95a1, white label 3.3:1 pressed).
+    // Round 3 keeps the 90 % and 80 % intent as darkening: 12 % and 24 % towards black, so hover < rest < ... in one direction, the label keeps 4.5:1 and pressed is the darkest
+    out property <color> feedback-primary-hover: more-contrast ? (dark ? #81addf : #1a45be) : (dark ? #dcdcdc : #154fce);
+    out property <color> feedback-primary-pressed: more-contrast ? (dark ? #7096c0 : #163ba4) : (dark ? #bebebe : #1244b2);
+    // a disabled filled button: muted fill, muted text (see Theme)
+    out property <color> disabled-fill: dark ? #262626 : #f1f5f9;
+    out property <color> disabled-fg: dim;
+    // the unselected option of a segmented control is bg-input; hover and pressed step away from it (light: input #e2e8f0 is darker than the muted hover)
+    out property <color> feedback-segment-hover: dark ? #333333 : #d3dce8;
+    out property <color> feedback-segment-pressed: dark ? #404040 : #c0cbdc;
+    // thread-list-item.tsx:733 bg-accent/30 is 1.06:1 on the row; the wash is the primary-blue chart colour at 12 % (light, 1.15:1) and 20 % (dark, 1.24:1)
+    out property <color> unread-wash: dark ? #3b82f633 : #3b82f614;
+    // context-menu.tsx:726 hover:bg-destructive/10
+    // bg-destructive/10 was 1.1:1 on white; the tint is 14 % and pressed 24 % (round 3)
+    out property <color> feedback-destructive-hover: more-contrast ? (dark ? #fca5a524 : #b91c1c24) : (dark ? #ef444433 : #dc262624);
+    out property <color> feedback-destructive-pressed: more-contrast ? (dark ? #fca5a53d : #b91c1c3d) : (dark ? #ef444452 : #dc26263d);
+    out property <color> feedback-focus: ring;
+}
+
+/// A surface that fades in and grows from `Motion.pop-scale` when it is created (menus, popups,
+/// flyouts, dialog cards, previews). Removing it is instant. It takes input from the first frame.
+/// Set `transform-origin` to the side it opens from (default: its centre).
+export component PopIn inherits Rectangle {
+    opacity: 0;
+    transform-scale: Motion.pop-scale;
+    animate opacity, transform-scale { duration: Motion.enter; easing: Ease.enter; }
+    init => {
+        self.opacity = 1;
+        self.transform-scale = 1;
+    }
+}
+
+/// An incoming view (calendar day/week/month): content is there on the first frame, it only
+/// fades up from 55 % over `Motion.view`. Fill it with one child; removed instantly.
+export component ViewIn inherits Rectangle {
+    vertical-stretch: 1;
+    opacity: Motion.reduce ? 1 : 0.55;
+    animate opacity { duration: Motion.view; easing: Ease.enter; }
+    init => { self.opacity = 1; }
+}
+
+/// The dimmed backdrop behind a dialog: its colour fades in; removed instantly with the dialog.
+export component Scrim inherits Rectangle {
+    in property <color> tint: #00000080;
+    background: transparent;
+    animate background { duration: Motion.enter; easing: Ease.enter; }
+    init => {
+        self.background = root.tint;
+    }
+}
+
+/// An incoming view (settings, an admin page): content is on screen at once, only its opacity
+/// settles from 0.45 to 1 over `Motion.view`. Input is live from the first frame.
+export component PageIn inherits Rectangle {
+    opacity: 0.45;
+    animate opacity { duration: Motion.view; easing: Ease.enter; }
+    init => {
+        self.opacity = 1;
+    }
+}
+
+/// A tooltip surface: waits `Motion.tip-delay` on hover, then fades in. Removed instantly.
+export component Tip inherits Rectangle {
+    opacity: 0;
+    animate opacity { delay: Motion.tip-delay; duration: Motion.enter; easing: Ease.enter; }
+    init => {
+        self.opacity = 1;
+    }
+}
+
+/// Line icons from the mockups (`I` in design/mockups/*.dc.html): SVG path data in a 24 x 24 box.
+export global Icons {
+    out property <string> mail: "M4 4h16v16H4z M22 6l-10 7L2 6";
+    out property <string> cal: "M3 4h18v18H3z M16 2v4 M8 2v4 M3 10h18";
+    out property <string> users: "M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2 M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z";
+    out property <string> folder: "M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z";
+    out property <string> spark: "M12 3l1.9 5.8L20 11l-6.1 2.2L12 19l-1.9-5.8L4 11l6.1-2.2z";
+    out property <string> shield: "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z";
+    out property <string> inbox: "M22 12h-6l-2 3h-4l-2-3H2 M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z";
+    out property <string> file: "M14 2H6v20h12V8z M14 2v6h6";
+    out property <string> clock: "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20z M12 6v6l4 2";
+    out property <string> send: "M22 2 11 13 M22 2l-7 20-4-9-9-4 20-7z";
+    out property <string> archive: "M21 8v13H3V8 M1 3h22v5H1z M10 12h4";
+    out property <string> alert: "M12 9v4 M12 17h.01 M10.3 3.9 1.8 18h20.4L13.7 3.9a2 2 0 0 0-3.4 0z";
+    out property <string> trash: "M3 6h18 M19 6l-1 14H6L5 6 M8 6V4h8v2";
+    out property <string> reply: "M9 17l-5-5 5-5 M20 18v-2a4 4 0 0 0-4-4H4";
+    out property <string> fwd: "M15 17l5-5-5-5 M4 18v-2a4 4 0 0 1 4-4h12";
+    out property <string> clip: "M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48";
+    // lucide Pin and CalendarClock (thread-list-item.tsx:912-923 pinned, :924-933 scheduled-send chip)
+    out property <string> pin: "M12 17v5 M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z";
+    out property <string> cal-clock: "M16 14v2.2l1.6 1 M16 2v4 M21 7.5V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h3.5 M3 10h5 M8 2v4 M22 16a6 6 0 1 0-12 0 6 6 0 0 0 12 0z";
+    out property <string> tpl: "M4 4h16v6H4z M4 14h7v6H4z M15 14h5v6h-5z";
+    out property <string> opt: "M4 21v-7 M4 10V3 M12 21v-9 M12 8V3 M20 21v-5 M20 12V3 M1 14h6 M9 8h6 M17 16h6";
+    out property <string> tag: "M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z M7 7h.01";
+    out property <string> search: "M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16z M21 21l-4.35-4.35";
+    out property <string> pen: "M12 20h9 M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z";
+    out property <string> close: "M18 6 6 18 M6 6l12 12";
+    out property <string> external: "M15 3h6v6 M10 14 21 3 M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6";
+    // same family (24 box, line), for actions the mockups do not draw
+    out property <string> settings: "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z";
+    out property <string> star: "M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01z";
+    out property <string> reply-all: "M7 17l-5-5 5-5 M12 17l-5-5 5-5 M22 18v-2a4 4 0 0 0-4-4H7";
+    out property <string> move: "M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z M9 13h7 M13 10l3 3-3 3";
+    out property <string> print: "M6 9V2h12v7 M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2 M6 14h12v8H6z";
+    out property <string> unread: "M4 4h16v16H4z M22 6l-10 7L2 6";
+    out property <string> refresh: "M23 4v6h-6 M1 20v-6h6 M3.51 9a9 9 0 0 1 14.85-3.36L23 10 M1 14l4.64 4.36A9 9 0 0 0 20.49 15";
+    out property <string> filter: "M22 3H2l8 9.46V19l4 2v-8.54z";
+    out property <string> check: "M20 6 9 17l-5-5";
+    out property <string> plus: "M12 5v14 M5 12h14";
+    out property <string> chevron-down: "M6 9l6 6 6-6";
+    out property <string> chevron-right: "M9 18l6-6-6-6";
+    // lucide chevrons-left / chevrons-right: the sidebar fold control (sidebar.tsx:2709)
+    out property <string> chevrons-left: "M11 17l-5-5 5-5 M18 17l-5-5 5-5";
+    out property <string> chevrons-right: "M6 17l5-5-5-5 M13 17l5-5-5-5";
+    out property <string> more: "M12 13a1 1 0 1 0 0-2 1 1 0 0 0 0 2z M19 13a1 1 0 1 0 0-2 1 1 0 0 0 0 2z M5 13a1 1 0 1 0 0-2 1 1 0 0 0 0 2z";
+    out property <string> download: "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4 M7 10l5 5 5-5 M12 15V3";
+    out property <string> image: "M3 3h18v18H3z M8.5 10a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z M21 15l-5-5L5 21";
+    out property <string> phone: "M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z";
+    out property <string> back: "M19 12H5 M12 19l-7-7 7-7";
+    // lucide LogOut: the rail's sign-out button and menu (navigation-rail.tsx:926,935-937) and the popover's sign-out rows (account-switcher.tsx:666-680)
+    out property <string> log-out: "M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4 M16 17l5-5-5-5 M21 12H9";
+    // settings sections (same line family)
+    out property <string> user: "M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2 M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z";
+    out property <string> key: "M21 2l-2 2 M11.39 11.61a5.5 5.5 0 1 1-7.78 7.78 5.5 5.5 0 0 1 7.78-7.78z M11.39 11.61 15.5 7.5 M15.5 7.5l3 3L22 7l-3-3 M15.5 7.5 19 4";
+    out property <string> lock: "M5 11h14v11H5z M7 11V7a5 5 0 0 1 10 0v4";
+    out property <string> bell: "M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9 M13.73 21a2 2 0 0 1-3.46 0";
+    out property <string> drop: "M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z";
+    out property <string> eye: "M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z";
+    out property <string> list: "M8 6h13 M8 12h13 M8 18h13 M3 6h.01 M3 12h.01 M3 18h.01";
+    out property <string> book: "M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z";
+    out property <string> sun: "M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10z M12 1v2 M12 21v2 M4.22 4.22l1.42 1.42 M18.36 18.36l1.42 1.42 M1 12h2 M21 12h2 M4.22 19.78l1.42-1.42 M18.36 5.64l1.42-1.42";
+    out property <string> package: "M16.5 9.4 7.5 4.21 M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z M3.27 6.96 12 12.01l8.73-5.05 M12 22.08V12";
+    out property <string> tool: "M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z";
+    out property <string> undo: "M3 7v6h6 M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13";
+    out property <string> redo: "M21 7v6h-6 M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3L21 13";
+    out property <string> info: "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20z M12 16v-4 M12 8h.01";
+    // FL-02: the image preview's zoom bar (Bulwark components/files/zoomable-image.tsx:5 imports ZoomIn, ZoomOut, RotateCw and Maximize2, lucide paths)
+    out property <string> zoom-in: "M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16z M21 21l-4.35-4.35 M11 8v6 M8 11h6";
+    out property <string> zoom-out: "M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16z M21 21l-4.35-4.35 M8 11h6";
+    out property <string> maximize: "M15 3h6v6 M9 21H3v-6 M21 3l-7 7 M3 21l7-7";
+    out property <string> rotate-cw: "M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8 M21 3v5h-5";
+    // the editor toolbar icons (CP-06: the glyphs of Bulwark's rich-text-editor.tsx toolbar, 16 px stroke icons) and the external-recipient dialog's building (CP-07)
+    out property <string> bold: "M6 12h9a4 4 0 0 1 0 8H7a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h7a4 4 0 0 1 0 8";
+    out property <string> italic: "M19 4h-9 M14 20H5 M15 4 9 20";
+    out property <string> underline: "M6 4v6a6 6 0 0 0 12 0V4 M4 20h16";
+    out property <string> strike: "M16 4H9a3 3 0 0 0-2.83 4 M14 12a4 4 0 0 1 0 8H6 M4 12h16";
+    out property <string> text-color: "M4 20h16 M6 16 12 4l6 12 M8 12h8";
+    out property <string> highlight: "M9 11l-6 6v3h9l3-3 M22 12l-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4";
+    out property <string> heading1: "M4 12h8 M4 18V6 M12 18V6 M17 12l3-2v8";
+    out property <string> heading2: "M4 12h8 M4 18V6 M12 18V6 M21 18h-4c0-4 4-3 4-6 0-1.5-2-2.5-4-1";
+    out property <string> list-ordered: "M10 6h11 M10 12h11 M10 18h11 M4 6h1v4 M4 10h2 M6 18H4c0-1 2-2 2-3s-1-1.5-2-1";
+    out property <string> quote: "M10 11H6a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v6c0 2-1 3-3 4 M20 11h-4a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v6c0 2-1 3-3 4";
+    out property <string> code: "M16 18l6-6-6-6 M8 6l-6 6 6 6";
+    out property <string> align-left: "M4 6h16 M4 12h10 M4 18h14";
+    out property <string> align-center: "M4 6h16 M7 12h10 M6 18h12";
+    out property <string> align-right: "M4 6h16 M10 12h10 M6 18h14";
+    out property <string> text-dir: "M8 3 4 7l4 4 M4 7h16 M16 21l4-4-4-4 M20 17H4";
+    out property <string> link: "M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71 M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71";
+    out property <string> table: "M3 3h18v18H3z M3 9h18 M3 15h18 M9 3v18 M15 3v18";
+    out property <string> clear-format: "M4 7V4h16v3 M5 20h6 M13 4 8 20 M15 15l5 5 M20 15l-5 5";
+    out property <string> building: "M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18z M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2 M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2 M10 6h4 M10 10h4 M10 14h4 M10 18h4";
+    // SH-10: the puzzle piece of an add-on page without an icon (navigation-rail.tsx:466 `?? Puzzle`) and the globe (sidebar-apps-modal.tsx:71 default icon), lucide paths
+    out property <string> puzzle: "M19.439 7.85c-.049.322.059.648.289.878l1.568 1.568c.47.47.706 1.087.706 1.704s-.235 1.233-.706 1.704l-1.611 1.611a.98.98 0 0 1-.837.276c-.47-.07-.802-.48-.968-.925a2.501 2.501 0 1 0-3.214 3.214c.446.166.855.497.925.968a.979.979 0 0 1-.276.837l-1.61 1.61a2.404 2.404 0 0 1-1.705.707 2.402 2.402 0 0 1-1.704-.706l-1.568-1.568a1.026 1.026 0 0 0-.877-.29c-.493.074-.84.504-1.02.968a2.5 2.5 0 1 1-3.237-3.237c.464-.18.894-.527.967-1.02a1.026 1.026 0 0 0-.289-.877l-1.568-1.568A2.402 2.402 0 0 1 1.998 12c0-.617.236-1.234.706-1.704L4.23 8.77c.24-.24.581-.353.917-.303.515.077.877.528 1.073 1.01a2.5 2.5 0 1 0 3.259-3.259c-.482-.196-.933-.558-1.01-1.073-.05-.336.062-.676.303-.917l1.525-1.525A2.402 2.402 0 0 1 12 1.998c.617 0 1.234.236 1.704.706l1.568 1.568c.23.23.556.338.877.29.493-.074.84-.504 1.02-.968a2.5 2.5 0 1 1 3.237 3.237c-.464.18-.894.527-.967 1.02z";
+    out property <string> globe: "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z M2 12h20 M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z";
+    out property <string> cloud-off: "m2 2 20 20 M5.782 5.782A7 7 0 0 0 9 19h8.5a4.5 4.5 0 0 0 1.307-.193 M21.532 16.5A4.5 4.5 0 0 0 17.5 10h-1.79A7.008 7.008 0 0 0 10 5.07";
+    // the line icon for a Settings section id (settings-schema.json tab ids)
+    public pure function for-tab(id: string) -> string {
+        if id == "account" { return user; }
+        if id == "security" { return key; }
+        if id == "privacy" { return lock; }
+        if id == "notifications" { return bell; }
+        if id == "general" { return settings; }
+        if id == "appearance" { return drop; }
+        if id == "accessibility" { return eye; }
+        if id == "message_list" { return list; }
+        if id == "reading" { return file; }
+        if id == "composing" { return pen; }
+        if id == "organize" { return tag; }
+        if id == "filters" { return filter; }
+        if id == "vacation" { return sun; }
+        if id == "recover" { return refresh; }
+        if id == "calendar" { return cal; }
+        if id == "calendars" { return list; }
+        if id == "contacts" { return users; }
+        if id == "addressbooks" { return book; }
+        if id == "ai" { return spark; }
+        if id == "spam" { return alert; }
+        if id == "admin" { return shield; }
+        if id == "files" { return folder; }
+        if id == "addons" { return package; }
+        if id == "backup" { return download; }
+        if id == "troubleshooting" { return tool; }
+        if id == "about" { return info; }
+        return "";
+    }
+    // the folder icon for the Segoe glyph Rust gives each mailbox role (mail::role_icon)
+    public pure function for-glyph(g: string) -> string {
+        if g == "\u{E715}" { return inbox; }
+        if g == "\u{E70B}" { return file; }
+        if g == "\u{E724}" { return send; }
+        if g == "\u{E7B8}" { return archive; }
+        if g == "\u{E8F8}" { return alert; }
+        if g == "\u{E74D}" { return trash; }
+        if g == "\u{E787}" { return clock; }
+        return folder;
+    }
+}
+
+/// A line icon: `commands` takes one of the Icons paths (24 x 24 box), drawn at `size` with a
+/// `weight` stroke as the mockups' SVGs do (stroke-width 1.6–2.2 in the 24 box, round caps).
+export component SIcon inherits Path {
+    in property <length> size: 20px;
+    in property <color> tint: Theme.dim;
+    in property <float> weight: 1.7;
+    width: size;
+    height: size;
+    viewbox-x: 0;
+    viewbox-y: 0;
+    viewbox-width: 24;
+    viewbox-height: 24;
+    fill: transparent;
+    stroke: tint;
+    stroke-width: size * weight / 24;
+    stroke-line-cap: round;
+}
+
+export global Prefs {
+    in-out property <bool> toolbar-labels: true;
+    in-out property <bool> tag-chips: true;
+    in-out property <length> font-size: 13px;
+    // the user's text scale, for the design's px sizes (13.5px * Prefs.fs)
+    out property <float> fs: font-size / 13px;
+    in-out property <bool> cal-tinted: false;
+    // timeFormat 12h: the hour column reads "2:00 PM"
+    in-out property <bool> cal-h12: false;
+    // list hover actions, Barbican action names (delete, star, read, archive, spam)
+    in-out property <[string]> hover-actions: ["delete", "star", "read", "archive"];
+    // reader body gutter (messageSpacing)
+    in-out property <length> reader-gutter: 20px;
+    // Settings > Accessibility
+    in-out property <bool> reduce-motion: false;
+    in-out property <bool> large-targets: false;
+    // focus outline width (0 = off, Bulwark's default)
+    in-out property <length> focus-ring: 0px;
+    // a button on each row that opens its actions (showRowActionButton)
+    in-out property <bool> row-action: false;
+    // hover actions as a floating group in a corner (hoverActionsMode) and which corner
+    in-out property <bool> hover-floating: false;
+    in-out property <bool> hover-left: false;
+    in-out property <bool> hover-bottom: false;
+}
