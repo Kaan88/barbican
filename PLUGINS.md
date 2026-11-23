@@ -8,8 +8,10 @@ Each call has a time budget from the hook catalogue (`spec/plugins/hooks.csv`, 2
 `compose.check` holds the send with a warning if the plugin errors, panics or times out; a plugin that fails
 3 times in a row is switched off until Barbican restarts. `email.details` and `compose.check` are aliases of Bulwark's
 `onEmailOpen` and `onBeforeEmailSend` (Bulwark's names are a reference vocabulary, not a compatibility promise), and a
-manifest may list either name; the plugin is called with the name its manifest declares. Enabling a plugin pins its file:
-if the DLL is replaced, switch the plugin off and on again. A plugin is any dynamic library exporting this C ABI (UTF-8, NUL-terminated strings):
+manifest may list either name; the plugin is called with the name its manifest declares. Enabling a plugin pins its file
+(path + SHA-256). A loaded library is never unloaded while Barbican runs, so updating a plugin DLL requires restarting
+Barbican; a different file at a path already loaded this session is refused with "restart Barbican to load the new
+version". A plugin is any dynamic library exporting this C ABI (UTF-8, NUL-terminated strings):
 
 ```c
 const char* barbican_plugin_manifest(void);                      // {"api":1,"id","name","version","description","hooks":[...]}

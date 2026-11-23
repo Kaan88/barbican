@@ -176,8 +176,13 @@ impl Settings {
         let mut imported = obj.clone();
         // Plugin consent is per computer and per file: never copy an allow-list or its file bindings
         // from a settings file, or an import could switch on code this user has not agreed to run.
-        imported.remove("enabledPlugins");
-        imported.remove("pluginBindings");
+        // The current local values stay, so an import does not switch off plugins enabled here either.
+        for key in ["enabledPlugins", "pluginBindings"] {
+            match self.prefs.get(key) {
+                Some(v) => { imported.insert(key.into(), v.clone()); }
+                None => { imported.remove(key); }
+            }
+        }
         self.prefs = imported;
         self.save();
         if v["desktop"].is_object() {
@@ -632,11 +637,22 @@ mod tests {
         assert!(s.import(&json!("nope")).is_err());
         assert_eq!(s.str("density", ""), "compact");
 
-        // Plugin consent is not imported: it stays local to this computer and its files.
+        // Plugin consent is not imported: with no local consent, the file's allow-list and bindings are dropped.
         s.import(&json!({"theme": "light", "enabledPlugins": ["spam-score"], "pluginBindings": {"spam-score": "C:/p/a.dll|abc"}})).unwrap();
         assert_eq!(s.str("theme", ""), "light");
         assert!(s.prefs.get("enabledPlugins").is_none() && s.prefs.get("pluginBindings").is_none());
         assert!(Settings::load().prefs.get("enabledPlugins").is_none());
+
+        // Local consent survives an import instead of switching the user's plugins off.
+        s.prefs.insert("enabledPlugins".into(), json!(["local-plugin"]));
+        s.prefs.insert("pluginBindings".into(), json!({"local-plugin": "C:/p/local.dll|hash"}));
+        s.import(&json!({"theme": "dark", "enabledPlugins": ["spam-score"], "pluginBindings": {"spam-score": "C:/p/a.dll|abc"}})).unwrap();
+        assert_eq!(s.str("theme", ""), "dark");
+        assert_eq!(s.prefs["enabledPlugins"], json!(["local-plugin"]));
+        assert_eq!(s.prefs["pluginBindings"], json!({"local-plugin": "C:/p/local.dll|hash"}));
+        let reloaded = Settings::load();
+        assert_eq!(reloaded.prefs["enabledPlugins"], json!(["local-plugin"]));
+        assert_eq!(reloaded.prefs["pluginBindings"], json!({"local-plugin": "C:/p/local.dll|hash"}));
 
         s.reset();
         assert!(s.prefs.is_empty());

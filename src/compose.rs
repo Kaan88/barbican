@@ -794,23 +794,36 @@ fn is_fill_in(inner: &str, ascii_bracket: bool) -> bool {
     caps || title || prompt
 }
 
+/// What the user asked for when the warning was raised: send now, or schedule at that time.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Intent { Send, Schedule(i64) }
+
+/// How to confirm a held warning for this action. The plain Send button sends immediately, so a warning
+/// raised for a scheduled send must point at the Schedule send control instead.
+fn retry_advice(intent: Intent) -> &'static str {
+    match intent {
+        Intent::Send => "Press Send again to send anyway.",
+        Intent::Schedule(_) => "Choose Schedule send again for the same time to schedule anyway.",
+    }
+}
+
 /// Composer checks Bulwark runs before sending (attachment reminder, empty subject, placeholders).
-fn pre_send_warning(o: &Outgoing, prefs: &crate::settings::Settings, verb: &str) -> Option<String> {
+fn pre_send_warning(o: &Outgoing, prefs: &crate::settings::Settings, intent: Intent) -> Option<String> {
     if prefs.bool("emptySubjectWarningEnabled", true) && o.subject.trim().is_empty() {
-        return Some(format!("The subject is empty. Press Send again to {verb} anyway."));
+        return Some(format!("The subject is empty. {}", retry_advice(intent)));
     }
     if prefs.bool("placeholderWarningEnabled", true) {
         // only what the user wrote: not the quoted original
         let body: String = o.text.lines().filter(|l| !l.starts_with('>')).collect::<Vec<_>>().join("\n");
         let found = find_placeholders(&o.subject, &body);
         if !found.is_empty() {
-            return Some(format!("Still to fill in: {}. Press Send again to {verb} anyway.", found.join(", ")));
+            return Some(format!("Still to fill in: {}. {}", found.join(", "), retry_advice(intent)));
         }
     }
     if prefs.bool("attachmentReminderEnabled", true) && o.attachments.is_empty() {
         let body: String = o.text.lines().filter(|l| !l.starts_with('>')).collect::<Vec<_>>().join(" ").to_lowercase();
         if ["attached", "attachment", "enclosed", "anbei", "ekte", "ek'te", "pièce jointe", "adjunto"].iter().any(|k| body.contains(k)) {
-            return Some(format!("You mention an attachment but none is attached. Press Send again to {verb} anyway."));
+            return Some(format!("You mention an attachment but none is attached. {}", retry_advice(intent)));
         }
     }
     None
@@ -824,10 +837,6 @@ pub fn send(u: &AppWindow, c: Arc<Client>, prefs: &crate::settings::Settings) {
 pub fn send_scheduled(u: &AppWindow, c: Arc<Client>, prefs: &crate::settings::Settings, at: i64) {
     send_at(u, c, prefs, Some(at));
 }
-
-/// What the user asked for when the warning was raised: send now, or schedule at that time.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Intent { Send, Schedule(i64) }
 
 /// Which check raised the warning the user has just seen.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -893,7 +902,6 @@ fn send_at(u: &AppWindow, c: Arc<Client>, prefs: &crate::settings::Settings, at:
     }
     let fp = draft_fingerprint(&o);
     let warned = acknowledged(fp, intent);
-    let verb = if at.is_some() { "schedule" } else { "send" };
     // picking a time is the confirmation for a scheduled send
     if at.is_none() && prefs.bool("sendConfirmation", false) && !warned && !u.get_c_status().ends_with("to send.") {
         u.set_c_status("Press Send again to send.".into());
@@ -902,10 +910,10 @@ fn send_at(u: &AppWindow, c: Arc<Client>, prefs: &crate::settings::Settings, at:
     o.read_receipt = o.read_receipt || prefs.bool("requestReadReceiptDefault", false);
     let draft = serde_json::json!({"to": o.to, "cc": o.cc, "bcc": o.bcc, "subject": o.subject, "text": o.text,
         "attachments": o.attachments.iter().map(|a| a.name.clone()).collect::<Vec<_>>()});
-    let verdict = gate(HELD.with(|h| h.get()), fp, intent, || pre_send_warning(&o, prefs, verb), || {
+    let verdict = gate(HELD.with(|h| h.get()), fp, intent, || pre_send_warning(&o, prefs, intent), || {
         let w = crate::plugin_compose_check(&draft);
         crate::plugin_notices(u);
-        w.map(|w| format!("{w} Press Send again to {verb} anyway."))
+        w.map(|w| format!("{w} {}", retry_advice(intent)))
     });
     if let Err((stage, w)) = verdict {
         HELD.with(|h| h.set(Some((fp, intent, stage))));
@@ -1286,6 +1294,22 @@ mod tests {
         // ordinary brackets, links and lowercase words are text
         assert!(f("", "[Yours truly] [Anlage 2] [link](http://x) [A] todo xxxl").is_empty());
         assert!(f("{{bad name}}", "").is_empty());
+    }
+
+    #[test]
+    fn scheduled_warnings_name_the_schedule_control() {
+        let prefs = crate::settings::Settings::with_prefs(serde_json::Map::new());
+        let mut o = Outgoing::default();
+        o.to = "a@b.c".into();
+        o.text = "Hello".into();
+        let sending = pre_send_warning(&o, &prefs, Intent::Send).unwrap();
+        assert!(sending.contains("Press Send again to send"), "{sending}");
+        let scheduled = pre_send_warning(&o, &prefs, Intent::Schedule(1_000)).unwrap();
+        assert!(!scheduled.contains("Press Send"), "the Send button would send now: {scheduled}");
+        assert!(scheduled.contains("Schedule send again") && scheduled.contains("same time"), "{scheduled}");
+        // the plugin warning appends the same action-specific advice
+        let plugin = format!("Plugin says no. {}", retry_advice(Intent::Schedule(1_000)));
+        assert!(!plugin.contains("Press Send") && plugin.contains("Schedule send again"), "{plugin}");
     }
 
     #[test]

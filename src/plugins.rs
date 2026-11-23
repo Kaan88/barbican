@@ -30,8 +30,9 @@
 //!   when the folder holds a single library). Without a sidecar the plugin is listed by file name, unverified, and its
 //!   real manifest is read only after the user enables it. Enabling it still runs its code in this process: only
 //!   enable plugins you trust. A sidecar that disagrees with the library's own manifest id is rejected.
-//! * A plugin is enabled by key AND bound to its file (path + SHA-256, `pluginBindings` pref); a replaced file must be
-//!   switched off and on again. Manifest ids starting with `file:` or holding control characters are rejected, and a
+//! * A plugin is enabled by key AND bound to its file (path + SHA-256, `pluginBindings` pref); a replaced file is no
+//!   longer enabled until it is switched off and on again, and if the old version was loaded in this session a restart
+//!   is needed (see below). Manifest ids starting with `file:` or holding control characters are rejected, and a
 //!   library whose id duplicates another plugin's is refused (after loading: the ABI gives no earlier look).
 //! * Loading (`Library::new` + the manifest call) runs on a worker thread with a budget; an overrun marks the plugin
 //!   failed. The budget cannot contain a plugin that hangs inside its `DllMain`: that code holds the Windows loader
@@ -39,7 +40,9 @@
 //!   That is inherent to running foreign code in this process and cannot be recovered from here.
 //! * A loaded library is never unloaded for the rest of the session: its code may have started threads or registered
 //!   callbacks that outlive the handle, and unloading it under them crashes the app. Switching a plugin off only
-//!   stops calling it; the library and its backend object stay alive until the process exits.
+//!   stops calling it; the library and its backend object stay alive until the process exits. Updating a plugin
+//!   therefore requires restarting Barbican: the SHA-256 each path was first loaded with is remembered, and a
+//!   different file at the same path is refused with "restart Barbican to load the new version".
 //! * At most one call is in flight per plugin: while an abandoned call has not returned, new calls fail at once
 //!   (the ABI makes no thread-safety promise), which counts toward the failure limit, and the plugin is not loaded
 //!   again until that call returns.
@@ -126,9 +129,24 @@ static LIBRARIES: Mutex<Vec<Arc<libloading::Library>>> = Mutex::new(Vec::new());
 /// library handles and plugin-side state intact even while it is disabled and not callable.
 static RETIRED_BACKENDS: Mutex<Vec<Arc<dyn PluginBackend>>> = Mutex::new(Vec::new());
 
+/// `(path, SHA-256)` of every library file this session has tried to load. Windows keeps a module mapped, so a
+/// different file at the same path cannot actually be loaded; it is refused until the process restarts.
+static LOADED_FILES: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
+
 fn retire(backend: Option<Arc<dyn PluginBackend>>) {
     if let Some(b) = backend {
         RETIRED_BACKENDS.lock().unwrap_or_else(|e| e.into_inner()).push(b);
+    }
+}
+
+/// Remember (or check) the hash of a file about to be loaded. The same path with a different hash is refused.
+fn load_allowed(path: &str, hash: &str) -> Result<(), String> {
+    let mut loaded = LOADED_FILES.lock().unwrap_or_else(|e| e.into_inner());
+    match loaded.iter().find(|(p, _)| p == path) {
+        Some((_, h)) if h != hash => Err(format!(
+            "{path}: this plugin file changed after it was loaded this session; restart Barbican to load the new version")),
+        Some(_) => Ok(()),
+        None => { loaded.push((path.to_string(), hash.to_string())); Ok(()) }
     }
 }
 
@@ -372,6 +390,12 @@ fn sync_with(plugins: &mut [Plugin], enabled: &[String], loader: &Loader, budget
         if plugins[i].busy.load(Ordering::SeqCst) { continue; }
         if plugins[i].backend.is_some() || plugins[i].load_failed || plugins[i].is_tripped() { continue; }
         let path = plugins[i].path.clone();
+        let hash = plugins[i].fingerprint.clone();
+        if let Err(e) = load_allowed(&path, &hash) {
+            plugins[i].load_failed = true;
+            errors.push(e);
+            continue;
+        }
         // Library::new and manifest() run foreign code: never on the UI thread without a limit
         let (tx, rx) = mpsc::channel();
         let (l, pp) = (loader.clone(), std::path::PathBuf::from(&path));
@@ -855,5 +879,34 @@ mod tests {
         assert!(sync_with(&mut list, &en, &l, MS).is_empty());
         assert_eq!(loads.load(Ordering::SeqCst), 1, "loaded once the old call returned");
         assert!(list[0].active(&en));
+    }
+
+    #[test]
+    fn a_changed_file_at_a_loaded_path_needs_a_restart() {
+        let path = format!("C:/plugins/versioned-{}.dll", std::process::id());
+        let loads = Arc::new(AtomicUsize::new(0));
+        let n = loads.clone();
+        let l = stub_loader(move |_| {
+            n.fetch_add(1, Ordering::SeqCst);
+            Ok((stub_meta("versioned"), Arc::new(Recorder(Mutex::new(vec![]))) as Arc<dyn PluginBackend>))
+        });
+        let en = vec!["versioned".to_string()];
+        let mut first = vec![bare("versioned", &path, "hash-one")];
+        assert!(sync_with(&mut first, &en, &l, MS).is_empty());
+        assert_eq!(loads.load(Ordering::SeqCst), 1);
+
+        // rediscovery of a replaced file at the same path: the old module is still mapped
+        let mut replaced = vec![bare("versioned", &path, "hash-two")];
+        let errs = sync_with(&mut replaced, &en, &l, MS);
+        assert_eq!(errs.len(), 1, "{errs:?}");
+        assert!(errs[0].contains("restart Barbican to load the new version"), "{errs:?}");
+        assert_eq!(loads.load(Ordering::SeqCst), 1, "the new file is not handed to the loader");
+        assert!(replaced[0].backend.is_none() && replaced[0].load_failed);
+
+        // the same file at the same path still loads (for example a retry after switching off)
+        let mut same = vec![bare("versioned", &path, "hash-one")];
+        assert!(sync_with(&mut same, &en, &l, MS).is_empty());
+        assert_eq!(loads.load(Ordering::SeqCst), 2);
+        assert!(same[0].active(&en));
     }
 }
