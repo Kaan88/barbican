@@ -66,7 +66,7 @@ All nine P0 items are implemented (see above). What is left of them:
 10. **Live updates outside mail (S/M).** The push `types` cover only mail objects. Calendars, contacts, files and identities do not refresh live, and there is no `/changes` delta for them. Also missing: `ShareNotification` and `CalendarEventNotification` (share-notification-store.ts, calendar-event-notification-store.ts, notifications/notification-center.tsx) and the notification centre itself.
 11. **Mail export and copy (M).** .eml/.mbox import is done. Still missing: mbox/eml export of a folder (mail-transfer/), lib/tnef.ts for winmail.dat, and `Email/copy` (copy to another account).
 12. **Safety in the reader (M).** Bulwark: lib/phishing-links.ts, phishing-mark-banner.tsx, phishing-report*, external-sender-chip.tsx, brand-verified-badge.tsx with lib/bimi, trusted-senders-modal.tsx (`trustedSenders`, `externalContentPolicy`), external-recipient-confirm.tsx. Barbican has one global "load remote images" choice, the spam badge and the invitation trust warning. (BIMI is used for sender pictures only.) Missing:
-    - Link mismatch warnings
+    - Turning links off in a reported phishing message (Bulwark 1.21.2 has no link-mismatch warning)
     - Phishing report
     - External sender chip
     - BIMI verified badge
@@ -117,6 +117,6 @@ All nine P0 items are implemented (see above). What is left of them:
 - **Linux platform layer (M):** a platform layer exists now (src/platform/), but the Linux side, the .deb scripts and the AppImage step have never been compiled (no GTK libraries on this machine). WebKitGTK, Secret Service and the portal colour scheme are unverified.
 - **Rich-text composer leftovers (S):** IME is unverified with a real IME, and the pre-edit text covers the text after the caret instead of pushing it aside.
 - **Polish font pass:** the memory note marks it done on 2026-11-16 (Skia renderer, Segoe UI, run-through by driving the real window with drive.ps1). Still open: a side-by-side check of font sizes and weights against Bulwark per view, redone through the hidden automation channel since drive.ps1 is now forbidden.
-- **ROADMAP.md is out of date:** its "Later" items (unified inbox paging and unread count, accessibility page, calendarMonthTimedEvents, hover-actions corner, Sieve vacation-only scripts and hand-written blocks) were all done in commits 54d75d7, 9482bdd, 8b501d4 and 04f7b96, but are still listed. The "In progress" context-menus line is also stale.
+- ROADMAP.md was rewritten on 2026-11-23 around 1:1 Bulwark parity, plugins included.
 
 Files read: `C:/Users/user/Downloads/webmail-main/desktop/ROADMAP.md`, `C:/Users/user/Downloads/webmail-main/desktop/JMAP-COMPLIANCE.md`, `C:/Users/user/Downloads/webmail-main/desktop/src/settings.rs`, `C:/Users/user/Downloads/webmail-main/desktop/src/server_settings.rs`, `C:/Users/user/Downloads/webmail-main/desktop/src/main.rs`, `C:/Users/user/Downloads/webmail-main/desktop/src/ctxmenu.rs`, `C:/Users/user/Downloads/webmail-main/desktop/ui/app.slint`, `C:/Users/user/Downloads/webmail-main/desktop/ui/settings-schema.json`, `C:/Users/user/Downloads/webmail-main/stores/settings-store.ts`, `C:/Users/user/Downloads/webmail-main/lib/keyboard-shortcuts/`.
