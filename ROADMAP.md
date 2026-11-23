@@ -193,7 +193,7 @@ Many of the plugin slots live on these screens.
 
 ## Track C: distribution (alongside, when a release is wanted)
 
-- Run CI for the first time: MSI, portable zip, .deb, AppImage.
+- Run CI for the first time: Inno installer, portable zip, .deb, AppImage. The MSI is on hold (built only with the repository variable `BUILD_MSI` = true). `packaging/inno/README.md` and Hub's `docs/COMPLIANCE.md` say what a release must carry; `CHANGELOG.md` drives the notes.
 - Run the updater end to end, and add the started-marker rollback (C# ADR 0009).
 - A local signed daily channel for the user's own build.
 - First Linux compile: WebKitGTK, Secret Service, the portal colour scheme, mailto handling.
