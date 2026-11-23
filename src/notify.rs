@@ -14,7 +14,9 @@ pub struct Note {
     pub title: String,
     pub body: String,
     /// Handed back with the activation: "mail:<email id>@<folder id>@<account>" (the folder and
-    /// account parts are optional: older toasts carry "mail:<email id>"), "inbox", "event:<id>".
+    /// account parts are optional: older toasts carry "mail:<email id>"), "inbox:<account>" (plain
+    /// "inbox" on older toasts), "event:<id>". The account is the remembered login (what the
+    /// account switcher lists), not the session's own user name.
     pub context: String,
     /// (action id, label)
     pub actions: Vec<(String, String)>,
@@ -49,7 +51,12 @@ pub fn mail_context(id: &str, mailbox: &str, account: &str) -> String {
     format!("mail:{id}@{mailbox}@{account}")
 }
 
-/// A message a toast points at.
+/// The context of a toast for several new messages: "inbox:<account>".
+pub fn inbox_context(account: &str) -> String {
+    if account.is_empty() { "inbox".into() } else { format!("inbox:{account}") }
+}
+
+/// A message a toast points at (or, with an empty `id`, only the Inbox of `account`).
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct MailRef {
     pub id: String,
@@ -68,6 +75,13 @@ pub fn parse_mail_context(ctx: &str) -> Option<MailRef> {
     if id.is_empty() { return None; }
     let some = |s: Option<&str>| s.filter(|s| !s.is_empty()).map(String::from);
     Some(MailRef { id: id.to_string(), mailbox: some(parts.next()), account: some(parts.next()) })
+}
+
+/// "inbox" or "inbox:<account>" back into a reference without a message (empty `id`); None for
+/// other contexts.
+pub fn parse_inbox_context(ctx: &str) -> Option<MailRef> {
+    let account = if ctx == "inbox" { None } else { Some(ctx.strip_prefix("inbox:")?).filter(|a| !a.is_empty()).map(String::from) };
+    Some(MailRef { id: String::new(), mailbox: None, account })
 }
 
 /// What the window shows when a toast is activated.
@@ -162,6 +176,10 @@ pub fn plan_mail_open(r: &MailRef, v: &View, at: &Location) -> OpenPlan {
     if r.account.as_deref().is_some_and(|a| !v.account.is_empty() && a != v.account) {
         return OpenPlan::default();
     }
+    // a toast for several messages: just that login's Inbox
+    if r.id.is_empty() {
+        return OpenPlan { folder: v.inbox.as_deref().and_then(|i| folder_to_select(i, v)), open: false, notice: None };
+    }
     let hint = r.mailbox.as_deref().filter(|m| known(v, m));
     let target = match at {
         Location::Gone => return OpenPlan { folder: None, open: false, notice: Some("That message is no longer there.") },
@@ -216,7 +234,7 @@ pub fn mail_note(batch: &[NewMail], account: &str, sound: bool, archive: bool) -
         return Some(Note {
             title: format!("{} new messages", batch.len()),
             body: format!("{}: {subject}", newest.sender),
-            context: "inbox".into(),
+            context: inbox_context(account),
             ..base
         });
     }
@@ -556,11 +574,68 @@ mod tests {
     }
 
     #[test]
+    fn inbox_context_round_trip() {
+        assert_eq!(inbox_context("me@x.test"), "inbox:me@x.test");
+        assert_eq!(inbox_context(""), "inbox");
+        let a = |s: &str| MailRef { id: String::new(), mailbox: None, account: Some(s.into()) };
+        assert_eq!(parse_inbox_context("inbox:me@x.test"), Some(a("me@x.test")));
+        // an older toast names no login
+        assert_eq!(parse_inbox_context("inbox"), Some(MailRef::default()));
+        assert_eq!(parse_inbox_context("inbox:"), Some(MailRef::default()));
+        assert_eq!(parse_inbox_context("mail:e1"), None);
+        assert_eq!(parse_inbox_context("inboxes"), None);
+        assert_eq!(parse_inbox_context("event:a"), None);
+        // and a message context is not an Inbox one
+        assert_eq!(parse_mail_context("inbox:me@x.test"), None);
+    }
+
+    #[test]
+    fn inbox_toast_follows_its_login() {
+        let me = "me@x.test";
+        let signed = vec![me.to_string(), "other@x.test".to_string()];
+        let toast = parse_inbox_context(&inbox_context("other@x.test")).unwrap();
+        // another signed-in login: switch to it, as for a message
+        assert_eq!(plan_account(&toast, me, &signed), AccountPlan::Switch("other@x.test".into()));
+        assert_eq!(plan_account(&parse_inbox_context(&inbox_context("gone@x.test")).unwrap(), me, &signed), AccountPlan::Missing);
+        assert_eq!(plan_account(&parse_inbox_context("inbox").unwrap(), me, &signed), AccountPlan::Here);
+        // a queued one waits for its own login only
+        let t0 = std::time::Instant::now();
+        assert!(pending_applies(&toast, t0, t0, "other@x.test"));
+        assert!(!pending_applies(&toast, t0, t0, me));
+        // on that login: the Inbox is selected, nothing is opened
+        let mut v = view("sent");
+        v.account = "other@x.test".into();
+        assert_eq!(plan_mail_open(&toast, &v, &Location::Unknown), OpenPlan { folder: Some("inbox".into()), open: false, notice: None });
+        // the Inbox is shown already: nothing to do
+        assert_eq!(plan_mail_open(&toast, &{ let mut w = v.clone(); w.folder = "inbox".into(); w }, &Location::Unknown), OpenPlan::default());
+        // All inboxes gives way to the login's own Inbox
+        let mut u = v.clone();
+        u.folder = "__unified".into();
+        assert_eq!(plan_mail_open(&toast, &u, &Location::Unknown).folder.as_deref(), Some("inbox"));
+        // never through the wrong login
+        assert_eq!(plan_mail_open(&toast, &view("sent"), &Location::Unknown), OpenPlan::default());
+    }
+
+    #[test]
+    fn login_not_user_name() {
+        // the toast carries the remembered login even when the principal name differs: it matches
+        // what the account switcher offers (the session's own user name would not)
+        let n = mail_note(&[m("e1", "Ada", "Plans")], "ann@x.test", true, true).unwrap();
+        let signed = vec!["ann@x.test".to_string(), "bo@x.test".to_string()];
+        let r = parse_mail_context(&n.context).unwrap();
+        assert_eq!(plan_account(&r, "bo@x.test", &signed), AccountPlan::Switch("ann@x.test".into()));
+        let principal = mail_note(&[m("e1", "Ada", "Plans")], "ann", true, true).unwrap();
+        let r = parse_mail_context(&principal.context).unwrap();
+        assert_eq!(plan_account(&r, "bo@x.test", &signed), AccountPlan::Missing);
+    }
+
+    #[test]
     fn batch_opens_inbox() {
         let n = mail_note(&[m("e2", "Bo", "Second"), m("e1", "Ada", "First")], "acc", true, true).unwrap();
         assert_eq!(n.title, "2 new messages");
         assert_eq!(n.body, "Bo: Second");
-        assert_eq!(n.context, "inbox");
+        assert_eq!(n.context, "inbox:acc");
+        assert_eq!(parse_inbox_context(&n.context).and_then(|r| r.account).as_deref(), Some("acc"));
         assert!(n.actions.is_empty());
         assert!(mail_note(&[], "acc", true, true).is_none());
     }

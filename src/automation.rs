@@ -420,7 +420,7 @@ fn run_cmd(u: &AppWindow, line: &str) -> String {
             let folder = u.get_current_folder().to_string();
             let mailbox = if folder.starts_with("__") { String::new() } else { folder };
             let mail = crate::notify::NewMail { id: m.id.to_string(), mailbox, sender: m.sender.to_string(), subject: m.subject.to_string(), preview: m.preview.to_string() };
-            if let Some(n) = crate::notify::mail_note(&[mail], u.get_account().as_str(), false, true) { crate::notify::show(n); }
+            if let Some(n) = crate::notify::mail_note(&[mail], &crate::unified::active_user(), false, true) { crate::notify::show(n); }
             "ok".into()
         }
         // "note-activate ACTION CONTEXT": the same path a click or a button on a toast takes

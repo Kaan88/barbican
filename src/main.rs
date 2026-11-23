@@ -659,7 +659,7 @@ fn check_new_mail(c: Arc<jmap::Client>, w: Option<slint::Weak<AppWindow>>) {
         let arrived = !batch.is_empty();
         batch.reverse();
         if !dnd {
-            if let Some(n) = notify::mail_note(&batch, &c.username, sound, roles.contains_key("archive")) { notify::show(n); }
+            if let Some(n) = notify::mail_note(&batch, &unified::login_of(&c), sound, roles.contains_key("archive")) { notify::show(n); }
         }
         // Settings > Accessibility > Visual alerts: flash the taskbar button
         if arrived && a11y::A11y::load().visual_alerts {
