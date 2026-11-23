@@ -13,7 +13,8 @@ pub struct Note {
     pub group: String,
     pub title: String,
     pub body: String,
-    /// Handed back with the activation: "mail:<email id>", "inbox", "event:<id>".
+    /// Handed back with the activation: "mail:<email id>@<folder id>@<account>" (the folder and
+    /// account parts are optional: older toasts carry "mail:<email id>"), "inbox", "event:<id>".
     pub context: String,
     /// (action id, label)
     pub actions: Vec<(String, String)>,
@@ -40,10 +41,120 @@ pub fn decode(arg: &str) -> Activation {
     }
 }
 
+/// The context of a one-message toast: "mail:<id>@<folder id>@<account>". JMAP ids use only
+/// letters, digits, '-' and '_', so '@' separates them; the account (a login, which may contain
+/// '@' itself) goes last and takes the rest.
+pub fn mail_context(id: &str, mailbox: &str, account: &str) -> String {
+    if mailbox.is_empty() && account.is_empty() { return format!("mail:{id}"); }
+    format!("mail:{id}@{mailbox}@{account}")
+}
+
+/// A message a toast points at.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct MailRef {
+    pub id: String,
+    /// The folder it was in when the toast was made (None on a toast from before folders were carried).
+    pub mailbox: Option<String>,
+    /// The login whose mail it is (None on an older toast).
+    pub account: Option<String>,
+}
+
+/// "mail:..." back into its parts; None for other contexts. Reads both the old "mail:<id>" and
+/// the current form.
+pub fn parse_mail_context(ctx: &str) -> Option<MailRef> {
+    let rest = ctx.strip_prefix("mail:")?;
+    let mut parts = rest.splitn(3, '@');
+    let id = parts.next().unwrap_or("");
+    if id.is_empty() { return None; }
+    let some = |s: Option<&str>| s.filter(|s| !s.is_empty()).map(String::from);
+    Some(MailRef { id: id.to_string(), mailbox: some(parts.next()), account: some(parts.next()) })
+}
+
+/// What the window shows when a toast is activated.
+#[derive(Debug, Clone, Default)]
+pub struct View {
+    /// Login of the signed-in session.
+    pub account: String,
+    /// The selected folder id ("" for a view that is not a folder, "__unified" for All inboxes).
+    pub folder: String,
+    /// A search or a tag narrows the list, so the message might not be in it.
+    pub narrowed: bool,
+    /// The message is in the list on screen.
+    pub listed: bool,
+    /// Ids of the session's folders (empty while they are not loaded yet).
+    pub folders: Vec<String>,
+    pub inbox: Option<String>,
+}
+
+/// Where the server says a message is.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Location {
+    /// In these folders.
+    In(Vec<String>),
+    /// No longer exists (deleted for good).
+    Gone,
+    /// Not asked, or the server did not answer: the toast's own hint decides.
+    Unknown,
+}
+
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct OpenPlan {
+    /// Folder to select (clearing search and tag) before anything else; None keeps the view.
+    pub folder: Option<String>,
+    /// Open the message after that.
+    pub open: bool,
+    /// Said to the user when the message could not be opened.
+    pub notice: Option<&'static str>,
+}
+
+fn known(v: &View, id: &str) -> bool { v.folders.is_empty() || v.folders.iter().any(|f| f == id) }
+
+/// The folder to select to show `target`: None when it is already shown as it is.
+pub fn folder_to_select(target: &str, v: &View) -> Option<String> {
+    (target != v.folder || v.narrowed).then(|| target.to_string())
+}
+
+/// Which folder, and whether to open the message, when a toast for `r` is activated
+/// (Bulwark's showInOwningFolder: the message's own folder is selected, its account is checked
+/// first, a message that is gone only says so). The All inboxes view is left for the folder:
+/// its rows are keyed per source, so the message could not be highlighted there.
+pub fn plan_mail_open(r: &MailRef, v: &View, at: &Location) -> OpenPlan {
+    // another login's message id means nothing here (Bulwark opens the Inbox instead)
+    if r.account.as_deref().is_some_and(|a| !v.account.is_empty() && a != v.account) {
+        return OpenPlan { folder: v.inbox.as_deref().and_then(|i| folder_to_select(i, v)), open: false, notice: None };
+    }
+    let hint = r.mailbox.as_deref().filter(|m| known(v, m));
+    let target = match at {
+        Location::Gone => return OpenPlan { folder: None, open: false, notice: Some("That message is no longer there.") },
+        Location::In(boxes) => {
+            let mut have: Vec<&String> = boxes.iter().filter(|b| v.folders.iter().any(|f| f == *b)).collect();
+            have.sort();
+            if have.iter().any(|b| **b == v.folder) { Some(v.folder.as_str()) }
+            else {
+                hint.filter(|h| have.iter().any(|b| *b == h))
+                    .or(v.inbox.as_deref().filter(|i| have.iter().any(|b| *b == i)))
+                    .or(have.first().map(|b| b.as_str()))
+                    .or(hint)
+            }
+        }
+        Location::Unknown => hint,
+    };
+    let target = match target {
+        Some(t) => Some(t),
+        // nothing says where it is: where it is listed, else the Inbox it most likely arrived in
+        None if v.listed => None,
+        None => v.inbox.as_deref(),
+    };
+    let folder = target.and_then(|t| folder_to_select(t, v));
+    OpenPlan { folder, open: true, notice: None }
+}
+
 /// Mail that arrived together (Bulwark buildMailNotification): one message gets its sender
 /// and subject with Archive, Mark as read and Delete; several get a count and open the Inbox.
 pub struct NewMail {
     pub id: String,
+    /// The folder the message arrived in (its Inbox, or the folder a rule filed it to).
+    pub mailbox: String,
     pub sender: String,
     pub subject: String,
     pub preview: String,
@@ -77,7 +188,7 @@ pub fn mail_note(batch: &[NewMail], account: &str, sound: bool, archive: bool) -
     Some(Note {
         title: if newest.sender.is_empty() { "New mail".into() } else { newest.sender.clone() },
         body,
-        context: format!("mail:{}", newest.id),
+        context: mail_context(&newest.id, &newest.mailbox, account),
         actions,
         ..base
     })
@@ -220,7 +331,7 @@ mod tests {
     use super::*;
 
     fn m(id: &str, sender: &str, subject: &str) -> NewMail {
-        NewMail { id: id.into(), sender: sender.into(), subject: subject.into(), preview: "Hello there".into() }
+        NewMail { id: id.into(), mailbox: "mb1".into(), sender: sender.into(), subject: subject.into(), preview: "Hello there".into() }
     }
 
     #[test]
@@ -228,7 +339,7 @@ mod tests {
         let n = mail_note(&[m("e1", "Ada", "Plans")], "acc", true, true).unwrap();
         assert_eq!(n.title, "Ada");
         assert_eq!(n.body, "Plans\nHello there");
-        assert_eq!(n.context, "mail:e1");
+        assert_eq!(n.context, "mail:e1@mb1@acc");
         assert_eq!(n.group, "mail:acc");
         assert_eq!(n.id, "mail:acc/e1");
         let ids: Vec<&str> = n.actions.iter().map(|a| a.0.as_str()).collect();
@@ -237,6 +348,115 @@ mod tests {
         assert_eq!(n.title, "New mail");
         assert!(n.body.starts_with("(no subject)"));
         assert_eq!(n.actions[0].0, "mark-read");
+    }
+
+    fn view(folder: &str) -> View {
+        View { account: "me@x.test".into(), folder: folder.into(), narrowed: false, listed: false,
+            folders: vec!["inbox".into(), "arch".into(), "sub".into(), "sent".into()], inbox: Some("inbox".into()) }
+    }
+    fn r(mailbox: Option<&str>, account: Option<&str>) -> MailRef {
+        MailRef { id: "e1".into(), mailbox: mailbox.map(String::from), account: account.map(String::from) }
+    }
+    fn boxes(b: &[&str]) -> Location { Location::In(b.iter().map(|s| s.to_string()).collect()) }
+
+    #[test]
+    fn mail_context_round_trip() {
+        assert_eq!(mail_context("e1", "mb", "me@x.test"), "mail:e1@mb@me@x.test");
+        assert_eq!(parse_mail_context("mail:e1@mb@me@x.test"), Some(r(Some("mb"), Some("me@x.test"))));
+        // a toast from before the folder was carried
+        assert_eq!(parse_mail_context("mail:e1"), Some(r(None, None)));
+        assert_eq!(mail_context("e1", "", ""), "mail:e1");
+        assert_eq!(parse_mail_context("mail:e1@@acc"), Some(r(None, Some("acc"))));
+        assert_eq!(parse_mail_context("mail:"), None);
+        assert_eq!(parse_mail_context("inbox"), None);
+        assert_eq!(parse_mail_context("event:a"), None);
+    }
+
+    #[test]
+    fn opens_the_mails_own_folder() {
+        // viewing another folder: switch to the one the mail is in, then open it
+        let p = plan_mail_open(&r(Some("arch"), None), &view("sent"), &boxes(&["arch"]));
+        assert_eq!(p, OpenPlan { folder: Some("arch".into()), open: true, notice: None });
+        // already there: keep the list, just open
+        let p = plan_mail_open(&r(Some("arch"), None), &view("arch"), &boxes(&["arch"]));
+        assert_eq!(p, OpenPlan { folder: None, open: true, notice: None });
+    }
+
+    #[test]
+    fn moved_mail_follows_the_server() {
+        // the toast said Inbox, the mail has since been filed to Archive
+        let p = plan_mail_open(&r(Some("inbox"), None), &view("inbox"), &boxes(&["arch"]));
+        assert_eq!(p.folder.as_deref(), Some("arch"));
+        assert!(p.open);
+        // in several folders: the one on screen, else the toast's, else the Inbox
+        assert_eq!(plan_mail_open(&r(Some("sub"), None), &view("arch"), &boxes(&["sub", "arch"])).folder, None);
+        assert_eq!(plan_mail_open(&r(Some("sub"), None), &view("sent"), &boxes(&["arch", "sub"])).folder.as_deref(), Some("sub"));
+        assert_eq!(plan_mail_open(&r(None, None), &view("sent"), &boxes(&["arch", "inbox"])).folder.as_deref(), Some("inbox"));
+        // only in a folder the tree does not have (a shared account's): the Inbox, as for an old toast
+        assert_eq!(plan_mail_open(&r(None, None), &view("sent"), &boxes(&["elsewhere"])).folder.as_deref(), Some("inbox"));
+    }
+
+    #[test]
+    fn deleted_mail_only_says_so() {
+        let p = plan_mail_open(&r(Some("inbox"), None), &view("sent"), &Location::Gone);
+        assert_eq!(p, OpenPlan { folder: None, open: false, notice: Some("That message is no longer there.") });
+    }
+
+    #[test]
+    fn old_toast_and_unknown_server() {
+        // no folder in the context, not asked: where it is listed, else the Inbox
+        let mut v = view("sent");
+        assert_eq!(plan_mail_open(&r(None, None), &v, &Location::Unknown).folder.as_deref(), Some("inbox"));
+        v.listed = true;
+        assert_eq!(plan_mail_open(&r(None, None), &v, &Location::Unknown).folder, None);
+        // the server did not answer: the toast's folder
+        assert_eq!(plan_mail_open(&r(Some("arch"), None), &view("sent"), &Location::Unknown).folder.as_deref(), Some("arch"));
+        // a folder the tree does not know is not selected
+        assert_eq!(plan_mail_open(&r(Some("zzz"), None), &view("inbox"), &Location::Unknown).folder, None);
+        // folders not loaded yet: trust the toast
+        let mut v = view("");
+        v.folders.clear();
+        v.inbox = None;
+        assert_eq!(plan_mail_open(&r(Some("arch"), None), &v, &Location::Unknown).folder.as_deref(), Some("arch"));
+    }
+
+    #[test]
+    fn all_inboxes_view_is_left() {
+        // the merged view keys rows per source: the mail's own Inbox is selected instead
+        let p = plan_mail_open(&r(Some("inbox"), Some("me@x.test")), &view("__unified"), &boxes(&["inbox"]));
+        assert_eq!(p, OpenPlan { folder: Some("inbox".into()), open: true, notice: None });
+        // the views that are not folders (Starred, All mail)
+        assert_eq!(plan_mail_open(&r(Some("inbox"), None), &view(""), &boxes(&["inbox"])).folder.as_deref(), Some("inbox"));
+    }
+
+    #[test]
+    fn search_or_tag_is_cleared() {
+        // right folder, but a search narrows the list: reload it so the mail is in it
+        let mut v = view("inbox");
+        v.narrowed = true;
+        assert_eq!(plan_mail_open(&r(Some("inbox"), None), &v, &boxes(&["inbox"])).folder.as_deref(), Some("inbox"));
+        // narrowed but the mail is on screen already: leave the results
+        v.listed = true;
+        assert_eq!(plan_mail_open(&r(None, None), &v, &Location::Unknown).folder, None);
+    }
+
+    #[test]
+    fn another_login_opens_the_inbox_only() {
+        let p = plan_mail_open(&r(Some("arch"), Some("other@x.test")), &view("sent"), &boxes(&["arch"]));
+        assert_eq!(p, OpenPlan { folder: Some("inbox".into()), open: false, notice: None });
+        let p = plan_mail_open(&r(Some("arch"), Some("other@x.test")), &view("inbox"), &Location::Unknown);
+        assert_eq!(p, OpenPlan { folder: None, open: false, notice: None });
+        // the same login: opens
+        assert!(plan_mail_open(&r(Some("arch"), Some("me@x.test")), &view("inbox"), &boxes(&["arch"])).open);
+    }
+
+    #[test]
+    fn inbox_toast_selects_the_inbox() {
+        assert_eq!(folder_to_select("inbox", &view("sent")).as_deref(), Some("inbox"));
+        assert_eq!(folder_to_select("inbox", &view("inbox")), None);
+        let mut v = view("inbox");
+        v.narrowed = true;
+        assert_eq!(folder_to_select("inbox", &v).as_deref(), Some("inbox"));
     }
 
     #[test]
@@ -270,9 +490,9 @@ mod tests {
     fn toast_markup() {
         let n = mail_note(&[m("e1", "A & B <x>", "Q\"s")], "acc", true, true).unwrap();
         let x = toast_xml(&n);
-        assert!(x.starts_with("<toast launch=\"open|mail:e1\""), "{x}");
+        assert!(x.starts_with("<toast launch=\"open|mail:e1@mb1@acc\""), "{x}");
         assert!(x.contains("<text>A &amp; B &lt;x&gt;</text><text>Q&quot;s</text><text>Hello there</text>"), "{x}");
-        assert!(x.contains("<action content=\"Archive\" arguments=\"archive|mail:e1\""));
+        assert!(x.contains("<action content=\"Archive\" arguments=\"archive|mail:e1@mb1@acc\""));
         assert!(x.contains("ms-winsoundevent:Notification.Mail"));
         let silent = toast_xml(&Note { sound: false, ..n });
         assert!(silent.contains("<audio silent=\"true\"/>"));

@@ -302,38 +302,99 @@ fn activate(a: notify::Activation) {
         }
         return;
     }
-    let inbox = || {
-        let f = u.get_folders();
-        (0..f.row_count()).filter_map(|i| f.row_data(i)).find(|f| crate::mail::mailbox_role(&f.id) == "inbox").map(|f| f.id.to_string())
-    };
     if a.context == "inbox" {
         show_window(&u);
         u.set_show_settings(false);
         u.set_app(0);
         u.invoke_app_changed(0);
-        if let Some(id) = inbox() { u.invoke_select_folder(id.into()); }
+        if let Some(c) = st.and_then(|s| s.lock().unwrap().clone()) {
+            let v = view_of(&u, &c, "");
+            if let Some(id) = v.inbox.as_deref().and_then(|i| notify::folder_to_select(i, &v)) { select_folder(&u, &id); }
+        }
         return;
     }
-    let Some(id) = a.context.strip_prefix("mail:").map(String::from) else { return };
+    let Some(r) = notify::parse_mail_context(&a.context) else { return };
+    let Some(c) = st.and_then(|s| s.lock().unwrap().clone()) else { return };
     match a.action.as_str() {
         "archive" | "mark-read" | "delete" => {
-            let Some(c) = st.and_then(|s| s.lock().unwrap().clone()) else { return };
+            // another login's message id means nothing to this session
+            if r.account.as_deref().is_some_and(|x| x != c.username) { return; }
             let action = match a.action.as_str() { "mark-read" => "read", x => x };
-            crate::mail::apply_confirmed(&u, c, vec![id.clone()], action, &[id]);
+            crate::mail::apply_confirmed(&u, c, vec![r.id.clone()], action, &[r.id]);
         }
-        _ => {
-            show_window(&u);
-            u.set_show_settings(false);
-            u.set_app(0);
-            u.invoke_app_changed(0);
-            // from another folder: go to the Inbox the message arrived in, then open it
-            let in_list = { let m = u.get_mails(); (0..m.row_count()).any(|i| m.row_data(i).is_some_and(|r| r.id == id)) };
-            if !in_list {
-                if let Some(ib) = inbox() { if ib != u.get_current_folder().as_str() { u.invoke_select_folder(ib.into()); } }
-            }
-            u.set_current_mail(id.clone().into());
-            u.invoke_open_mail(id.into());
+        _ => open_from_toast(&u, c, r),
+    }
+}
+
+/// Folder and window state the activation decides on.
+fn view_of(u: &AppWindow, c: &crate::jmap::Client, id: &str) -> notify::View {
+    let f = u.get_folders();
+    let m = u.get_mails();
+    let ids: Vec<String> = (0..f.row_count()).filter_map(|i| f.row_data(i)).map(|f| f.id.to_string()).filter(|i| !i.starts_with("__")).collect();
+    notify::View {
+        account: c.username.clone(),
+        folder: u.get_current_folder().to_string(),
+        narrowed: !u.get_search().trim().is_empty() || !u.get_current_tag().is_empty(),
+        listed: !id.is_empty() && (0..m.row_count()).any(|i| m.row_data(i).is_some_and(|r| r.id == id)),
+        inbox: crate::mail::role_id("inbox").filter(|i| ids.contains(i)),
+        folders: ids,
+    }
+}
+
+/// Show a folder the way a click on it does: no search or tag, its row selected (and unfolded
+/// in the tree), its list loaded.
+fn select_folder(u: &AppWindow, id: &str) {
+    u.set_current_tag("".into());
+    u.set_search("".into());
+    u.set_current_folder(id.into());
+    crate::mail::reveal_folder(u, id);
+    u.invoke_select_folder(id.into());
+}
+
+/// A toast's click: the message's own folder, then the message. Where it is now comes from the
+/// list on screen or from the server (it may have moved since the toast, or be gone).
+fn open_from_toast(u: &AppWindow, c: std::sync::Arc<crate::jmap::Client>, r: notify::MailRef) {
+    show_window(u);
+    u.set_show_settings(false);
+    u.set_app(0);
+    u.invoke_app_changed(0);
+    let v = view_of(u, &c, &r.id);
+    if r.account.as_deref().is_some_and(|x| x != c.username) {
+        finish_open(u, &r, &v, &notify::Location::Unknown);
+        return;
+    }
+    if let Some(m) = crate::mail::email(&r.id) {
+        let boxes = m["mailboxIds"].as_object().map(|o| o.iter().filter(|(_, v)| **v == true).map(|(k, _)| k.clone()).collect());
+        if let Some(b) = boxes {
+            finish_open(u, &r, &v, &notify::Location::In(b));
+            return;
         }
+    }
+    let w = u.as_weak();
+    std::thread::spawn(move || {
+        let at = match c.email_mailboxes(&r.id) {
+            Ok(Some(b)) => notify::Location::In(b),
+            Ok(None) => notify::Location::Gone,
+            Err(_) => notify::Location::Unknown,
+        };
+        let _ = w.upgrade_in_event_loop(move |u| {
+            // the view may have moved on while the server answered
+            let v = match STATE.with(|s| s.borrow().clone()).and_then(|s| s.lock().unwrap().clone()) {
+                Some(c) => view_of(&u, &c, &r.id),
+                None => return,
+            };
+            finish_open(&u, &r, &v, &at);
+        });
+    });
+}
+
+fn finish_open(u: &AppWindow, r: &notify::MailRef, v: &notify::View, at: &notify::Location) {
+    let plan = notify::plan_mail_open(r, v, at);
+    if let Some(f) = &plan.folder { select_folder(u, f); }
+    if let Some(n) = plan.notice { crate::mail::show_toast(u, n, false); }
+    if plan.open {
+        u.set_current_mail(r.id.clone().into());
+        u.invoke_open_mail(r.id.clone().into());
     }
 }
 

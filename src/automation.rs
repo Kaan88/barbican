@@ -415,7 +415,7 @@ fn run_cmd(u: &AppWindow, line: &str) -> String {
             use slint::Model;
             let i: usize = args.first().and_then(|v| v.parse().ok()).unwrap_or(0);
             let Some(m) = u.get_mails().row_data(i) else { return "no such row".into() };
-            let mail = crate::notify::NewMail { id: m.id.to_string(), sender: m.sender.to_string(), subject: m.subject.to_string(), preview: m.preview.to_string() };
+            let mail = crate::notify::NewMail { id: m.id.to_string(), mailbox: u.get_current_folder().to_string(), sender: m.sender.to_string(), subject: m.subject.to_string(), preview: m.preview.to_string() };
             if let Some(n) = crate::notify::mail_note(&[mail], "automation", false, true) { crate::notify::show(n); }
             "ok".into()
         }

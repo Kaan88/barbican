@@ -648,6 +648,7 @@ fn check_new_mail(c: Arc<jmap::Client>, w: Option<slint::Weak<AppWindow>>) {
             if seen.insert(id.clone()) && !first_run {
                 batch.push(notify::NewMail {
                     id,
+                    mailbox: gsearch::hit_folder(m, std::slice::from_ref(inbox)),
                     sender: mail::sender(m),
                     subject: m["subject"].as_str().unwrap_or("").to_string(),
                     preview: mail::clean_preview(m["preview"].as_str().unwrap_or("")),

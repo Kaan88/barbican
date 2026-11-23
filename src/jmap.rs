@@ -663,6 +663,13 @@ impl Client {
         if m.is_null() { Err("Message not found.".into()) } else { Ok(m) }
     }
 
+    /// Folders a message is in now; Ok(None) when the server no longer has it.
+    pub fn email_mailboxes(&self, email_id: &str) -> R<Option<Vec<String>>> {
+        let r = self.call(json!([["Email/get", {"accountId": self.account, "ids": [email_id], "properties": ["mailboxIds"]}, "a"]]))?;
+        let m = &r[0][1]["list"][0];
+        Ok(m["mailboxIds"].as_object().map(|o| o.iter().filter(|(_, v)| **v == true).map(|(k, _)| k.clone()).collect()))
+    }
+
     pub fn thread_emails(&self, email_id: &str) -> R<Vec<Value>> {
         let r = self.call(json!([
             ["Email/get", {"accountId": self.account, "ids": [email_id], "properties": ["threadId"]}, "a"],
