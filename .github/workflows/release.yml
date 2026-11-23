@@ -164,6 +164,8 @@ jobs:
           path: dist/*
 
   linux:
+    # Off until the repository variable BARBICAN_BUILD_LINUX is "true" (Hub only needs the Windows setup).
+    if: ${{ vars.BARBICAN_BUILD_LINUX == 'true' }}
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -205,6 +207,8 @@ jobs:
 
   publish:
     needs: [changelog, windows, linux]
+    # A skipped linux job (variable not set) must not skip the release.
+    if: ${{ !cancelled() && needs.changelog.result == 'success' && needs.windows.result == 'success' && (needs.linux.result == 'success' || needs.linux.result == 'skipped') }}
     runs-on: ubuntu-22.04
     env:
       HAS_GPG: ${{ secrets.GPG_PRIVATE_KEY != '' }}
