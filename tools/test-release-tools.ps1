@@ -100,3 +100,6 @@ Plain paragraph first.
 }
 if ($script:fails -gt 0) { Write-Host "$($script:fails) check(s) failed"; exit 1 }
 Write-Host 'all checks passed'
+# Explicit: the checks above run child processes that exit 1 on purpose, and a script that ends
+# without exit leaves that code in $LASTEXITCODE for the workflow step to trip on.
+exit 0
