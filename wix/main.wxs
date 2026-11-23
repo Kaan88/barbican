@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="windows-1252"?>
 <!--
+  ON HOLD: the Windows installer is Inno Setup now (packaging/inno); this MSI is built only when
+  the repository variable BUILD_MSI is "true".
   Barbican per-user MSI (WiX 3, built by `cargo wix` in .github/workflows/release.yml).
   Per-user so the updater (src/updater.rs, msiexec /i /passive) can upgrade it without
   elevation. Installs to %LOCALAPPDATA%\Programs\Barbican, adds a Start menu shortcut and

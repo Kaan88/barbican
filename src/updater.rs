@@ -10,8 +10,8 @@
 //! A newer version is downloaded in the background into the data folder and checked
 //! against the SHA-256 in the signed manifest. Nothing is installed until the user says so:
 //! "Restart now" installs at once, "Install next time" installs when Barbican next starts.
-//! MSI (per-user) and AppImage installs replace themselves; the portable zip, a .deb and a
-//! development build only say that a version is available.
+//! Inno Setup (per-user), MSI (per-user, on hold) and AppImage installs replace themselves; the
+//! portable zip, a .deb and a development build only say that a version is available.
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -85,7 +85,9 @@ impl Ord for Version {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Kind {
-    /// Windows Installer, per user: installs the new MSI.
+    /// Inno Setup, per user: runs the new setup silently.
+    Inno,
+    /// Windows Installer, per user (on hold, see wix/main.wxs): installs the new MSI.
     Msi,
     /// Windows portable zip: says a version is available.
     Zip,
@@ -100,21 +102,23 @@ pub enum Kind {
 impl Kind {
     pub fn asset(self) -> &'static str {
         match self {
+            Kind::Inno => "windows-x86_64-inno",
             Kind::Msi => "windows-x86_64-msi",
             Kind::Zip => "windows-x86_64-zip",
             Kind::AppImage => "linux-x86_64-appimage",
             Kind::Deb => "linux-x86_64-deb",
-            Kind::Dev => if cfg!(windows) { "windows-x86_64-msi" } else { "linux-x86_64-appimage" },
+            Kind::Dev => if cfg!(windows) { "windows-x86_64-inno" } else { "linux-x86_64-appimage" },
         }
     }
 
-    pub fn can_install(self) -> bool { matches!(self, Kind::Msi | Kind::AppImage) }
+    pub fn can_install(self) -> bool { matches!(self, Kind::Inno | Kind::Msi | Kind::AppImage) }
 }
 
-/// The installers leave `install-kind` next to the program ("msi" / "zip" / "deb").
+/// The installers leave `install-kind` next to the program ("inno" / "msi" / "zip" / "deb").
 pub fn detect_kind(exe: &Path, appimage: Option<&str>, marker: Option<&str>) -> Kind {
     if appimage.is_some_and(|a| !a.is_empty()) { return Kind::AppImage; }
     match marker.map(str::trim) {
+        Some("inno") => Kind::Inno,
         Some("msi") => Kind::Msi,
         Some("zip") => Kind::Zip,
         Some("deb") => Kind::Deb,
@@ -126,7 +130,7 @@ pub fn detect_kind(exe: &Path, appimage: Option<&str>, marker: Option<&str>) -> 
 pub fn current_kind() -> Kind {
     if crate::automation::enabled() {
         if let Ok(k) = std::env::var("BARBICAN_UPDATE_KIND") {
-            return match k.as_str() { "msi" => Kind::Msi, "zip" => Kind::Zip, "appimage" => Kind::AppImage, "deb" => Kind::Deb, _ => Kind::Dev };
+            return match k.as_str() { "inno" => Kind::Inno, "msi" => Kind::Msi, "zip" => Kind::Zip, "appimage" => Kind::AppImage, "deb" => Kind::Deb, _ => Kind::Dev };
         }
     }
     let exe = std::env::current_exe().unwrap_or_default();
@@ -382,7 +386,7 @@ fn file_name(url: &str, version: &str, kind: Kind) -> String {
     let last = url.rsplit('/').next().unwrap_or("").split('?').next().unwrap_or("");
     let safe: String = last.chars().filter(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_')).collect();
     if safe.is_empty() || safe.starts_with('.') {
-        format!("barbican-{version}.{}", match kind { Kind::Msi => "msi", Kind::AppImage => "AppImage", Kind::Deb => "deb", _ => "zip" })
+        format!("barbican-{version}.{}", match kind { Kind::Inno => "exe", Kind::Msi => "msi", Kind::AppImage => "AppImage", Kind::Deb => "deb", _ => "zip" })
     } else { safe }
 }
 
@@ -538,24 +542,62 @@ pub fn install_now() -> Result<(), String> {
 /// The installer helper: waits until this Barbican (`BARBICAN_PID`) has exited so no file is
 /// in use, runs msiexec on `BARBICAN_MSI`, then starts `BARBICAN_EXE` again (the new one, or
 /// the old one when the install failed or was cancelled; a reboot-required result 3010 also
-/// relaunches). The paths come in as environment variables, never spliced into the script,
-/// so nothing in them is run as a command.
+/// relaunches). It never ends the app itself: Barbican writes the open draft on quit (up to 15 s,
+/// `quit_saving_draft`) and a kill would lose it, so when the process is still there after 120 s
+/// the helper exits 1, without installing and without a relaunch. The app keeps running; nothing
+/// is pending by then (`install_now` and `on_start` clear it before starting this helper), so the
+/// next check downloads the update again. The paths come in as environment variables, never
+/// spliced into the script, so nothing in them is run as a command.
 pub const MSI_SCRIPT: &str = "$ErrorActionPreference='SilentlyContinue'; \
-Wait-Process -Id ([int]$env:BARBICAN_PID) -Timeout 120; \
+if (Get-Process -Id ([int]$env:BARBICAN_PID) -ErrorAction SilentlyContinue) { \
+Wait-Process -Id ([int]$env:BARBICAN_PID) -Timeout 120 -ErrorAction SilentlyContinue; \
+if (Get-Process -Id ([int]$env:BARBICAN_PID) -ErrorAction SilentlyContinue) { exit 1 } }; \
 $p = Start-Process -FilePath msiexec.exe -ArgumentList @('/i', ('\"' + $env:BARBICAN_MSI + '\"'), '/passive', '/norestart') -Wait -PassThru; \
+Start-Process -FilePath $env:BARBICAN_EXE";
+
+/// The same helper for the Inno setup (packaging/inno/barbican.iss): waits for this Barbican to
+/// exit, runs `BARBICAN_SETUP` silently (no window, no restart; /CLOSEAPPLICATIONS for any other
+/// copy of the program still open), then starts `BARBICAN_EXE` again, the new program or the old
+/// one when the setup failed. It never ends the app either: still running after 120 s means exit 1
+/// and no install, so the draft Barbican is saving is not lost; the pending download is already
+/// cleared, so the next check fetches the update again. The setup's own [Run] entry is skipped
+/// when silent, so Barbican starts once. No path is spliced into the script: the arguments are
+/// fixed, the paths are environment variables.
+pub const INNO_SCRIPT: &str = "$ErrorActionPreference='SilentlyContinue'; \
+if (Get-Process -Id ([int]$env:BARBICAN_PID) -ErrorAction SilentlyContinue) { \
+Wait-Process -Id ([int]$env:BARBICAN_PID) -Timeout 120 -ErrorAction SilentlyContinue; \
+if (Get-Process -Id ([int]$env:BARBICAN_PID) -ErrorAction SilentlyContinue) { exit 1 } }; \
+$p = Start-Process -FilePath $env:BARBICAN_SETUP -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/CLOSEAPPLICATIONS') -Wait -PassThru; \
 Start-Process -FilePath $env:BARBICAN_EXE";
 
 /// Program, arguments and environment of the helper (built here so it can be tested).
 pub fn msi_command(msi: &str, exe: &str, pid: u32) -> (String, Vec<String>, Vec<(String, String)>) {
-    ("powershell.exe".into(),
-     ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-Command", MSI_SCRIPT].map(String::from).to_vec(),
-     vec![("BARBICAN_MSI".into(), msi.into()), ("BARBICAN_EXE".into(), exe.into()), ("BARBICAN_PID".into(), pid.to_string())])
+    helper_command(MSI_SCRIPT, "BARBICAN_MSI", msi, exe, pid)
+}
+
+pub fn inno_command(setup: &str, exe: &str, pid: u32) -> (String, Vec<String>, Vec<(String, String)>) {
+    helper_command(INNO_SCRIPT, "BARBICAN_SETUP", setup, exe, pid)
+}
+
+fn helper_command(script: &str, var: &str, package: &str, exe: &str, pid: u32) -> (String, Vec<String>, Vec<(String, String)>) {
+    (powershell_exe(),
+     ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-Command", script].map(String::from).to_vec(),
+     vec![(var.into(), package.into()), ("BARBICAN_EXE".into(), exe.into()), ("BARBICAN_PID".into(), pid.to_string())])
+}
+
+/// Windows PowerShell by full path: `%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe`.
+/// `%SystemRoot%` is expanded here because `Command::new` does not expand environment variables;
+/// an install without that file (or without the variable) falls back to a PATH lookup.
+pub fn powershell_exe() -> String {
+    let root = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".into());
+    let p = format!(r"{root}\System32\WindowsPowerShell\v1.0\powershell.exe");
+    if Path::new(&p).is_file() { p } else { "powershell.exe".into() }
 }
 
 /// pending.json is not signed, so the file it names is only run when it lies inside the
 /// updates folder, has the package's extension and no quote or shell character.
 pub fn pending_path_ok(path: &Path, dir: &Path, kind: &str) -> bool {
-    let ext = match kind { "Msi" => "msi", "AppImage" => "AppImage", _ => return false };
+    let ext = match kind { "Inno" => "exe", "Msi" => "msi", "AppImage" => "AppImage", _ => return false };
     let text = path.to_string_lossy();
     if text.chars().any(|c| matches!(c, '"' | '%' | '&' | '|' | '<' | '>' | '^' | '`' | '$' | ';') || c.is_control()) { return false; }
     let (Ok(p), Ok(d)) = (path.canonicalize(), dir.canonicalize()) else { return false };
@@ -567,9 +609,10 @@ fn install(p: &Pending) -> Result<(), String> {
         return Err("The downloaded update is not where Barbican put it. Check again.".into());
     }
     match p.kind.as_str() {
-        "Msi" => {
+        "Inno" | "Msi" => {
             let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-            let (prog, args, env) = msi_command(&p.path, &exe.display().to_string(), std::process::id());
+            let build = if p.kind == "Inno" { inno_command } else { msi_command };
+            let (prog, args, env) = build(&p.path, &exe.display().to_string(), std::process::id());
             let mut cmd = std::process::Command::new(prog);
             cmd.args(args).envs(env);
             #[cfg(windows)]
@@ -643,6 +686,7 @@ mod tests {
     #[test]
     fn decisions() {
         assert_eq!(decide(&v("1.0.0"), &v("1.1.0"), "stable", Kind::Msi), Decision::Install);
+        assert_eq!(decide(&v("1.0.0"), &v("1.1.0"), "stable", Kind::Inno), Decision::Install);
         assert_eq!(decide(&v("1.0.0"), &v("1.1.0"), "stable", Kind::Deb), Decision::Notify);
         assert_eq!(decide(&v("1.0.0"), &v("1.1.0"), "stable", Kind::Zip), Decision::Notify);
         assert_eq!(decide(&v("1.0.0"), &v("1.0.0"), "stable", Kind::Msi), Decision::UpToDate);
@@ -659,6 +703,9 @@ mod tests {
         assert_eq!(detect_kind(Path::new(r"C:\Users\a\AppData\Local\Programs\Barbican\barbican.exe"), None, Some("msi\n")), Kind::Msi);
         assert_eq!(detect_kind(Path::new(r"D:\tools\barbican\barbican.exe"), None, Some("zip")), Kind::Zip);
         assert_eq!(detect_kind(Path::new(r"C:\src\target\release\barbican.exe"), None, None), Kind::Dev);
+        assert_eq!(detect_kind(Path::new(r"C:\Users\a\AppData\Local\Programs\Barbican\barbican.exe"), None, Some("inno")), Kind::Inno);
+        assert_eq!(Kind::Inno.asset(), "windows-x86_64-inno");
+        assert!(Kind::Inno.can_install());
         assert!(Kind::Msi.can_install() && Kind::AppImage.can_install() && !Kind::Deb.can_install() && !Kind::Zip.can_install());
     }
 
@@ -677,6 +724,7 @@ mod tests {
     fn manifest(channel: &str) -> String {
         json!({"version": "2.0.0", "channel": channel, "notes_url": "https://example.org/r/v2.0.0", "published": 100, "expires": 200, "assets": {
             "windows-x86_64-msi": {"url": "https://example.org/b.msi", "sha256": SHA, "size": 10},
+            "windows-x86_64-inno": {"url": "https://example.org/Barbican-Setup-2.0.0.exe", "sha256": SHA, "size": 10},
             "linux-x86_64-appimage": {"url": "ftp://example.org/b.AppImage", "sha256": SHA, "size": 10},
             "linux-x86_64-deb": {"url": "https://example.org/b.deb", "sha256": "nothex", "size": 10}}}).to_string()
     }
@@ -695,10 +743,12 @@ mod tests {
             assert_eq!(verify_manifest(body.as_bytes(), &signed(&sk, &body), &pk, "stable").unwrap().notes_url, "");
         }
         let body = manifest("stable").replace("https://example.org/b.msi", "http://127.0.0.1:9/b.msi");
-        assert!(verify_manifest(body.as_bytes(), &signed(&sk, &body), &pk, "stable").unwrap().assets.is_empty());
+        let kept = verify_manifest(body.as_bytes(), &signed(&sk, &body), &pk, "stable").unwrap().assets;
+        assert_eq!(kept.iter().map(|(k, _)| k.as_str()).collect::<Vec<_>>(), ["windows-x86_64-inno"]);
         // only https assets with a real hash are kept
-        assert_eq!(m.assets.len(), 1);
+        assert_eq!(m.assets.len(), 2);
         assert_eq!(m.assets[0].0, "windows-x86_64-msi");
+        assert_eq!(m.assets[1].0, "windows-x86_64-inno");
         // one changed byte, another key, another channel, garbage: all refused
         let tampered = body.replace("2.0.0", "9.0.0");
         assert!(verify_manifest(tampered.as_bytes(), &signed(&sk, &body), &pk, "stable").is_err());
@@ -750,7 +800,7 @@ mod tests {
     fn msi_cmd() {
         // paths with spaces and quotes stay data: they only travel as environment values
         let (prog, args, env) = msi_command(r#"C:\u s\b".msi"#, r"C:\p q\barbican.exe", 42);
-        assert_eq!(prog, "powershell.exe");
+        assert!(prog.ends_with(r"\WindowsPowerShell\v1.0\powershell.exe") || prog == "powershell.exe", "{prog}");
         assert_eq!(args.last().unwrap(), MSI_SCRIPT);
         assert!(!args.iter().any(|a| a.contains("b\".msi") || a.contains("p q")));
         assert_eq!(env, vec![("BARBICAN_MSI".to_string(), r#"C:\u s\b".msi"#.to_string()),
@@ -758,6 +808,29 @@ mod tests {
         // waits for this process before installing, relaunches afterwards
         assert!(MSI_SCRIPT.find("Wait-Process").unwrap() < MSI_SCRIPT.find("msiexec").unwrap());
         assert!(MSI_SCRIPT.rfind("BARBICAN_EXE").unwrap() > MSI_SCRIPT.find("msiexec").unwrap());
+        // a process that outlives the wait stops the helper before msiexec: nothing is killed
+        assert!(MSI_SCRIPT.find("exit 1").unwrap() < MSI_SCRIPT.find("msiexec").unwrap());
+        assert!(!MSI_SCRIPT.contains("Stop-Process") && !MSI_SCRIPT.contains("-Force"));
+    }
+
+    #[test]
+    fn inno_cmd() {
+        let (prog, args, env) = inno_command(r#"C:\u s\b".exe"#, r"C:\p q\barbican.exe", 42);
+        assert!(prog.ends_with(r"\WindowsPowerShell\v1.0\powershell.exe") || prog == "powershell.exe", "{prog}");
+        assert_eq!(args.last().unwrap(), INNO_SCRIPT);
+        assert!(!args.iter().any(|a| a.contains("b\".exe") || a.contains("p q")));
+        assert_eq!(env, vec![("BARBICAN_SETUP".to_string(), r#"C:\u s\b".exe"#.to_string()),
+            ("BARBICAN_EXE".to_string(), r"C:\p q\barbican.exe".to_string()), ("BARBICAN_PID".to_string(), "42".to_string())]);
+        // waits for this process, then runs the setup silently, then relaunches
+        let (wait, run, relaunch) = (INNO_SCRIPT.find("Wait-Process").unwrap(), INNO_SCRIPT.find("BARBICAN_SETUP").unwrap(), INNO_SCRIPT.rfind("BARBICAN_EXE").unwrap());
+        assert!(wait < run && run < relaunch);
+        for flag in ["/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CLOSEAPPLICATIONS"] { assert!(INNO_SCRIPT.contains(flag), "{flag}"); }
+        // the arguments are fixed text: no environment value is spliced into them
+        assert!(!INNO_SCRIPT.contains("ArgumentList $env"));
+        // Barbican saving its draft is never cut short: still running after the wait, the helper
+        // gives up before the setup runs, and the app is left running
+        assert!(INNO_SCRIPT.find("exit 1").unwrap() < run);
+        assert!(!INNO_SCRIPT.contains("Stop-Process") && !INNO_SCRIPT.contains("-Force"));
     }
 
     #[test]
@@ -770,6 +843,12 @@ mod tests {
         assert!(pending_path_ok(&good, &dir, "Msi"));
         assert!(!pending_path_ok(&good, &dir, "Zip"));
         assert!(!pending_path_ok(&good, &dir, "AppImage"));
+        // each kind only runs its own package type
+        let setup = dir.join("2.0.0").join("Barbican-Setup-2.0.0.exe");
+        std::fs::write(&setup, b"x").unwrap();
+        assert!(pending_path_ok(&setup, &dir, "Inno"));
+        assert!(!pending_path_ok(&setup, &dir, "Msi"));
+        assert!(!pending_path_ok(&good, &dir, "Inno"));
         assert!(!pending_path_ok(&dir.join("evil.exe"), &dir, "Msi"));
         assert!(!pending_path_ok(&dir.join("missing.msi"), &dir, "Msi"));
         assert!(!pending_path_ok(Path::new(r#"C:\x" & calc & ".msi"#), &dir, "Msi"));
@@ -804,6 +883,8 @@ mod tests {
     fn names() {
         assert_eq!(file_name("https://x/a/Barbican-1.2.0-x86_64.AppImage?x=1", "1.2.0", Kind::AppImage), "Barbican-1.2.0-x86_64.AppImage");
         assert_eq!(file_name("https://x/a/", "1.2.0", Kind::Msi), "barbican-1.2.0.msi");
+        assert_eq!(file_name("https://x/a/", "1.2.0", Kind::Inno), "barbican-1.2.0.exe");
+        assert_eq!(file_name("https://x/a/Barbican-Setup-1.2.0.exe", "1.2.0", Kind::Inno), "Barbican-Setup-1.2.0.exe");
         assert_eq!(file_name("https://x/../..", "1.2.0", Kind::Msi), "barbican-1.2.0.msi");
     }
 

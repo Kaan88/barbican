@@ -48,7 +48,7 @@ a{color:#f0577a}a:hover{color:#ff8aa5}
   <section aria-label="Messages" style="width: 368px; flex-shrink: 0; background: {{t.tile}}; border: 1px solid {{t.line}}; border-radius: 26px; display: flex; flex-direction: column; overflow: hidden">
     <div style="padding: 20px 20px 10px; display: flex; flex-direction: column; gap: 12px">
       <div style="display: flex; align-items: baseline"><h1 style="margin: 0; font-weight: 700; font-size: 25px; letter-spacing: -0.02em; flex: 1">Inbox</h1><span style="padding: 4px 10px; border-radius: 99px; background: {{t.roseBg}}; color: {{t.roseFg}}; font-weight: 700; font-size: 12px">12 new</span></div>
-      <div style="font-size: 12.5px; color: {{t.dim}}">Good morning, Kaan. Three things need you today.</div>
+      <div style="font-size: 12.5px; color: {{t.dim}}">Good morning, Alex. Three things need you today.</div>
       <label style="display: flex; align-items: center; gap: 8px; height: 38px; padding: 0 12px; border-radius: 14px; background: {{t.tile2}}; border: 1px solid {{t.line}}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="{{t.dim}}" stroke-width="2" aria-hidden="true"><path d="M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16z M21 21l-4.35-4.35"></path></svg><input aria-label="Search mail" placeholder="Search mail" style="border: 0; background: transparent; color: {{t.text}}; font: 13px 'Segoe UI', Inter, sans-serif; width: 100%; outline: none"><span style="font-size: 11px; color: {{t.faint}}; border: 1px solid {{t.line}}; border-radius: 5px; padding: 0 5px">/</span></label>
       <div style="display: flex; gap: 6px">
         <sc-for list="{{chips}}" as="c" hint-placeholder-count="3">
@@ -151,7 +151,7 @@ class Component extends DCLogic {
       ['TAP Air Portugal', 'Your boarding pass · LIS → AMS', 'Flight TP668 departs at 07:25…', '07:58', true],
       ['Jonas Weber', 'Re: Quarterly numbers', 'One question on the churn figure…', 'Mon'],
       ['Hetzner Online', 'Invoice 2026-11', 'Your invoice of €38.17 is available…', 'Mon'],
-      ['Ada Kasım', 'Dinner on Sunday?', 'Mum says 7 is fine…', 'Fri'],
+      ['Sam Example', 'Dinner on Sunday?', 'Mum says 7 is fine…', 'Fri'],
       ['The Browser', 'Five essays worth your weekend', 'On slowness, on maps…', 'Fri']
     ].map(([from, subject, preview, time, unread, sel], i) => ({
       from, subject, preview, time, weight: unread ? 700 : 500, bg: tints[i % 4][0], fg: tints[i % 4][1],
