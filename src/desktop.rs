@@ -315,7 +315,11 @@ fn activate(a: notify::Activation) {
         return;
     }
     let Some(r) = notify::parse_mail_context(&a.context) else { return };
-    let Some(c) = st.and_then(|s| s.lock().unwrap().clone()) else { return };
+    // no session (signed out, or the add-account form is up): a click still brings the window up
+    let Some(c) = st.and_then(|s| s.lock().unwrap().clone()) else {
+        if !matches!(a.action.as_str(), "archive" | "mark-read" | "delete") { show_window(&u); }
+        return;
+    };
     match a.action.as_str() {
         "archive" | "mark-read" | "delete" => {
             // another login's message id means nothing to this session: say so, do nothing
