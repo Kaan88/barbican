@@ -9,9 +9,10 @@
 #                (PRIVACY_REMOTE, default origin)
 # An annotated tag is peeled through the whole tag chain; every tag object is scanned.
 # Scans: private patterns, home paths of real users, private keys and tokens, NUL-byte files off a
-# binary allowlist, and the noreply rule for authors, committers, taggers and trailer e-mails.
-# Merge commits are scanned as combined diffs, and NUL bytes are tested on the bytes themselves
-# (never through git grep -I, which follows the diff attribute).
+# binary allowlist, and the noreply rule for authors, committers, taggers and every e-mail address
+# in a commit message body or tag message.
+# Merge commits of any parent count are scanned as combined diffs, and NUL bytes are tested on the
+# bytes themselves (never through git grep -I, which follows the diff attribute).
 # Runs from .githooks/pre-push (once per pushed ref); run it by hand before anything unusual.
 # Exit codes: 0 clean, 1 findings, 2 cannot check (pattern file or regex bad, git/grep error).
 set -eu
@@ -51,6 +52,10 @@ placeholder='^([a-z0-9]|user|users|username|you|yourname|your-name|name|me|publi
 secrets='-----BEGIN ([A-Z]+ )?PRIVATE KEY( BLOCK)?-----|gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{40,}|AKIA[0-9A-Z]{16}|sk-ant-[A-Za-z0-9_-]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}|AIza[0-9A-Za-z_-]{35}|eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}'
 # Files that may legitimately hold NUL bytes (anything else with NULs fails: UTF-16 text hides data).
 binext='png|jpe?g|gif|ico|icns|bmp|webp|zip|gz|tgz|tar|7z|xz|jar|exe|dll|so|dylib|lib|a|o|rlib|pdb|wasm|node|msi|deb|ttf|otf|woff2?|pdf|der|bin'
+# The whole address must be a GitHub noreply address: a suffix match would accept
+# eve@example.test+1@users.noreply.github.com.
+ok_mail='^([0-9]+\+)?[A-Za-z0-9-]+@users\.noreply\.github\.com$|^noreply@anthropic\.com$'
+email_re='[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}'
 
 # keep only matches whose last path component is not a placeholder (reads grep -o output)
 filter_paths() {
@@ -89,7 +94,25 @@ has_nul() { # file
   [ "$sz" -ne "$txt" ]
 }
 
+# true when any blob named in the list (one object name per line) holds a NUL byte. One streaming
+# read of all blobs: a well-formed `cat-file --batch` stream has a known size (header + content +
+# newline per blob), so a shorter stripped stream means a NUL byte somewhere. The caller names the
+# offending files only in that (rare) case, so the common case costs no per-file forks.
+batch_has_nul() { # file of blob object names
+  git cat-file --batch-check < "$1" > "$tmp/bcheck" || die "git cat-file --batch-check failed"
+  exp=$(awk '
+    NF != 3 || $2 != "blob" || $3 !~ /^[0-9]+$/ {bad = 1}
+    {n += length($1) + length($2) + length($3) + $3 + 4}
+    END {if (bad) exit 1; printf "%d\n", n}' "$tmp/bcheck") || die "cannot read the blob sizes of $1"
+  rc=0
+  got=$(git cat-file --batch < "$1" | tr -d '\000' | wc -c) || rc=$?
+  [ "$rc" -eq 0 ] || die "git cat-file --batch failed"
+  [ "$got" -le "$exp" ] || die "git cat-file --batch output does not match its object sizes"
+  [ "$got" -ne "$exp" ]
+}
+
 # --- what to scan ----------------------------------------------------------------------------------
+: > "$tmp/bodies"          # commit messages and tag objects, checked for non-noreply e-mails
 if [ "$rev" = "--worktree" ]; then
   opt="--untracked"; tree=""; rev=HEAD; shown="worktree"; wt=1
 else
@@ -102,7 +125,17 @@ else
     [ "$depth" -le 20 ] || die "annotated tag chain of $first is too deep"
     git cat-file tag "$rev" > "$tmp/tag" || die "cannot read tag $rev"
     scan_text "$tmp/tag" "tag $rev"
-    tagmail=$(sed -n 's/^tagger .*<\(.*\)>.*/\1/p' "$tmp/tag" | grep -v -i -E '(@users\.noreply\.github\.com|^noreply@anthropic\.com)$' || true)
+    if has_nul "$tmp/tag"; then   # a UTF-16 tag message hides its text from the scan above
+      tr -d '\000' < "$tmp/tag" > "$tmp/tagtxt" || die "cannot decode tag $rev"
+      scan_text "$tmp/tagtxt" "tag $rev (NUL bytes stripped)"
+      cat "$tmp/tagtxt" >> "$tmp/bodies" || die "cannot save tag $rev"
+    else
+      cat "$tmp/tag" >> "$tmp/bodies" || die "cannot save tag $rev"
+    fi
+    sed -n 's/^tagger .*<\(.*\)>.*/\1/p' "$tmp/tag" > "$tmp/tagmail" || die "cannot read the tagger of $rev"
+    rc=0; grep -v -i -E "$ok_mail" "$tmp/tagmail" > "$tmp/tagmailbad" || rc=$?
+    [ "$rc" -le 1 ] || die "grep failed ($rc)"
+    tagmail=$(cat "$tmp/tagmailbad")
     [ -z "$tagmail" ] || report "tagger identity of $rev must be a GitHub noreply address" "$tagmail"
     rev=$(sed -n 's/^object \([0-9a-f][0-9a-f]*\)$/\1/p' "$tmp/tag" | head -n 1)
     [ -n "$rev" ] || die "tag $first has no object line"
@@ -148,10 +181,13 @@ else
     }' "$tmp/list1" > "$tmp/list2" || die "cannot list the tree"
   rc=0; grep -v -i -E "\\.($binext)\$" "$tmp/list2" > "$tmp/list" || rc=$?
   [ "$rc" -le 1 ] || die "grep failed ($rc)"
-  while IFS='	' read -r sha path; do
-    git cat-file blob "$sha" > "$tmp/blobbuf" || die "cannot read blob $sha"
-    if has_nul "$tmp/blobbuf"; then printf '%s\n' "$path" >> "$tmp/nulall"; fi
-  done < "$tmp/list"
+  cut -f1 "$tmp/list" | sort -u > "$tmp/shalist" || die "cannot list the tree blobs"
+  if batch_has_nul "$tmp/shalist"; then   # name the files only when the batch found a NUL
+    while IFS='	' read -r sha path; do
+      git cat-file blob "$sha" > "$tmp/blobbuf" || die "cannot read blob $sha"
+      if has_nul "$tmp/blobbuf"; then printf '%s\n' "$path" >> "$tmp/nulall"; fi
+    done < "$tmp/list"
+  fi
 fi
 [ ! -s "$tmp/nulall" ] || report "files with NUL bytes that are not on the binary allowlist (UTF-16 text? scan by hand)" "$(cat "$tmp/nulall")"
 
@@ -161,15 +197,14 @@ fi
 # --cc shows the content a merge commit introduces (a plain `git log -p` prints no merge diff).
 # shellcheck disable=SC2086
 git -c color.ui=never -c color.diff=never -c log.showRoot=true \
-    log -p --no-color --root --cc --text --no-ext-diff --no-textconv --format='@@@%h' $range > "$tmp/log" \
+    log -p --no-color --root --cc --no-renames --text --no-ext-diff --no-textconv --format='@@@%h' $range > "$tmp/log" \
   || die "git log failed for $range"
 # (this script and its test spell out home-path patterns: they are exempt from the home-path group only)
 : > "$tmp/added"; : > "$tmp/added_self"
 awk -v main="$tmp/added" -v self="$tmp/added_self" '
      /^@@@[0-9a-f]+$/ {c=substr($0,4); hdr=0; next}
-     /^@@@ / {comb=1; n=gsub(/-[0-9]+/, "-"); hdr=0; next}
-     /^@@ / {comb=0; hdr=0; next}
-     /^diff --git a\/tools\/(test-)?privacy-check\.sh b\// {hdr=1; comb=0; out=self; next}
+     /^@+ / {match($0, /^@+/); n=RLENGTH-1; comb=1; hdr=0; next}   # one '@' more than the parents
+     /^diff --git a\/tools\/(test-)?privacy-check\.sh b\/tools\/(test-)?privacy-check\.sh$/ {hdr=1; comb=0; out=self; next}
      /^diff --(cc|combined) (a\/)?tools\/(test-)?privacy-check\.sh$/ {hdr=1; comb=1; out=self; next}
      /^diff --git / {hdr=1; comb=0; out=main; next}
      /^diff --(cc|combined) / {hdr=1; comb=1; out=main; next}
@@ -185,39 +220,62 @@ scan_text "$tmp/added_self" "lines added to the privacy scripts in $range" nopat
 
 # 2b. every blob the range adds: a UTF-16 file added and removed inside the range only leaves
 # NUL-interleaved lines in the log above, where no pattern can match. Strip the NULs and rescan.
-# (`git log --raw` with -m also lists the blobs a merge adds, from both parents' side.)
+# (`--diff-merges=separate` keeps `--raw` listing a merge's blobs even when log.diffMerges is set.)
 # shellcheck disable=SC2086
-git -c log.showRoot=true log -m --raw --no-abbrev --no-renames --diff-filter=d --root \
+git -c log.showRoot=true log -m --diff-merges=separate --raw --no-abbrev --no-renames --diff-filter=d --root \
     --format= $range > "$tmp/raw" || die "git log --raw failed for $range"
 awk -F'\t' '
+     /^::/ {bad = 1}
      /^:[0-7]+ [0-7]+ [0-9a-f]+ [0-9a-f]+ / {
        split($1, a, " ")
        if (a[2] ~ /^(100644|100755|120000)$/ && a[4] !~ /^0+$/) print a[4] "\t" $2
-     }' "$tmp/raw" > "$tmp/rawlist" || die "cannot list the blobs of $range"
+     }
+     END {if (bad) exit 1}' "$tmp/raw" > "$tmp/rawlist" || die "cannot list the blobs of $range"
 sort -u "$tmp/rawlist" > "$tmp/bloblist" || die "cannot sort the blob list"
-while IFS='	' read -r sha path; do
-  [ -n "$sha" ] || continue
-  git cat-file blob "$sha" > "$tmp/blobbuf" || die "cannot read blob $sha ($path)"
-  has_nul "$tmp/blobbuf" || continue
-  tr -d '\000' < "$tmp/blobbuf" > "$tmp/blobtxt" || die "cannot decode blob $sha ($path)"
-  nopath=""
-  case $path in tools/privacy-check.sh|tools/test-privacy-check.sh) nopath=1 ;; esac
-  scan_text "$tmp/blobtxt" "blob $path added by commits in $range" $nopath
-done < "$tmp/bloblist"
+cut -f1 "$tmp/bloblist" | sort -u > "$tmp/blobshas" || die "cannot list the blobs of $range"
+if [ -s "$tmp/blobshas" ] && batch_has_nul "$tmp/blobshas"; then
+  while IFS='	' read -r sha path; do
+    [ -n "$sha" ] || continue
+    git cat-file blob "$sha" > "$tmp/blobbuf" || die "cannot read blob $sha ($path)"
+    has_nul "$tmp/blobbuf" || continue
+    tr -d '\000' < "$tmp/blobbuf" > "$tmp/blobtxt" || die "cannot decode blob $sha ($path)"
+    nopath=""
+    case $path in tools/privacy-check.sh|tools/test-privacy-check.sh) nopath=1 ;; esac
+    scan_text "$tmp/blobtxt" "blob $path added by commits in $range" $nopath
+  done < "$tmp/bloblist"
+fi
 
-# 3. commit metadata: names, e-mails and messages (including trailers)
+# 3. commit metadata: names, e-mails and messages. The whole address of every author, committer
+#    and tagger, and of every e-mail address found anywhere in a commit message body or a tag
+#    message (trailer or not), must be a noreply address. Each extraction is checked so a tool
+#    failure cannot hide a finding.
 # shellcheck disable=SC2086
 git log --format='%an <%ae>%n%cn <%ce>%n%B' $range > "$tmp/meta" || die "git log failed for $range"
 scan_text "$tmp/meta" "commit metadata"
-ok_mail='(@users\.noreply\.github\.com|^noreply@anthropic\.com)$'
 # shellcheck disable=SC2086
-bad_ids=$(git log --format='%ae%n%ce' $range | sort -u | grep -v '^$' | grep -v -i -E "$ok_mail" || true)
-# Trailer e-mails count with or without angle brackets (Reported-by: eve@real.test).
-trailer_ids=$(grep -a -i -E '^[A-Za-z][A-Za-z-]*:' "$tmp/meta" | grep -a -o -E '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}' | grep -v -i -E "$ok_mail" | sort -u || true)
-if [ -n "$bad_ids$trailer_ids" ]; then
-  report "commit identities and trailer e-mails must be GitHub noreply addresses" "$bad_ids
-$trailer_ids"
+git log --format='%B' $range > "$tmp/logbody" || die "git log failed for $range"
+cat "$tmp/logbody" >> "$tmp/bodies" || die "cannot save the commit messages"
+
+# shellcheck disable=SC2086
+git log --format='%ae%n%ce' $range > "$tmp/ids" || die "git log failed for $range"
+sort -u "$tmp/ids" > "$tmp/idsu" || die "cannot sort the identities"
+rc=0; grep -v '^$' "$tmp/idsu" > "$tmp/idsn" || rc=$?
+[ "$rc" -le 1 ] || die "grep failed ($rc)"
+rc=0; grep -v -i -E "$ok_mail" "$tmp/idsn" > "$tmp/badids" || rc=$?
+[ "$rc" -le 1 ] || die "grep failed ($rc)"
+bad_ids=$(cat "$tmp/badids")
+rc=0; grep -a -o -E "$email_re" "$tmp/bodies" > "$tmp/mails" || rc=$?
+[ "$rc" -le 1 ] || die "grep failed ($rc)"
+sort -u "$tmp/mails" > "$tmp/mailsu" || die "cannot sort the e-mail addresses"
+rc=0; grep -v -i -E "$ok_mail" "$tmp/mailsu" > "$tmp/badmails" || rc=$?
+[ "$rc" -le 1 ] || die "grep failed ($rc)"
+bad_mails=$(cat "$tmp/badmails")
+if [ -n "$bad_ids" ]; then
+  report "commit identities must be ([0-9]+\\+)?<login>@users.noreply.github.com" "$bad_ids"
   echo "  fix: git config user.email <id>+<login>@users.noreply.github.com" >&2
+fi
+if [ -n "$bad_mails" ]; then
+  report "e-mail addresses in commit and tag messages must be noreply addresses" "$bad_mails"
 fi
 
 [ "$fail" = 0 ] && echo "privacy-check: clean ($shown)"

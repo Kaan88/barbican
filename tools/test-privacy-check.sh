@@ -202,6 +202,47 @@ echo x > e.txt; commit "trailer" "Reported-by: eve@real.test"
 check 1 "trailer e-mail without angle brackets" $script HEAD "$(git rev-parse origin/main)"
 git reset -q --hard origin/main
 
+# --- octopus merges, log.diffMerges, renamed scripts, message-body e-mails -------------------------
+p1=$(git rev-parse HEAD)
+p2=$(git commit-tree "$(git rev-parse HEAD^{tree})" -p "$p1" -m "octopus side 2")
+p3=$(git commit-tree "$(git rev-parse HEAD^{tree})" -p "$p1" -m "octopus side 3")
+leak=$(printf 'mail zzpriv\n' | git hash-object -w --stdin)
+{ git ls-tree HEAD; printf '100644 blob %s\tleak.txt\n' "$leak"; } | git mktree > "$root/octotree"
+merge=$(git commit-tree "$(cat "$root/octotree")" -p "$p1" -p "$p2" -p "$p3" -m "octopus merge with leak")
+clean=$(git commit-tree "$(git rev-parse HEAD^{tree})" -p "$merge" -m "drop the octopus leak")
+git push -q origin "$clean:refs/heads/octopus-leak" > "$root/out" 2>&1; rc=$?
+if [ $rc -ne 0 ] && nopush_ok refs/heads/octopus-leak; then pass=$((pass+1)); echo "ok   content added by a 3-parent (octopus) merge is caught"
+else bad=$((bad+1)); echo "FAIL octopus merge leak not caught (rc=$rc)"; fi
+
+git config log.diffMerges combined
+u16=$(printf 'z\0z\0p\0r\0i\0v\0\n\0' | git hash-object -w --stdin)
+{ git ls-tree HEAD; printf '100644 blob %s\tu16.txt\n' "$u16"; } | git mktree > "$root/u16tree"
+merge=$(git commit-tree "$(cat "$root/u16tree")" -p "$p1" -p "$p2" -m "merge adds a UTF-16 file")
+clean=$(git commit-tree "$(git rev-parse HEAD^{tree})" -p "$merge" -m "drop the UTF-16 file")
+git push -q origin "$clean:refs/heads/utf16-merge" > "$root/out" 2>&1; rc=$?
+if [ $rc -ne 0 ] && nopush_ok refs/heads/utf16-merge; then pass=$((pass+1)); echo "ok   merge-added UTF-16 blob is caught with log.diffMerges=combined"
+else bad=$((bad+1)); echo "FAIL merge-added UTF-16 blob not caught (rc=$rc)"; fi
+git config --unset log.diffMerges
+
+git mv tools/privacy-check.sh tools/renamed.sh
+printf 'x %s\n' "$unixhome" >> tools/renamed.sh
+commit "rename the privacy script"
+git rm -q tools/renamed.sh; commit "drop the renamed script"
+mkdir -p tools
+git show origin/main:tools/privacy-check.sh > tools/privacy-check.sh || exit 2
+check 1 "a renamed privacy script does not inherit the home-path exemption" $script HEAD "$(git rev-parse origin/main)"
+rm -f tools/privacy-check.sh
+git reset -q --hard origin/main
+
+echo x > nr.txt; git add -A
+git -c user.email='eve@example.test+1@users.noreply.github.com' commit -q -m "suffix-only author"
+check 1 "noreply rule anchors the whole address (author/committer)" $script HEAD "$(git rev-parse origin/main)"
+git reset -q --hard origin/main
+
+echo x > body.txt; commit "note" "contact eve@example.test for details"
+check 1 "e-mail anywhere in a commit message body" $script HEAD "$(git rev-parse origin/main)"
+git reset -q --hard origin/main
+
 git tag -a v1 -m "release for zzpriv"
 git push -q origin refs/tags/v1 > "$root/out" 2>&1; rc=$?
 if [ $rc -ne 0 ] && nopush_ok refs/tags/v1; then pass=$((pass+1)); echo "ok   hook blocks an annotated tag whose message leaks"
@@ -216,6 +257,19 @@ git push -q origin refs/tags/outer > "$root/out" 2>&1; rc=$?
 if [ $rc -ne 0 ] && nopush_ok refs/tags/outer; then pass=$((pass+1)); echo "ok   pattern in an inner tag object is caught"
 else bad=$((bad+1)); echo "FAIL inner tag leak not caught (rc=$rc)"; fi
 git tag -d outer inner >/dev/null
+
+c=$(git rev-parse HEAD)
+tagobj=$({ printf 'object %s\ntype commit\ntag u16tag\ntagger tester <1+tester@users.noreply.github.com> 0 +0000\n\n' "$c"
+           printf 'r\0e\0l\0e\0a\0s\0e\0 \0z\0z\0p\0r\0i\0v\0\n\0'; } | git hash-object -t tag -w --stdin --literally)
+check 1 "tag object with a UTF-16 (NUL-byte) message" $script "$tagobj"
+
+git tag -a mailtag -m "questions to eve@example.test"
+check 1 "e-mail in a tag message" $script mailtag
+git tag -d mailtag >/dev/null
+
+git -c user.email='eve@example.test+1@users.noreply.github.com' tag -a suffix-tag -m "release"
+check 1 "noreply rule anchors the whole address (tagger)" $script suffix-tag
+git tag -d suffix-tag >/dev/null
 
 echo
 echo "privacy-check tests: $pass passed, $bad failed"

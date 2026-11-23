@@ -21,7 +21,7 @@ ALLOWED_PHASES = [0, 1, 2, 3, 4, 5, 6, 7]
 
 def main(path):
     errors = []
-    with open(path, encoding="utf-8", newline="") as f:
+    with open(path, encoding="utf-8-sig", newline="") as f:
         rows = list(csv.reader(f))
     if not rows or rows[0] != HEADER:
         print(f"{path}: header must be {','.join(HEADER)}")

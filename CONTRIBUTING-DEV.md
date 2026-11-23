@@ -9,15 +9,17 @@ carries personal data. For each pushed commit or annotated tag it checks:
   removed in a later commit still fails, including a UTF-16 file whose NUL bytes are stripped and
   rescanned), for the private patterns (see below), local home paths of real users
   (`/home/<name>/`, `/Users/<name>/`, `C:\Users\<name>\`, `/c/Users/...`, `/mnt/c/Users/...`),
-  private-key blocks and obvious tokens; merge commits are scanned as combined diffs, so content
-  introduced while resolving a merge is caught too;
+  private-key blocks and obvious tokens; merge commits are scanned as combined diffs (with any
+  number of parents, octopus included), so content introduced while resolving a merge is caught
+  too;
 - tracked files with NUL bytes (UTF-16 text hides data), unless the extension is on the binary
   allowlist in the script. The bytes are tested directly, so a `*.txt diff` line in
   `.gitattributes` cannot make a UTF-16 file pass as text;
-- commit and tag metadata: names, messages, trailers. Authors, committers, taggers and trailer
-  e-mails (with or without angle brackets) must be `users.noreply.github.com` addresses (or
-  `noreply@anthropic.com`). An annotated tag is peeled through its whole chain of tag objects, and
-  each object's message and tagger are checked.
+- commit and tag metadata: names, messages and every e-mail address in them. The whole address of
+  an author, committer, tagger, or of any e-mail written in a commit message body or a tag message
+  must be `([0-9]+\+)?<login>@users.noreply.github.com` (or `noreply@anthropic.com`); a mere
+  suffix match does not count. An annotated tag is peeled through its whole chain of tag objects,
+  and each object's message (also when it is UTF-16) and tagger are checked.
 
 Turn the hook on once per clone (the hook files must keep their exec bit):
 
