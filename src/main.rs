@@ -68,6 +68,7 @@ mod shortcuts;
 mod gsearch;
 mod palette;
 mod search_history;
+mod signout;
 mod search_ui;
 mod dnd;
 // distribution: platform layer, tray, notifications, updater
@@ -772,12 +773,18 @@ fn load_mailboxes(ui: slint::Weak<AppWindow>, client: Arc<jmap::Client>, select_
     mail::load_mailboxes(ui, client, select_inbox);
 }
 
+/// Another Barbican runs on this computer: it may have the mail view's profile folder open.
+static OTHER_INSTANCE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 fn main() -> Result<(), slint::PlatformError> {
     // an update the user approved ("Install next time") installs before anything else
     // (only when no other Barbican runs: the installer would replace it while it is open)
-    // first_instance() first: it takes the instance mutex for the life of the process. Only the
-    // default profile installs a pending update (test, automation and dev profiles never do).
-    if platform::first_instance() && profile::is_default(profile::current()) && updater::on_start() { return Ok(()); }
+    // first_instance() takes the instance mutex for the life of the process (the check cannot run
+    // twice: the second call would see this process's own lock). Only the default profile installs
+    // a pending update (test, automation and dev profiles never do).
+    let first = platform::first_instance();
+    OTHER_INSTANCE.store(!first, std::sync::atomic::Ordering::SeqCst);
+    if first && profile::is_default(profile::current()) && updater::on_start() { return Ok(()); }
     // Skia: the same text/graphics engine Chrome uses, so text matches Bulwark in the browser
     // (and gets system font fallback for CJK and other scripts).
     let _ = slint::BackendSelector::new().renderer_name("skia".into()).select();
@@ -787,6 +794,9 @@ fn main() -> Result<(), slint::PlatformError> {
     // a start that never got cleared last time (it crashed) runs without network pictures
     let last_start_failed = crashguard::begin(&config_dir());
     if last_start_failed { crashguard::enter_safe_mode(); }
+    // what the last sign-out could not delete (locked then), before any WebView exists; not
+    // while another Barbican runs: its mail view may have that profile open
+    if first { signout::sweep_pending(); }
     let ui = AppWindow::new()?;
     apply_theme(&ui);
     apply_ui_prefs(&ui);
@@ -877,13 +887,28 @@ fn main() -> Result<(), slint::PlatformError> {
     ui.on_sign_out(move || {
         let u = w.unwrap();
         SESSION_GEN.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let account = u.get_account().to_string();
+        let mut owner = None;
+        let mut server = String::new();
         if let Some(c) = st.lock().unwrap().take() {
+            server = c.base.clone();
+            owner = Some(reminders::owner_key(&c.base, &c.username));
             if let Some(t) = c.tokens() { std::thread::spawn(move || oauth::revoke(&c.base, &t)); }
         }
-        oauth::forget();
-        oauth::forget_account(&u.get_account());
+        // the reminder runner would write its state again after the wipe
+        reminders::stop();
+        // the account list is keyed by the name typed on the login form
+        let login = std::mem::take(&mut *LOGIN_USER.lock().unwrap());
+        let last = signout::forget_keyring(&[login.as_str(), account.as_str()], &server);
+        if last { avatars::cancel_pending(); }
+        // a chat answer still coming must not write the account's file again
+        CHAT_USER.lock().unwrap().clear();
         bodycache::with(|b| b.clear());
         unified::clear();
+        // cookies, cache and storage of the mail view, and the account's files on disk
+        mailview::clear_browsing_data();
+        signout::wipe(signout::Who { user: account, owner, last, webview_live: mailview::is_built() || OTHER_INSTANCE.load(std::sync::atomic::Ordering::SeqCst) });
+        u.set_chat(display_chat(&[]));
         u.set_accounts(accounts_model());
         u.set_current_mail("".into());
         u.set_folders(ModelRc::new(VecModel::from(Vec::<Folder>::new())));
@@ -1345,6 +1370,7 @@ fn main() -> Result<(), slint::PlatformError> {
         u.set_chat_busy(true);
         can.store(false, std::sync::atomic::Ordering::SeqCst);
         let (w, hist, can) = (w.clone(), hist.clone(), can.clone());
+        let gen = SESSION_GEN.load(std::sync::atomic::Ordering::SeqCst);
         std::thread::spawn(move || {
             let host = UiHost { w: w.clone(), client: c.clone(), cancel: can };
             let mut h = hist.lock().unwrap().clone();
@@ -1357,8 +1383,11 @@ fn main() -> Result<(), slint::PlatformError> {
             let keep = h.len().saturating_sub(80);
             let mut h: Vec<_> = h.split_off(keep);
             while matches!(h.first(), Some(agent::Msg::Results(_)) | Some(agent::Msg::Assistant { .. })) { h.remove(0); }
-            let _ = std::fs::write(chat_path(), agent::to_json(&h).to_string());
-            *hist.lock().unwrap() = h;
+            // signed out or switched meanwhile: the answer belongs to an account that is gone
+            if SESSION_GEN.load(std::sync::atomic::Ordering::SeqCst) == gen {
+                let _ = std::fs::write(chat_path(), agent::to_json(&h).to_string());
+                *hist.lock().unwrap() = h;
+            }
             let _ = w.upgrade_in_event_loop(move |u| {
                 u.set_chat_busy(false);
                 u.set_confirm_text("".into());
@@ -2116,6 +2145,7 @@ fn finish_login(w: slint::Weak<AppWindow>, st: Shared, res: Result<jmap::Client,
             if let Some(mut v) = remember { let fresh = v["fresh"] != false; if let Some(o) = v.as_object_mut() { o.remove("fresh"); } remember_session(&c, v, &server, &user, fresh); }
             let name = c.username.clone();
             *CHAT_USER.lock().unwrap() = name.clone();
+            *LOGIN_USER.lock().unwrap() = user.clone();
             // host of the server URL for the admin nav subtitle
             let host = server.trim().trim_start_matches("https://").trim_start_matches("http://").split(['/', ':']).next().unwrap_or("").to_string();
             let w2 = w.clone();
@@ -2187,12 +2217,18 @@ pub fn set_theme_dark(ui: &AppWindow, dark: bool) {
 
 
 static CHAT_USER: Mutex<String> = Mutex::new(String::new());
+/// The user name as typed on the login form (the key of the account switcher's list).
+static LOGIN_USER: Mutex<String> = Mutex::new(String::new());
 
 /// The assistant's chat history is kept per account (chat-<account>.json).
 fn chat_path() -> std::path::PathBuf {
-    let u = CHAT_USER.lock().unwrap().clone();
-    let safe: String = u.chars().map(|c| if c.is_alphanumeric() || c == '.' || c == '@' || c == '-' { c } else { '_' }).collect();
-    config_dir().join(if safe.is_empty() { "chat.json".to_string() } else { format!("chat-{safe}.json") })
+    config_dir().join(chat_file(&CHAT_USER.lock().unwrap()))
+}
+
+/// The chat file's name for an account (signing out removes it).
+pub(crate) fn chat_file(user: &str) -> String {
+    let safe: String = user.chars().map(|c| if c.is_alphanumeric() || c == '.' || c == '@' || c == '-' { c } else { '_' }).collect();
+    if safe.is_empty() { "chat.json".to_string() } else { format!("chat-{safe}.json") }
 }
 
 

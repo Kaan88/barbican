@@ -676,10 +676,33 @@ fn place(ui: &AppWindow) -> wry::Rect {
     if SHOWN.with(|x| x.get()) { rect(ui.get_bx(), ui.get_by(), ui.get_bw(), ui.get_bh()) } else { parked(ui) }
 }
 
+thread_local! {
+    /// The WebView's profile folder is ours (platform::data_dir), so sign-out knows what to delete.
+    static CONTEXT: RefCell<Option<wry::WebContext>> = const { RefCell::new(None) };
+}
+
+/// Sign-out: empty the view's cookies, cache and local storage.
+pub fn clear_browsing_data() {
+    WV.with(|w| if let Ok(w) = w.try_borrow() { if let Some(v) = &*w { let _ = v.clear_all_browsing_data(); } });
+}
+
+/// Whether the WebView exists (its profile folder is in use).
+pub fn is_built() -> bool {
+    WV.with(|w| w.try_borrow().map_or(true, |w| w.is_some()))
+}
+
 fn build(ui: &AppWindow) -> Option<wry::WebView> {
+    CONTEXT.with(|c| {
+        let mut c = c.borrow_mut();
+        let ctx = c.get_or_insert_with(|| wry::WebContext::new(Some(crate::signout::webview_dir())));
+        build_in(ui, ctx)
+    })
+}
+
+fn build_in(ui: &AppWindow, ctx: &mut wry::WebContext) -> Option<wry::WebView> {
     let r = parked(ui);
     let (br, bg, bb) = parse_hex(reader_bg());
-    wry::WebViewBuilder::new()
+    wry::WebViewBuilder::new_with_web_context(ctx)
         .with_html(shell_html())
         .with_background_color((br, bg, bb, 255))
         .with_bounds(r)
