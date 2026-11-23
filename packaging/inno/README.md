@@ -28,8 +28,17 @@ workflow builds it from the tag and signs it when the Authenticode secrets are s
 - Writes `install-kind` (`inno`) next to `barbican.exe`, so the updater knows this installer owns
   the files.
 - Installing over an older version upgrades in place, keeping the folder. Barbican may sit in the
-  tray with no window: the installer asks it to close, waits a few seconds, then ends it
-  (only the exe in the install folder). The same for uninstall. Drafts are autosaved by the app.
+  tray with no window and needs up to 15 s to write an open draft when it quits, so the installer
+  asks it to close and polls for up to 30 s; it never ends the process. Still running after that,
+  setup stops with a message asking you to close Barbican first (a silent setup exits non-zero,
+  a silent uninstall fails the same way), and nothing is installed or removed. Only the exe in the
+  install folder is asked: another copy, such as a development build, is left alone.
+- Two setups cannot run at once (`SetupMutex`, `Global\BarbicanSetup`).
+- Uninstalling removes the registry entries Barbican wrote for itself: the `Run` value `Barbican`
+  (start at login), the `mailto:` registration (`Software\Classes\Barbican.Url.mailto`,
+  `Software\Clients\Mail\Barbican`, `Software\RegisteredApplications` value `Barbican`) and the
+  toast app id. The `[Registry]` entries that only clean up have `ValueType: none`, so setup
+  creates nothing there; only the uninstaller acts on them.
 - A silent install (`/VERYSILENT /SUPPRESSMSGBOXES /NORESTART`) shows nothing, starts nothing and
   exits 0. Interactive installs offer "Start Barbican" at the end.
 - A license page appears only when the repository has a `LICENSE` (or `LICENSE.txt`) file at its
@@ -47,7 +56,9 @@ user's mail data and settings (`%APPDATA%`, `%LOCALAPPDATA%\Barbican` data) alon
 (`windows-x86_64-inno`, `src/release_manifest.rs`). An install with the `inno` marker downloads the
 setup, checks its SHA-256 against the signed manifest, and when the user says so runs a hidden
 PowerShell helper (`INNO_SCRIPT` in `src/updater.rs`): it waits for Barbican to exit, runs the setup
-silently with `/CLOSEAPPLICATIONS`, and starts Barbican again.
+silently with `/CLOSEAPPLICATIONS`, and starts Barbican again. It never ends Barbican itself: after
+120 s the app is still there, the helper exits 1 and nothing is installed, so a draft being saved
+is not lost (same for the on-hold MSI helper).
 
 Hub (`Kaan88/mdhub`) reads `hub.txt` from the latest release: see
 `tools/write-hub-txt.ps1`, `tools/verify-hub-txt.ps1` and Hub's `docs/COMPLIANCE.md`. Release notes

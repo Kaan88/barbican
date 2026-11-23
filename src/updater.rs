@@ -542,20 +542,29 @@ pub fn install_now() -> Result<(), String> {
 /// The installer helper: waits until this Barbican (`BARBICAN_PID`) has exited so no file is
 /// in use, runs msiexec on `BARBICAN_MSI`, then starts `BARBICAN_EXE` again (the new one, or
 /// the old one when the install failed or was cancelled; a reboot-required result 3010 also
-/// relaunches). The paths come in as environment variables, never spliced into the script,
-/// so nothing in them is run as a command.
+/// relaunches). It never ends the app itself: Barbican writes the open draft on quit (up to 15 s,
+/// `quit_saving_draft`) and a kill would lose it, so when the process is still there after 120 s
+/// the helper exits 1, without installing and without a relaunch: the app is still running, and
+/// the update stays offered. The paths come in as environment variables, never spliced into the
+/// script, so nothing in them is run as a command.
 pub const MSI_SCRIPT: &str = "$ErrorActionPreference='SilentlyContinue'; \
-Wait-Process -Id ([int]$env:BARBICAN_PID) -Timeout 120; \
+if (Get-Process -Id ([int]$env:BARBICAN_PID) -ErrorAction SilentlyContinue) { \
+Wait-Process -Id ([int]$env:BARBICAN_PID) -Timeout 120 -ErrorAction SilentlyContinue; \
+if (Get-Process -Id ([int]$env:BARBICAN_PID) -ErrorAction SilentlyContinue) { exit 1 } }; \
 $p = Start-Process -FilePath msiexec.exe -ArgumentList @('/i', ('\"' + $env:BARBICAN_MSI + '\"'), '/passive', '/norestart') -Wait -PassThru; \
 Start-Process -FilePath $env:BARBICAN_EXE";
 
 /// The same helper for the Inno setup (packaging/inno/barbican.iss): waits for this Barbican to
 /// exit, runs `BARBICAN_SETUP` silently (no window, no restart; /CLOSEAPPLICATIONS for any other
 /// copy of the program still open), then starts `BARBICAN_EXE` again, the new program or the old
-/// one when the setup failed. The setup's own [Run] entry is skipped when silent, so Barbican starts
-/// once. No path is spliced into the script: the arguments are fixed, the paths are environment.
+/// one when the setup failed. It never ends the app either: still running after 120 s means exit 1
+/// and no install, so the draft Barbican is saving is not lost. The setup's own [Run] entry is
+/// skipped when silent, so Barbican starts once. No path is spliced into the script: the arguments
+/// are fixed, the paths are environment variables.
 pub const INNO_SCRIPT: &str = "$ErrorActionPreference='SilentlyContinue'; \
-Wait-Process -Id ([int]$env:BARBICAN_PID) -Timeout 120; \
+if (Get-Process -Id ([int]$env:BARBICAN_PID) -ErrorAction SilentlyContinue) { \
+Wait-Process -Id ([int]$env:BARBICAN_PID) -Timeout 120 -ErrorAction SilentlyContinue; \
+if (Get-Process -Id ([int]$env:BARBICAN_PID) -ErrorAction SilentlyContinue) { exit 1 } }; \
 $p = Start-Process -FilePath $env:BARBICAN_SETUP -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/CLOSEAPPLICATIONS') -Wait -PassThru; \
 Start-Process -FilePath $env:BARBICAN_EXE";
 
@@ -569,9 +578,18 @@ pub fn inno_command(setup: &str, exe: &str, pid: u32) -> (String, Vec<String>, V
 }
 
 fn helper_command(script: &str, var: &str, package: &str, exe: &str, pid: u32) -> (String, Vec<String>, Vec<(String, String)>) {
-    ("powershell.exe".into(),
+    (powershell_exe(),
      ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-Command", script].map(String::from).to_vec(),
      vec![(var.into(), package.into()), ("BARBICAN_EXE".into(), exe.into()), ("BARBICAN_PID".into(), pid.to_string())])
+}
+
+/// Windows PowerShell by full path: `%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe`.
+/// `%SystemRoot%` is expanded here because `Command::new` does not expand environment variables;
+/// an install without that file (or without the variable) falls back to a PATH lookup.
+pub fn powershell_exe() -> String {
+    let root = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".into());
+    let p = format!(r"{root}\System32\WindowsPowerShell\v1.0\powershell.exe");
+    if Path::new(&p).is_file() { p } else { "powershell.exe".into() }
 }
 
 /// pending.json is not signed, so the file it names is only run when it lies inside the
@@ -780,7 +798,7 @@ mod tests {
     fn msi_cmd() {
         // paths with spaces and quotes stay data: they only travel as environment values
         let (prog, args, env) = msi_command(r#"C:\u s\b".msi"#, r"C:\p q\barbican.exe", 42);
-        assert_eq!(prog, "powershell.exe");
+        assert!(prog.ends_with(r"\WindowsPowerShell\v1.0\powershell.exe") || prog == "powershell.exe", "{prog}");
         assert_eq!(args.last().unwrap(), MSI_SCRIPT);
         assert!(!args.iter().any(|a| a.contains("b\".msi") || a.contains("p q")));
         assert_eq!(env, vec![("BARBICAN_MSI".to_string(), r#"C:\u s\b".msi"#.to_string()),
@@ -788,12 +806,15 @@ mod tests {
         // waits for this process before installing, relaunches afterwards
         assert!(MSI_SCRIPT.find("Wait-Process").unwrap() < MSI_SCRIPT.find("msiexec").unwrap());
         assert!(MSI_SCRIPT.rfind("BARBICAN_EXE").unwrap() > MSI_SCRIPT.find("msiexec").unwrap());
+        // a process that outlives the wait stops the helper before msiexec: nothing is killed
+        assert!(MSI_SCRIPT.find("exit 1").unwrap() < MSI_SCRIPT.find("msiexec").unwrap());
+        assert!(!MSI_SCRIPT.contains("Stop-Process") && !MSI_SCRIPT.contains("-Force"));
     }
 
     #[test]
     fn inno_cmd() {
         let (prog, args, env) = inno_command(r#"C:\u s\b".exe"#, r"C:\p q\barbican.exe", 42);
-        assert_eq!(prog, "powershell.exe");
+        assert!(prog.ends_with(r"\WindowsPowerShell\v1.0\powershell.exe") || prog == "powershell.exe", "{prog}");
         assert_eq!(args.last().unwrap(), INNO_SCRIPT);
         assert!(!args.iter().any(|a| a.contains("b\".exe") || a.contains("p q")));
         assert_eq!(env, vec![("BARBICAN_SETUP".to_string(), r#"C:\u s\b".exe"#.to_string()),
@@ -804,6 +825,10 @@ mod tests {
         for flag in ["/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CLOSEAPPLICATIONS"] { assert!(INNO_SCRIPT.contains(flag), "{flag}"); }
         // the arguments are fixed text: no environment value is spliced into them
         assert!(!INNO_SCRIPT.contains("ArgumentList $env"));
+        // Barbican saving its draft is never cut short: still running after the wait, the helper
+        // gives up before the setup runs, and the app is left running
+        assert!(INNO_SCRIPT.find("exit 1").unwrap() < run);
+        assert!(!INNO_SCRIPT.contains("Stop-Process") && !INNO_SCRIPT.contains("-Force"));
     }
 
     #[test]
