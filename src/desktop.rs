@@ -89,6 +89,8 @@ pub fn init(ui: &AppWindow, state: Shared) {
 
     // closing the window: to the tray (setting) or quit
     ui.window().on_close_requested(|| {
+        // the window's place is saved whichever way it closes
+        if let Some(u) = app() { crate::winstate::save(&u); }
         let to_tray = Prefs::load().close_to_tray && TRAY.with(|t| t.borrow().is_some());
         if !to_tray {
             // an open draft is saved before Barbican quits (the window stays until then)

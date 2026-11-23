@@ -1,6 +1,7 @@
 #![cfg_attr(not(test), windows_subsystem = "windows")]
 
 mod a11y;
+mod winstate;
 mod auth;
 mod attachments;
 mod avatars;
@@ -1877,6 +1878,8 @@ fn main() -> Result<(), slint::PlatformError> {
 
     mailview::install_focus_hook(&ui);
     // "Start in the tray" at sign-in leaves the window closed
+    // the window comes back where it was (before it is shown, so it never jumps)
+    winstate::restore(&ui);
     if !desktop::start_hidden() { ui.show()?; }
     if automation::enabled() {
         ui.window().set_position(slint::PhysicalPosition::new(-6000, 0));
@@ -1905,6 +1908,7 @@ fn main() -> Result<(), slint::PlatformError> {
     });
     // the window can be closed to the tray: the loop runs until Quit
     slint::run_event_loop_until_quit()?;
+    winstate::save(&ui);
     settings::Settings::flush();
     instance::cleanup();
     // refresh tokens may rotate while the app runs: keep the newest one
