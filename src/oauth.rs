@@ -396,10 +396,20 @@ pub fn accounts() -> Vec<Value> {
         .and_then(|v| v.as_array().cloned()).unwrap_or_default()
 }
 
-pub fn forget_account(user: &str) {
-    let mut all = accounts();
-    all.retain(|a| a["user"].as_str() != Some(user));
-    if let Some(e) = accounts_entry() { let _ = e.set_password(&Value::Array(all).to_string()); }
+/// The list without the account that signed in as any of `names` (compared without regard to
+/// case: the name typed on the login form and the name the server reports can differ).
+pub fn without_account(all: Vec<Value>, names: &[&str]) -> Vec<Value> {
+    all.into_iter().filter(|a| {
+        let u = a["user"].as_str().unwrap_or("");
+        !names.iter().any(|n| !n.is_empty() && n.eq_ignore_ascii_case(u))
+    }).collect()
+}
+
+/// Drop an account from the switcher's list; an empty list deletes the keychain entry.
+pub fn forget_account(names: &[&str]) {
+    let all = without_account(accounts(), names);
+    let Some(e) = accounts_entry() else { return };
+    if all.is_empty() { let _ = e.delete_credential(); } else { let _ = e.set_password(&Value::Array(all).to_string()); }
 }
 
 pub fn remembered() -> Option<Value> {

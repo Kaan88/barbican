@@ -25,17 +25,27 @@ pub fn webview_dir() -> PathBuf {
     crate::platform::data_dir().join("webview")
 }
 
-/// The three folders Barbican writes account data to.
+/// The folders Barbican writes account data to.
 #[derive(Clone, Debug)]
 pub struct Roots {
     pub config: PathBuf,
     pub data: PathBuf,
     pub temp: PathBuf,
+    /// The WebView profile 0.1.0 left next to the program (`<exe>.WebView2`), from before the
+    /// profile moved to `data`.
+    pub legacy_webview: Option<PathBuf>,
+}
+
+/// `<folder of the exe>/<exe name>.WebView2`, WebView2's default profile folder.
+fn legacy_webview_dir() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let name = exe.file_name()?.to_string_lossy().to_string();
+    Some(exe.parent()?.join(format!("{name}.WebView2")))
 }
 
 impl Roots {
     pub fn current() -> Roots {
-        Roots { config: crate::config_dir(), data: crate::platform::data_dir(), temp: std::env::temp_dir() }
+        Roots { config: crate::config_dir(), data: crate::platform::data_dir(), temp: std::env::temp_dir(), legacy_webview: legacy_webview_dir() }
     }
     fn webview(&self) -> PathBuf { self.data.join("webview") }
     fn pending_file(&self) -> PathBuf { self.config.join("pending-delete.txt") }
@@ -66,6 +76,7 @@ pub fn targets(r: &Roots, who: &Who) -> Vec<PathBuf> {
     t.push(r.temp.join("Barbican")); // attachments and files opened in another program
     t.push(r.temp.join("barbican-print.html")); // the last printed message
     t.push(r.webview()); // cookies, cache and local storage of the mail view
+    t.extend(r.legacy_webview.clone()); // the same, where 0.1.0 kept it
     if who.last {
         // the chats of every account, recent searches, Files favourites and recent files,
         // reminder state, sender pictures and the assistant's memory of the user
@@ -110,7 +121,11 @@ fn gone(p: &Path) -> bool {
 /// `attempts` times with `delay` between; what stays is scheduled for the next start.
 pub fn wipe_with(r: &Roots, who: &Who, remove: &dyn Fn(&Path) -> io::Result<()>, attempts: u32, delay: Duration) -> Report {
     let mut report = Report::default();
-    for p in targets(r, who) {
+    let list = targets(r, who);
+    // written first: when the program quits while a locked file is still being retried, the
+    // next start finishes the list
+    schedule(r, &list);
+    for p in list {
         // a live WebView profile is not touched from outside: it would corrupt what the
         // running view still has open
         if who.webview_live && p == r.webview() {
@@ -127,7 +142,7 @@ pub fn wipe_with(r: &Roots, who: &Who, remove: &dyn Fn(&Path) -> io::Result<()>,
     if !who.last {
         if let Some(owner) = &who.owner { forget_owner(&r.config.join(crate::reminders::STATE_FILE), owner); }
     }
-    schedule(r, &report.pending);
+    unschedule(r, &report.removed);
     report
 }
 
@@ -149,9 +164,10 @@ fn forget_owner(file: &Path, owner: &str) {
 /// Everything the OS keychain holds for the account: the remembered session and its entry in
 /// the account list; with the last account also the Stalwart admin key. All keychain entries
 /// that sign-out deletes go through here. Returns whether no remembered account is left.
-pub fn forget_keyring(user: &str) -> bool {
+/// `names`: how the account is known (the login form's name and the server's).
+pub fn forget_keyring(names: &[&str]) -> bool {
     crate::oauth::forget();
-    crate::oauth::forget_account(user);
+    crate::oauth::forget_account(names);
     let last = crate::oauth::accounts().is_empty();
     if last { crate::admin::set_key(""); }
     last
@@ -164,6 +180,13 @@ fn schedule(r: &Roots, paths: &[PathBuf]) {
     let file = r.pending_file();
     let mut all = read_pending(&file);
     for p in paths { if !all.contains(p) { all.push(p.clone()); } }
+    write_pending(&file, &all);
+}
+
+fn unschedule(r: &Roots, done: &[PathBuf]) {
+    let file = r.pending_file();
+    let mut all = read_pending(&file);
+    all.retain(|p| !done.contains(p));
     write_pending(&file, &all);
 }
 
@@ -184,6 +207,7 @@ fn allowed(r: &Roots, p: &Path) -> bool {
     if !p.is_absolute() || p.components().any(|c| matches!(c, Component::ParentDir)) { return false; }
     let inside = |root: &Path| p.starts_with(root) && p != root;
     inside(&r.config) || inside(&r.data) || inside(&r.temp.join("Barbican")) || p == r.temp.join("barbican-print.html")
+        || r.legacy_webview.as_deref() == Some(p)
 }
 
 /// At start, before any WebView exists: remove what the last sign-out could not.
@@ -214,7 +238,7 @@ mod tests {
             Tmp(d)
         }
         fn roots(&self) -> Roots {
-            let r = Roots { config: self.0.join("config"), data: self.0.join("data"), temp: self.0.join("temp") };
+            let r = Roots { config: self.0.join("config"), data: self.0.join("data"), temp: self.0.join("temp"), legacy_webview: Some(self.0.join("app/barbican.exe.WebView2")) };
             for d in [&r.config, &r.data, &r.temp] { fs::create_dir_all(d).unwrap(); }
             r
         }
@@ -243,6 +267,7 @@ mod tests {
         put(&r.data.join("webview/EBWebView/Cookies"), "c");
         put(&r.data.join("webview/EBWebView/Local Storage/x"), "l");
         put(&r.data.join("updates/pending.json"), "{}");
+        put(&r.legacy_webview.clone().unwrap().join("EBWebView/Cookies"), "c");
         put(&r.temp.join("Barbican/invoice.pdf"), "pdf");
         put(&r.temp.join("barbican-print.html"), "<p>");
         put(&r.temp.join("unrelated.txt"), "not ours");
@@ -267,6 +292,7 @@ mod tests {
             assert!(!c.join(gone).exists(), "{gone} should be gone");
         }
         assert!(!d.join("webview").exists());
+        assert!(!r.legacy_webview.clone().unwrap().exists(), "the profile 0.1.0 left next to the program");
         assert!(!tmp.join("Barbican").exists());
         assert!(!tmp.join("barbican-print.html").exists());
         for kept in ["prefs.json", "settings.json", "panes.json", "oauth-clients.json", "login.txt", "instance.json", "plugins/one.dll"] {
@@ -366,6 +392,63 @@ mod tests {
         drop(held);
         sweep_pending_with(&r, &remove_any);
         assert!(!f.exists());
+    }
+
+    #[test]
+    fn the_list_is_on_disk_before_anything_is_deleted() {
+        let t = Tmp::new("early");
+        let r = t.roots();
+        fill(&r);
+        let w = who("ann@example.test", true, false);
+        let all = targets(&r, &w);
+        // the program quits during the first deletion: the next start must have the whole list
+        let seen = std::cell::RefCell::new(Vec::new());
+        let remove = |p: &Path| -> io::Result<()> {
+            if seen.borrow().is_empty() { *seen.borrow_mut() = read_pending(&r.pending_file()); }
+            remove_any(p)
+        };
+        wipe_with(&r, &w, &remove, 1, Duration::ZERO);
+        assert_eq!(*seen.borrow(), all);
+        // and a start after such a quit finishes the job
+        write_pending(&r.pending_file(), &all);
+        sweep_pending_with(&r, &remove_any);
+        assert!(!r.config.join("chat.json").exists() && !r.data.join("webview").exists());
+        assert!(!r.config.join("pending-delete.txt").exists());
+    }
+
+    #[test]
+    fn the_legacy_profile_is_swept_at_start_too() {
+        let t = Tmp::new("legacy");
+        let r = t.roots();
+        let old = r.legacy_webview.clone().unwrap();
+        put(&old.join("EBWebView/Cookies"), "c");
+        put(&r.config.join("pending-delete.txt"), &format!("{}
+", old.to_string_lossy()));
+        sweep_pending_with(&r, &remove_any);
+        assert!(!old.exists());
+        // the folder next to the exe is not a general license: its parent is not deletable
+        let beside = old.parent().unwrap().join("barbican.exe");
+        put(&beside, "exe");
+        put(&r.config.join("pending-delete.txt"), &format!("{}
+", beside.to_string_lossy()));
+        sweep_pending_with(&r, &remove_any);
+        assert!(beside.exists());
+    }
+
+    #[test]
+    fn the_account_is_found_by_either_name_without_regard_to_case() {
+        let list = vec![
+            serde_json::json!({"user": "Ann@Example.test", "server": "https://mail.example.test"}),
+            serde_json::json!({"user": "bob@example.test", "server": "https://mail.example.test"}),
+        ];
+        // the server reports another form of the name than the one typed
+        let left = crate::oauth::without_account(list.clone(), &["Ann@Example.test", "ann"]);
+        assert_eq!(left.len(), 1);
+        assert_eq!(left[0]["user"], "bob@example.test");
+        let left = crate::oauth::without_account(list.clone(), &["", "ann@example.test"]);
+        assert_eq!(left.len(), 1);
+        // an empty name matches nothing
+        assert_eq!(crate::oauth::without_account(list, &["", ""]).len(), 2);
     }
 
     #[test]

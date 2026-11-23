@@ -872,7 +872,12 @@ fn main() -> Result<(), slint::PlatformError> {
         }
         // the reminder runner would write its state again after the wipe
         reminders::stop();
-        let last = signout::forget_keyring(&account);
+        // the account list is keyed by the name typed on the login form
+        let login = std::mem::take(&mut *LOGIN_USER.lock().unwrap());
+        let last = signout::forget_keyring(&[login.as_str(), account.as_str()]);
+        if last { avatars::cancel_pending(); }
+        // a chat answer still coming must not write the account's file again
+        CHAT_USER.lock().unwrap().clear();
         bodycache::with(|b| b.clear());
         unified::clear();
         // cookies, cache and storage of the mail view, and the account's files on disk
@@ -1341,6 +1346,7 @@ fn main() -> Result<(), slint::PlatformError> {
         u.set_chat_busy(true);
         can.store(false, std::sync::atomic::Ordering::SeqCst);
         let (w, hist, can) = (w.clone(), hist.clone(), can.clone());
+        let gen = SESSION_GEN.load(std::sync::atomic::Ordering::SeqCst);
         std::thread::spawn(move || {
             let host = UiHost { w: w.clone(), client: c.clone(), cancel: can };
             let mut h = hist.lock().unwrap().clone();
@@ -1353,8 +1359,11 @@ fn main() -> Result<(), slint::PlatformError> {
             let keep = h.len().saturating_sub(80);
             let mut h: Vec<_> = h.split_off(keep);
             while matches!(h.first(), Some(agent::Msg::Results(_)) | Some(agent::Msg::Assistant { .. })) { h.remove(0); }
-            let _ = std::fs::write(chat_path(), agent::to_json(&h).to_string());
-            *hist.lock().unwrap() = h;
+            // signed out or switched meanwhile: the answer belongs to an account that is gone
+            if SESSION_GEN.load(std::sync::atomic::Ordering::SeqCst) == gen {
+                let _ = std::fs::write(chat_path(), agent::to_json(&h).to_string());
+                *hist.lock().unwrap() = h;
+            }
             let _ = w.upgrade_in_event_loop(move |u| {
                 u.set_chat_busy(false);
                 u.set_confirm_text("".into());
@@ -2110,6 +2119,7 @@ fn finish_login(w: slint::Weak<AppWindow>, st: Shared, res: Result<jmap::Client,
             if let Some(v) = remember { remember_session(&c, v, &server, &user); }
             let name = c.username.clone();
             *CHAT_USER.lock().unwrap() = name.clone();
+            *LOGIN_USER.lock().unwrap() = user.clone();
             // host of the server URL for the admin nav subtitle
             let host = server.trim().trim_start_matches("https://").trim_start_matches("http://").split(['/', ':']).next().unwrap_or("").to_string();
             let w2 = w.clone();
@@ -2181,6 +2191,8 @@ pub fn set_theme_dark(ui: &AppWindow, dark: bool) {
 
 
 static CHAT_USER: Mutex<String> = Mutex::new(String::new());
+/// The user name as typed on the login form (the key of the account switcher's list).
+static LOGIN_USER: Mutex<String> = Mutex::new(String::new());
 
 /// The assistant's chat history is kept per account (chat-<account>.json).
 fn chat_path() -> std::path::PathBuf {

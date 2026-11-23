@@ -133,6 +133,12 @@ pub fn get(email: &str, brand: Option<&str>, p: &Prefs, junk: bool) -> Option<Pi
     None
 }
 
+/// Sign-out: answers still being fetched must not write the cache again.
+pub fn cancel_pending() {
+    GEN.fetch_add(1, Ordering::SeqCst);
+    WORK.lock().unwrap().0.clear();
+}
+
 /// "Refresh sender icons": forget every answer (memory and disk) so they are fetched again.
 pub fn refresh() {
     GEN.fetch_add(1, Ordering::SeqCst);
