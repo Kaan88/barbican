@@ -36,3 +36,9 @@ Binary files are not scanned; check those by hand.
 
 `spec/parity.csv` is the one parity table (one row per item). Validate it with
 `python tools/parity-check.py`.
+
+Conventions: `G-nnn` ids are the C# port's `gaps.csv` ids (they cover every item in GAPS.md);
+`S-<key>` rows come from the C# `settings.csv`. `phase` is the ROADMAP.md phase; track C
+(distribution) rows use 7, and 0 marks rows with nothing left to schedule (already implemented).
+`rust_status` is `done` only with a verified call site in `src/` or a row that GAPS.md reports
+finished; implemented but not checked live is `unverified`.
