@@ -38,6 +38,9 @@ mod mail;
 mod unified;
 mod oauth;
 mod plugins;
+mod plugin_catalog;
+#[cfg(test)]
+mod plugin_catalog_check;
 mod server_settings;
 mod settings;
 mod sieve;
@@ -450,24 +453,82 @@ thread_local! {
     /// Loaded native plugins (UI thread only).
     static PLUGINS: std::cell::RefCell<Vec<plugins::Plugin>> = const { std::cell::RefCell::new(Vec::new()) };
     static PLUGIN_ERRORS: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
+    static PLUGIN_LOAD_ERRORS: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
 }
 
-pub fn disabled_plugins() -> Vec<String> {
+/// Plugins the user switched on (allow-list; a plugin that is not in it is neither loaded nor called).
+pub fn enabled_plugins() -> Vec<String> {
     let p = settings::Settings::load();
-    p.prefs.get("disabledPlugins").and_then(|v| v.as_array()).map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect()).unwrap_or_default()
+    p.prefs.get("enabledPlugins").and_then(|v| v.as_array()).map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect()).unwrap_or_default()
+}
+
+/// The allow-list as it counts: switched on AND still bound to the file it was enabled for.
+fn effective_plugins() -> Vec<String> {
+    let bindings = settings::Settings::load().prefs.get("pluginBindings").cloned().unwrap_or_default();
+    PLUGINS.with(|p| plugins::bound_enabled(&p.borrow(), &enabled_plugins(), &bindings))
+}
+
+/// Load what was switched on, unload what was switched off; returns the effective allow-list.
+fn plugins_synced() -> Vec<String> {
+    let en = effective_plugins();
+    let errs = PLUGINS.with(|p| plugins::sync(&mut p.borrow_mut(), &en));
+    PLUGIN_LOAD_ERRORS.with(|e| { let mut e = e.borrow_mut(); for x in errs { if !e.contains(&x) { e.push(x); } } });
+    en
+}
+
+/// A plugin was switched on or off in Settings.
+pub fn plugin_toggled() { plugins_synced(); }
+
+/// What enabling a plugin pins (its file path and hash).
+pub fn plugin_binding(key: &str) -> Option<String> {
+    PLUGINS.with(|p| p.borrow().iter().find(|x| x.key == key).map(|x| x.binding()))
+}
+
+/// Re-read the plugins folder (Settings → Add-ons opened).
+pub fn refresh_plugins() {
+    let errs = PLUGINS.with(|p| plugins::refresh(&mut p.borrow_mut()));
+    PLUGIN_ERRORS.with(|e| *e.borrow_mut() = errs);
+}
+
+/// Rows from the enabled plugins for the open message.
+pub fn plugin_email_details(m: &serde_json::Value) -> Vec<(String, String, String)> {
+    let en = plugins_synced();
+    PLUGINS.with(|p| plugins::email_details(&p.borrow(), &en, m))
+}
+
+/// True when the `spam-score` plugin is on, so the built-in spam panel steps aside.
+pub fn plugin_spam_active() -> bool {
+    let en = plugins_synced();
+    PLUGINS.with(|p| plugins::is_active(&p.borrow(), &en, "spam-score"))
+}
+
+/// Tell the user about plugins that were switched off for failing.
+pub fn plugin_notices(u: &AppWindow) {
+    for n in plugins::drain_notices() { mail::show_toast(u, &n, false); }
 }
 
 pub fn plugin_list() -> Vec<serde_json::Value> {
-    PLUGINS.with(|p| p.borrow().iter().map(plugins::describe).collect())
+    let (raw, eff) = (enabled_plugins(), effective_plugins());
+    PLUGINS.with(|p| p.borrow().iter().map(|x| {
+        let mut d = plugins::describe(x);
+        let was_on = raw.contains(&x.key);
+        d["enabled"] = (was_on && eff.contains(&x.key)).into();
+        if was_on && !eff.contains(&x.key) {
+            d["description"] = format!("{} The file changed since you switched it on: switch it off and on again.", d["description"].as_str().unwrap_or("")).into();
+        }
+        d
+    }).collect())
 }
 
 pub fn plugin_errors() -> Vec<String> {
-    PLUGIN_ERRORS.with(|e| e.borrow().clone())
+    let mut v = PLUGIN_ERRORS.with(|e| e.borrow().clone());
+    v.extend(PLUGIN_LOAD_ERRORS.with(|e| e.borrow().clone()));
+    v
 }
 
 pub fn plugin_compose_check(draft: &serde_json::Value) -> Option<String> {
-    let dis = disabled_plugins();
-    PLUGINS.with(|p| plugins::compose_check(&p.borrow(), &dis, draft))
+    let en = plugins_synced();
+    PLUGINS.with(|p| plugins::compose_check(&p.borrow(), &en, draft))
 }
 
 thread_local! {
@@ -719,9 +780,20 @@ fn main() -> Result<(), slint::PlatformError> {
     rte::wire_drop(&ui);
     chips::wire(&ui);
     {
-        let (loaded, errors) = plugins::load_all();
-        PLUGINS.with(|p| *p.borrow_mut() = loaded);
+        // listed, not loaded: a plugin runs only after the user switches it on
+        let (found, errors) = plugins::discover();
+        PLUGINS.with(|p| *p.borrow_mut() = found);
         PLUGIN_ERRORS.with(|e| *e.borrow_mut() = errors);
+        plugins_synced();
+        // plugins used to be on by default: tell upgraders once why theirs are off now
+        let mut st = settings::Settings::load();
+        if st.prefs.get("pluginsOffNoticeShown").is_none() {
+            let en = enabled_plugins();
+            if PLUGINS.with(|p| plugins::has_unenabled(&p.borrow(), &en)) {
+                mail::show_toast(&ui, "Plugins are now off until you switch them on in Settings > Add-ons.", false);
+                st.remember("pluginsOffNoticeShown", serde_json::json!(true));
+            }
+        }
     }
     let state: Shared = Arc::new(Mutex::new(None));
     {

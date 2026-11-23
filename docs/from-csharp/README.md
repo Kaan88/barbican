@@ -7,7 +7,7 @@ Read CSHARP-LESSONS.md at the repository root first; it says what to adopt from 
 | Path | What it is |
 |---|---|
 | `spec/plugins/` | Bulwark 1.21.2 plugin catalogue: 218 hooks with time budgets and fail-closed flags, 58 slots, 186 host-API methods |
-| `tools/extract-plugin-catalogue.py`, `tools/gen-hooks.py` | Rebuild the catalogue from Bulwark source; generate hook-name constants |
+| `tools/extract-plugin-catalogue.py`, `tools/gen-plugin-catalog.py` (now at the repo root `tools/`, with `spec/plugins/`) | Rebuild the catalogue from Bulwark source; generate `src/plugin_catalog.rs` |
 | `src/Barbican.App/Assets/plugins/`, `tools/tests/` | The parent-page and bridge scripts that ran unmodified Bulwark plugins in WebView2, with their Node tests |
 | `tools/plugin-runtime-build/` | Reproducible build of Bulwark's sandbox runtime from the pinned commit, plus the origin patch |
 | `docs/milestones/M6b-{package-authority,runtime-transport,api-inventory,contracts,account-routing,plugin-slots}.md` | Plugin security contracts and slot placement |

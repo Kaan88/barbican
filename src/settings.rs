@@ -131,6 +131,12 @@ impl Settings {
         }
     }
 
+    /// Store one pref value and save.
+    pub fn remember(&mut self, key: &str, value: Value) {
+        self.prefs.insert(key.into(), value);
+        self.save();
+    }
+
     /// Writes the settings file off the UI thread. `LATEST` serves `load` until the write lands
     /// and the newest save always wins. Tests write synchronously.
     fn save(&self) {
@@ -167,7 +173,17 @@ impl Settings {
     pub fn import(&mut self, v: &Value) -> Result<(), String> {
         let prefs = if v["app"] == "barbican" { v["settings"].clone() } else if v["settings"].is_object() { v["settings"].clone() } else { v.clone() };
         let Some(obj) = prefs.as_object() else { return Err("This file has no settings.".into()) };
-        self.prefs = obj.clone();
+        let mut imported = obj.clone();
+        // Plugin consent is per computer and per file: never copy an allow-list or its file bindings
+        // from a settings file, or an import could switch on code this user has not agreed to run.
+        // The current local values stay, so an import does not switch off plugins enabled here either.
+        for key in ["enabledPlugins", "pluginBindings"] {
+            match self.prefs.get(key) {
+                Some(v) => { imported.insert(key.into(), v.clone()); }
+                None => { imported.remove(key); }
+            }
+        }
+        self.prefs = imported;
         self.save();
         if v["desktop"].is_object() {
             let _ = std::fs::write(crate::config_dir().join("settings.json"), v["desktop"].to_string());
@@ -348,18 +364,17 @@ impl Settings {
                 out.push(text("text", "ai.lang", "Translate into", "", &cfg.lang));
             }
             "addons" => {
-                out.push(row("section", "", "Plugins", "Native plugins dropped into the plugins folder are loaded when Barbican starts."));
-                let disabled: Vec<String> = self.prefs.get("disabledPlugins").and_then(|v| v.as_array())
-                    .map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect()).unwrap_or_default();
+                out.push(row("section", "", "Plugins", "Native plugins dropped into the plugins folder stay off until you switch them on. A plugin runs code on your computer: switch on only the ones you trust."));
+                crate::refresh_plugins();
                 let list = crate::plugin_list();
                 if list.is_empty() {
-                    out.push(text("value", "", "No plugins installed", "Copy a plugin .dll into the folder and restart Barbican.", ""));
+                    out.push(text("value", "", "No plugins installed", "Copy a plugin .dll into the folder, then reopen this page.", ""));
                 }
                 for p in list {
                     let id = p["id"].as_str().unwrap_or("");
                     let hooks = p["hooks"].as_array().map(|a| a.iter().filter_map(|h| h.as_str()).collect::<Vec<_>>().join(", ")).unwrap_or_default();
                     out.push(toggle(&format!("plugin:{id}"), &format!("{} {}", p["name"].as_str().unwrap_or(id), p["version"].as_str().unwrap_or("")),
-                        &format!("{}  (hooks: {hooks})", p["description"].as_str().unwrap_or("")), !disabled.iter().any(|d| d == id)));
+                        &format!("{}  (hooks: {hooks})", p["description"].as_str().unwrap_or("")), p["enabled"].as_bool().unwrap_or(false)));
                 }
                 for e in crate::plugin_errors() {
                     out.push(text("value", "", "Could not load", &e, ""));
@@ -513,11 +528,19 @@ impl Settings {
             }
             k if k.starts_with("plugin:") => {
                 let id = &k[7..];
-                let mut list: Vec<Value> = self.prefs.get("disabledPlugins").and_then(|v| v.as_array().cloned()).unwrap_or_default();
+                let mut list: Vec<Value> = self.prefs.get("enabledPlugins").and_then(|v| v.as_array().cloned()).unwrap_or_default();
                 list.retain(|x| x.as_str() != Some(id));
-                if value.as_bool() == Some(false) { list.push(json!(id)); }
-                self.prefs.insert("disabledPlugins".into(), Value::Array(list));
+                if value.as_bool() == Some(true) { list.push(json!(id)); }
+                self.prefs.insert("enabledPlugins".into(), Value::Array(list));
+                // enabling pins the plugin's file (path + hash): a replaced file must be switched on again
+                let mut bindings = self.prefs.get("pluginBindings").and_then(|v| v.as_object().cloned()).unwrap_or_default();
+                bindings.remove(id);
+                if value.as_bool() == Some(true) {
+                    if let Some(b) = crate::plugin_binding(id) { bindings.insert(id.to_string(), json!(b)); }
+                }
+                self.prefs.insert("pluginBindings".into(), Value::Object(bindings));
                 self.save();
+                crate::plugin_toggled();
                 return;
             }
             _ => {
@@ -613,6 +636,23 @@ mod tests {
         assert!(s.import(&json!([1, 2])).is_err());
         assert!(s.import(&json!("nope")).is_err());
         assert_eq!(s.str("density", ""), "compact");
+
+        // Plugin consent is not imported: with no local consent, the file's allow-list and bindings are dropped.
+        s.import(&json!({"theme": "light", "enabledPlugins": ["spam-score"], "pluginBindings": {"spam-score": "C:/p/a.dll|abc"}})).unwrap();
+        assert_eq!(s.str("theme", ""), "light");
+        assert!(s.prefs.get("enabledPlugins").is_none() && s.prefs.get("pluginBindings").is_none());
+        assert!(Settings::load().prefs.get("enabledPlugins").is_none());
+
+        // Local consent survives an import instead of switching the user's plugins off.
+        s.prefs.insert("enabledPlugins".into(), json!(["local-plugin"]));
+        s.prefs.insert("pluginBindings".into(), json!({"local-plugin": "C:/p/local.dll|hash"}));
+        s.import(&json!({"theme": "dark", "enabledPlugins": ["spam-score"], "pluginBindings": {"spam-score": "C:/p/a.dll|abc"}})).unwrap();
+        assert_eq!(s.str("theme", ""), "dark");
+        assert_eq!(s.prefs["enabledPlugins"], json!(["local-plugin"]));
+        assert_eq!(s.prefs["pluginBindings"], json!({"local-plugin": "C:/p/local.dll|hash"}));
+        let reloaded = Settings::load();
+        assert_eq!(reloaded.prefs["enabledPlugins"], json!(["local-plugin"]));
+        assert_eq!(reloaded.prefs["pluginBindings"], json!({"local-plugin": "C:/p/local.dll|hash"}));
 
         s.reset();
         assert!(s.prefs.is_empty());

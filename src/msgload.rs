@@ -251,10 +251,10 @@ fn present(u: &AppWindow, c: &Arc<jmap::Client>, id: &str, m: Arc<Value>, thread
         Some(t) => (m["threadId"].as_str().map(String::from), thread_rows(id, t)),
         None => (None, vec![]),
     };
-    let dis = disabled_plugins();
-    let prow: Vec<PRow> = PLUGINS.with(|p| plugins::email_details(&p.borrow(), &dis, &m)).into_iter()
+    let prow: Vec<PRow> = crate::plugin_email_details(&m).into_iter()
         .map(|(label, value, tone)| PRow { label: label.into(), value: value.into(), tone: tone.into() }).collect();
-    let spam_plugin = PLUGINS.with(|p| p.borrow().iter().any(|x| x.id == "spam-score")) && !dis.iter().any(|d| d == "spam-score");
+    let spam_plugin = crate::plugin_spam_active();
+    crate::plugin_notices(u);
     let headers = m["headers"].as_array().cloned().unwrap_or_default();
     let sp = spam::analyze(&headers).filter(|_| !spam_plugin).filter(|sp| sp.verdict != "clean" || u.get_spam_show_clean());
     let (_, text) = body_text(&m);
