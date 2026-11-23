@@ -63,6 +63,7 @@ mod shortcuts;
 mod gsearch;
 mod palette;
 mod search_history;
+mod signout;
 mod search_ui;
 mod dnd;
 // distribution: platform layer, tray, notifications, updater
@@ -771,6 +772,8 @@ fn main() -> Result<(), slint::PlatformError> {
     // a mailto: link from the OS while Barbican already runs: hand it over and quit
     let link = instance::mailto_arg(&std::env::args().skip(1).collect::<Vec<_>>());
     if link.as_deref().is_some_and(instance::forward) { return Ok(()); }
+    // what the last sign-out could not delete (locked then), before any WebView exists
+    signout::sweep_pending();
     let ui = AppWindow::new()?;
     apply_theme(&ui);
     apply_ui_prefs(&ui);
@@ -861,13 +864,21 @@ fn main() -> Result<(), slint::PlatformError> {
     ui.on_sign_out(move || {
         let u = w.unwrap();
         SESSION_GEN.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let account = u.get_account().to_string();
+        let mut owner = None;
         if let Some(c) = st.lock().unwrap().take() {
+            owner = Some(reminders::owner_key(&c.base, &c.username));
             if let Some(t) = c.tokens() { std::thread::spawn(move || oauth::revoke(&c.base, &t)); }
         }
-        oauth::forget();
-        oauth::forget_account(&u.get_account());
+        // the reminder runner would write its state again after the wipe
+        reminders::stop();
+        let last = signout::forget_keyring(&account);
         bodycache::with(|b| b.clear());
         unified::clear();
+        // cookies, cache and storage of the mail view, and the account's files on disk
+        mailview::clear_browsing_data();
+        signout::wipe(signout::Who { user: account, owner, last, webview_live: mailview::is_built() });
+        u.set_chat(display_chat(&[]));
         u.set_accounts(accounts_model());
         REMEMBER_OAUTH.store(false, std::sync::atomic::Ordering::SeqCst);
         u.set_current_mail("".into());
@@ -2173,9 +2184,13 @@ static CHAT_USER: Mutex<String> = Mutex::new(String::new());
 
 /// The assistant's chat history is kept per account (chat-<account>.json).
 fn chat_path() -> std::path::PathBuf {
-    let u = CHAT_USER.lock().unwrap().clone();
-    let safe: String = u.chars().map(|c| if c.is_alphanumeric() || c == '.' || c == '@' || c == '-' { c } else { '_' }).collect();
-    config_dir().join(if safe.is_empty() { "chat.json".to_string() } else { format!("chat-{safe}.json") })
+    config_dir().join(chat_file(&CHAT_USER.lock().unwrap()))
+}
+
+/// The chat file's name for an account (signing out removes it).
+pub(crate) fn chat_file(user: &str) -> String {
+    let safe: String = user.chars().map(|c| if c.is_alphanumeric() || c == '.' || c == '@' || c == '-' { c } else { '_' }).collect();
+    if safe.is_empty() { "chat.json".to_string() } else { format!("chat-{safe}.json") }
 }
 
 

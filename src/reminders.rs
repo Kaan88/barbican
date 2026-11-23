@@ -281,7 +281,15 @@ pub fn when_label(d: &Due, now_ms: i64) -> String {
 
 // ---------------- what was shown / acknowledged (kept in calendar.json) ----------------
 
-fn state_path() -> std::path::PathBuf { crate::config_dir().join("calendar.json") }
+/// File name of the state in the config folder.
+pub const STATE_FILE: &str = "calendar.json";
+
+fn state_path() -> std::path::PathBuf { crate::config_dir().join(STATE_FILE) }
+
+/// The key the state is kept under for a login (server and user name).
+pub fn owner_key(base: &str, user: &str) -> String {
+    format!("{}|{}", base.trim_end_matches('/').to_lowercase(), user.to_lowercase())
+}
 
 pub fn load_state() -> Value {
     std::fs::read_to_string(state_path()).ok().and_then(|t| serde_json::from_str(&t).ok()).filter(|v: &Value| v.is_object()).unwrap_or(json!({}))
@@ -350,7 +358,7 @@ fn now_ms() -> i64 { chrono::Utc::now().timestamp_millis() }
 /// Start (or restart, after a sign-in) the reminder runner for this login.
 pub fn start(u: &AppWindow, c: Arc<Client>) {
     if !c.has(CAL) { return; }
-    let owner = format!("{}|{}", c.base.trim_end_matches('/').to_lowercase(), c.username.to_lowercase());
+    let owner = owner_key(&c.base, &c.username);
     RUN.with(|r| { let mut r = r.borrow_mut(); let gen = r.gen + 1; *r = Run { owner, gen, ..Default::default() }; });
     u.global::<crate::CalX>().set_reminders(ModelRc::new(VecModel::from(Vec::<crate::CxReminder>::new())));
     fetch(u.as_weak(), c.clone());
