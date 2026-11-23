@@ -602,6 +602,7 @@ dependencies = [
  "slint-build",
  "tray-icon",
  "windows",
+ "windows-sys 0.60.2",
  "wry",
 ]
 

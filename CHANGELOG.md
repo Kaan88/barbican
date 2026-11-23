@@ -7,6 +7,9 @@ example "## 0.1.0 — 2026-12-01", and start a new "Unreleased" above it.
 
 ## Unreleased
 
+- Sign-in safety: redirects from the server are followed by hand, to the same address only and never from https to http, at most 5 hops (session discovery, API calls, downloads, uploads, push, the admin key and the AI key). A server that redirects elsewhere is refused with the address named instead of ending in "wrong password". A sign-in the server turns down is tried once: no reconnect loop, no refresh loop, and you are told once. Two Barbican windows on one profile no longer lose a rotated sign-in token, and closing one no longer writes its older copy over a newer one.
+- Credentials: secrets are kept per profile (`BARBICAN_PROFILE`; the default profile is yours), in the Windows Credential Manager with local-machine persistence (not roaming). Your 0.1.0 sign-in moves over by itself the first time 0.1.1 starts; going back to 0.1.0 afterwards asks you to sign in again. Test and automation runs (`BARBICAN_AUTOMATION=1`) never use your profile: without a profile they get `auto-<port>`, with their own folder and sign-in.
+
 ## 0.1.0 — 2026-11-23
 
 - First installable build: a per-user Windows installer (Inno Setup, Barbican-Setup-<version>.exe), next to the portable zip, with a Start menu shortcut, an optional desktop shortcut and upgrade in place. It needs no administrator rights, and it never ends a running Barbican (including one only in the tray): it asks it to close, waits up to 30 seconds, and when it is still there it asks you to close Barbican first instead of installing, so an open draft is not lost. Uninstalling also removes the registry entries the app wrote for itself (start at login, the mailto: registration).

@@ -37,6 +37,9 @@ mod rte;
 mod mail;
 mod unified;
 mod oauth;
+mod profile;
+mod redirect;
+mod secrets;
 mod plugins;
 mod plugin_catalog;
 #[cfg(test)]
@@ -568,7 +571,7 @@ fn start_push(w: slint::Weak<AppWindow>, c: Arc<jmap::Client>) {
             if !live() { return; }
             let started = std::time::Instant::now();
             let types_wanted = push_types(&c);
-            let _ = c.watch(&types_wanted, &mut |ev| {
+            let res = c.watch(&types_wanted, &mut |ev| {
                 if !live() { return false; }
                 let types: std::collections::HashSet<String> = match ev {
                     jmap::PushEvent::Open => types_wanted.iter().map(|t| t.to_string()).collect(),
@@ -582,6 +585,12 @@ fn start_push(w: slint::Weak<AppWindow>, c: Arc<jmap::Client>) {
                 true
             });
             if !live() { return; }
+            // a rejected sign-in is final: no reconnecting with dead credentials, the user is
+            // told once and signs in again
+            if res.as_ref().err().is_some_and(|e| auth_rejected(e)) {
+                let _ = w.upgrade_in_event_loop(|u| mail::show_toast(&u, "Your sign-in is no longer valid. Sign in again.", false));
+                return;
+            }
             if started.elapsed() > std::time::Duration::from_secs(120) { backoff = 2; }
             let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.subsec_nanos() as u64).unwrap_or(0);
             let wait = backoff * 1000 + nanos % (backoff * 500);
@@ -869,7 +878,6 @@ fn main() -> Result<(), slint::PlatformError> {
         bodycache::with(|b| b.clear());
         unified::clear();
         u.set_accounts(accounts_model());
-        REMEMBER_OAUTH.store(false, std::sync::atomic::Ordering::SeqCst);
         u.set_current_mail("".into());
         u.set_folders(ModelRc::new(VecModel::from(Vec::<Folder>::new())));
         u.set_mails(ModelRc::new(VecModel::from(Vec::<Mail>::new())));
@@ -1907,10 +1915,9 @@ fn main() -> Result<(), slint::PlatformError> {
     slint::run_event_loop_until_quit()?;
     settings::Settings::flush();
     instance::cleanup();
-    // refresh tokens may rotate while the app runs: keep the newest one
-    if REMEMBER_OAUTH.load(std::sync::atomic::Ordering::SeqCst) {
-        if let Some(c) = state.lock().unwrap().clone() { remember_session(&c, serde_json::json!({"kind": "oauth"}), &c.base, ""); }
-    }
+    // No sign-in is written back here: every rotated refresh token is stored the moment it is
+    // issued (oauth::refresh, under the cross-process lock). Writing this instance's copy at exit
+    // could overwrite a newer one another instance stored since.
     ui.hide()
 }
 
@@ -2015,8 +2022,6 @@ fn display_chat(h: &[agent::Msg]) -> ModelRc<ChatMsg> {
 
 
 // ---------------- sign-in helpers ----------------
-static REMEMBER_OAUTH: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-
 fn remember_session(c: &jmap::Client, mut v: Value, server: &str, user: &str) {
     v["server"] = serde_json::json!(server);
     v["user"] = serde_json::json!(user);
@@ -2027,7 +2032,6 @@ fn remember_session(c: &jmap::Client, mut v: Value, server: &str, user: &str) {
         v["refresh"] = serde_json::json!(t.refresh);
         v["endpoint"] = serde_json::json!(t.token_endpoint);
         v["client"] = serde_json::json!(t.client_id);
-        REMEMBER_OAUTH.store(true, std::sync::atomic::Ordering::SeqCst);
     }
     oauth::remember(&v);
 }
@@ -2036,15 +2040,9 @@ fn accounts_model() -> ModelRc<SharedString> {
     ModelRc::new(VecModel::from(oauth::accounts().iter().filter_map(|a| a["user"].as_str().map(SharedString::from)).collect::<Vec<_>>()))
 }
 
-/// Sign in with a remembered session (startup and account switching).
-/// A sign-in the server turned down (wrong or revoked credentials), as opposed to a network
-/// or server error that may pass: only the first kind may forget a remembered account.
-fn auth_rejected(e: &str) -> bool {
-    e.starts_with("The server did not accept the sign-in token") || e.starts_with("Wrong username, password")
-        || e.starts_with("Session expired")
-        || (e.starts_with("Token request failed (4") && ["invalid_grant", "invalid_client", "unauthorized_client"].iter().any(|k| e.contains(k)))
-}
+use jmap::auth_rejected;
 
+/// Sign in with a remembered session (startup and account switching).
 /// `switching`: an account switch from a running session, which a failure must not end.
 fn restore_session(w: slint::Weak<AppWindow>, st: Shared, v: Value, switching: bool) {
     std::thread::spawn(move || {

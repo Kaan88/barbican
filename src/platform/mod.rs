@@ -16,8 +16,17 @@ pub mod hunspell;
 #[cfg(windows)]
 pub mod win;
 
-/// Settings, sessions and caches that belong to the user (roams on Windows).
+/// Settings, sessions and caches that belong to the user (roams on Windows), per profile.
 pub fn config_dir() -> PathBuf {
+    let root = app_config_dir();
+    match crate::profile::subdir(crate::profile::current()) {
+        Some(sub) => root.join(sub),
+        None => root,
+    }
+}
+
+/// The config folder of the default profile (other profiles live below it, see `profile.rs`).
+fn app_config_dir() -> PathBuf {
     #[cfg(windows)]
     {
         let base = std::env::var("APPDATA").unwrap_or_else(|_| ".".into());
