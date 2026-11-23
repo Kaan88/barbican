@@ -22,15 +22,22 @@ pub fn first_instance() -> bool {
         p if crate::profile::is_default(p) => shared.clone(),
         p => wide(&format!(r"Local\Barbican.Instance.{p}")),
     };
-    // any profile also holds the shared name, so the installer never replaces a running Barbican
+    // Any profile also holds the shared name, so the installer never replaces a running Barbican.
+    // And when the shared name was already held (the user's Barbican, or another profile's, is
+    // running), a non-default profile is not "first" either: the update in the shared data_dir()
+    // must never be installed from under a running Barbican by a test, automation or dev run.
+    let mut other_running = false;
     if !crate::profile::is_default(crate::profile::current()) {
-        let _ = unsafe { CreateMutexW(None, false, PCWSTR(shared.as_ptr())) };
+        if unsafe { CreateMutexW(None, false, PCWSTR(shared.as_ptr())) }.is_ok() {
+            other_running = unsafe { GetLastError() } == ERROR_ALREADY_EXISTS;
+        }
     }
-    // the handle is leaked on purpose: Windows releases it when the process ends
-    match unsafe { CreateMutexW(None, false, PCWSTR(name.as_ptr())) } {
+    // the handles are leaked on purpose: Windows releases them when the process ends
+    let mine = match unsafe { CreateMutexW(None, false, PCWSTR(name.as_ptr())) } {
         Ok(_) => { let e = unsafe { GetLastError() }; e != ERROR_ALREADY_EXISTS }
         Err(_) => true,
-    }
+    };
+    mine && !other_running
 }
 
 fn wide(s: &str) -> Vec<u16> {

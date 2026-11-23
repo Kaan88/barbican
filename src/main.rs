@@ -773,7 +773,9 @@ fn load_mailboxes(ui: slint::Weak<AppWindow>, client: Arc<jmap::Client>, select_
 fn main() -> Result<(), slint::PlatformError> {
     // an update the user approved ("Install next time") installs before anything else
     // (only when no other Barbican runs: the installer would replace it while it is open)
-    if platform::first_instance() && updater::on_start() { return Ok(()); }
+    // first_instance() first: it takes the instance mutex for the life of the process. Only the
+    // default profile installs a pending update (test, automation and dev profiles never do).
+    if platform::first_instance() && profile::is_default(profile::current()) && updater::on_start() { return Ok(()); }
     // Skia: the same text/graphics engine Chrome uses, so text matches Bulwark in the browser
     // (and gets system font fallback for CJK and other scripts).
     let _ = slint::BackendSelector::new().renderer_name("skia".into()).select();
