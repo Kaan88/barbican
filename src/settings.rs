@@ -131,6 +131,12 @@ impl Settings {
         }
     }
 
+    /// Store one pref value and save.
+    pub fn remember(&mut self, key: &str, value: Value) {
+        self.prefs.insert(key.into(), value);
+        self.save();
+    }
+
     /// Writes the settings file off the UI thread. `LATEST` serves `load` until the write lands
     /// and the newest save always wins. Tests write synchronously.
     fn save(&self) {
@@ -349,17 +355,16 @@ impl Settings {
             }
             "addons" => {
                 out.push(row("section", "", "Plugins", "Native plugins dropped into the plugins folder stay off until you switch them on. A plugin runs code on your computer: switch on only the ones you trust."));
-                let enabled: Vec<String> = self.prefs.get("enabledPlugins").and_then(|v| v.as_array())
-                    .map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect()).unwrap_or_default();
+                crate::refresh_plugins();
                 let list = crate::plugin_list();
                 if list.is_empty() {
-                    out.push(text("value", "", "No plugins installed", "Copy a plugin .dll into the folder and reopen Settings.", ""));
+                    out.push(text("value", "", "No plugins installed", "Copy a plugin .dll into the folder, then reopen this page.", ""));
                 }
                 for p in list {
                     let id = p["id"].as_str().unwrap_or("");
                     let hooks = p["hooks"].as_array().map(|a| a.iter().filter_map(|h| h.as_str()).collect::<Vec<_>>().join(", ")).unwrap_or_default();
                     out.push(toggle(&format!("plugin:{id}"), &format!("{} {}", p["name"].as_str().unwrap_or(id), p["version"].as_str().unwrap_or("")),
-                        &format!("{}  (hooks: {hooks})", p["description"].as_str().unwrap_or("")), enabled.iter().any(|d| d == id)));
+                        &format!("{}  (hooks: {hooks})", p["description"].as_str().unwrap_or("")), p["enabled"].as_bool().unwrap_or(false)));
                 }
                 for e in crate::plugin_errors() {
                     out.push(text("value", "", "Could not load", &e, ""));
@@ -517,7 +522,15 @@ impl Settings {
                 list.retain(|x| x.as_str() != Some(id));
                 if value.as_bool() == Some(true) { list.push(json!(id)); }
                 self.prefs.insert("enabledPlugins".into(), Value::Array(list));
+                // enabling pins the plugin's file (path + hash): a replaced file must be switched on again
+                let mut bindings = self.prefs.get("pluginBindings").and_then(|v| v.as_object().cloned()).unwrap_or_default();
+                bindings.remove(id);
+                if value.as_bool() == Some(true) {
+                    if let Some(b) = crate::plugin_binding(id) { bindings.insert(id.to_string(), json!(b)); }
+                }
+                self.prefs.insert("pluginBindings".into(), Value::Object(bindings));
                 self.save();
+                crate::plugin_toggled();
                 return;
             }
             _ => {

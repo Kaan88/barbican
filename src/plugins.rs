@@ -19,8 +19,9 @@
 //!   shown in the reader under the sender, like Bulwark's `ui:email-details` slot.
 //! * `compose.check`  input: `{"to","cc","bcc","subject","text","attachments":[names]}`
 //!   output: `{"warning": "text"}` to hold the send once (like the attachment reminder).
-//!   Names are Barbican's own; `plugin_catalog::HOOK_ALIASES` maps them to Bulwark's (`onEmailOpen`, `onBeforeEmailSend`),
-//!   and a manifest may list either spelling.
+//!   Names are Barbican's own. Hook names borrow Bulwark's as a reference vocabulary (not compatibility):
+//!   `plugin_catalog::HOOK_ALIASES` maps them to `onEmailOpen` and `onBeforeEmailSend`, and a manifest may list either
+//!   spelling; the plugin is called with the spelling its manifest declared.
 //! * `settings`       input: `{}`; output: `{"rows":[...settings rows like ui/settings-schema.json...]}`
 //!
 //! Safety:
@@ -29,6 +30,12 @@
 //!   when the folder holds a single library). Without a sidecar the plugin is listed by file name, unverified, and its
 //!   real manifest is read only after the user enables it. Enabling it still runs its code in this process: only
 //!   enable plugins you trust. A sidecar that disagrees with the library's own manifest id is rejected.
+//! * A plugin is enabled by key AND bound to its file (path + SHA-256, `pluginBindings` pref); a replaced file must be
+//!   switched off and on again. Manifest ids starting with `file:` or holding control characters are rejected, and a
+//!   library whose id duplicates another plugin's is refused (after loading: the ABI gives no earlier look).
+//! * Loading (`Library::new` + the manifest call) runs on a worker thread with a budget; an overrun marks the plugin failed.
+//! * At most one call is in flight per plugin: while an abandoned call has not returned, new calls fail at once
+//!   (the ABI makes no thread-safety promise), which counts toward the failure limit.
 //! * Every call runs on a worker thread with the hook's budget from the catalogue (2000 ms when the hook is not in it,
 //!   at most [`MAX_BUDGET_MS`] because the UI waits). A call that overruns is abandoned (its thread may linger) and
 //!   counts as a failure. Panics are caught. A panic inside a plugin's own `extern "C"` function aborts at the C
@@ -39,6 +46,7 @@ use crate::plugin_catalog::{lookup_hook, resolve_alias};
 use serde_json::{json, Value};
 use std::ffi::{c_char, CStr, CString};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use sha2::{Digest, Sha256};
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::Duration;
 
@@ -91,7 +99,11 @@ pub struct Plugin {
     pub path: String,
     /// The manifest came from a sidecar file (otherwise it is read from the library once enabled).
     verified: bool,
+    /// SHA-256 of the library file when it was discovered.
+    fingerprint: String,
     backend: Option<Arc<dyn PluginBackend>>,
+    /// Set while a call is in flight (also after it was abandoned on timeout).
+    busy: Arc<AtomicBool>,
     load_failed: bool,
     failures: AtomicU32,
     tripped: AtomicBool,
@@ -117,18 +129,36 @@ impl Plugin {
         self.backend.is_some() && !self.is_tripped() && enabled.contains(&self.key)
     }
 
+    /// The spelling of `hook` this plugin's manifest declared (its aliases are interchangeable).
+    fn declared_name<'a>(&'a self, hook: &'a str) -> &'a str {
+        let want = resolve_alias(hook);
+        self.hooks.iter().find(|h| resolve_alias(h) == want).map_or(hook, |h| h.as_str())
+    }
+
+    /// What enabling pins: the file's path and content hash.
+    pub fn binding(&self) -> String { format!("{}|{}", self.path, self.fingerprint) }
+
     /// Call a hook on a worker thread; give up after `budget`. Counts toward the failure limit.
+    /// Never runs two calls into one plugin at once: if an earlier call has not returned, this one fails at once.
     pub fn call(&self, hook: &str, input: &Value, budget: Duration) -> Result<Option<Value>, String> {
         let Some(backend) = self.backend.clone() else { return Err("not loaded".into()) };
+        if self.busy.swap(true, Ordering::SeqCst) {
+            let r = Err("the previous call has not returned yet".to_string());
+            self.record(&r);
+            return r;
+        }
+        let busy = self.busy.clone();
         let (tx, rx) = mpsc::channel();
-        let (h, i) = (hook.to_string(), input.clone());
-        let spawned = std::thread::Builder::new().name(format!("plugin-{}", self.key)).spawn(move || {
+        let (h, i) = (self.declared_name(hook).to_string(), input.clone());
+        // a fixed thread name: manifest text is untrusted
+        let spawned = std::thread::Builder::new().name("barbican-plugin".into()).spawn(move || {
             let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| backend.call(&h, &i)))
                 .unwrap_or_else(|_| Err("plugin panicked".to_string()));
+            busy.store(false, Ordering::SeqCst);
             let _ = tx.send(r);
         });
         let r = match spawned {
-            Err(e) => Err(format!("could not start worker: {e}")),
+            Err(e) => { self.busy.store(false, Ordering::SeqCst); Err(format!("could not start worker: {e}")) }
             Ok(_) => match rx.recv_timeout(budget) {
                 Ok(r) => r,
                 Err(mpsc::RecvTimeoutError::Timeout) => Err(format!("timed out after {} ms", budget.as_millis())),
@@ -171,9 +201,10 @@ struct Meta {
 }
 
 fn parse_manifest(v: &Value) -> Result<Meta, String> {
-    if v["api"].as_u64().unwrap_or(1) as u32 > API_VERSION { return Err(format!("needs plugin API {} (this app has {API_VERSION})", v["api"])); }
+    if v["api"].as_u64().unwrap_or(1) > API_VERSION as u64 { return Err(format!("needs plugin API {} (this app has {API_VERSION})", v["api"])); }
     Ok(Meta {
-        id: v["id"].as_str().filter(|s| !s.is_empty()).ok_or("manifest has no id")?.to_string(),
+        id: v["id"].as_str().filter(|s| !s.is_empty() && !s.starts_with("file:") && !s.chars().any(char::is_control))
+            .ok_or("manifest has no usable id (empty, starts with file:, or has control characters)")?.to_string(),
         name: v["name"].as_str().unwrap_or("Plugin").to_string(),
         version: v["version"].as_str().unwrap_or("").to_string(),
         description: v["description"].as_str().unwrap_or("").to_string(),
@@ -218,39 +249,104 @@ pub fn discover_in(folder: &std::path::Path) -> (Vec<Plugin>, Vec<String>) {
         });
         if out.iter().any(|x| x.key == m.id) { errors.push(format!("{file}: duplicate id {}", m.id)); continue; }
         out.push(Plugin { key: m.id.clone(), id: m.id, name: m.name, version: m.version, description: m.description, hooks: m.hooks,
-            path: p.display().to_string(), verified, backend: None, load_failed: false, failures: AtomicU32::new(0), tripped: AtomicBool::new(false) });
+            path: p.display().to_string(), verified, fingerprint: fingerprint(p), backend: None, busy: Arc::new(AtomicBool::new(false)),
+            load_failed: false, failures: AtomicU32::new(0), tripped: AtomicBool::new(false) });
     }
     (out, errors)
 }
 
+fn fingerprint(p: &std::path::Path) -> String {
+    std::fs::read(p).map(|b| Sha256::digest(&b).iter().map(|x| format!("{x:02x}")).collect()).unwrap_or_default()
+}
+
+/// Keep the state (loaded library, failure count) of entries that are unchanged; take new or replaced files as found.
+fn merge_discovered(mut old: Vec<Plugin>, new: Vec<Plugin>) -> Vec<Plugin> {
+    new.into_iter().map(|n| match old.iter().position(|o| o.key == n.key && o.path == n.path && o.fingerprint == n.fingerprint) {
+        Some(i) => old.swap_remove(i),
+        None => n,
+    }).collect()
+}
+
+/// Re-read the plugins folder (Settings → Add-ons) without loading anything new.
+pub fn refresh(list: &mut Vec<Plugin>) -> Vec<String> {
+    let (found, errors) = discover();
+    *list = merge_discovered(std::mem::take(list), found);
+    errors
+}
+
+/// The keys that are both switched on and still bound to the file they were enabled for.
+pub fn bound_enabled(plugins: &[Plugin], enabled: &[String], bindings: &Value) -> Vec<String> {
+    enabled.iter().filter(|k| plugins.iter().any(|p| &p.key == *k && bindings[k.as_str()].as_str() == Some(p.binding().as_str()))).cloned().collect()
+}
+
+/// Installed plugins that are not switched on: worth a one-time notice that plugins are off until enabled.
+pub fn has_unenabled(plugins: &[Plugin], enabled: &[String]) -> bool {
+    plugins.iter().any(|p| !enabled.contains(&p.key))
+}
+
+type LoadResult = Result<(Meta, Arc<dyn PluginBackend>), String>;
+type Loader = Arc<dyn Fn(&std::path::Path) -> LoadResult + Send + Sync>;
+/// How long loading a library (and reading its manifest) may take.
+pub const LOAD_BUDGET_MS: u64 = 3000;
+
 /// Load the plugins the user enabled and unload the ones switched off. Cheap when nothing changed.
 /// Returns load errors (each reported once).
 pub fn sync(plugins: &mut [Plugin], enabled: &[String]) -> Vec<String> {
+    let loader: Loader = Arc::new(|p: &std::path::Path| unsafe { load(p) });
+    sync_with(plugins, enabled, &loader, Duration::from_millis(LOAD_BUDGET_MS))
+}
+
+fn sync_with(plugins: &mut [Plugin], enabled: &[String], loader: &Loader, budget: Duration) -> Vec<String> {
     let mut errors = vec![];
-    for p in plugins.iter_mut() {
-        if !enabled.contains(&p.key) { p.backend = None; continue; }
-        if p.backend.is_some() || p.load_failed || p.is_tripped() { continue; }
-        match unsafe { load(std::path::Path::new(&p.path)) } {
-            Ok((m, _)) if p.verified && m.id != p.id => {
-                p.load_failed = true;
-                errors.push(format!("{}: manifest.json says id {} but the library says {}", p.path, p.id, m.id));
-            }
-            Ok((m, b)) => {
-                if !p.verified { (p.id, p.name, p.version, p.description, p.hooks) = (m.id, m.name, m.version, m.description, m.hooks); }
-                p.backend = Some(b);
-            }
-            Err(e) => { p.load_failed = true; errors.push(format!("{}: {e}", p.path)); }
+    for i in 0..plugins.len() {
+        if !enabled.contains(&plugins[i].key) {
+            // switching off forgets an earlier load failure, so on again tries again
+            plugins[i].backend = None;
+            plugins[i].load_failed = false;
+            continue;
+        }
+        if plugins[i].backend.is_some() || plugins[i].load_failed || plugins[i].is_tripped() { continue; }
+        let path = plugins[i].path.clone();
+        // Library::new and manifest() run foreign code: never on the UI thread without a limit
+        let (tx, rx) = mpsc::channel();
+        let (l, pp) = (loader.clone(), std::path::PathBuf::from(&path));
+        let started = std::thread::Builder::new().name("barbican-plugin-load".into()).spawn(move || {
+            let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| l(&pp))).unwrap_or_else(|_| Err("plugin panicked while loading".to_string()));
+            let _ = tx.send(r); // if nobody waits any more the library is dropped (unloaded) here
+        });
+        let res = match started {
+            Err(e) => Err(format!("could not start loader: {e}")),
+            Ok(_) => match rx.recv_timeout(budget) {
+                Ok(r) => r,
+                Err(mpsc::RecvTimeoutError::Timeout) => Err(format!("did not finish loading within {} ms", budget.as_millis())),
+                Err(mpsc::RecvTimeoutError::Disconnected) => Err("loader died".to_string()),
+            },
+        };
+        let (m, b) = match res {
+            Ok(x) => x,
+            Err(e) => { plugins[i].load_failed = true; errors.push(format!("{path}: {e}")); continue; }
+        };
+        if plugins[i].verified && m.id != plugins[i].id {
+            plugins[i].load_failed = true;
+            errors.push(format!("{path}: manifest.json says id {} but the library says {}", plugins[i].id, m.id));
+        } else if plugins.iter().enumerate().any(|(j, o)| j != i && o.id == m.id) {
+            plugins[i].load_failed = true;
+            errors.push(format!("{path}: another plugin already uses the id {}", m.id));
+        } else {
+            let p = &mut plugins[i];
+            if !p.verified { (p.id, p.name, p.version, p.description, p.hooks) = (m.id, m.name, m.version, m.description, m.hooks); }
+            p.backend = Some(b);
         }
     }
     errors
 }
 
-unsafe fn load(p: &std::path::Path) -> Result<(Meta, Arc<dyn PluginBackend>), String> {
+unsafe fn load(p: &std::path::Path) -> LoadResult {
     let lib = libloading::Library::new(p).map_err(|e| e.to_string())?;
     let manifest: libloading::Symbol<ManifestFn> = lib.get(b"barbican_plugin_manifest\0").map_err(|_| "missing barbican_plugin_manifest")?;
     let call: libloading::Symbol<CallFn> = lib.get(b"barbican_plugin_call\0").map_err(|_| "missing barbican_plugin_call")?;
     let free: libloading::Symbol<FreeFn> = lib.get(b"barbican_plugin_free\0").map_err(|_| "missing barbican_plugin_free")?;
-    let m = manifest();
+    let m = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| manifest())).map_err(|_| "manifest call panicked")?;
     if m.is_null() { return Err("empty manifest".into()); }
     let v: Value = serde_json::from_str(&CStr::from_ptr(m).to_string_lossy()).map_err(|e| format!("bad manifest: {e}"))?;
     let meta = parse_manifest(&v)?;
@@ -325,7 +421,7 @@ mod tests {
         let f = Arc::new(Fake { mode, calls: AtomicUsize::new(0) });
         let p = Plugin { key: name.into(), id: name.into(), name: name.into(), version: "1".into(), description: String::new(),
             hooks: vec!["compose.check".into(), "email.details".into()], path: String::new(), verified: true,
-            backend: Some(f.clone()), load_failed: false, failures: AtomicU32::new(0), tripped: AtomicBool::new(false) };
+            fingerprint: String::new(), busy: Arc::new(AtomicBool::new(false)), backend: Some(f.clone()), load_failed: false, failures: AtomicU32::new(0), tripped: AtomicBool::new(false) };
         (p, f)
     }
     fn on(p: &Plugin) -> Vec<String> { vec![p.key.clone()] }
@@ -466,12 +562,152 @@ mod tests {
         let (meta, backend) = unsafe { super::load(&dll) }.expect("load");
         assert_eq!(meta.id, "spam-score");
         let p = Plugin { key: meta.id.clone(), id: meta.id, name: meta.name, version: meta.version, description: meta.description, hooks: meta.hooks,
-            path: String::new(), verified: true, backend: Some(backend), load_failed: false, failures: AtomicU32::new(0), tripped: AtomicBool::new(false) };
+            path: String::new(), verified: true, fingerprint: String::new(), busy: Arc::new(AtomicBool::new(false)), backend: Some(backend), load_failed: false, failures: AtomicU32::new(0), tripped: AtomicBool::new(false) };
         assert!(p.handles("email.details"));
         let email = json!({"headers": [{"name": "X-Spam-Status", "value": "Yes, score=7.5 required=5.0"}]});
         let rows = email_details(std::slice::from_ref(&p), &on(&p), &email);
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].2, "danger");
         assert!(rows[0].1.contains("7.50 / 5.00"), "{}", rows[0].1);
+    }
+
+    struct Recorder(Mutex<Vec<String>>);
+    impl PluginBackend for Recorder {
+        fn call(&self, hook: &str, _: &Value) -> Result<Option<Value>, String> { self.0.lock().unwrap().push(hook.to_string()); Ok(None) }
+    }
+
+    fn bare(key: &str, path: &str, fp: &str) -> Plugin {
+        Plugin { key: key.into(), id: key.into(), name: key.into(), version: String::new(), description: String::new(), hooks: vec![],
+            path: path.into(), verified: true, fingerprint: fp.into(), backend: None, busy: Arc::new(AtomicBool::new(false)),
+            load_failed: false, failures: AtomicU32::new(0), tripped: AtomicBool::new(false) }
+    }
+
+    fn stub_meta(id: &str) -> Meta { Meta { id: id.into(), name: id.into(), version: String::new(), description: String::new(), hooks: vec![] } }
+    fn stub_loader(f: impl Fn(&std::path::Path) -> LoadResult + Send + Sync + 'static) -> Loader { Arc::new(f) }
+
+    #[test]
+    fn plugin_is_called_with_the_spelling_its_manifest_declared() {
+        let rec = Arc::new(Recorder(Mutex::new(vec![])));
+        let mut p = bare("rec", "", "");
+        p.backend = Some(rec.clone());
+        p.hooks = vec!["onBeforeEmailSend".into(), "onEmailOpen".into()];
+        p.call("compose.check", &json!({}), MS).unwrap();
+        p.call("email.details", &json!({}), MS).unwrap();
+        p.call("settings", &json!({}), MS).unwrap();
+        assert_eq!(*rec.0.lock().unwrap(), ["onBeforeEmailSend", "onEmailOpen", "settings"]);
+        p.hooks = vec!["compose.check".into()];
+        p.call("onBeforeEmailSend", &json!({}), MS).unwrap();
+        assert_eq!(rec.0.lock().unwrap().last().unwrap(), "compose.check");
+    }
+
+    #[test]
+    fn no_second_call_while_an_abandoned_one_runs() {
+        let (p, f) = fake("busy", Mode::Sleep(300));
+        assert!(p.call("x", &json!({}), Duration::from_millis(30)).unwrap_err().contains("timed out"));
+        let t = std::time::Instant::now();
+        let e = p.call("x", &json!({}), MS).unwrap_err();
+        assert!(e.contains("not returned") && t.elapsed() < Duration::from_millis(100), "{e}");
+        assert_eq!(f.calls.load(Ordering::SeqCst), 1, "the library was entered once");
+        assert_eq!(p.failures.load(Ordering::SeqCst), 2);
+        std::thread::sleep(Duration::from_millis(400));
+        assert!(p.call("x", &json!({}), MS).is_ok(), "free again once the old call returned");
+    }
+
+    #[test]
+    fn a_hung_load_is_abandoned_and_can_be_retried_after_switching_off() {
+        let mut list = vec![bare("slow", "x", "")];
+        let hang = stub_loader(|_| { std::thread::sleep(Duration::from_millis(400)); Err("late".into()) });
+        let en = vec!["slow".to_string()];
+        let t = std::time::Instant::now();
+        let errs = sync_with(&mut list, &en, &hang, Duration::from_millis(40));
+        assert!(t.elapsed() < Duration::from_millis(300));
+        assert!(errs.len() == 1 && errs[0].contains("did not finish loading"), "{errs:?}");
+        assert!(sync_with(&mut list, &en, &hang, Duration::from_millis(40)).is_empty(), "reported once");
+        // switch off, then on again: tries again
+        sync_with(&mut list, &[], &hang, Duration::from_millis(40));
+        assert_eq!(sync_with(&mut list, &en, &hang, Duration::from_millis(40)).len(), 1);
+    }
+
+    #[test]
+    fn a_panicking_loader_is_a_load_failure() {
+        let mut list = vec![bare("p", "x", "")];
+        let l = stub_loader(|_| panic!("manifest exploded"));
+        let errs = sync_with(&mut list, &["p".to_string()], &l, Duration::from_millis(500));
+        assert!(errs[0].contains("panicked"), "{errs:?}");
+    }
+
+    #[test]
+    fn duplicate_ids_never_load() {
+        let mut a = bare("one", "a", "");
+        a.backend = Some(Arc::new(Recorder(Mutex::new(vec![]))));
+        let mut b = bare("file:b.dll", "b", "");
+        b.verified = false;
+        let mut list = vec![a, b];
+        let l = stub_loader(|_| Ok((stub_meta("one"), Arc::new(Recorder(Mutex::new(vec![]))) as Arc<dyn PluginBackend>)));
+        let errs = sync_with(&mut list, &["one".to_string(), "file:b.dll".to_string()], &l, MS);
+        assert!(errs.len() == 1 && errs[0].contains("already uses the id one"), "{errs:?}");
+        assert!(list[1].backend.is_none() && list[1].load_failed);
+    }
+
+    #[test]
+    fn sidecar_id_must_match_the_library() {
+        let mut list = vec![bare("claimed", "x", "")];
+        let l = stub_loader(|_| Ok((stub_meta("other"), Arc::new(Recorder(Mutex::new(vec![]))) as Arc<dyn PluginBackend>)));
+        let errs = sync_with(&mut list, &["claimed".to_string()], &l, MS);
+        assert!(errs[0].contains("library says other") && list[0].backend.is_none());
+    }
+
+    #[test]
+    fn manifest_ids_are_checked() {
+        for bad in [json!({"id": "file:evil"}), json!({"id": "a\u{0}b"}), json!({"id": "a\nb"}), json!({"id": ""}), json!({})] {
+            assert!(parse_manifest(&bad).is_err(), "{bad}");
+        }
+        assert!(parse_manifest(&json!({"id": "fine-id.1"})).is_ok());
+    }
+
+    #[test]
+    fn api_version_does_not_truncate() {
+        assert!(parse_manifest(&json!({"id": "x", "api": 4294967297u64})).is_err());
+        assert!(parse_manifest(&json!({"id": "x", "api": 1})).is_ok());
+    }
+
+    #[test]
+    fn enabling_is_bound_to_the_file() {
+        let list = vec![bare("a", "C:/p/a.dll", "h1"), bare("b", "C:/p/b.dll", "h2")];
+        let en = vec!["a".to_string(), "b".to_string(), "gone".to_string()];
+        let bindings = json!({"a": "C:/p/a.dll|h1", "b": "C:/p/b.dll|OLD", "gone": "x|y"});
+        assert_eq!(bound_enabled(&list, &en, &bindings), ["a"]);
+        assert!(bound_enabled(&list, &en, &json!({})).is_empty(), "no binding, no consent");
+    }
+
+    #[test]
+    fn rediscovery_keeps_state_and_drops_replaced_files() {
+        let mut keep = bare("k", "p", "h");
+        keep.failures.store(2, Ordering::SeqCst);
+        let old = vec![keep, bare("r", "p2", "old")];
+        let new = vec![bare("k", "p", "h"), bare("r", "p2", "new"), bare("n", "p3", "z")];
+        let merged = merge_discovered(old, new);
+        assert_eq!(merged.len(), 3);
+        assert_eq!(merged[0].failures.load(Ordering::SeqCst), 2, "unchanged entry keeps its state");
+        assert_eq!(merged[1].fingerprint, "new");
+    }
+
+    #[test]
+    fn upgrade_notice_when_a_plugin_is_installed_but_off() {
+        let list = vec![bare("a", "p", "")];
+        assert!(has_unenabled(&list, &[]));
+        assert!(!has_unenabled(&list, &["a".to_string()]));
+        assert!(!has_unenabled(&[], &[]));
+    }
+
+    #[test]
+    fn fingerprint_changes_with_the_file() {
+        let d = temp_folder("fp");
+        let f = d.join("x.bin");
+        std::fs::write(&f, b"one").unwrap();
+        let a = fingerprint(&f);
+        std::fs::write(&f, b"two").unwrap();
+        assert_ne!(a, fingerprint(&f));
+        let _ = std::fs::remove_dir_all(&d);
     }
 }

@@ -407,6 +407,7 @@ fn reset(u: &AppWindow) {
     u.set_c_subject("".into());
     rte::set_doc(u, Doc::default());
     u.set_c_status("".into());
+    HELD.with(|h| h.set(None));
     u.set_c_saved_at("".into());
     u.set_can_undo(false);
     refresh_attachments(u);
@@ -830,11 +831,44 @@ thread_local! {
     static ARMED: std::cell::Cell<Option<Option<i64>>> = const { std::cell::Cell::new(None) };
 }
 
-fn is_warning(s: &str) -> bool { s.ends_with("send anyway.") || s.ends_with("schedule anyway.") }
+/// Which check raised the warning the user has just seen.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Stage { Builtin, Plugin }
+
+thread_local! {
+    /// The last pre-send warning and the draft (fingerprint) it was raised for. Pressing Send again on the
+    /// same draft acknowledges that stage; any change to the draft makes the fingerprint differ, so every check runs again.
+    static HELD: std::cell::Cell<Option<(u64, Stage)>> = const { std::cell::Cell::new(None) };
+}
+
+fn draft_fingerprint(o: &Outgoing) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    (&o.to, &o.cc, &o.bcc, &o.subject, &o.text).hash(&mut h);
+    for a in &o.attachments { a.name.hash(&mut h); }
+    h.finish()
+}
+
+/// The staged send gate: built-in warnings first, then the plugin check. A stage the user already
+/// confirmed for this exact draft is skipped, later stages still run (a confirmed empty-subject warning
+/// does not skip the plugin check).
+fn gate(held: Option<(u64, Stage)>, fp: u64, builtin: impl FnOnce() -> Option<String>, plugin: impl FnOnce() -> Option<String>) -> Result<(), (Stage, String)> {
+    let acked = held.filter(|(f, _)| *f == fp).map(|(_, s)| s);
+    if acked.is_none() {
+        if let Some(w) = builtin() { return Err((Stage::Builtin, w)); }
+    }
+    if acked != Some(Stage::Plugin) {
+        if let Some(w) = plugin() { return Err((Stage::Plugin, w)); }
+    }
+    Ok(())
+}
+
+/// The user has seen a warning for exactly this draft.
+fn acknowledged(fp: u64) -> bool { HELD.with(|h| h.get()).is_some_and(|(f, _)| f == fp) }
 
 fn send_at(u: &AppWindow, c: Arc<Client>, prefs: &crate::settings::Settings, at: Option<i64>) {
     let mut at = at;
-    if at.is_none() && is_warning(&u.get_c_status()) {
+    if at.is_none() && HELD.with(|h| h.get()).is_some() {
         // "Press Send again" after a scheduling attempt keeps scheduling
         if let Some(Some(t)) = ARMED.with(|a| a.get()) {
             if t > chrono::Local::now().timestamp_millis() { at = Some(t); }
@@ -862,7 +896,8 @@ fn send_at(u: &AppWindow, c: Arc<Client>, prefs: &crate::settings::Settings, at:
         u.set_c_status("Add at least one recipient.".into());
         return;
     }
-    let warned = is_warning(&u.get_c_status());
+    let fp = draft_fingerprint(&o);
+    let warned = acknowledged(fp);
     let verb = if at.is_some() { "schedule" } else { "send" };
     // picking a time is the confirmation for a scheduled send
     if at.is_none() && prefs.bool("sendConfirmation", false) && !warned && !u.get_c_status().ends_with("to send.") {
@@ -870,14 +905,20 @@ fn send_at(u: &AppWindow, c: Arc<Client>, prefs: &crate::settings::Settings, at:
         return;
     }
     o.read_receipt = o.read_receipt || prefs.bool("requestReadReceiptDefault", false);
-    if !warned {
-        if let Some(w) = pre_send_warning(&o, prefs, verb) { ARMED.with(|a| a.set(Some(at))); u.set_c_status(w.into()); return; }
-        let draft = serde_json::json!({"to": o.to, "cc": o.cc, "bcc": o.bcc, "subject": o.subject, "text": o.text,
-            "attachments": o.attachments.iter().map(|a| a.name.clone()).collect::<Vec<_>>()});
-        let held = crate::plugin_compose_check(&draft);
+    let draft = serde_json::json!({"to": o.to, "cc": o.cc, "bcc": o.bcc, "subject": o.subject, "text": o.text,
+        "attachments": o.attachments.iter().map(|a| a.name.clone()).collect::<Vec<_>>()});
+    let verdict = gate(HELD.with(|h| h.get()), fp, || pre_send_warning(&o, prefs, verb), || {
+        let w = crate::plugin_compose_check(&draft);
         crate::plugin_notices(u);
-        if let Some(w) = held { ARMED.with(|a| a.set(Some(at))); u.set_c_status(format!("{w} Press Send again to {verb} anyway.").into()); return; }
+        w.map(|w| format!("{w} Press Send again to {verb} anyway."))
+    });
+    if let Err((stage, w)) = verdict {
+        HELD.with(|h| h.set(Some((fp, stage))));
+        ARMED.with(|a| a.set(Some(at)));
+        u.set_c_status(w.into());
+        return;
     }
+    HELD.with(|h| h.set(None));
     let delay = prefs.prefs.get("sendDelaySeconds").and_then(|v| v.as_u64()).unwrap_or(5);
     let snapshot = ST.with(|s| {
         use slint::Model;
@@ -1261,5 +1302,45 @@ mod tests {
             {"name": "delivered-to", "value": "a@b.c"},
         ]});
         assert_eq!(delivery_addresses(&m), vec!["d@e.f".to_string(), "a@b.c".to_string()]);
+    }
+}
+
+#[cfg(test)]
+mod gate_tests {
+    use super::*;
+    fn w(s: &str) -> Option<String> { Some(s.to_string()) }
+
+    #[test]
+    fn builtin_warning_does_not_skip_the_plugin_check() {
+        // first Send: the built-in warning
+        assert_eq!(gate(None, 1, || w("empty subject"), || panic!("plugin runs after the built-in stage")), Err((Stage::Builtin, "empty subject".into())));
+        // second Send on the same draft: built-in confirmed, the plugin check still runs and holds
+        assert_eq!(gate(Some((1, Stage::Builtin)), 1, || w("empty subject"), || w("plugin says no")), Err((Stage::Plugin, "plugin says no".into())));
+        // third Send: both confirmed
+        assert_eq!(gate(Some((1, Stage::Plugin)), 1, || w("empty subject"), || w("plugin says no")), Ok(()));
+    }
+
+    #[test]
+    fn editing_the_draft_after_a_hold_runs_every_check_again() {
+        assert_eq!(gate(Some((1, Stage::Plugin)), 2, || None, || w("plugin says no")), Err((Stage::Plugin, "plugin says no".into())));
+        assert_eq!(gate(Some((1, Stage::Builtin)), 2, || w("empty subject"), || None), Err((Stage::Builtin, "empty subject".into())));
+    }
+
+    #[test]
+    fn clean_draft_passes() {
+        assert_eq!(gate(None, 1, || None, || None), Ok(()));
+    }
+
+    #[test]
+    fn fingerprint_follows_every_part_of_the_draft() {
+        let base = Outgoing::default();
+        let f = |m: &dyn Fn(&mut Outgoing)| { let mut o = Outgoing::default(); m(&mut o); draft_fingerprint(&o) };
+        let b = draft_fingerprint(&base);
+        assert_ne!(b, f(&|o| o.to = "a@b.c".into()));
+        assert_ne!(b, f(&|o| o.cc = "a@b.c".into()));
+        assert_ne!(b, f(&|o| o.bcc = "a@b.c".into()));
+        assert_ne!(b, f(&|o| o.subject = "x".into()));
+        assert_ne!(b, f(&|o| o.text = "x".into()));
+        assert_eq!(b, f(&|_| {}));
     }
 }

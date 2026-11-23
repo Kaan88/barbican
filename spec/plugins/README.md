@@ -1,8 +1,9 @@
 # spec/plugins/: the plugin hook, slot and host-API catalogues
 
-The one catalogue behind both plugin systems of Barbican (ROADMAP Phase 5, track B): the Bulwark-compatible JS host and the
-native C-ABI plugins use the same hook and slot names. It comes from Bulwark 1.21.2. The committed CSVs are the source of
-truth; `src/plugin_catalog.rs` is generated from them.
+The reference vocabulary for Barbican's native (C ABI) plugin system (ROADMAP Phase 5, track B). Hook, slot and host-call
+names are borrowed from Bulwark 1.21.2 so that porting a Bulwark plugin means rewriting its logic, not inventing its API.
+This is a reference vocabulary, not compatibility: Bulwark plugins do not run in Barbican. The committed CSVs are the source
+of truth; `src/plugin_catalog.rs` is generated from them.
 
 | File | Rows | Source |
 |---|---|---|
