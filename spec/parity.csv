@@ -47,7 +47,7 @@ G-045,notifications,ShareNotification and CalendarEventNotification; the notific
 G-046,mail-transfer,Mail export of a folder to mbox or eml,mail-transfer/,missing,,G-046 (GAPS P1-11),2,M
 G-047,mail-transfer,winmail.dat (TNEF) decoding,lib/tnef.ts,missing,,G-047 (GAPS P1-11),2,M
 G-048,mail-transfer,"Email/copy: copy a message to another account (Email/copy inside one login, Email/import across logins)","n/a (JMAP Email/copy, Email/import); stores/email-store.ts:5601-5648, lib/jmap/client.ts:12242/:12290",missing,,G-048 (GAPS P1-11),2,M
-G-049,reader-safety,Link mismatch warnings,lib/phishing-links.ts,done,,G-049 (GAPS P1-12),2,M
+G-049,reader-safety,Turn links off in a reported phishing message,lib/phishing-links.ts; phishing-mark-banner.tsx,missing,,G-049 (GAPS P1-12),2,M
 G-050,reader-safety,Phishing report,phishing-mark-banner.tsx; phishing-report*,missing,,G-050 (GAPS P1-12),2,M
 G-051,reader-safety,External sender chip,external-sender-chip.tsx,missing,,G-051 (GAPS P1-12),2,S/M
 G-052,reader-safety,BIMI verified badge,brand-verified-badge.tsx; lib/bimi,missing,,G-052 (GAPS P1-12),2,S/M
@@ -91,7 +91,7 @@ G-089,desktop,Tray: start at login implemented but not exercised,desktop.rs,unve
 G-090,platform,"Linux platform layer never compiled; WebKitGTK, Secret Service and portal colour scheme unverified",platform/,unverified,,G-090 (GAPS Roadmap items),7,M
 G-091,rte,Rich-text composer: IME unverified with a real IME; pre-edit covers the text after the caret instead of pushing it aside,rte/layout.rs; IME TextInput,unverified,,G-091 (GAPS Roadmap items),6,S
 G-092,design,"Polish font pass: a side-by-side check of sizes and weights against Bulwark per view, through hidden automation",design/,unverified,,G-092 (GAPS Roadmap items),6,M
-G-093,docs,"ROADMAP.md out of date: later items were done in 54d75d7, 9482bdd, 8b501d4 and 04f7b96; the context-menus line is stale",ROADMAP.md,done,,G-093 (GAPS Roadmap items),0,S
+G-093,docs,"ROADMAP.md out of date: later items were done in 54d75d7, 9482bdd, 8b501d4 and 04f7b96; the context-menus line is stale",ROADMAP.md,done,ROADMAP.md,G-093 (GAPS Roadmap items),0,S
 G-094,composer,Recipient chips with autocomplete,recipients.rs; chips.rs (Bulwark email-composer.tsx RecipientInput),unverified,,G-094 (GAPS P0-1 (done)),0,-
 G-095,composer,Schedule send,schedule.rs (Bulwark schedule-send-dialog.tsx),unverified,,G-095 (GAPS P0-2 (done)),0,-
 G-096,composer,Draft autosave (2 s debounce),autosave.rs (Bulwark 2 s),unverified,,G-096 (GAPS P0-3 (done)),0,-
@@ -106,81 +106,81 @@ G-104,productivity,"Search quality: syntax chips, suggestions, highlights",palet
 G-105,productivity,Keyboard shortcuts for every app and the ? sheet,shortcuts.rs,unverified,,G-105 (GAPS P1-3 (done)),0,-
 G-106,calendar,"Agenda, tasks view and editor, .ics import, webcal, birthdays, find a time",cal_extra.rs,unverified,,G-106 (GAPS P1-4 (done)),0,-
 G-107,contacts,"vCard import and export, typed entries, photos, duplicates and merge, directory",vcard.rs; contacts_x.rs; contact_merge.rs,unverified,,G-107 (GAPS P1-5 (done)),0,-
-G-108,sieve,"Filters: edit and reorder, several conditions and actions, header, size and regex, run on existing mail",filters_x.rs; sieve.rs,done,,G-108 (GAPS P1-7 (done)),0,-
+G-108,sieve,"Filters: edit and reorder, several conditions and actions, header, size and regex, run on existing mail",filters_x.rs; sieve.rs,done,src/filters_x.rs:116,G-108 (GAPS P1-7 (done)),0,-
 G-109,mail,"Sender avatars (Gravatar, BIMI, favicons), .eml and .mbox import",avatars.rs; mailimport.rs,unverified,,G-109 (GAPS P1-14 (part; done)),0,-
 G-110,reader,Truncation notice for long bodies,reader.rs,unverified,,G-110 (GAPS P1-17 (part)),0,-
 S-settingsSyncDisabled,settings-about,Settings sync,stores/settings-store.ts: settingsSyncDisabled,missing,,S-settingsSyncDisabled,3,S
 S-a11y.reset,settings-accessibility,Reset accessibility settings,settings-schema.json (page accessibility),done,src/main.rs:1091,S-a11y.reset,0,S
-S-colorBlindPalette,settings-accessibility,Colour-blind-safe colours,stores/settings-store.ts: colorBlindPalette,done,src/a11y.rs:9,S-colorBlindPalette,0,S
-S-confirmArchive,settings-accessibility,Confirm before archiving,stores/settings-store.ts: confirmArchive,done,src/a11y.rs:16,S-confirmArchive,0,S
-S-confirmDelete,settings-accessibility,Confirm before deleting,stores/settings-store.ts: confirmDelete,done,src/a11y.rs:16,S-confirmDelete,0,S
-S-contrast,settings-accessibility,Contrast,stores/settings-store.ts: contrast,done,src/a11y.rs:8,S-contrast,0,S
-S-focusRing,settings-accessibility,Focus outline,stores/settings-store.ts: focusRing,done,src/a11y.rs:11,S-focusRing,0,S
-S-fontSize,settings-accessibility,Text size,stores/settings-store.ts: fontSize,done,src/a11y.rs:25,S-fontSize,0,S
-S-largeTargets,settings-accessibility,Large targets,stores/settings-store.ts: largeTargets,done,src/a11y.rs:12,S-largeTargets,0,S
-S-letterSpacing,settings-accessibility,Letter spacing,stores/settings-store.ts: letterSpacing,done,src/a11y.rs:9,S-letterSpacing,0,S
-S-lineSpacing,settings-accessibility,Line spacing,stores/settings-store.ts: lineSpacing,done,src/a11y.rs:9,S-lineSpacing,0,S
-S-mailFitWidth,settings-accessibility,Fit wide messages to the window,stores/settings-store.ts: mailFitWidth,done,src/a11y.rs:14,S-mailFitWidth,0,S
-S-mailMinFontSize,settings-accessibility,Smallest text in messages,stores/settings-store.ts: mailMinFontSize,done,src/a11y.rs:14,S-mailMinFontSize,0,S
-S-mailOverrideStyles,settings-accessibility,Use my font and colours in messages,stores/settings-store.ts: mailOverrideStyles,done,src/a11y.rs:14,S-mailOverrideStyles,0,S
-S-mailTextScale,settings-accessibility,Message text size,stores/settings-store.ts: mailTextScale,done,src/a11y.rs:13,S-mailTextScale,0,S
-S-mailViewMode,settings-accessibility,Show messages as,stores/settings-store.ts: mailViewMode,done,src/a11y.rs:13,S-mailViewMode,0,S
-S-paragraphSpacing,settings-accessibility,Paragraph spacing,stores/settings-store.ts: paragraphSpacing,done,src/a11y.rs:10,S-paragraphSpacing,0,S
-S-plainTextFont,settings-accessibility+reading,Plain text mail font | Font for plain text mail,stores/settings-store.ts: plainTextFont,done,src/a11y.rs:25,S-plainTextFont,0,S
-S-readingWidth,settings-accessibility,Reading width,stores/settings-store.ts: readingWidth,done,src/a11y.rs:10,S-readingWidth,0,S
-S-reduceMotion,settings-accessibility,Reduce motion,stores/settings-store.ts: reduceMotion,done,src/a11y.rs:11,S-reduceMotion,0,S
+S-colorBlindPalette,settings-accessibility,Colour-blind-safe colours,stores/settings-store.ts: colorBlindPalette,done,src/a11y.rs:128,S-colorBlindPalette,0,S
+S-confirmArchive,settings-accessibility,Confirm before archiving,stores/settings-store.ts: confirmArchive,done,src/a11y.rs:132,S-confirmArchive,0,S
+S-confirmDelete,settings-accessibility,Confirm before deleting,stores/settings-store.ts: confirmDelete,done,src/a11y.rs:131,S-confirmDelete,0,S
+S-contrast,settings-accessibility,Contrast,stores/settings-store.ts: contrast,done,src/a11y.rs:123,S-contrast,0,S
+S-focusRing,settings-accessibility,Focus outline,stores/settings-store.ts: focusRing,done,src/a11y.rs:127,S-focusRing,0,S
+S-fontSize,settings-accessibility,Text size,stores/settings-store.ts: fontSize,done,src/a11y.rs:137,S-fontSize,0,S
+S-largeTargets,settings-accessibility,Large targets,stores/settings-store.ts: largeTargets,done,src/a11y.rs:125,S-largeTargets,0,S
+S-letterSpacing,settings-accessibility,Letter spacing,stores/settings-store.ts: letterSpacing,done,src/a11y.rs:139,S-letterSpacing,0,S
+S-lineSpacing,settings-accessibility,Line spacing,stores/settings-store.ts: lineSpacing,done,src/a11y.rs:138,S-lineSpacing,0,S
+S-mailFitWidth,settings-accessibility,Fit wide messages to the window,stores/settings-store.ts: mailFitWidth,done,src/a11y.rs:146,S-mailFitWidth,0,S
+S-mailMinFontSize,settings-accessibility,Smallest text in messages,stores/settings-store.ts: mailMinFontSize,done,src/a11y.rs:144,S-mailMinFontSize,0,S
+S-mailOverrideStyles,settings-accessibility,Use my font and colours in messages,stores/settings-store.ts: mailOverrideStyles,done,src/a11y.rs:145,S-mailOverrideStyles,0,S
+S-mailTextScale,settings-accessibility,Message text size,stores/settings-store.ts: mailTextScale,done,src/a11y.rs:143,S-mailTextScale,0,S
+S-mailViewMode,settings-accessibility,Show messages as,stores/settings-store.ts: mailViewMode,done,src/a11y.rs:135,S-mailViewMode,0,S
+S-paragraphSpacing,settings-accessibility,Paragraph spacing,stores/settings-store.ts: paragraphSpacing,done,src/a11y.rs:141,S-paragraphSpacing,0,S
+S-plainTextFont,settings-accessibility+reading,Plain text mail font | Font for plain text mail,stores/settings-store.ts: plainTextFont,done,src/main.rs:252,S-plainTextFont,0,S
+S-readingWidth,settings-accessibility,Reading width,stores/settings-store.ts: readingWidth,done,src/a11y.rs:142,S-readingWidth,0,S
+S-reduceMotion,settings-accessibility,Reduce motion,stores/settings-store.ts: reduceMotion,done,src/a11y.rs:124,S-reduceMotion,0,S
 S-sendConfirmation,settings-accessibility,Confirm before sending,stores/settings-store.ts: sendConfirmation,done,src/compose.rs:868,S-sendConfirmation,0,S
-S-showRowActionButton,settings-accessibility,Actions button on each message,stores/settings-store.ts: showRowActionButton,done,src/a11y.rs:13,S-showRowActionButton,0,S
-S-singleKeyShortcuts,settings-accessibility,Single-key shortcuts,stores/settings-store.ts: singleKeyShortcuts,done,src/a11y.rs:12,S-singleKeyShortcuts,0,S
-S-toastDuration,settings-accessibility,Notification duration,stores/settings-store.ts: toastDuration,done,src/a11y.rs:15,S-toastDuration,0,S
-S-underlineLinks,settings-accessibility,Underline links,stores/settings-store.ts: underlineLinks,done,src/a11y.rs:8,S-underlineLinks,0,S
-S-unreadCountStyle,settings-accessibility,Unread counts,stores/settings-store.ts: unreadCountStyle,done,src/a11y.rs:16,S-unreadCountStyle,0,S
-S-visualAlerts,settings-accessibility,Visual alerts,stores/settings-store.ts: visualAlerts,done,src/a11y.rs:16,S-visualAlerts,0,S
-S-wordSpacing,settings-accessibility,Word spacing,stores/settings-store.ts: wordSpacing,done,src/a11y.rs:10,S-wordSpacing,0,S
-S-subAddressDelimiter,settings-account,Sub-address delimiter,stores/settings-store.ts: subAddressDelimiter,done,src/compose.rs:167,S-subAddressDelimiter,0,S
+S-showRowActionButton,settings-accessibility,Actions button on each message,stores/settings-store.ts: showRowActionButton,done,src/a11y.rs:136,S-showRowActionButton,0,S
+S-singleKeyShortcuts,settings-accessibility,Single-key shortcuts,stores/settings-store.ts: singleKeyShortcuts,done,src/a11y.rs:129,S-singleKeyShortcuts,0,S
+S-toastDuration,settings-accessibility,Notification duration,stores/settings-store.ts: toastDuration,done,src/a11y.rs:130,S-toastDuration,0,S
+S-underlineLinks,settings-accessibility,Underline links,stores/settings-store.ts: underlineLinks,done,src/a11y.rs:126,S-underlineLinks,0,S
+S-unreadCountStyle,settings-accessibility,Unread counts,stores/settings-store.ts: unreadCountStyle,done,src/a11y.rs:134,S-unreadCountStyle,0,S
+S-visualAlerts,settings-accessibility,Visual alerts,stores/settings-store.ts: visualAlerts,done,src/a11y.rs:133,S-visualAlerts,0,S
+S-wordSpacing,settings-accessibility,Word spacing,stores/settings-store.ts: wordSpacing,done,src/a11y.rs:140,S-wordSpacing,0,S
+S-subAddressDelimiter,settings-account,Sub-address delimiter,stores/settings-store.ts: subAddressDelimiter,done,src/compose.rs:169,S-subAddressDelimiter,0,S
 S-colorfulSidebarIcons,settings-appearance,Colorful sidebar icons,stores/settings-store.ts: colorfulSidebarIcons,done,src/mail.rs:117,S-colorfulSidebarIcons,0,S
 S-compactSharedMailboxes,settings-appearance,Compact shared mailboxes,stores/settings-store.ts: compactSharedMailboxes,missing,,S-compactSharedMailboxes,6,S
-S-composePlacement,settings-appearance,Compose button,stores/settings-store.ts: composePlacement,done,src/settings.rs:53,S-composePlacement,0,S
+S-composePlacement,settings-appearance,Compose button,stores/settings-store.ts: composePlacement,unverified,,S-composePlacement,0,S
 S-density,settings-appearance,Density,stores/settings-store.ts: density,done,src/mail.rs:70,S-density,0,S
 S-enableUnifiedMailbox,settings-appearance,Unified mailbox,stores/settings-store.ts: enableUnifiedMailbox,done,src/main.rs:1005,S-enableUnifiedMailbox,0,S
 S-includeGroupInUnified,settings-appearance,Include group inboxes,stores/settings-store.ts: includeGroupInUnified,done,src/main.rs:1013,S-includeGroupInUnified,0,S
 S-interfaceLayout,settings-appearance,Interface layout,stores/settings-store.ts: interfaceLayout,done,src/mail.rs:584,S-interfaceLayout,0,S
 S-keepAppsLoaded,settings-appearance,Keep apps loaded,stores/settings-store.ts: keepAppsLoaded,missing,,S-keepAppsLoaded,6,S
 S-mailLayout,settings-appearance,Mail layout,stores/settings-store.ts: mailLayout,missing,,S-mailLayout,6,S
-S-proInterface,settings-appearance,Pro interface (experimental),stores/settings-store.ts: proInterface,missing,,S-proInterface,6,S
+S-proInterface,settings-appearance,Pro interface (experimental),stores/settings-store.ts: proInterface,missing,,S-proInterface,7,S
 S-showFolderTotalCount,settings-appearance,Show total message count,stores/settings-store.ts: showFolderTotalCount,done,src/mail.rs:118,S-showFolderTotalCount,0,S
 S-showRailAccountList,settings-appearance,Show account avatars on the navigation rail,stores/settings-store.ts: showRailAccountList,missing,,S-showRailAccountList,6,S
 S-showSharedMailAccounts,settings-appearance,Show shared mail accounts,stores/settings-store.ts: showSharedMailAccounts,missing,,S-showSharedMailAccounts,6,S
-S-showToolbarLabels,settings-appearance,Show toolbar labels,stores/settings-store.ts: showToolbarLabels,done,src/main.rs:2109,S-showToolbarLabels,0,S
+S-showToolbarLabels,settings-appearance,Show toolbar labels,stores/settings-store.ts: showToolbarLabels,done,src/main.rs:2113,S-showToolbarLabels,0,S
 S-sidebarAccountSwitcher,settings-appearance,Account switcher at the top of the sidebar,stores/settings-store.ts: sidebarAccountSwitcher,missing,,S-sidebarAccountSwitcher,6,S
-S-tintListRowsByAccount,settings-appearance,Tell accounts apart,stores/settings-store.ts: tintListRowsByAccount,done,src/mail.rs:404,S-tintListRowsByAccount,0,S
+S-tintListRowsByAccount,settings-appearance,Tell accounts apart,stores/settings-store.ts: tintListRowsByAccount,done,src/mail.rs:408,S-tintListRowsByAccount,0,S
 S-toolbarPosition,settings-appearance,Toolbar position,stores/settings-store.ts: toolbarPosition,missing,,S-toolbarPosition,6,S
 S-uiStyle,settings-appearance,Style,stores/settings-store.ts: uiStyle,done,src/main.rs:1041,S-uiStyle,0,S
 S-unifiedCrossAccount,settings-appearance,Across all accounts,stores/settings-store.ts: unifiedCrossAccount,done,src/main.rs:1013,S-unifiedCrossAccount,0,S
 S-calendarDayEndHour,settings-calendar,Visible hours,stores/settings-store.ts: calendarDayEndHour,done,src/cal_editor.rs:1354,S-calendarDayEndHour,0,S
-S-calendarFreeScroll,settings-calendar,Free scrolling,stores/settings-store.ts: calendarFreeScroll,done,src/calendar.rs:126,S-calendarFreeScroll,0,S
-S-calendarHideNonWorkingDays,settings-calendar,Hide non-working days,stores/settings-store.ts: calendarHideNonWorkingDays,done,src/calendar.rs:112,S-calendarHideNonWorkingDays,0,S
-S-calendarHoverPreview,settings-calendar,Event hover preview,stores/settings-store.ts: calendarHoverPreview,done,src/calendar.rs:128,S-calendarHoverPreview,0,S
+S-calendarFreeScroll,settings-calendar,Free scrolling,stores/settings-store.ts: calendarFreeScroll,done,src/calendar.rs:179,S-calendarFreeScroll,0,S
+S-calendarHideNonWorkingDays,settings-calendar,Hide non-working days,stores/settings-store.ts: calendarHideNonWorkingDays,done,src/calendar.rs:173,S-calendarHideNonWorkingDays,0,S
+S-calendarHoverPreview,settings-calendar,Event hover preview,stores/settings-store.ts: calendarHoverPreview,done,src/calendar.rs:180,S-calendarHoverPreview,0,S
 S-calendarInvitationParsingEnabled,settings-calendar,Show invitations from mail,stores/settings-store.ts: calendarInvitationParsingEnabled,done,src/reader.rs:343,S-calendarInvitationParsingEnabled,0,S
-S-calendarLimitHours,settings-calendar,Limit visible hours,stores/settings-store.ts: calendarLimitHours,done,src/calendar.rs:111,S-calendarLimitHours,0,S
-S-calendarMonthTimedEvents,settings-calendar,Timed events in month view,stores/settings-store.ts: calendarMonthTimedEvents,done,src/calendar.rs:124,S-calendarMonthTimedEvents,0,S
-S-calendarTintedEvents,settings-calendar,Light event colors,stores/settings-store.ts: calendarTintedEvents,done,src/calendar.rs:113,S-calendarTintedEvents,0,S
-S-enableCalendarTasks,settings-calendar,Tasks,stores/settings-store.ts: enableCalendarTasks,done,src/calendar.rs:132,S-enableCalendarTasks,0,S
-S-showBirthdayCalendar,settings-calendar,Contact birthday calendar,stores/settings-store.ts: showBirthdayCalendar,done,src/calendar.rs:132,S-showBirthdayCalendar,0,S
-S-showTasksApp,settings-calendar,Tasks as their own app,stores/settings-store.ts: showTasksApp,done,src/calendar.rs:132,S-showTasksApp,0,S
-S-showTasksOnCalendar,settings-calendar,Show tasks on calendar,stores/settings-store.ts: showTasksOnCalendar,done,src/calendar.rs:132,S-showTasksOnCalendar,0,S
-S-showTimeInMonthView,settings-calendar,Show time in month view,stores/settings-store.ts: showTimeInMonthView,done,src/calendar.rs:113,S-showTimeInMonthView,0,S
-S-showWeekNumbers,settings-calendar,Show week numbers,stores/settings-store.ts: showWeekNumbers,done,src/calendar.rs:111,S-showWeekNumbers,0,S
+S-calendarLimitHours,settings-calendar,Limit visible hours,stores/settings-store.ts: calendarLimitHours,done,src/calendar.rs:162,S-calendarLimitHours,0,S
+S-calendarMonthTimedEvents,settings-calendar,Timed events in month view,stores/settings-store.ts: calendarMonthTimedEvents,done,src/calendar.rs:178,S-calendarMonthTimedEvents,0,S
+S-calendarTintedEvents,settings-calendar,Light event colors,stores/settings-store.ts: calendarTintedEvents,done,src/calendar.rs:176,S-calendarTintedEvents,0,S
+S-enableCalendarTasks,settings-calendar,Tasks,stores/settings-store.ts: enableCalendarTasks,done,src/calendar.rs:182,S-enableCalendarTasks,0,S
+S-showBirthdayCalendar,settings-calendar,Contact birthday calendar,stores/settings-store.ts: showBirthdayCalendar,done,src/calendar.rs:185,S-showBirthdayCalendar,0,S
+S-showTasksApp,settings-calendar,Tasks as their own app,stores/settings-store.ts: showTasksApp,done,src/calendar.rs:184,S-showTasksApp,0,S
+S-showTasksOnCalendar,settings-calendar,Show tasks on calendar,stores/settings-store.ts: showTasksOnCalendar,done,src/calendar.rs:183,S-showTasksOnCalendar,0,S
+S-showTimeInMonthView,settings-calendar,Show time in month view,stores/settings-store.ts: showTimeInMonthView,done,src/calendar.rs:175,S-showTimeInMonthView,0,S
+S-showWeekNumbers,settings-calendar,Show week numbers,stores/settings-store.ts: showWeekNumbers,done,src/calendar.rs:171,S-showWeekNumbers,0,S
 S-attachmentReminderEnabled,settings-composing,Attachment reminder,stores/settings-store.ts: attachmentReminderEnabled,done,src/compose.rs:809,S-attachmentReminderEnabled,0,S
-S-autoSelectReplyIdentity,settings-composing,Reply from the address it was sent to,stores/settings-store.ts: autoSelectReplyIdentity,done,src/compose.rs:242,S-autoSelectReplyIdentity,0,S
+S-autoSelectReplyIdentity,settings-composing,Reply from the address it was sent to,stores/settings-store.ts: autoSelectReplyIdentity,done,src/compose.rs:307,S-autoSelectReplyIdentity,0,S
 S-emptySubjectWarningEnabled,settings-composing,Empty subject warning,stores/settings-store.ts: emptySubjectWarningEnabled,done,src/compose.rs:798,S-emptySubjectWarningEnabled,0,S
 S-mentionAddsRecipientTo,settings-composing,Contacts in @ mentions,stores/settings-store.ts: mentionAddsRecipientTo,missing,,S-mentionAddsRecipientTo,6,S
 S-placeholderWarningEnabled,settings-composing,Placeholder warning,stores/settings-store.ts: placeholderWarningEnabled,done,src/compose.rs:801,S-placeholderWarningEnabled,0,S
-S-plainTextMode,settings-composing,Plain text only,stores/settings-store.ts: plainTextMode,done,src/compose.rs:404,S-plainTextMode,0,S
-S-quickReplyEnabled,settings-composing,Quick reply,stores/settings-store.ts: quickReplyEnabled,done,src/main.rs:2108,S-quickReplyEnabled,0,S
+S-plainTextMode,settings-composing,Plain text only,stores/settings-store.ts: plainTextMode,done,src/compose.rs:405,S-plainTextMode,0,S
+S-quickReplyEnabled,settings-composing,Quick reply,stores/settings-store.ts: quickReplyEnabled,done,src/main.rs:2112,S-quickReplyEnabled,0,S
 S-recipientMentionsEnabled,settings-composing,Mention recipients with @,stores/settings-store.ts: recipientMentionsEnabled,missing,,S-recipientMentionsEnabled,6,S
-S-replyIdentityMatch,settings-composing,Received address matching,stores/settings-store.ts: replyIdentityMatch,done,src/compose.rs:228,S-replyIdentityMatch,0,S
-S-replyUnderMessage,settings-composing,Replies under the message,stores/settings-store.ts: replyUnderMessage,done,src/compose.rs:415,S-replyUnderMessage,0,S
+S-replyIdentityMatch,settings-composing,Received address matching,stores/settings-store.ts: replyIdentityMatch,done,src/compose.rs:307,S-replyIdentityMatch,0,S
+S-replyUnderMessage,settings-composing,Replies under the message,stores/settings-store.ts: replyUnderMessage,done,src/compose.rs:426,S-replyUnderMessage,0,S
 S-rtlEditingSupport,settings-composing,Right-to-left editing support,stores/settings-store.ts: rtlEditingSupport,missing,,S-rtlEditingSupport,6,S
 S-sendDelaySeconds,settings-composing,Undo send,stores/settings-store.ts: sendDelaySeconds,done,src/compose.rs:879,S-sendDelaySeconds,0,S
 S-signatureNewMailEnabled,settings-composing,Signature on new mail,stores/settings-store.ts: signatureNewMailEnabled,done,src/compose.rs:333,S-signatureNewMailEnabled,0,S
@@ -190,68 +190,68 @@ S-signatureSeparatorEnabled,settings-composing,Signature delimiter,stores/settin
 S-writingLanguage,settings-composing,Writing language,stores/settings-store.ts: writingLanguage,done,src/main.rs:1042,S-writingLanguage,0,S
 S-groupContactsByLetter,settings-contacts,Group by first letter,stores/settings-store.ts: groupContactsByLetter,done,src/contacts.rs:236,S-groupContactsByLetter,0,S
 S-showContactsDirectory,settings-contacts,Show the directory,stores/settings-store.ts: showContactsDirectory,done,src/contacts_x.rs:851,S-showContactsDirectory,0,S
-S-sortContactsByLastName,settings-contacts,Sort by last name,stores/settings-store.ts: sortContactsByLastName,done,src/contacts.rs:82,S-sortContactsByLastName,0,S
+S-sortContactsByLastName,settings-contacts,Sort by last name,stores/settings-store.ts: sortContactsByLastName,done,src/contacts.rs:237,S-sortContactsByLastName,0,S
 S-filenameCollapseSeparators,settings-files,Collapse repeated separators,stores/settings-store.ts: filenameCollapseSeparators,missing,,S-filenameCollapseSeparators,4,S
 S-filenameLowercase,settings-files,Lowercase,stores/settings-store.ts: filenameLowercase,missing,,S-filenameLowercase,4,S
 S-filenameSpaceReplacement,settings-files,Spaces,stores/settings-store.ts: filenameSpaceReplacement,missing,,S-filenameSpaceReplacement,4,S
 S-filenameStripDiacritics,settings-files,Strip diacritics,stores/settings-store.ts: filenameStripDiacritics,missing,,S-filenameStripDiacritics,4,S
 S-postExportAction,settings-files,After export,stores/settings-store.ts: postExportAction,missing,,S-postExportAction,4,S
 S-dateFormat,settings-general,Date format,stores/settings-store.ts: dateFormat,done,src/mail.rs:66,S-dateFormat,0,S
-S-dateLocale,settings-general,Date format region,stores/settings-store.ts: dateLocale,missing,,S-dateLocale,7,S
-S-firstDayOfWeek,settings-general,First day of week,stores/settings-store.ts: firstDayOfWeek,done,src/calendar.rs:111,S-firstDayOfWeek,0,S
+S-dateLocale,settings-general,Date format region,stores/settings-store.ts: dateLocale,missing,,S-dateLocale,6,S
+S-firstDayOfWeek,settings-general,First day of week,stores/settings-store.ts: firstDayOfWeek,done,src/calendar.rs:170,S-firstDayOfWeek,0,S
 S-showOnboardingOnNewDevices,settings-general,Show on new devices,stores/settings-store.ts: showOnboardingOnNewDevices,missing,,S-showOnboardingOnNewDevices,6,S
 S-webviewBackgroundCloseMinutes,settings-general,Free the mail view's memory in the background,stores/settings-store.ts: webviewBackgroundCloseMinutes,missing,,S-webviewBackgroundCloseMinutes,6,S
 S-timeFormat,settings-general,Time format,stores/settings-store.ts: timeFormat,done,src/calendar.rs:177,S-timeFormat,0,S
-S-timeZone,settings-general,Time zone,stores/settings-store.ts: timeZone,done,src/agent.rs:409,S-timeZone,0,S
-S-archiveMode,settings-message_list,Archive in,stores/settings-store.ts: archiveMode,done,src/mail.rs:989,S-archiveMode,0,S
-S-clearSearchOnFolderChange,settings-message_list,Clear search when switching folders,stores/settings-store.ts: clearSearchOnFolderChange,done,src/main.rs:844,S-clearSearchOnFolderChange,0,S
+S-timeZone,settings-general,Time zone,stores/settings-store.ts: timeZone,missing,,S-timeZone,7,S
+S-archiveMode,settings-message_list,Archive in,stores/settings-store.ts: archiveMode,done,src/mail.rs:990,S-archiveMode,0,S
+S-clearSearchOnFolderChange,settings-message_list,Clear search when switching folders,stores/settings-store.ts: clearSearchOnFolderChange,done,src/main.rs:846,S-clearSearchOnFolderChange,0,S
 S-confirmBulkDelete,settings-message_list,Confirm before deleting several messages,stores/settings-store.ts: confirmBulkDelete,done,src/ctxmenu.rs:537,S-confirmBulkDelete,0,S
-S-deleteAction,settings-message_list,Delete action,stores/settings-store.ts: deleteAction,done,src/mail.rs:1028,S-deleteAction,0,S
-S-disableThreading,settings-message_list,Group messages by conversation,stores/settings-store.ts: disableThreading,done,src/main.rs:332,S-disableThreading,0,S
+S-deleteAction,settings-message_list,Delete action,stores/settings-store.ts: deleteAction,done,src/mail.rs:1029,S-deleteAction,0,S
+S-disableThreading,settings-message_list,Group messages by conversation,stores/settings-store.ts: disableThreading,done,src/main.rs:334,S-disableThreading,0,S
 S-emailsPerPage,settings-message_list,Emails per page,stores/settings-store.ts: emailsPerPage,done,src/mail.rs:68,S-emailsPerPage,0,S
 S-groupListByDate,settings-message_list,Group by date,stores/settings-store.ts: groupListByDate,done,src/mail.rs:64,S-groupListByDate,0,S
 S-listColumns,settings-message_list,Show the list as columns,stores/settings-store.ts: listColumns,missing,,S-listColumns,6,S
 S-messageListOrderScope,settings-message_list,Apply to all folders,stores/settings-store.ts: messageListOrderScope,missing,,S-messageListOrderScope,6,S
-S-mvInboxType,settings-message_list,Inbox type,stores/settings-store.ts: mvInboxType,done,src/mail.rs:580,S-mvInboxType,0,S
-S-mvUnreadSectionSize,settings-message_list,Unread messages shown,stores/settings-store.ts: mvUnreadSectionSize,done,src/mail.rs:581,S-mvUnreadSectionSize,0,S
-S-permanentlyDeleteJunk,settings-message_list,Permanently delete Junk,stores/settings-store.ts: permanentlyDeleteJunk,done,src/mail.rs:982,S-permanentlyDeleteJunk,0,S
-S-searchDefaultScope,settings-message_list,Search in,stores/settings-store.ts: searchDefaultScope,done,src/main.rs:1598,S-searchDefaultScope,0,S
+S-mvInboxType,settings-message_list,Inbox type,stores/settings-store.ts: mvInboxType,done,src/mail.rs:584,S-mvInboxType,0,S
+S-mvUnreadSectionSize,settings-message_list,Unread messages shown,stores/settings-store.ts: mvUnreadSectionSize,done,src/mail.rs:587,S-mvUnreadSectionSize,0,S
+S-permanentlyDeleteJunk,settings-message_list,Permanently delete Junk,stores/settings-store.ts: permanentlyDeleteJunk,done,src/mail.rs:984,S-permanentlyDeleteJunk,0,S
+S-searchDefaultScope,settings-message_list,Search in,stores/settings-store.ts: searchDefaultScope,done,src/main.rs:1599,S-searchDefaultScope,0,S
 S-showAttachmentChips,settings-message_list,Show attachments in the list,stores/settings-store.ts: showAttachmentChips,done,src/mail.rs:70,S-showAttachmentChips,0,S
 S-showPreview,settings-message_list,Show preview text,stores/settings-store.ts: showPreview,done,src/mail.rs:65,S-showPreview,0,S
-S-showTagChips,settings-message_list,Show tags in the list,stores/settings-store.ts: showTagChips,done,src/main.rs:2109,S-showTagChips,0,S
+S-showTagChips,settings-message_list,Show tags in the list,stores/settings-store.ts: showTagChips,done,src/main.rs:2114,S-showTagChips,0,S
 S-showVerificationCodes,settings-message_list,Show verification codes,stores/settings-store.ts: showVerificationCodes,done,src/mail.rs:71,S-showVerificationCodes,0,S
 S-swipeLeftAction,settings-message_list,Swipe left action (mobile),stores/settings-store.ts: swipeLeftAction,missing,,S-swipeLeftAction,6,S
 S-swipeRightAction,settings-message_list,Swipe right action (mobile),stores/settings-store.ts: swipeRightAction,missing,,S-swipeRightAction,6,S
 S-tintListRowsByTag,settings-message_list,Tint list rows by tag color,stores/settings-store.ts: tintListRowsByTag,done,src/mail.rs:72,S-tintListRowsByTag,0,S
-S-calendarNotificationSound,settings-notifications,Sound for reminders,stores/settings-store.ts: calendarNotificationSound,done,src/reminders.rs:5,S-calendarNotificationSound,0,S
-S-calendarNotificationsEnabled,settings-notifications,Event notifications,stores/settings-store.ts: calendarNotificationsEnabled,done,src/reminders.rs:5,S-calendarNotificationsEnabled,0,S
-S-doNotDisturb,settings-notifications,Pause notifications,stores/settings-store.ts: doNotDisturb,done,src/a11y.rs:17,S-doNotDisturb,0,S
-S-emailNotificationSound,settings-notifications,Sound for new mail,stores/settings-store.ts: emailNotificationSound,done,src/main.rs:565,S-emailNotificationSound,0,S
-S-emailNotificationsEnabled,settings-notifications,Email notifications,stores/settings-store.ts: emailNotificationsEnabled,done,src/main.rs:557,S-emailNotificationsEnabled,0,S
-S-faviconUnreadBadge,settings-notifications,Unread count on the taskbar icon,stores/settings-store.ts: faviconUnreadBadge,done,src/mail.rs:186,S-faviconUnreadBadge,0,S
+S-calendarNotificationSound,settings-notifications,Sound for reminders,stores/settings-store.ts: calendarNotificationSound,done,src/reminders.rs:415,S-calendarNotificationSound,0,S
+S-calendarNotificationsEnabled,settings-notifications,Event notifications,stores/settings-store.ts: calendarNotificationsEnabled,done,src/reminders.rs:414,S-calendarNotificationsEnabled,0,S
+S-doNotDisturb,settings-notifications,Pause notifications,stores/settings-store.ts: doNotDisturb,done,src/reminders.rs:415,S-doNotDisturb,0,S
+S-emailNotificationSound,settings-notifications,Sound for new mail,stores/settings-store.ts: emailNotificationSound,done,src/main.rs:567,S-emailNotificationSound,0,S
+S-emailNotificationsEnabled,settings-notifications,Email notifications,stores/settings-store.ts: emailNotificationsEnabled,done,src/main.rs:562,S-emailNotificationsEnabled,0,S
+S-faviconUnreadBadge,settings-notifications,Unread count on the taskbar icon,stores/settings-store.ts: faviconUnreadBadge,done,src/mail.rs:190,S-faviconUnreadBadge,0,S
 S-keepRunningInTray,settings-notifications,Keep running in the tray when the window is closed,stores/settings-store.ts: keepRunningInTray,missing,,S-keepRunningInTray,6,S
 S-desktopOpenOnDoubleClick,settings-general,Open messages in a new window on double-click,stores/settings-store.ts: desktopOpenOnDoubleClick,missing,,S-desktopOpenOnDoubleClick,6,S
 S-desktopComposeInWindow,settings-general,Always write messages in a new window,stores/settings-store.ts: desktopComposeInWindow,missing,,S-desktopComposeInWindow,6,S
 S-desktopRestoreWindows,settings-general,Reopen windows at start,stores/settings-store.ts: desktopRestoreWindows,missing,,S-desktopRestoreWindows,6,S
 S-notificationSoundChoice,settings-notifications,Tone,stores/settings-store.ts: notificationSoundChoice,missing,,S-notificationSoundChoice,6,S
-S-pushNotifyInboxOnly,settings-notifications,Inbox only,stores/settings-store.ts: pushNotifyInboxOnly,done,src/main.rs:565,S-pushNotifyInboxOnly,0,S
+S-pushNotifyInboxOnly,settings-notifications,Inbox only,stores/settings-store.ts: pushNotifyInboxOnly,done,src/main.rs:568,S-pushNotifyInboxOnly,0,S
 S-pushRelayUrl,settings-notifications,Push relay,stores/settings-store.ts: pushRelayUrl,missing,,S-pushRelayUrl,6,S
-S-unreadBadgeAllAccounts,settings-notifications,Count unread mail in all accounts,stores/settings-store.ts: unreadBadgeAllAccounts,done,src/mail.rs:187,S-unreadBadgeAllAccounts,0,S
+S-unreadBadgeAllAccounts,settings-notifications,Count unread mail in all accounts,stores/settings-store.ts: unreadBadgeAllAccounts,done,src/mail.rs:189,S-unreadBadgeAllAccounts,0,S
 S-nestedTags,settings-organize,Nested tags,stores/settings-store.ts: nestedTags,done,src/main.rs:1025,S-nestedTags,0,S
 S-avatars.refresh,settings-privacy,Refresh sender icons,stores/settings-store.ts: avatars.refresh,done,src/main.rs:1100,S-avatars.refresh,0,S
-S-externalContentPolicy,settings-privacy,External content,stores/settings-store.ts: externalContentPolicy,missing,,S-externalContentPolicy,6,S
-S-gravatarAvatars,settings-privacy,Gravatar photos,stores/settings-store.ts: gravatarAvatars,done,src/avatars.rs:6,S-gravatarAvatars,0,S
-S-senderFavicons,settings-privacy,Sender pictures from the web,stores/settings-store.ts: senderFavicons,done,src/avatars.rs:4,S-senderFavicons,0,S
-S-showAvatarsInJunk,settings-privacy,Show avatars in the Junk folder,stores/settings-store.ts: showAvatarsInJunk,done,src/avatars.rs:7,S-showAvatarsInJunk,0,S
-S-externalSenderLabel,settings-privacy,Label external senders,stores/settings-store.ts: externalSenderLabel,missing,,S-externalSenderLabel,6,S
-S-trustedSenders,settings-privacy,Trusted senders,stores/settings-store.ts: trustedSenders,missing,,S-trustedSenders,6,S
-S-attachmentImagePreviewsEnabled,settings-reading,Show image previews in attachments,stores/settings-store.ts: attachmentImagePreviewsEnabled,done,src/attachments.rs:2,S-attachmentImagePreviewsEnabled,0,S
+S-externalContentPolicy,settings-privacy,External content,stores/settings-store.ts: externalContentPolicy,missing,,S-externalContentPolicy,2,S
+S-gravatarAvatars,settings-privacy,Gravatar photos,stores/settings-store.ts: gravatarAvatars,done,src/avatars.rs:33,S-gravatarAvatars,0,S
+S-senderFavicons,settings-privacy,Sender pictures from the web,stores/settings-store.ts: senderFavicons,done,src/avatars.rs:33,S-senderFavicons,0,S
+S-showAvatarsInJunk,settings-privacy,Show avatars in the Junk folder,stores/settings-store.ts: showAvatarsInJunk,done,src/avatars.rs:33,S-showAvatarsInJunk,0,S
+S-externalSenderLabel,settings-privacy,Label external senders,stores/settings-store.ts: externalSenderLabel,missing,,S-externalSenderLabel,2,S
+S-trustedSenders,settings-privacy,Trusted senders,stores/settings-store.ts: trustedSenders,missing,,S-trustedSenders,2,S
+S-attachmentImagePreviewsEnabled,settings-reading,Show image previews in attachments,stores/settings-store.ts: attachmentImagePreviewsEnabled,done,src/attachments.rs:60,S-attachmentImagePreviewsEnabled,0,S
 S-emailAlwaysLightMode,settings-reading,Always show emails in light mode,stores/settings-store.ts: emailAlwaysLightMode,done,src/main.rs:233,S-emailAlwaysLightMode,0,S
 S-hideInlineImageAttachments,settings-reading,Hide inline images from attachments,stores/settings-store.ts: hideInlineImageAttachments,done,src/mail.rs:73,S-hideInlineImageAttachments,0,S
-S-mailAttachmentAction,settings-reading,Attachment click action,stores/settings-store.ts: mailAttachmentAction,done,src/main.rs:1746,S-mailAttachmentAction,0,S
+S-mailAttachmentAction,settings-reading,Attachment click action,stores/settings-store.ts: mailAttachmentAction,done,src/main.rs:1747,S-mailAttachmentAction,0,S
 S-markAsReadDelay,settings-reading,Mark as read,stores/settings-store.ts: markAsReadDelay,done,src/msgload.rs:36,S-markAsReadDelay,0,S
-S-messageSpacing,settings-reading,Message spacing,stores/settings-store.ts: messageSpacing,done,src/main.rs:253,S-messageSpacing,0,S
-S-returnToListAfterAction,settings-reading,"Return to list after delete, archive, move or mark unread",stores/settings-store.ts: returnToListAfterAction,done,src/mail.rs:1010,S-returnToListAfterAction,0,S
+S-messageSpacing,settings-reading,Message spacing,stores/settings-store.ts: messageSpacing,done,src/main.rs:255,S-messageSpacing,0,S
+S-returnToListAfterAction,settings-reading,"Return to list after delete, archive, move or mark unread",stores/settings-store.ts: returnToListAfterAction,done,src/mail.rs:1011,S-returnToListAfterAction,0,S
 S-debugMode,settings-troubleshooting,Detailed logging,stores/settings-store.ts: debugMode,missing,,S-debugMode,6,S
 S-keyless-001,settings-account,Email address,settings-schema.json (page account),missing,,S-keyless-001,3,S
 S-keyless-002,settings-account,Username,settings-schema.json (page account),missing,,S-keyless-002,3,S
