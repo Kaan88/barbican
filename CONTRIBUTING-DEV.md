@@ -5,14 +5,19 @@
 This repository is public. `tools/privacy-check.sh` fails a push when what is being published
 carries personal data. For each pushed commit or annotated tag it checks:
 
-- the tree, and **every line added by every commit in the range** (a leak added and removed in a
-  later commit still fails), for the private patterns (see below), local home paths of real users
+- the tree, and **every line and every blob added by every commit in the range** (a leak added and
+  removed in a later commit still fails, including a UTF-16 file whose NUL bytes are stripped and
+  rescanned), for the private patterns (see below), local home paths of real users
   (`/home/<name>/`, `/Users/<name>/`, `C:\Users\<name>\`, `/c/Users/...`, `/mnt/c/Users/...`),
-  private-key blocks and obvious tokens;
+  private-key blocks and obvious tokens; merge commits are scanned as combined diffs, so content
+  introduced while resolving a merge is caught too;
 - tracked files with NUL bytes (UTF-16 text hides data), unless the extension is on the binary
-  allowlist in the script;
+  allowlist in the script. The bytes are tested directly, so a `*.txt diff` line in
+  `.gitattributes` cannot make a UTF-16 file pass as text;
 - commit and tag metadata: names, messages, trailers. Authors, committers, taggers and trailer
-  e-mails must be `users.noreply.github.com` addresses (or `noreply@anthropic.com`).
+  e-mails (with or without angle brackets) must be `users.noreply.github.com` addresses (or
+  `noreply@anthropic.com`). An annotated tag is peeled through its whole chain of tag objects, and
+  each object's message and tagger are checked.
 
 Turn the hook on once per clone (the hook files must keep their exec bit):
 
@@ -27,6 +32,8 @@ The private patterns are not in the repository. Put them in `.local/privacy-patt
 **main checkout** (the directory that holds the `.git` folder; linked worktrees use that same
 file). The first line is one extended regular expression, for example
 `name one|name two|mail\.example-host\.net`, saved as UTF-8 (a BOM and CRLF are tolerated).
+Matching is case-insensitive for ASCII only, so list every spelling and case variant of a name that
+must be caught (for example the Turkish dotted/dotless i forms).
 `.local/` is git-ignored. The script exits 2 (never "clean") when the file is missing, empty or
 UTF-16, when the regex is invalid, or when git or grep fails.
 
@@ -39,7 +46,8 @@ sh tools/privacy-check.sh <rev> <base> # the tree at <rev> and the commits <base
 sh tools/test-privacy-check.sh         # self-test in a throwaway repo under the temp dir
 ```
 
-Binary files are not scanned; check those by hand.
+Binary files are not searched as text: a NUL-containing blob added in a push is only rescanned
+after its NUL bytes are stripped, which does not decode compressed formats. Check binaries by hand.
 
 ## Parity table
 

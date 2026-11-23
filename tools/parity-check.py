@@ -9,6 +9,7 @@ count, and status done => a non-empty rust_call_site.
 Exit code 0 when valid, 1 otherwise.
 """
 import csv
+import re
 import sys
 from collections import Counter
 
@@ -32,29 +33,31 @@ def main(path):
             errors.append(f"line {n}: {len(row)} columns, expected {len(HEADER)}")
             continue
         r = dict(zip(HEADER, row))
-        if not r["id"]:
+        row_id = r["id"].strip()
+        if not row_id:
             errors.append(f"line {n}: empty id")
-        elif r["id"] in seen:
-            errors.append(f"line {n}: duplicate id {r['id']} (first on line {seen[r['id']]})")
+        elif row_id in seen:
+            errors.append(f"line {n}: duplicate id {row_id} (first on line {seen[row_id]})")
         else:
-            seen[r["id"]] = n
+            seen[row_id] = n
         if not r["feature"].strip():
-            errors.append(f"line {n}: empty feature ({r['id']})")
+            errors.append(f"line {n}: empty feature ({row_id})")
         if r["rust_status"] not in STATUSES:
-            errors.append(f"line {n}: rust_status {r['rust_status']!r} not in {STATUSES} ({r['id']})")
+            errors.append(f"line {n}: rust_status {r['rust_status']!r} not in {STATUSES} ({row_id})")
         else:
             by_status[r["rust_status"]] += 1
         if r["rust_status"] == "done" and not r["rust_call_site"].strip():
-            errors.append(f"line {n}: status done needs a rust_call_site ({r['id']})")
-        if r["phase"].isdigit() and int(r["phase"]) in ALLOWED_PHASES:
-            by_phase[int(r["phase"])] += 1
+            errors.append(f"line {n}: status done needs a rust_call_site ({row_id})")
+        phase = r["phase"].strip()
+        if re.fullmatch(r"[0-9]+", phase) and int(phase) in ALLOWED_PHASES:
+            by_phase[int(phase)] += 1
         else:
-            errors.append(f"line {n}: phase {r['phase']!r} must be one of {ALLOWED_PHASES} ({r['id']})")
+            errors.append(f"line {n}: phase {r['phase']!r} must be one of {ALLOWED_PHASES} ({row_id})")
     for e in errors:
         print(e)
     print(f"rows: {len(rows) - 1}")
     print("by status: " + ", ".join(f"{s}={by_status[s]}" for s in STATUSES))
-    print("by phase:  " + ", ".join(f"{p}={by_phase[p]}" for p in range(8)))
+    print("by phase:  " + ", ".join(f"{p}={by_phase[p]}" for p in ALLOWED_PHASES))
     print("OK" if not errors else f"{len(errors)} error(s)")
     return 1 if errors else 0
 

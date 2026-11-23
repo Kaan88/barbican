@@ -2,6 +2,7 @@
 # Enable with: git config core.hooksPath .githooks
 # git feeds one line per pushed ref on stdin: <local ref> <local sha> <remote ref> <remote sha>.
 # Each pushed commit or tag is checked by tools/privacy-check.sh (see CONTRIBUTING-DEV.md).
+# The checker gets /dev/null on stdin so it can never swallow the remaining ref lines.
 remote=${1:-origin}
 root=$(git rev-parse --show-toplevel) || exit 2
 status=0
@@ -11,7 +12,7 @@ while read -r local_ref local_sha remote_ref remote_sha; do
   case $remote_sha in
     *[!0]*) if git cat-file -e "$remote_sha^{commit}" 2>/dev/null; then base=$remote_sha; fi ;;
   esac                                                          # new ref: range = not on the remote
-  PRIVACY_REMOTE=$remote sh "$root/tools/privacy-check.sh" "$local_sha" "$base" || {
+  PRIVACY_REMOTE=$remote sh "$root/tools/privacy-check.sh" "$local_sha" "$base" </dev/null || {
     rc=$?
     [ "$rc" -gt "$status" ] && status=$rc
   }

@@ -90,6 +90,25 @@ printf 'z\0z\0p\0\n\0r\0i\0v\0' > u16.txt
 check 1 "worktree: UTF-16 file is rejected" $script --worktree
 rm u16.txt
 
+# --- the checker must never read the hook's stdin (remaining ref lines) ---------------------------
+# A checker that reads stdin must not swallow the next pushed ref's line. The stub makes the
+# consumption visible; the real checker does not read stdin, so the fix is the hook's </dev/null.
+cp tools/privacy-check.sh "$root/privacy-check.real"
+cat > tools/privacy-check.sh <<EOF
+#!/bin/sh
+cat >/dev/null
+printf '%s %s\n' "\$1" "\$2" >> '$root/stub.log'
+exit 0
+EOF
+: > "$root/stub.log"
+zero=0000000000000000000000000000000000000000
+printf 'refs/heads/one aaaa refs/heads/one %s\nrefs/heads/two cccc refs/heads/two %s\n' "$zero" "$zero" > "$root/refs"
+sh .githooks/pre-push origin < "$root/refs" > "$root/out" 2>&1; rc=$?
+cp "$root/privacy-check.real" tools/privacy-check.sh
+if [ "$rc" = 0 ] && [ "$(grep -c . "$root/stub.log")" = 2 ] && grep -q '^aaaa ' "$root/stub.log" && grep -q '^cccc ' "$root/stub.log"; then
+  pass=$((pass+1)); echo "ok   hook gives the checker an empty stdin (both refs still checked)"
+else bad=$((bad+1)); echo "FAIL hook lost a ref line (rc=$rc)"; sed 's/^/     | /' "$root/stub.log"; fi
+
 # --- the pre-push hook: real pushes ---------------------------------------------------------------
 echo more > b.txt; commit "clean change"
 check 0 "push of a clean update (base = remote sha)" git push -q origin main
@@ -132,6 +151,57 @@ git checkout -q main
 check 0 "deleting a remote branch is not scanned" git push -q origin :refs/heads/clean
 
 git reset -q --hard origin/main
+
+# --- colored diffs, UTF-16 range blobs, merge commits, orphan roots -------------------------------
+git config color.diff always
+echo "mail zzpriv" > col.txt; commit "colored add"
+git rm -q col.txt; commit "colored remove"
+check 1 "color.diff=always does not hide an added-then-deleted pattern" $script HEAD "$(git rev-parse origin/main)"
+git config --unset color.diff
+git reset -q --hard origin/main
+
+printf 'z\0z\0p\0r\0i\0v\0\n\0' > u16.txt; commit "utf-16 add"
+git rm -q u16.txt; commit "utf-16 remove"
+check 1 "UTF-16 file added then removed in the range" $script HEAD "$(git rev-parse origin/main)"
+git reset -q --hard origin/main
+
+printf '*.txt diff\n' > .gitattributes
+printf 'h\0e\0l\0l\0o\0\n\0' > notes.txt
+commit "UTF-16 notes.txt with a diff attribute"
+check 1 "NUL bytes are tested despite '*.txt diff' in .gitattributes" $script HEAD "$(git rev-parse origin/main)"
+git reset -q --hard origin/main
+
+git config log.showRoot false
+o=$(printf 'clean\n' | git hash-object -w --stdin)
+leak=$(printf 'mail zzpriv\n' | git hash-object -w --stdin)
+t1=$(printf '100644 blob %s\to.txt\n100644 blob %s\tleak.txt\n' "$o" "$leak" | git mktree)
+c1=$(git commit-tree "$t1" -m "orphan root with the leak")
+t2=$(printf '100644 blob %s\to.txt\n' "$o" | git mktree)
+c2=$(git commit-tree "$t2" -p "$c1" -m "orphan cleanup")
+git push -q origin "$c2:refs/heads/orphan-leak" > "$root/out" 2>&1; rc=$?
+if [ $rc -ne 0 ] && nopush_ok refs/heads/orphan-leak; then pass=$((pass+1)); echo "ok   orphan root diff is scanned with log.showRoot=false"
+else bad=$((bad+1)); echo "FAIL orphan root leak not caught (rc=$rc)"; fi
+git config --unset log.showRoot
+
+git checkout -q -b merge-side
+echo side > s.txt; commit "merge side"
+git checkout -q main
+echo main2 > m.txt; commit "main before merge"
+git merge -q --no-commit merge-side >/dev/null 2>&1 || true
+printf 'mail zzpriv\n' > evil.txt
+git add -A; git commit -q -m "evil merge"
+git rm -q evil.txt; commit "remove the evil file again"
+before=$(git --git-dir="$root/remote.git" rev-parse refs/heads/main)
+git push -q origin main > "$root/out" 2>&1; rc=$?
+if [ $rc -ne 0 ] && [ "$before" = "$(git --git-dir="$root/remote.git" rev-parse refs/heads/main)" ]; then pass=$((pass+1)); echo "ok   content introduced by a merge commit is caught"
+else bad=$((bad+1)); echo "FAIL evil merge content not caught (rc=$rc)"; fi
+git reset -q --hard origin/main
+git branch -D merge-side >/dev/null
+
+echo x > e.txt; commit "trailer" "Reported-by: eve@real.test"
+check 1 "trailer e-mail without angle brackets" $script HEAD "$(git rev-parse origin/main)"
+git reset -q --hard origin/main
+
 git tag -a v1 -m "release for zzpriv"
 git push -q origin refs/tags/v1 > "$root/out" 2>&1; rc=$?
 if [ $rc -ne 0 ] && nopush_ok refs/tags/v1; then pass=$((pass+1)); echo "ok   hook blocks an annotated tag whose message leaks"
@@ -139,6 +209,13 @@ else bad=$((bad+1)); echo "FAIL tag message leak not caught (rc=$rc)"; fi
 git tag -d v1 >/dev/null
 git tag -a v2 -m "release"
 check 0 "clean annotated tag pushes" git push -q origin refs/tags/v2
+
+git tag -a inner -m "inner release for zzpriv"
+git -c advice.nestedTag=false tag -a outer -m "outer release" inner
+git push -q origin refs/tags/outer > "$root/out" 2>&1; rc=$?
+if [ $rc -ne 0 ] && nopush_ok refs/tags/outer; then pass=$((pass+1)); echo "ok   pattern in an inner tag object is caught"
+else bad=$((bad+1)); echo "FAIL inner tag leak not caught (rc=$rc)"; fi
+git tag -d outer inner >/dev/null
 
 echo
 echo "privacy-check tests: $pass passed, $bad failed"
