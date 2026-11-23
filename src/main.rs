@@ -4,6 +4,7 @@ mod a11y;
 mod auth;
 mod attachments;
 mod avatars;
+mod crashguard;
 mod tags;
 mod mailimport;
 mod admin;
@@ -771,6 +772,9 @@ fn main() -> Result<(), slint::PlatformError> {
     // a mailto: link from the OS while Barbican already runs: hand it over and quit
     let link = instance::mailto_arg(&std::env::args().skip(1).collect::<Vec<_>>());
     if link.as_deref().is_some_and(instance::forward) { return Ok(()); }
+    // a start that never got cleared last time (it crashed) runs without network pictures
+    let last_start_failed = crashguard::begin(&config_dir());
+    if last_start_failed { crashguard::enter_safe_mode(); }
     let ui = AppWindow::new()?;
     apply_theme(&ui);
     apply_ui_prefs(&ui);
@@ -1878,6 +1882,10 @@ fn main() -> Result<(), slint::PlatformError> {
     mailview::install_focus_hook(&ui);
     // "Start in the tray" at sign-in leaves the window closed
     if !desktop::start_hidden() { ui.show()?; }
+    if last_start_failed { mail::show_toast(&ui, crashguard::NOTICE, false); }
+    // up for a few seconds: this start was a good one
+    let guard_timer = slint::Timer::default();
+    guard_timer.start(slint::TimerMode::SingleShot, crashguard::UP_FOR, || crashguard::clear(&config_dir()));
     if automation::enabled() {
         ui.window().set_position(slint::PhysicalPosition::new(-6000, 0));
     }
@@ -1905,6 +1913,7 @@ fn main() -> Result<(), slint::PlatformError> {
     });
     // the window can be closed to the tray: the loop runs until Quit
     slint::run_event_loop_until_quit()?;
+    crashguard::clear(&config_dir());
     settings::Settings::flush();
     instance::cleanup();
     // refresh tokens may rotate while the app runs: keep the newest one

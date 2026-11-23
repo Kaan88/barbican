@@ -30,7 +30,11 @@ pub struct Prefs { pub favicons: bool, pub gravatar: bool, pub in_junk: bool }
 impl Prefs {
     pub fn load() -> Prefs {
         let p = crate::settings::Settings::load();
-        Prefs { favicons: p.bool("senderFavicons", false), gravatar: p.bool("gravatarAvatars", false), in_junk: p.bool("showAvatarsInJunk", false) }
+        Prefs::from_settings(&p, crate::crashguard::safe_mode())
+    }
+    /// `safe`: the last start crashed, so nothing is fetched from the web this run.
+    fn from_settings(p: &crate::settings::Settings, safe: bool) -> Prefs {
+        Prefs { favicons: !safe && p.bool("senderFavicons", false), gravatar: !safe && p.bool("gravatarAvatars", false), in_junk: p.bool("showAvatarsInJunk", false) }
     }
     pub fn any(&self) -> bool { self.favicons || self.gravatar }
 }
@@ -54,6 +58,11 @@ thread_local! {
 static WORK: Mutex<(VecDeque<(String, u64)>, usize)> = Mutex::new((VecDeque::new(), 0));
 /// Bumped by "Refresh sender icons": answers of an older generation are dropped.
 static GEN: AtomicU64 = AtomicU64::new(0);
+
+/// The queue lock; a poisoned lock is still a usable queue.
+fn work() -> std::sync::MutexGuard<'static, (VecDeque<(String, u64)>, usize)> {
+    WORK.lock().unwrap_or_else(|e| e.into_inner())
+}
 
 /// Known multi-part TLDs (Bulwark avatar.tsx MULTI_PART_TLDS).
 const MULTI_PART_TLDS: &[&str] = &[
@@ -119,16 +128,46 @@ pub fn candidates(email: &str, brand: Option<&str>, p: &Prefs) -> Vec<String> {
 
 /// The picture for a sender if one is ready; starts fetching what is not known yet. None while
 /// the best candidate is still on its way (the initials show meanwhile), or when there is none.
+/// Never panics: a failure here shows the initials instead of taking the app down.
 pub fn get(email: &str, brand: Option<&str>, p: &Prefs, junk: bool) -> Option<Pic> {
+    guarded(|| get_with(email, brand, p, junk, enqueue)).flatten()
+}
+
+/// Runs `f`, turning a panic into None (the avatar code must never end the app).
+fn guarded<T>(f: impl FnOnce() -> T) -> Option<T> {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)).ok()
+}
+
+/// What the in-memory cache knows about a key.
+enum Look { Ready(Pic), Pending, Missing }
+
+/// The cache entry for a key; an unknown key is marked pending and handed to `start`.
+fn look(key: &str, start: impl FnOnce(String)) -> Look {
+    // The borrow must end before the key is inserted: a `match` on `s.borrow().get(..)` keeps
+    // the Ref alive through its arms, and borrow_mut() there panicked on the first unknown key.
+    let known = SLOTS.with(|s| s.borrow().get(key).map(|slot| match slot {
+        Slot::Ready(pic) => Look::Ready(pic.clone()),
+        Slot::Pending => Look::Pending,
+        Slot::Missing => Look::Missing,
+    }));
+    match known {
+        Some(l) => l,
+        None => {
+            SLOTS.with(|s| s.borrow_mut().insert(key.to_string(), Slot::Pending));
+            start(key.to_string());
+            Look::Pending
+        }
+    }
+}
+
+fn get_with(email: &str, brand: Option<&str>, p: &Prefs, junk: bool, start: impl Fn(String)) -> Option<Pic> {
     if !p.any() || (junk && !p.in_junk) { return None; }
     for key in candidates(email, brand, p) {
-        let state = SLOTS.with(|s| match s.borrow().get(&key) {
-            Some(Slot::Ready(pic)) => Some(Some(pic.clone())),
-            Some(Slot::Pending) => Some(None),
-            Some(Slot::Missing) => None,
-            None => { s.borrow_mut().insert(key.clone(), Slot::Pending); enqueue(key.clone()); Some(None) }
-        });
-        if let Some(found) = state { return found; }
+        match look(&key, &start) {
+            Look::Ready(pic) => return Some(pic),
+            Look::Pending => return None,
+            Look::Missing => {}
+        }
     }
     None
 }
@@ -136,7 +175,7 @@ pub fn get(email: &str, brand: Option<&str>, p: &Prefs, junk: bool) -> Option<Pi
 /// "Refresh sender icons": forget every answer (memory and disk) so they are fetched again.
 pub fn refresh() {
     GEN.fetch_add(1, Ordering::SeqCst);
-    WORK.lock().unwrap().0.clear();
+    work().0.clear();
     SLOTS.with(|s| s.borrow_mut().clear());
     let _ = std::fs::remove_dir_all(crate::config_dir().join("avatars"));
 }
@@ -145,7 +184,7 @@ pub fn refresh() {
 pub fn set_window(w: slint::Weak<crate::AppWindow>) { WIN.with(|x| *x.borrow_mut() = Some(w)); }
 
 fn enqueue(key: String) {
-    let mut work = WORK.lock().unwrap();
+    let mut work = work();
     work.0.push_back((key, GEN.load(Ordering::SeqCst)));
     if work.1 >= WORKERS { return; }
     work.1 += 1;
@@ -153,7 +192,8 @@ fn enqueue(key: String) {
     let w = WIN.with(|x| x.borrow().clone());
     std::thread::spawn(move || {
         while let Some((key, gen)) = next_job() {
-            let fetched = fetch(&key, gen);
+            // a panic in a fetch or decode is an answer of "none" (initials), and the worker lives on
+            let fetched = guarded(|| fetch(&key, gen)).unwrap_or(Fetched::None);
             if let Some(w) = &w {
                 let _ = w.upgrade_in_event_loop(move |u| arrived(&u, key, gen, fetched));
             }
@@ -163,7 +203,7 @@ fn enqueue(key: String) {
 
 /// The next key for a worker; when there is none the worker is counted out under the same lock.
 fn next_job() -> Option<(String, u64)> {
-    let mut work = WORK.lock().unwrap();
+    let mut work = work();
     let job = work.0.pop_front();
     if job.is_none() { work.1 = work.1.saturating_sub(1); }
     job
@@ -173,14 +213,14 @@ fn arrived(u: &crate::AppWindow, key: String, gen: u64, f: Fetched) {
     // fetched before a refresh: the slot was cleared and is asked for again
     if gen != GEN.load(Ordering::SeqCst) { return; }
     let logo = !key.starts_with("grav:");
-    let slot = match f {
+    let slot = guarded(|| match f {
         Fetched::Raster(buf) => Slot::Ready(Pic { image: slint::Image::from_rgba8(buf), logo }),
         Fetched::Svg(bytes) => match slint::Image::load_from_svg_data(&bytes) {
             Ok(image) => Slot::Ready(Pic { image, logo }),
             Err(_) => Slot::Missing,
         },
         Fetched::None => Slot::Missing,
-    };
+    }).unwrap_or(Slot::Missing);
     SLOTS.with(|s| s.borrow_mut().insert(key, slot));
     // a picture arrived, or a missing logo or photo lets the next candidate in: the rows and
     // the reader look again (coalesced)
@@ -462,5 +502,122 @@ mod tests {
         let mut dot = vec![];
         image::DynamicImage::ImageRgba8(image::RgbaImage::new(1, 1)).write_to(&mut std::io::Cursor::new(&mut dot), image::ImageFormat::Png).unwrap();
         assert!(raster(&dot).is_none());
+    }
+
+    /// A one-shot local HTTP server: answers each connection with the next canned response.
+    fn serve(responses: Vec<Vec<u8>>) -> String {
+        use std::io::{Read, Write};
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = l.local_addr().unwrap();
+        std::thread::spawn(move || {
+            for r in responses {
+                let Ok((mut c, _)) = l.accept() else { return };
+                let mut buf = [0u8; 2048];
+                let _ = c.read(&mut buf);
+                let _ = c.write_all(&r);
+            }
+        });
+        format!("http://{addr}/avatar")
+    }
+
+    fn http_reply(status: &str, ct: &str, body: &[u8]) -> Vec<u8> {
+        let head = ["HTTP/1.1 ".to_string() + status, format!("Content-Type: {ct}"), format!("Content-Length: {}", body.len()), "Connection: close".into(), String::new(), String::new()];
+        let mut r = head.join("\r\n").into_bytes();
+        r.extend_from_slice(body);
+        r
+    }
+
+    #[test]
+    fn an_unknown_key_is_marked_pending_and_started_once() {
+        // regression: the first unknown key used to panic with "RefCell already borrowed"
+        let started = RefCell::new(vec![]);
+        assert!(matches!(look("grav:aa", |k| started.borrow_mut().push(k)), Look::Pending));
+        assert!(matches!(look("grav:aa", |k| started.borrow_mut().push(k)), Look::Pending));
+        assert_eq!(*started.borrow(), vec!["grav:aa".to_string()]);
+        SLOTS.with(|s| s.borrow_mut().insert("grav:aa".into(), Slot::Missing));
+        assert!(matches!(look("grav:aa", |_| panic!("not again")), Look::Missing));
+        SLOTS.with(|s| s.borrow_mut().insert("grav:aa".into(), Slot::Ready(Pic { image: slint::Image::default(), logo: false })));
+        assert!(matches!(look("grav:aa", |_| panic!("not again")), Look::Ready(_)));
+    }
+
+    #[test]
+    fn gravatar_on_asks_for_the_photo_once_and_falls_back_to_initials() {
+        let p = Prefs { favicons: false, gravatar: true, in_junk: false };
+        let started = RefCell::new(vec![]);
+        let go = || get_with("jane@example.test", None, &p, false, |k| started.borrow_mut().push(k));
+        assert!(go().is_none());
+        assert!(go().is_none());
+        assert_eq!(*started.borrow(), vec![format!("grav:{}", gravatar_hash("jane@example.test"))]);
+        // no photo for this address: no picture, and no other candidate is asked for
+        SLOTS.with(|s| s.borrow_mut().insert(started.borrow()[0].clone(), Slot::Missing));
+        assert!(go().is_none());
+        assert_eq!(started.borrow().len(), 1);
+        // a photo that arrived is returned
+        SLOTS.with(|s| s.borrow_mut().insert(started.borrow()[0].clone(), Slot::Ready(Pic { image: slint::Image::default(), logo: false })));
+        assert!(go().is_some_and(|pic| !pic.logo));
+    }
+
+    #[test]
+    fn a_panic_in_avatar_code_is_contained() {
+        assert_eq!(guarded(|| 7), Some(7));
+        assert!(guarded(|| -> u8 { panic!("boom") }).is_none());
+    }
+
+    #[test]
+    fn answers_from_the_gravatar_server_are_classified() {
+        let mut png = vec![];
+        image::DynamicImage::ImageRgba8(image::RgbaImage::from_pixel(128, 128, image::Rgba([9, 8, 7, 255])))
+            .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png).unwrap();
+        let url = serve(vec![
+            http_reply("404 Not Found", "text/plain", b"Not Found"),
+            http_reply("500 Internal Server Error", "text/plain", b"oops"),
+            http_reply("429 Too Many Requests", "text/plain", b"slow down"),
+            http_reply("302 Found", "text/plain", b"moved"),
+            http_reply("200 OK", "text/html", b"<html>not a picture at all</html>"),
+            http_reply("200 OK", "image/png", &vec![0u8; MAX_BYTES + 10]),
+            http_reply("200 OK", "image/png", b"x"),
+            http_reply("200 OK", "image/png", &png),
+        ]);
+        let miss = |r: Result<(Vec<u8>, String), Miss>| r.unwrap_err();
+        assert_eq!(miss(get_capped(&url)), Miss::Definitive); // 404: no photo, cached as missing
+        assert_eq!(miss(get_capped(&url)), Miss::Transient);
+        assert_eq!(miss(get_capped(&url)), Miss::Transient);
+        assert_eq!(miss(get_capped(&url)), Miss::Definitive); // redirects are not followed
+        // an HTML body comes through the download, and the decoder turns it down
+        let (html, _) = get_capped(&url).unwrap();
+        assert!(matches!(decode("grav:x", &html), Fetched::None));
+        assert_eq!(miss(get_capped(&url)), Miss::Definitive); // over the cap
+        assert_eq!(miss(get_capped(&url)), Miss::Definitive); // too small to be an image
+        let (bytes, ct) = get_capped(&url).unwrap();
+        assert_eq!(ct, "image/png");
+        assert!(matches!(decode("grav:x", &bytes), Fetched::Raster(b) if (b.width(), b.height()) == (EDGE, EDGE)));
+        // a refused connection is a passing failure
+        assert_eq!(miss(get_capped("http://127.0.0.1:9/avatar")), Miss::Transient);
+    }
+
+    #[test]
+    fn undecodable_bytes_give_no_picture() {
+        assert!(matches!(decode("grav:x", &[]), Fetched::None));
+        assert!(matches!(decode("grav:x", b"GIF89a-but-not-really"), Fetched::None));
+        assert!(matches!(decode("fav:example.com", &[0u8; 64]), Fetched::None));
+        // a truncated PNG
+        let mut png = vec![];
+        image::DynamicImage::ImageRgba8(image::RgbaImage::new(16, 16)).write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png).unwrap();
+        png.truncate(png.len() / 2);
+        assert!(matches!(decode("grav:x", &png), Fetched::None));
+    }
+
+    #[test]
+    fn safe_mode_turns_the_network_pictures_off() {
+        let mut m = serde_json::Map::new();
+        m.insert("senderFavicons".into(), json!(true));
+        m.insert("gravatarAvatars".into(), json!(true));
+        m.insert("showAvatarsInJunk".into(), json!(true));
+        let st = crate::settings::Settings::with_prefs(m);
+        let on = Prefs::from_settings(&st, false);
+        assert!(on.favicons && on.gravatar && on.any());
+        let safe = Prefs::from_settings(&st, true);
+        assert!(!safe.favicons && !safe.gravatar && !safe.any());
+        assert!(safe.in_junk);
     }
 }
