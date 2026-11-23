@@ -96,7 +96,7 @@ fn csp_with(images: bool, script: Option<&str>) -> String {
     // with remote content blocked, a remote stylesheet or font is a tracking beacon like an image
     let (style, font, img) = if images { ("'unsafe-inline' http: https:", "http: https: data:", "http: https: data:") } else { ("'unsafe-inline'", "data:", "data:") };
     format!(
-        "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src {style}; font-src {font}; img-src {img}; script-src {scripts}; object-src 'none'; frame-src 'none'; form-action 'none'\">"
+        "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src {style}; font-src {font}; img-src {img}; script-src {scripts}; object-src 'none'; base-uri 'none'; frame-src 'none'; form-action 'none'\">"
     )
 }
 
@@ -106,7 +106,7 @@ mod csp_tests {
     fn blocked_remote_content_includes_stylesheets_and_fonts() {
         let c = super::csp_with(false, None);
         assert!(c.contains("style-src 'unsafe-inline';") && c.contains("font-src data:;") && c.contains("img-src data:;"), "{c}");
-        assert!(c.contains("script-src 'none'"));
+        assert!(c.contains("script-src 'none'") && c.contains("base-uri 'none'"));
         let c = super::csp_with(true, Some("x"));
         assert!(c.contains("style-src 'unsafe-inline' http: https:;") && c.contains("font-src http: https: data:;") && c.contains("img-src http: https: data:;"));
         assert!(c.contains("script-src 'sha256-"));
@@ -227,6 +227,8 @@ fn wrap_html_opts(body: &str, images: bool) -> String {
 /// when `recolor` (dark_mail.rs, email_dark.js) and the accessibility colour override is off;
 /// anything else is on white.
 fn page(body: &str, images: bool, recolor: bool) -> (String, bool, &'static str) {
+    // no <base>, no meta refresh, no names that shadow `document` (mailview::sanitize_mail_html)
+    let body = &mailview::sanitize_mail_html(body);
     let p = settings::Settings::load();
     // Settings > Accessibility: spacing, width, links, motion, text size and fitting
     let a = a11y::A11y::from(&p, a11y::System::detect());

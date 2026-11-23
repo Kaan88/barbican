@@ -10,6 +10,7 @@
 use crate::{AppWindow, WV};
 use slint::ComponentHandle;
 use std::cell::{Cell, RefCell};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 thread_local! {
@@ -59,18 +60,29 @@ if(c&&!a){fw=['k','e','f','m'].indexOf(k.toLowerCase())>=0}
 else if(!a){fw=k.length===1&&k!==' '||k==='Escape'||k==='Delete'||k==='F5'||k==='F9'}
 if(!fw)return;e.preventDefault();post('key:'+(c?'c':'')+(e.shiftKey?'s':'')+(a?'a':'')+'|'+(k.length===1&&c?k.toLowerCase():k))}catch(x){}}
 document.addEventListener('keydown',kd,true);
-function fix(d){try{var a=d.querySelectorAll('a,area,form');for(var i=0;i<a.length;i++)a[i].setAttribute('target','_blank')}catch(e){}
-try{if(!d.__bbd){d.__bbd=1;var t=0,p=function(){if(t)return;t=1;requestAnimationFrame(function(){t=0;post('dirty')})};
-d.addEventListener('keydown',kd,true);d.addEventListener('scroll',p,true);d.addEventListener('load',p,true);d.addEventListener('selectionchange',p);d.defaultView.addEventListener('resize',p)}}catch(e){}}
+// A message can name its own elements (<img name="URL">, <form><input name="setAttribute">):
+// named access beats the built-in members of `document` and of forms, so nothing here reads a
+// member of a message's document or element directly. Everything goes through the prototypes
+// (saved before any message exists), and the "handlers attached" mark lives in a WeakSet.
+// (mailview::sanitize_mail_html also drops the names that could shadow, as a second layer.)
+var DP=Document.prototype,EP=Element.prototype,ET=EventTarget.prototype;
+function dget(n){return Object.getOwnPropertyDescriptor(DP,n).get}
+var gURL=dget('URL'),gBody=dget('body'),gDE=dget('documentElement'),gView=dget('defaultView'),gReady=dget('readyState'),
+qsa=DP.querySelectorAll,addL=ET.addEventListener,setAttr=EP.setAttribute,
+gCls=Object.getOwnPropertyDescriptor(EP,'classList').get,cHas=DOMTokenList.prototype.contains,seen=new WeakSet();
+function fix(d){try{var a=qsa.call(d,'a,area,form');for(var i=0;i<a.length;i++){try{setAttr.call(a[i],'target','_blank')}catch(e){}}}catch(e){}
+try{if(!seen.has(d)){seen.add(d);var t=0,p=function(){if(t)return;t=1;requestAnimationFrame(function(){t=0;post('dirty')})};
+addL.call(d,'keydown',kd,true);addL.call(d,'scroll',p,true);addL.call(d,'load',p,true);addL.call(d,'selectionchange',p);addL.call(gView.call(d),'resize',p)}}catch(e){}}
+function laidOut(d){try{return gURL.call(d)==='about:srcdoc'&&gReady.call(d)!=='loading'&&!!gBody.call(d)&&!cHas.call(gCls.call(gDE.call(d)),'barbican-dark-pending')}catch(e){return false}}
 window.__bb={
 show:function(s,html,bg,sb){seq=s;if(nxt){nxt.remove();nxt=null}
 var f=document.createElement('iframe');if(sb!==null)f.setAttribute('sandbox',sb);f.setAttribute('title','Message');
 f.style.cssText='position:absolute;left:0;top:0;width:100%;height:100%;border:0;margin:0;visibility:hidden;background:'+bg;
 f._bg=bg;nxt=f;var done=false;
 function ready(){if(done||seq!==s)return;done=true;post('ready:'+s)}
-f.addEventListener('load',function(){try{fix(f.contentDocument)}catch(e){}ready()});f.srcdoc=html;document.body.appendChild(f);
+addL.call(f,'load',function(){try{fix(f.contentDocument)}catch(e){}ready()});f.srcdoc=html;document.body.appendChild(f);
 (function poll(){if(done||seq!==s)return;var d=null;try{d=f.contentDocument}catch(e){}
-if(d&&d.URL==='about:srcdoc'&&d.readyState!=='loading'&&d.body&&!d.documentElement.classList.contains('barbican-dark-pending')){fix(d);requestAnimationFrame(ready);return}
+if(d&&laidOut(d)){fix(d);requestAnimationFrame(ready);return}
 requestAnimationFrame(poll)})();},
 reveal:function(s){if(s!==seq||!nxt)return;var f=nxt;nxt=null;document.documentElement.style.background=f._bg;
 f.style.visibility='visible';if(cur)cur.remove();cur=f},
@@ -130,19 +142,58 @@ pub fn shell_html() -> String {
     let bg = reader_bg();
     format!(
         "<!doctype html><html style=\"background:{bg}\"><head><meta charset=utf-8>\
-<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src 'unsafe-inline' *; font-src * data:; img-src * data:; script-src 'unsafe-inline'; frame-src 'self' about:; object-src 'none'; form-action 'none'\">\
+<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src 'unsafe-inline' *; font-src * data:; img-src * data:; script-src 'unsafe-inline'; base-uri 'none'; frame-src 'self' about:; object-src 'none'; form-action 'none'\">\
 <style>html,body{{margin:0;padding:0;height:100%;overflow:hidden}}</style></head><body><script>{SHELL_JS}</script></body></html>"
     )
 }
 
 /// The frame's sandbox: same origin (so the shell can tell when it is laid out), popups for
 /// links (they open in the browser), modals for printing; scripts only for our own script.
+///
+/// Decision (P0, C# D-071 asks for no `allow-scripts` ever): kept as is. A frame gets
+/// `allow-scripts` only when our dark-mode or accessibility script runs in it, and then the
+/// frame's CSP admits exactly that script by its sha256 (`script-src 'sha256-..'`), so a
+/// message's own scripts, inline handlers and `javascript:` links still do not run. The C#
+/// alternative (the shell runs the effect against the frame's document) was not taken because
+/// it cannot be done safely without a real window to check it in:
+///   * the shell's CSP forbids eval, so the script would have to be sent as a function literal
+///     in `evaluate_script` and called with the frame's document, and the accessibility script
+///     (src/a11y.rs `mail_script`, which this change may not touch) calls the bare global
+///     `addEventListener('DOMContentLoaded', ..)`, so it needs a shim;
+///   * the timing changes (a frame's own script runs at DOMContentLoaded after its blocking
+///     stylesheets; the shell would poll), which can flash light mail or compute colours before
+///     remote CSS applied, and the dark pass is the one thing that must not misfire;
+///   * it moves message-DOM walking into the shell's privileged realm (it holds `window.ipc`).
+/// What makes the current setup safe: the CSP hash (mail cannot add a script, and a mail
+/// `<meta http-equiv=CSP>` can only narrow it), `sanitize_mail_html` (no `<base>`, no meta
+/// refresh, no shadowing names, so even our script's `document.X` reads are the real ones),
+/// and `base-uri 'none'`. Revisit when the shell-side variant can be tried in a live window.
 fn sandbox(script: bool) -> &'static str {
     if script {
         "allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-modals allow-scripts"
     } else {
         "allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-modals"
     }
+}
+
+/// Set once the shell reported in: from then on the view may not navigate anywhere else.
+/// (Until then the shell's own initial load is on its way, in whatever URL form the platform
+/// reports it, so that one load is not judged.)
+static NAV_LOCKED: AtomicBool = AtomicBool::new(false);
+
+#[derive(Debug, PartialEq)]
+enum Nav { Allow, Browser, Cancel }
+
+/// What to do with a top-level navigation of the mail view.
+fn nav_decision(url: &str, locked: bool) -> Nav {
+    let u = url.trim();
+    let l = u.to_ascii_lowercase();
+    // web links go to the browser (and the view stays), mailto: and files never load here
+    if l.starts_with("http://") || l.starts_with("https://") { return Nav::Browser; }
+    if crate::mailto::parse(u).is_some() || l.starts_with("file:") { return Nav::Cancel; }
+    if !locked { return if l.starts_with("http") { Nav::Browser } else { Nav::Allow }; }
+    // the shell (NavigateToString reports a data: URL, WebKitGTK about:blank) and the frames
+    if l == "about:srcdoc" || l == "about:blank" || l.starts_with("data:text/html") { Nav::Allow } else { Nav::Cancel }
 }
 
 fn run_js(js: String) {
@@ -303,10 +354,232 @@ fn forward_key(ui: &AppWindow, spec: &str) {
     for m in mods.iter().rev() { win.dispatch_event(WindowEvent::KeyReleased { text: (*m).into() }); }
 }
 
+// ---- message HTML sanitising (the parts the frame's CSP and sandbox cannot do) ----
+
+/// Tags `document` exposes by name (HTML "named access on Document"): a message with
+/// `<img name="URL">` makes `document.URL` that element, `name="body"` makes `document.body`
+/// it, `name="querySelectorAll"` replaces the method, and so on, for every member of
+/// Document.prototype / Node / EventTarget (the shell and the dark script use URL, body,
+/// documentElement, defaultView, readyState, head, createElement, querySelectorAll,
+/// addEventListener, getComputedStyle). Rather than chase a list of names (a value can be
+/// written with character references), `name` goes from all of these, and `id` from the ones
+/// that are exposed by id as well (`object`). An `img` is exposed by id only together with a
+/// name, which is gone, so ordinary `id`s on images (CSS hooks in newsletters) survive.
+const NAMED_ACCESS_TAGS: &[&str] = &["img", "form", "embed", "object", "iframe", "applet", "frame"];
+const NAMED_ACCESS_ID_TAGS: &[&str] = &["object", "applet"];
+
+fn is_html_ws(b: u8) -> bool { matches!(b, b' ' | b'\t' | b'\n' | b'\r' | 0x0c) }
+
+/// Remove from a message's HTML what would let it escape its frame's rules:
+///  * `<base>` (it would move every relative URL; the frame's CSP also says `base-uri 'none'`),
+///  * `<meta http-equiv=..>` of any kind (`refresh` redirects the frame; `set-cookie` and the
+///    rest have no business in a message),
+///  * `name` (and `id`) attributes that shadow `document` members (see `NAMED_ACCESS_TAGS`).
+/// Every `<letter` in the text is looked at as a possible tag start, wherever it sits (inside a
+/// comment, a quoted value, a textarea): over-removing from inert text is harmless, but a
+/// scanner that disagreed with the browser about where a tag starts could be fooled. The
+/// removals repeat until nothing changes, so deleting one tag cannot join the pieces around
+/// it into a new one (`<me<base>ta http-equiv=refresh>`). Input made to cost too much
+/// to scan is not rendered as HTML at all.
+pub fn sanitize_mail_html(html: &str) -> String {
+    let mut cur = std::borrow::Cow::Borrowed(html);
+    // each change makes the text shorter, so this ends; the cap only bounds the work
+    for _ in 0..64 {
+        match sanitize_pass(&cur) {
+            Ok(None) => return cur.into_owned(),
+            Ok(Some(next)) => cur = std::borrow::Cow::Owned(next),
+            Err(()) => return format!("<pre>{}</pre>", crate::esc(html)),
+        }
+    }
+    format!("<pre>{}</pre>", crate::esc(html))
+}
+
+/// One pass: `Ok(None)` when nothing needs removing, `Err` when the work budget ran out.
+fn sanitize_pass(s: &str) -> Result<Option<String>, ()> {
+    let b = s.as_bytes();
+    let mut budget: usize = b.len().saturating_mul(24).saturating_add(1 << 20);
+    let mut dels: Vec<(usize, usize)> = Vec::new();
+    let mut i = 0;
+    while i < b.len() {
+        let Some(off) = b[i..].iter().position(|&c| c == b'<') else { break };
+        i += off;
+        if !b.get(i + 1).is_some_and(|c| c.is_ascii_alphabetic()) { i += 1; continue; }
+        // tag name
+        let mut j = i + 1;
+        while j < b.len() && !is_html_ws(b[j]) && b[j] != b'/' && b[j] != b'>' { j += 1; }
+        let name = s[i + 1..j].to_ascii_lowercase();
+        // attributes: (lowercase name, start, end including its value)
+        let mut attrs: Vec<(String, usize, usize)> = Vec::new();
+        let mut p = j;
+        let end = loop {
+            while p < b.len() && (is_html_ws(b[p]) || b[p] == b'/') { p += 1; }
+            if p >= b.len() { break b.len(); }
+            if b[p] == b'>' { break p + 1; }
+            let start = p;
+            p += 1; // a leading '=' belongs to the name
+            while p < b.len() && !is_html_ws(b[p]) && b[p] != b'/' && b[p] != b'>' && b[p] != b'=' { p += 1; }
+            let aname = s.get(start..p).unwrap_or("").to_ascii_lowercase();
+            let mut q = p;
+            while q < b.len() && is_html_ws(b[q]) { q += 1; }
+            if q < b.len() && b[q] == b'=' {
+                q += 1;
+                while q < b.len() && is_html_ws(b[q]) { q += 1; }
+                if q < b.len() && (b[q] == b'"' || b[q] == b'\'') {
+                    let quote = b[q];
+                    q += 1;
+                    while q < b.len() && b[q] != quote { q += 1; }
+                    if q < b.len() { q += 1; }
+                } else {
+                    while q < b.len() && !is_html_ws(b[q]) && b[q] != b'>' { q += 1; }
+                }
+                p = q;
+            }
+            attrs.push((aname, start, p));
+        };
+        budget = budget.checked_sub(end - i).ok_or(())?;
+        let has = |n: &str| attrs.iter().any(|a| a.0 == n);
+        if name == "base" || (name == "meta" && has("http-equiv")) {
+            dels.push((i, end));
+        } else if NAMED_ACCESS_TAGS.contains(&name.as_str()) {
+            let id_too = NAMED_ACCESS_ID_TAGS.contains(&name.as_str());
+            for (n, a, e) in &attrs {
+                if n == "name" || (id_too && n == "id") { dels.push((*a, *e)); }
+            }
+        }
+        // the next candidate may sit inside this tag's quoted values
+        i += 1;
+    }
+    if dels.is_empty() { return Ok(None); }
+    dels.sort_unstable();
+    let mut out = String::with_capacity(s.len());
+    let mut at = 0;
+    for (a, e) in dels {
+        if e <= at { continue; }
+        let a = a.max(at);
+        if !s.is_char_boundary(a) || !s.is_char_boundary(e) { continue; }
+        out.push_str(&s[at..a]);
+        at = e;
+    }
+    out.push_str(&s[at..]);
+    Ok(if out.len() == s.len() { None } else { Some(out) })
+}
+
 #[cfg(test)]
 mod tests {
-    use super::parse_key;
+    use super::{nav_decision, parse_key, sanitize_mail_html as san, Nav};
     use slint::platform::Key;
+
+    #[test]
+    fn plain_mail_is_left_alone() {
+        let h = "<p id=\"a\">Hi <img src=\"x.png\" id=\"logo\" alt=\"n\"> <a href=\"https://e.x/?a=1&b=2\">go</a><meta name=\"color-scheme\" content=\"dark\"></p>";
+        assert_eq!(san(h), h);
+    }
+
+    #[test]
+    fn base_is_removed() {
+        for h in ["<base href=\"http://evil/\">", "<BASE HREF=http://evil/>", "<base/href='//evil/'>", "<base\n target=_top href=x>"] {
+            let o = san(&format!("a{h}b<img src=\"x.png\">"));
+            assert!(!o.to_ascii_lowercase().contains("<base"), "{o}");
+            assert!(o.starts_with('a') && o.contains("<img src=\"x.png\">"), "{o}");
+        }
+    }
+
+    #[test]
+    fn meta_refresh_is_removed() {
+        for h in [
+            "<meta http-equiv=\"refresh\" content=\"0;url=http://evil/\">",
+            "<META HTTP-EQUIV=ReFresh CONTENT='0; URL=//evil'>",
+            "<meta content=\"0;url=x\" http-equiv = refresh>",
+            "<meta/http-equiv=refresh content=0>",
+            "<meta http-equiv=\"re&#102;resh\" content=0>",
+            "<meta http-equiv=set-cookie content=\"a=b\">",
+            "<noscript><meta http-equiv=refresh content=0></noscript>",
+        ] {
+            let o = san(&format!("x{h}y"));
+            assert!(!o.to_ascii_lowercase().contains("http-equiv") && !o.to_ascii_lowercase().contains("<meta"), "{h} -> {o}");
+        }
+        // metas that cannot redirect stay
+        assert!(san("<meta name=\"color-scheme\" content=\"light dark\">").contains("color-scheme"));
+    }
+
+    #[test]
+    fn removal_cannot_build_a_new_tag() {
+        let o = san("<me<base>ta http-equiv=refresh content=0>");
+        assert!(!o.contains("http-equiv"), "{o}");
+        let o = san("<b<meta http-equiv=x>ase href=//evil/>");
+        assert!(!o.to_ascii_lowercase().contains("<base"), "{o}");
+    }
+
+    #[test]
+    fn tag_start_is_found_where_a_naive_scanner_would_skip_it() {
+        // a comment, a textarea or a quoted value that the browser ends earlier than a scanner thinks
+        for h in [
+            "<!-- <a title=\"--> <meta http-equiv=refresh content=0> \"> -->",
+            "<textarea><a title=\"</textarea><meta http-equiv=refresh content=0>\">",
+            "<svg><style><meta http-equiv=refresh content=0></style></svg>",
+            "<style></style><meta http-equiv=refresh content=0>",
+        ] {
+            assert!(!san(h).contains("http-equiv"), "{h}");
+        }
+        let o = san("<textarea><a title=\"</textarea><img name=URL>\">");
+        assert!(!o.contains("name=URL"), "{o}");
+    }
+
+    #[test]
+    fn shadowing_names_are_removed() {
+        for n in ["URL", "body", "querySelectorAll", "addEventListener", "__bbd", "documentElement", "defaultView", "readyState", "head", "createElement", "UR&#76;"] {
+            for q in ["\"", "'", ""] {
+                let o = san(&format!("<img src=\"x.png\" name={q}{n}{q} alt=\"a\">"));
+                assert!(!o.contains("name"), "{n}: {o}");
+                assert!(o.contains("src=\"x.png\"") && o.contains("alt=\"a\""), "{o}");
+            }
+        }
+        let o = san("<img id=\"body\" name=\"body\" src=x><form name=\"URL\"><input name=\"setAttribute\"></form><object id=\"URL\" name=x></object><embed name=y><iframe name=z></iframe>");
+        assert!(!o.contains("name=\"body\"") && !o.contains("name=\"URL\"") && !o.contains("id=\"URL\"") && !o.contains("name=y") && !o.contains("name=z"), "{o}");
+        // a plain image id (no name) is not exposed on document and stays; so do names on other tags
+        assert!(san("<img id=logo src=x>").contains("id=logo"));
+        assert!(san("<a name=top></a>").contains("name=top"));
+    }
+
+    #[test]
+    fn hostile_input_is_bounded_and_falls_back_to_text() {
+        let big = "<b ".repeat(400_000);
+        let t = std::time::Instant::now();
+        let o = san(&big);
+        assert!(t.elapsed() < std::time::Duration::from_secs(20));
+        assert!(o.starts_with("<pre>") || o == big, "unexpected rewrite");
+        let quoted = "<a x=\"".repeat(200_000);
+        let o = san(&quoted);
+        assert!(o.starts_with("<pre>") || o == quoted);
+    }
+
+    #[test]
+    fn navigation_is_filtered() {
+        // before the shell reported in: its own load passes whatever form the platform reports
+        assert_eq!(nav_decision("data:text/html;charset=utf-8,<p>", false), Nav::Allow);
+        assert_eq!(nav_decision("https://example.org/", false), Nav::Browser);
+        // after: only the shell, blank and srcdoc
+        for u in ["about:srcdoc", "about:blank", "data:text/html;charset=utf-8;base64,AAAA"] {
+            assert_eq!(nav_decision(u, true), Nav::Allow, "{u}");
+        }
+        for u in ["javascript:alert(1)", "data:text/plain,x", "blob:https://x/y", "ftp://x/", "about:config", "ms-appx://x", "view-source:x", "mailto:a@b.c", "FILE:///c:/x", "chrome://x", "wry://localhost/x"] {
+            assert_eq!(nav_decision(u, true), Nav::Cancel, "{u}");
+        }
+        // links still reach the browser, as before
+        assert_eq!(nav_decision("https://example.org/a", true), Nav::Browser);
+        assert_eq!(nav_decision("HTTP://example.org/a", true), Nav::Browser);
+    }
+
+    #[test]
+    fn shell_and_policy_are_hardened() {
+        assert!(super::shell_html().contains("base-uri 'none'"));
+        // the shell reads message documents through saved prototype members only
+        let js = super::SHELL_JS;
+        for bad in ["d.URL", "d.body", "d.querySelectorAll", "d.__bbd", "d.defaultView", "d.documentElement", "d.readyState", "a[i].setAttribute"] {
+            assert!(!js.contains(bad), "{bad}");
+        }
+        assert!(js.contains("Document.prototype") && js.contains("new WeakSet()"));
+    }
 
     #[test]
     fn forwarded_keys_parse() {
@@ -326,6 +599,7 @@ mod tests {
 fn on_ipc(msg: &str) {
     if msg == "shell" {
         SHELL_READY.with(|r| r.set(true));
+        NAV_LOCKED.store(true, Ordering::Relaxed);
         if let Some(js) = PENDING_JS.with(|p| p.borrow_mut().take()) { run_js(js); }
     } else if let Some(n) = msg.strip_prefix("ready:").and_then(|n| n.parse::<u64>().ok()) {
         ready(n, true);
@@ -369,12 +643,15 @@ fn build(ui: &AppWindow) -> Option<wry::WebView> {
             slint::Timer::single_shot(Duration::ZERO, move || on_ipc(&m));
         })
         .with_navigation_handler(|url| {
-            // the shell itself is the only page; web links open in the browser, mailto: in the composer
             // A top-level navigation is never a click on a mail link (those are retargeted to a
-            // new window); it comes from the page itself, so a mailto: here is dropped, not opened.
-            if crate::mailto::parse(&url).is_some() || url.get(..5).is_some_and(|p| p.eq_ignore_ascii_case("file:")) { false }
-            else if url.starts_with("http") { crate::oauth::open_browser(&url); false }
-            else { true }
+            // new window); it comes from the page itself. Once the shell is up it is the only
+            // page: everything but about:srcdoc/about:blank/the shell's own data: page is
+            // cancelled, and a web URL is handed to the browser instead.
+            match nav_decision(&url, NAV_LOCKED.load(Ordering::Relaxed)) {
+                Nav::Allow => true,
+                Nav::Browser => { crate::oauth::open_browser(&url); false }
+                Nav::Cancel => false,
+            }
         })
         .with_new_window_req_handler(|url, _| {
             // links in a message (all retargeted to a new window): web links open in the
