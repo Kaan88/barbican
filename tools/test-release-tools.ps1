@@ -12,6 +12,7 @@ $script:fails = 0
 function Check([bool]$ok, [string]$what) { if ($ok) { Write-Host "ok    $what" } else { Write-Host "FAIL  $what"; $script:fails++ } }
 # runs a script in a child PowerShell of the same edition and returns its exit code
 function Run-Child([string[]]$a) {
+    $ErrorActionPreference = 'Continue'   # Windows PowerShell 5.1 turns a child's stderr into an error otherwise
     $exe = (Get-Process -Id $PID).Path
     & $exe -NoProfile -File @a 2>$null | Out-Null
     $LASTEXITCODE
