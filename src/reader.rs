@@ -289,6 +289,13 @@ struct Invite {
     mine: Vec<String>,
     /// Bulwark's trust assessment: (warning, text) when the sender is not vouched for.
     trust: Option<(bool, String)>,
+    /// The message's From address (a cancellation or proposal is judged by who sent it).
+    sender: Option<String>,
+    from_me: bool,
+    /// A cancellation read against the calendar (G-002), until it is removed.
+    cancel: Option<invite::CancelPlan>,
+    /// A counter proposal read against the calendar (G-001), until it is applied.
+    proposal: Option<invite::Proposal>,
 }
 
 #[derive(Default)]
@@ -361,7 +368,7 @@ pub fn loaded(u: &AppWindow, c: Arc<Client>, m: &Value, id: &str) {
         let mut s = s.borrow_mut();
         *s = State { id: id.to_string(), msg: m.clone(), client: Some(c.clone()), unsub, mdn: offer && !auto, trunc: displayed_truncated(m), ..Default::default() };
         if invite_part.is_some() {
-            s.invite = Some(Invite { loading: true, error: None, ev: Value::Null, method: Method::Unknown, step: Step::Idle, status: String::new(), organizer_me: false, mine: vec![], trust: None });
+            s.invite = Some(Invite { loading: true, error: None, ev: Value::Null, method: Method::Unknown, step: Step::Idle, status: String::new(), organizer_me: false, mine: vec![], trust: None, sender: None, from_me: false, cancel: None, proposal: None });
         }
     });
     refresh(u);
@@ -391,18 +398,28 @@ pub fn loaded(u: &AppWindow, c: Arc<Client>, m: &Value, id: &str) {
                 // the stored copy carries the answer already given
                 let stored = ev["uid"].as_str().and_then(|uid| invite::stored(&c2, uid).ok().flatten());
                 let status = stored.as_ref().and_then(|s| invite::my_participant(s, &mine)).or_else(|| invite::my_participant(&ev, &mine)).map(|p| p.1).unwrap_or_default();
-                Ok((ev, m, status))
+                // what a cancellation removes or a counter proposal changes, read from the calendar
+                let zone = iana_time_zone::get_timezone().unwrap_or_default();
+                let (mut cancel, mut proposal) = (None, None);
+                if matches!(m, Method::Cancel | Method::Counter) {
+                    if let Some(all) = ev["uid"].as_str().and_then(|uid| invite::stored_all(&c2, uid).ok()) {
+                        if m == Method::Cancel { cancel = Some(invite::cancel_plan(&all, &ev, from.as_deref())); }
+                        else { proposal = invite::proposal(&all, &ev, from.as_deref(), &mine, &zone); }
+                    }
+                }
+                Ok((ev, m, status, cancel, proposal))
             });
             let _ = w.upgrade_in_event_loop(move |u| {
                 if !is_open(&id2) { return; }
                 ST.with(|s| if let Some(inv) = s.borrow_mut().invite.as_mut() {
                     inv.loading = false;
                     match res {
-                        Ok((ev, m, status)) => {
+                        Ok((ev, m, status, cancel, proposal)) => {
                             inv.organizer_me = invite::i_organize(&ev, &mine);
                             // a message the user sent is not assessed (Bulwark: !userIsSender)
                             let from_me = from.as_deref().is_some_and(|f| mine.iter().any(|x| x.eq_ignore_ascii_case(f)));
                             inv.trust = if from_me { None } else { invite::trust(&ev, &m, from.as_deref(), &auth, has_auth, &mine) };
+                            inv.sender = from.clone(); inv.from_me = from_me; inv.cancel = cancel; inv.proposal = proposal;
                             inv.ev = ev; inv.method = m; inv.status = status; inv.mine = mine;
                         }
                         Err(e) => inv.error = Some(e),
@@ -513,7 +530,7 @@ fn invite_banner(inv: &Invite) -> RxBannerData {
     let mut detail = when;
     match &inv.step {
         Step::Done(t) => detail = format!("{detail}  ·  {t}"),
-        Step::Failed(e) => detail = format!("{detail}  ·  Not sent: {e}"),
+        Step::Failed(e) => detail = format!("{detail}  ·  {}{e}", if matches!(inv.method, Method::Cancel | Method::Counter) { "Not done: " } else { "Not sent: " }),
         _ => {}
     }
     if inv.method == Method::Reply {
@@ -522,12 +539,35 @@ fn invite_banner(inv: &Invite) -> RxBannerData {
             extra.push(format!("{who} responded {}", invite::status_label(&st).to_lowercase()));
         }
     }
+    // a cancellation or counter proposal says what it is and, for a proposal, what it changes
+    // (Bulwark cancel_info, counter_info(_organizer), buildInvitationChangeItems)
+    match inv.method {
+        Method::Cancel => extra.push("The organizer has cancelled this event.".into()),
+        Method::Counter => {
+            extra.push((if inv.organizer_me { "This attendee proposed changes to your event." } else { "This message proposes changes to an event." }).to_string());
+            if let Some(p) = &inv.proposal { for (what, before, after) in &p.changes { extra.push(format!("{what}: {before} → {after}")); } }
+        }
+        _ => {}
+    }
+    let trusted = inv.trust.is_none() && !inv.from_me;
+    // only the organizer cancels a meeting: the removal is offered when the sender is the
+    // organizer of the stored events it removes and the message is verified as theirs
+    let can_remove = inv.method == Method::Cancel && !inv.from_me && inv.cancel.as_ref().is_some_and(|p| p.removable() && p.from_organizer && trusted);
+    if let (Method::Cancel, Some(plan), false) = (&inv.method, &inv.cancel, inv.from_me) {
+        if plan.removal == invite::Removal::Outdated { extra.push("Your calendar has a newer version of this event than this cancellation.".into()); }
+        else if let Some(n) = invite::cancel_notice(plan, trusted, inv.sender.as_deref().unwrap_or("")) { extra.push(n); }
+    }
+    let can_apply = inv.method == Method::Counter && inv.proposal.as_ref().is_some_and(|p| p.can_apply());
     let tone = match &inv.trust { Some(_) if answerable || inv.method == Method::Cancel => "amber", _ => tone };
     if let Some((warn, t)) = &inv.trust { extra.insert(0, format!("{}{t}", if *warn { "Warning: " } else { "" })); }
     let busy = inv.step == Step::Busy;
     let actions = if answerable {
         let b = |id: &str, label: &str, st: &str| if busy { act_off(id, label, 0) } else { act(id, label, if inv.status == st { 1 } else { 0 }) };
         vec![b("accepted", "Accept", "accepted"), b("tentative", "Maybe", "tentative"), b("declined", "Decline", "declined")]
+    } else if can_remove {
+        vec![if busy { act_off("remove", "Removing…", 0) } else { act("remove", "Remove from calendar", 0) }]
+    } else if can_apply {
+        vec![if busy { act_off("apply", "Applying…", 1) } else { act("apply", "Apply proposed changes", 1) }]
     } else { vec![] };
     banner("invite", tone, "\u{E787}", kicker, title, &detail, &extra.join("  ·  "), actions)
 }
@@ -596,6 +636,32 @@ fn banner_action(u: &AppWindow, st: &Shared, b: &str, a: &str) {
                         match res {
                             Ok(_) => { i.status = status.clone(); i.step = Step::Done("Response sent".into()); }
                             Err(e) => i.step = Step::Failed(e),
+                        }
+                    });
+                    if u.get_app() == 1 { u.invoke_cal_nav("".into()); }
+                });
+            });
+        }
+        ("invite", "remove" | "apply") => {
+            // the login the message belongs to writes to its calendar
+            let got = ST.with(|s| { let s = s.borrow(); s.invite.as_ref().map(|i| (i.ev.clone(), i.mine.clone(), i.sender.clone())).zip(s.client.clone()) });
+            let Some(((ev, mine, sender), c)) = got else { return };
+            let removing = a == "remove";
+            set_step(u, |s| if let Some(i) = s.invite.as_mut() { i.step = Step::Busy; });
+            let w = u.as_weak();
+            std::thread::spawn(move || {
+                let zone = iana_time_zone::get_timezone().unwrap_or_default();
+                let res = if removing { invite::remove_cancelled(&c, &ev, sender.as_deref()) } else { invite::apply_proposal(&c, &ev, sender.as_deref(), &mine, &zone) };
+                let _ = w.upgrade_in_event_loop(move |u| {
+                    if !is_open(&id) { return; }
+                    set_step(&u, |s| if let Some(i) = s.invite.as_mut() {
+                        match res {
+                            Ok(t) => { i.cancel = None; i.proposal = None; i.step = Step::Done(t); }
+                            Err(e) => {
+                                // the event went away or got newer since the mail was opened: stop offering the removal
+                                if removing { if let (Some(r), Some(p)) = (invite::removal_after_error(&e), i.cancel.as_mut()) { p.removal = r; } }
+                                i.step = Step::Failed(e);
+                            }
                         }
                     });
                     if u.get_app() == 1 { u.invoke_cal_nav("".into()); }
