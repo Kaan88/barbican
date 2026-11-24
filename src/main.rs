@@ -15,6 +15,7 @@ mod otp;
 mod agent;
 mod ai;
 mod bodycache;
+mod allday;
 mod calendar;
 mod cal_editor;
 mod cal_extra;
@@ -1524,6 +1525,8 @@ fn main() -> Result<(), slint::PlatformError> {
     ui.on_cal_set_view(move |v| { let Some(c) = st.lock().unwrap().clone() else { return }; calendar::set_view(&w.unwrap(), c, v); });
     let w = ui.as_weak();
     ui.on_cal_toggle(move |id| calendar::toggle_calendar(&w.unwrap(), &id));
+    let w = ui.as_weak();
+    ui.on_cal_allday_toggle(move || calendar::toggle_allday(&w.unwrap()));
     let w = ui.as_weak();
     ui.on_cal_search(move |q| calendar::search(&w.unwrap(), &q));
     let w = ui.as_weak();

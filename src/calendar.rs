@@ -31,6 +31,8 @@ struct State {
     columns: Vec<NaiveDate>,
     // the event shown in the context panel (design: guests / details beside the grid)
     selected: Option<String>,
+    /// the all-day strip of the day and week header shows every row (see `allday`)
+    allday_open: bool,
 }
 
 /// One thing on the grid: an occurrence of an event, a task's due date or a birthday.
@@ -553,12 +555,21 @@ pub fn render(u: &AppWindow) {
                     if !kept.is_empty() { dates = kept; }
                 }
                 s.columns = dates.clone();
-                let heads: Vec<CalCell> = dates.iter().enumerate().map(|(i, &d)| {
-                    let all: Vec<CalEvent> = visible.iter().filter(|o| (o.all_day || (o.end - o.start).num_hours() >= 24) && covers(o, d))
-                        .map(|o| ev(o, &s.calendars, i as i32, 0.0, 0.0, 1, cp.h12)).collect();
-                    CalCell { day: d.day() as i32, date: d.format("%a").to_string().into(), in_month: true, today: d == today,
-                        events: ModelRc::new(VecModel::from(all)), more: "".into() }
+                let all_by_day: Vec<Vec<CalEvent>> = dates.iter().enumerate().map(|(i, &d)| {
+                    visible.iter().filter(|o| (o.all_day || (o.end - o.start).num_hours() >= 24) && covers(o, d))
+                        .map(|o| ev(o, &s.calendars, i as i32, 0.0, 0.0, 1, cp.h12)).collect()
                 }).collect();
+                // at most three rows, the rest behind "+N more" until the strip is expanded (D-M4-08)
+                let strip = crate::allday::layout(&all_by_day.iter().map(|v| v.len()).collect::<Vec<_>>(), s.allday_open);
+                let heads: Vec<CalCell> = dates.iter().zip(all_by_day).enumerate().map(|(i, (&d, mut all))| {
+                    all.truncate(strip.shown[i]);
+                    CalCell { day: d.day() as i32, date: d.format("%a").to_string().into(), in_month: true, today: d == today,
+                        events: ModelRc::new(VecModel::from(all)), more: crate::allday::more_label(strip.more[i]).into() }
+                }).collect();
+                u.set_cal_allday_h(strip.height);
+                u.set_cal_allday_expandable(strip.expandable);
+                u.set_cal_allday_open(s.allday_open && strip.expandable);
+                u.set_cal_allday_extra(strip.extra_rows as i32);
                 sync_into(&u.get_cal_days(), heads, |c| format!("{}{}", c.day, c.date), |a, b| a.day == b.day && a.date == b.date && a.in_month == b.in_month && a.today == b.today && a.more == b.more && crate::listsync::rows_eq(&a.events, &b.events), |m| u.set_cal_days(m));
                 // timed events with simple overlap columns
                 let mut timed: Vec<CalEvent> = vec![];
@@ -650,6 +661,12 @@ pub fn set_view(u: &AppWindow, c: Arc<Client>, v: i32) {
     ST.with(|s| s.borrow_mut().view = v);
     rebuild(u);
     load(u.as_weak(), c);
+}
+
+/// The all-day strip's "+N" / "less" toggle (Bulwark `isAllDayExpanded`).
+pub fn toggle_allday(u: &AppWindow) {
+    ST.with(|s| { let mut s = s.borrow_mut(); s.allday_open = !s.allday_open; });
+    render(u);
 }
 
 pub fn toggle_calendar(u: &AppWindow, id: &str) {

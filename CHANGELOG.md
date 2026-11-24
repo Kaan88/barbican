@@ -7,6 +7,8 @@ example "## 0.1.0 — 2026-12-01", and start a new "Unreleased" above it.
 
 ## Unreleased
 
+- Calendar: the all-day strip above the day and week grid is capped at three rows, as in Bulwark. A day with more all-day items shows two and a "+N more" row; that row, or the "+N" button beside "All day", expands the strip to every row, and the button then collapses it again. The strip is 28 px tall at least and 24 px per row (Bulwark's numbers).
+
 ## 0.1.1 — 2026-11-24
 
 - The window reopens where you left it: its size, position and whether it was maximised are remembered on this computer (not synced with your settings). When the monitor it was on is gone or the screen changed so the window would be off screen, Barbican opens at the default size and place instead.

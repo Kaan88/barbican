@@ -1870,6 +1870,13 @@ export component AppWindow inherits Window {
     in property <[CalCell]> cal-cells;
     in property <[CalCell]> cal-days;
     in property <[CalEvent]> cal-events;
+    // the all-day strip of the day and week header (src/allday.rs): height (0 = none), whether it can
+    // be expanded, whether it is, and the "+N" of the toggle
+    in property <length> cal-allday-h: 0px;
+    in property <bool> cal-allday-expandable: false;
+    in property <bool> cal-allday-open: false;
+    in property <int> cal-allday-extra: 0;
+    callback cal-allday-toggle();
     callback cal-nav(string);
     callback cal-set-view(int);
     // event hover preview (calendarHoverPreview): delay in ms, -1 = off
@@ -4645,15 +4652,64 @@ export component AppWindow inherits Window {
                                                 Text { text: d.day; color: d.today ? Theme.on-accent : Theme.text; font-size: 18px * Prefs.fs; font-weight: 700; }
                                             }
                                         }
-                                        for e in d.events: HorizontalLayout {
-                                            padding-left: 3px;
-                                            padding-right: 3px;
-                                            height: 22px;
-                                            CalChip {
-                                                e: e; compact: true; selected: root.cal-ctx-on && e.id == root.cal-sel.id;
-                                                clicked => { if root.cal-ctx-on { root.cal-select(e.id); } else { root.cal-edit(e.id, "", -1); } }
-                                                double-clicked => { root.cal-edit(e.id, "", -1); }
-                                                context(x, y) => { root.ctx("event", e.id, x, y); }
+                                    }
+                                }
+                                // all-day strip: at most three rows, "+N more" and the gutter toggle show the rest
+                                // (Bulwark calendar-week-view.tsx: DEFAULT_ALL_DAY_MAX_ROWS, allDayHeight)
+                                if root.cal-allday-h > 0px: HorizontalLayout {
+                                    height: root.cal-allday-h;
+                                    Rectangle {
+                                        width: root.cal-gutter;
+                                        VerticalLayout {
+                                            padding: 3px;
+                                            alignment: space-between;
+                                            Text { text: "All day"; color: Theme.dim; font-size: 10px * Prefs.fs; horizontal-alignment: right; overflow: elide; }
+                                            if root.cal-allday-expandable: Rectangle {
+                                                height: 18px;
+                                                border-radius: 4px;
+                                                background: ta-toggle.has-hover ? Theme.hover : transparent;
+                                                ta-toggle := TouchArea {
+                                                    mouse-cursor: pointer;
+                                                    accessible-role: button;
+                                                    accessible-label: root.cal-allday-open ? "Show fewer all-day rows" : "Show all all-day rows";
+                                                    clicked => { root.cal-allday-toggle(); }
+                                                }
+                                                Text {
+                                                    text: root.cal-allday-open ? "▲" : "+" + root.cal-allday-extra + " ▼";
+                                                    color: ta-toggle.has-hover ? Theme.text : Theme.dim; font-size: 10px * Prefs.fs;
+                                                    horizontal-alignment: right; vertical-alignment: center;
+                                                }
+                                            }
+                                        }
+                                    }
+                                    for d in root.cal-days: Rectangle {
+                                        horizontal-stretch: 1;
+                                        clip: true;
+                                        VerticalLayout {
+                                            padding-top: 2px;
+                                            alignment: start;
+                                            for e in d.events: HorizontalLayout {
+                                                padding-left: 3px;
+                                                padding-right: 3px;
+                                                padding-top: 1px;
+                                                padding-bottom: 1px;
+                                                height: 24px;
+                                                CalChip {
+                                                    e: e; compact: true; selected: root.cal-ctx-on && e.id == root.cal-sel.id;
+                                                    clicked => { if root.cal-ctx-on { root.cal-select(e.id); } else { root.cal-edit(e.id, "", -1); } }
+                                                    double-clicked => { root.cal-edit(e.id, "", -1); }
+                                                    context(x, y) => { root.ctx("event", e.id, x, y); }
+                                                }
+                                            }
+                                            if d.more != "": Rectangle {
+                                                height: 24px;
+                                                TouchArea {
+                                                    mouse-cursor: pointer;
+                                                    accessible-role: button;
+                                                    accessible-label: d.more;
+                                                    clicked => { root.cal-allday-toggle(); }
+                                                }
+                                                Text { x: 8px; text: d.more; color: Theme.dim; font-size: 10.5px * Prefs.fs; font-weight: 600; vertical-alignment: center; }
                                             }
                                         }
                                     }
