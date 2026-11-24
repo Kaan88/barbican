@@ -1290,6 +1290,7 @@ fn main() -> Result<(), slint::PlatformError> {
         pf.lock().unwrap().set(&key, serde_json::json!(t.to_string()), &mut cf.lock().unwrap());
         if key == trust::TRUSTED_KEY { if let Some(u) = wk.upgrade() { redecide_remote(&u); } }
         if key == "admin.key" { if let Some(u) = wk.upgrade() { u.set_admin_enabled(!t.trim().is_empty()); } }
+        if settings::is_retention_key(&key) { if let Some(u) = wk.upgrade() { glance::title(&u); } }
     });
 
     let (w, st, srv, lsp, pf2, cf2) = (ui.as_weak(), state.clone(), server_cache.clone(), load_server_page.clone(), prefs.clone(), cfg.clone());

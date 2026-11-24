@@ -1545,6 +1545,20 @@
      "default": false
     },
     {
+     "kind": "text",
+     "label": "Trash retention (days)",
+     "desc": "Shown as a note in that folder. Your server's retention policy decides; 0 hides the note.",
+     "key": "retentionTrashDays",
+     "default": ""
+    },
+    {
+     "kind": "text",
+     "label": "Junk retention (days)",
+     "desc": "Shown as a note in that folder. Your server's retention policy decides; 0 hides the note.",
+     "key": "retentionJunkDays",
+     "default": ""
+    },
+    {
      "kind": "section",
      "label": "Loading & search",
      "desc": ""
