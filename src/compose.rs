@@ -738,6 +738,18 @@ fn attach_files(u: &AppWindow, c: Arc<Client>, files: Vec<std::path::PathBuf>) {
     });
 }
 
+/// The name of composer attachment `i`.
+pub fn attachment_name(i: usize) -> Option<String> {
+    ST.with(|s| s.borrow().attachments.get(i).map(|a| a.name.clone()))
+}
+
+/// Rename composer attachment `i` (Bulwark renameAttachment): the new name goes out with the
+/// message and into the draft; the content and its type stay as they are.
+pub fn rename_attachment(u: &AppWindow, i: usize, name: &str) {
+    ST.with(|s| { if let Some(a) = s.borrow_mut().attachments.get_mut(i) { a.name = name.to_string(); } });
+    refresh_attachments(u);
+}
+
 pub fn remove_attachment(u: &AppWindow, i: i32) {
     ST.with(|s| { let mut s = s.borrow_mut(); if (i as usize) < s.attachments.len() { s.attachments.remove(i as usize); } });
     refresh_attachments(u);

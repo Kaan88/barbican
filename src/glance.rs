@@ -39,6 +39,20 @@ fn greeting() -> String {
     if name.is_empty() { format!("{part}.") } else { format!("{part}, {name}.") }
 }
 
+/// Days mail is kept in Trash / Junk, as set by whoever runs the mail server (prefs.json
+/// `retentionTrashDays` / `retentionJunkDays`; Bulwark takes them from the admin's policy.json
+/// `organisation.retention`, since a normal user can't read the server's own value).
+/// 0 or absent: nothing to say.
+pub fn retention_days(role: &str, trash: i64, junk: i64) -> i64 {
+    match role { "trash" => trash, "junk" => junk, _ => 0 }.clamp(0, 3650)
+}
+
+/// Bulwark retention_notice.line: the quiet line in the header of Trash and Junk.
+pub fn retention_line(days: i64) -> String {
+    if days <= 0 { return String::new(); }
+    format!("Messages here are deleted {days} {} after they were moved here.", if days == 1 { "day" } else { "days" })
+}
+
 /// List header: the open folder (or tag) name, its unread count, and the line under it.
 pub fn title(u: &AppWindow) {
     let tag = u.get_current_tag();
@@ -60,6 +74,9 @@ pub fn title(u: &AppWindow) {
         n => format!("{} {n} unread messages.", greeting()),
     };
     u.set_list_sub(sub.into());
+    let role = if tag.is_empty() { crate::mail::mailbox_role(&u.get_current_folder()) } else { String::new() };
+    let s = crate::settings::Settings::load();
+    u.set_list_retention(retention_line(retention_days(&role, s.int("retentionTrashDays", 0), s.int("retentionJunkDays", 0))).into());
 }
 
 /// Today's events and open tasks, from what the calendar has loaded.
@@ -223,4 +240,22 @@ pub fn contact(w: slint::Weak<AppWindow>, c: Arc<Client>, email: String) {
             sync_rows(&u.get_cx_files(), files, |m| u.set_cx_files(m));
         });
     });
+}
+
+#[cfg(test)]
+mod retention_tests {
+    use super::*;
+
+    #[test]
+    fn the_retention_line_is_for_trash_and_junk_only() {
+        assert_eq!(retention_days("trash", 30, 7), 30);
+        assert_eq!(retention_days("junk", 30, 7), 7);
+        assert_eq!(retention_days("inbox", 30, 7), 0);
+        assert_eq!(retention_days("", 30, 7), 0);
+        assert_eq!(retention_days("trash", -5, 7), 0);
+        assert_eq!(retention_days("trash", 99999, 7), 3650);
+        assert_eq!(retention_line(0), "");
+        assert_eq!(retention_line(1), "Messages here are deleted 1 day after they were moved here.");
+        assert_eq!(retention_line(30), "Messages here are deleted 30 days after they were moved here.");
+    }
 }
