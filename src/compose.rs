@@ -1597,7 +1597,9 @@ pub fn sender_name(u: &AppWindow) -> String {
 
 /// A template picked this identity: select it and keep it when the identities are fetched again.
 pub fn choose_identity(u: &AppWindow, id: &str) {
-    if let Some(i) = identity_position(id) { ST.with(|s| s.borrow_mut().template_identity = Some(id.to_string())); u.set_c_from_index(i as i32); }
+    // remembered even when the identities are not fetched yet: apply_identities applies it then
+    ST.with(|s| s.borrow_mut().template_identity = Some(id.to_string()));
+    if let Some(i) = identity_position(id) { u.set_c_from_index(i as i32); }
 }
 
 /// Position of identity `id` in the composing account's From list.

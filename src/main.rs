@@ -1900,11 +1900,16 @@ fn main() -> Result<(), slint::PlatformError> {
         let key = format!("{}|{}", c.username, c.account);
         if TEMPLATES.with(|t| t.borrow().0 != key) {
             TEMPLATES.with(|t| *t.borrow_mut() = (String::new(), Vec::new()));
-            if let Some(u) = w.upgrade() { u.set_tpl_names(ModelRc::new(VecModel::from(vec![slint::SharedString::from("Loading templates…")]))); u.set_tpl_index(0); }
+            if let Some(u) = w.upgrade() { u.set_tpl_names(ModelRc::new(VecModel::from(vec![slint::SharedString::from("Insert template…")]))); u.set_tpl_index(0); }
         }
+        if let Some(u) = w.upgrade() { if TEMPLATES.with(|t| t.borrow().0 != key) { u.set_tpl_note("Loading…".into()); } }
+        let st = st.clone();
         std::thread::spawn(move || {
-            let list = match templates::list(&c) { Ok(l) => l, Err(e) => { let _ = w.upgrade_in_event_loop(move |u| u.set_c_status(format!("Could not load templates: {e}").into())); return; } };
+            let list = match templates::list(&c) { Ok(l) => l, Err(e) => { let _ = w.upgrade_in_event_loop(move |u| u.set_tpl_note(format!("Could not load templates: {e}").into())); return; } };
             let _ = w.upgrade_in_event_loop(move |u| {
+                // results can arrive out of order: only the composing account's list is kept
+                if compose_client(&st).map(|c| format!("{}|{}", c.username, c.account)).as_deref() != Some(key.as_str()) { return; }
+                u.set_tpl_note("".into());
                 TEMPLATES.with(|t| *t.borrow_mut() = (key, list.clone()));
                 let mut names: Vec<slint::SharedString> = vec!["Insert template…".into()];
                 names.extend(list.iter().map(|t| t["name"].as_str().unwrap_or("(unnamed)").into()));

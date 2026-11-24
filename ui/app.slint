@@ -1864,6 +1864,8 @@ export component AppWindow inherits Window {
     callback add-account();
     in property <[string]> tpl-names: ["Insert template…"];
     in-out property <int> tpl-index;
+    // what the Templates menu says instead of "No templates yet": "Loading…" or the load error
+    in property <string> tpl-note;
     callback tpl-refresh();
     callback tpl-insert(int);
     in-out property <bool> sf-open;
@@ -3860,7 +3862,7 @@ export component AppWindow inherits Window {
                                 MenuPanel { VerticalLayout { padding: 4px;
                                     MenuItem { text: "Save as template…"; clicked => { CompX.tpl-save-open-compose(); } }
                                     Rectangle { height: 1px; background: Theme.line; }
-                                    if root.tpl-names.length <= 1: MenuItem { text: "No templates yet"; enabled: false; }
+                                    if root.tpl-names.length <= 1: MenuItem { text: root.tpl-note != "" ? root.tpl-note : "No templates yet"; enabled: false; }
                                     for t[i] in root.tpl-names: MenuItem {
                                         visible: i > 0;
                                         height: i > 0 ? 30px : 0px;

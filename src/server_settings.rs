@@ -37,6 +37,9 @@ pub struct Cache {
     /// Whether the server keeps metadata: 0 not known yet (not loaded, or the load failed),
     /// 1 it does, 2 it does not.
     pub tpl_state: u8,
+    /// Bumped whenever the form is cleared, switched to another template or typed in, so a save
+    /// that finishes later clears only the form it was started from.
+    pub tpl_gen: u64,
     /// The template the form edits, as it was loaded (its `updatedAt` is what a save checks).
     pub tpl_old: Option<Value>,
     pub rules: Vec<Value>,
@@ -75,6 +78,7 @@ fn form_fields(k: &Cache) -> crate::templates::Fields {
 
 fn clear_tpl_form(k: &mut Cache) {
     k.tpl_old = None;
+    k.tpl_gen += 1;
     k.tpl_edit.clear(); k.tpl_name.clear(); k.tpl_subject.clear(); k.tpl_body.clear(); k.tpl_category.clear();
     k.tpl_to.clear(); k.tpl_cc.clear(); k.tpl_bcc.clear(); k.tpl_html = false; k.tpl_fav = false; k.tpl_error.clear();
 }
@@ -421,6 +425,7 @@ pub fn edit(key: &str, value: &Value, cache: &Shared) -> Option<Box<dyn FnOnce(&
         let (script, scripts) = (crate::sieve::generate_meta(&crate::sieve::with_rules(&k.filter_meta, &k.rules), &k.external, &k.sieve_ext), k.scripts.clone());
         return Some(Box::new(move |c: &Client| save_script(c, &script, &scripts)));
     }
+    if key.starts_with("server.tpl.") { k.tpl_gen += 1; }
     match key {
         "server.tpl.name" => { k.tpl_name = value.as_str().unwrap_or("").into(); return None; }
         "server.tpl.subject" => { k.tpl_subject = value.as_str().unwrap_or("").into(); return None; }
@@ -581,6 +586,7 @@ pub fn button(key: &str, cache: &Shared) -> Option<Box<dyn FnOnce(&Client, &Shar
         if let Some(t) = k.templates.iter().find(|t| t["id"] == id).cloned() {
             let f = crate::templates::fields_of(&t);
             k.tpl_edit = id.to_string();
+            k.tpl_gen += 1;
             (k.tpl_name, k.tpl_subject, k.tpl_body, k.tpl_category, k.tpl_html, k.tpl_fav) = (f.name, f.subject, f.body, f.category, f.html, f.favorite);
             (k.tpl_to, k.tpl_cc, k.tpl_bcc) = (f.to.join(", "), f.cc.join(", "), f.bcc.join(", "));
             k.tpl_error.clear();
@@ -589,15 +595,15 @@ pub fn button(key: &str, cache: &Shared) -> Option<Box<dyn FnOnce(&Client, &Shar
         return Some(Box::new(|_, _| Ok(())));
     }
     if key == "server.tpl.create" {
-        let (old, f, editing) = {
+        let (old, f, generation) = {
             let k = cache.lock().unwrap();
             if !k.tpl_edit.is_empty() && k.tpl_old.is_none() { return Some(Box::new(|_, k: &Shared| { let e = "This template is no longer in the list; reload and try again.".to_string(); k.lock().unwrap().tpl_error = e.clone(); Err(e) })); }
-            (k.tpl_old.clone().filter(|_| !k.tpl_edit.is_empty()), form_fields(&k), k.tpl_edit.clone())
+            (k.tpl_old.clone().filter(|_| !k.tpl_edit.is_empty()), form_fields(&k), k.tpl_gen)
         };
         return Some(Box::new(move |c: &Client, k: &Shared| {
             match crate::templates::save(c, old.as_ref(), &f) {
                 // only when the form still holds what was saved (the user may have moved to another template)
-                Ok(()) => { let mut k = k.lock().unwrap(); if k.tpl_edit == editing { clear_tpl_form(&mut k); } Ok(()) }
+                Ok(()) => { let mut k = k.lock().unwrap(); if k.tpl_gen == generation { clear_tpl_form(&mut k); } Ok(()) }
                 Err(e) => { k.lock().unwrap().tpl_error = e.clone(); Err(e) }
             }
         }));
