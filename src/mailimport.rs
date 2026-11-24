@@ -408,10 +408,41 @@ fn may_add(c: &Client, mailbox: &str) -> Result<bool, String> {
     Ok(r[0][1]["list"][0]["myRights"]["mayAddItems"].as_bool().unwrap_or(false))
 }
 
+/// The folder name an .mbox / .mbx file gets with "keep folders" (Bulwark sources.ts zipFolder
+/// 331-335 and engine.ts resolveUncached 241): the file name without the extension, trimmed, at most
+/// 255 characters, "Imported" when nothing is left. None for a file that is not an .mbox / .mbx
+/// (its messages go into the chosen folder itself, as Bulwark does for an .eml).
+pub fn mbox_folder_name(file_name: &str) -> Option<String> {
+    let lower = file_name.to_lowercase();
+    let stem = [".mbox", ".mbx"].iter().find(|e| lower.ends_with(*e)).map(|e| &file_name[..file_name.len() - e.len()])?;
+    let name: String = stem.trim().chars().take(255).collect();
+    Some(if name.trim().is_empty() { "Imported".into() } else { name })
+}
+
+/// The folder directly under `parent` called `name` (compared trimmed and case-insensitively, as
+/// Bulwark's parentMatches/same do), so a second import reuses it instead of making a copy.
+pub fn child_named(boxes: &[Value], parent: &str, name: &str) -> Option<String> {
+    let want = name.trim().to_lowercase();
+    boxes.iter().find(|m| m["parentId"].as_str() == Some(parent) && m["name"].as_str().is_some_and(|n| n.trim().to_lowercase() == want))
+        .and_then(|m| m["id"].as_str().map(String::from))
+}
+
+/// The folder an import file's messages go into: the file's own subfolder of `parent` (found or
+/// made through `create`) when `keep` is on and the file is an .mbox / .mbx, else `parent`.
+/// `boxes` is kept up to date with what was created, so two files with one name share the folder.
+pub fn target_for(keep: bool, file_name: &str, parent: &str, boxes: &mut Vec<Value>, create: &mut dyn FnMut(&str) -> Result<String, String>) -> Result<String, String> {
+    let Some(name) = mbox_folder_name(file_name).filter(|_| keep) else { return Ok(parent.to_string()) };
+    if let Some(id) = child_named(boxes, parent, &name) { return Ok(id); }
+    let id = create(&name)?;
+    boxes.push(json!({"id": id, "name": name, "parentId": parent}));
+    Ok(id)
+}
+
 /// "Import messages…" on a folder: pick .eml / .mbox files, then import them in the background
 /// one message at a time (never a whole mbox in memory) with a running count, and bring the
-/// folder list and the message list up to date.
-pub fn start(u: &crate::AppWindow, c: std::sync::Arc<Client>, mailbox: &str) {
+/// folder list and the message list up to date. With `keep_folders` each .mbox goes into its own
+/// subfolder of the folder, named from the file (made when missing).
+pub fn start(u: &crate::AppWindow, c: std::sync::Arc<Client>, mailbox: &str, keep_folders: bool) {
     use slint::ComponentHandle;
     let (w, mailbox) = (u.as_weak(), mailbox.to_string());
     // refuse up front when the folder does not take new messages (a read-only shared folder)
@@ -428,9 +459,15 @@ pub fn start(u: &crate::AppWindow, c: std::sync::Arc<Client>, mailbox: &str) {
         let (mut unreadable, mut too_big, mut done_bytes) = (0usize, 0usize, 0u64);
         let found = std::cell::Cell::new(0usize);
         let mut acc = Outcome::default();
+        // the folders under the chosen one, read once (only when a file can need its own)
+        let mut boxes: Vec<Value> = if keep_folders { c.mailboxes().unwrap_or_default() } else { vec![] };
         for f in &files {
             let name = f.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
             let Ok(file) = std::fs::File::open(f) else { unreadable += 1; continue };
+            let mailbox = match target_for(keep_folders, &name, &mailbox, &mut boxes, &mut |n| c.create_mailbox(n, Some(&mailbox))) {
+                Ok(m) => m,
+                Err(e) => { acc.errors.push(format!("Could not make the folder: {e}")); continue }
+            };
             let r = std::cell::RefCell::new(Reader::new(&name, std::io::BufReader::with_capacity(1 << 20, file), MAX_EML));
             let mut it = std::iter::from_fn(|| { let i = r.borrow_mut().next_item(); if i.is_some() { found.set(found.get() + 1); } i });
             let w2 = w.clone();
@@ -681,5 +718,36 @@ mod arrival_tests {
         assert_eq!(items_of("a.eml", eml)[0].bytes, eml.to_vec());
         // a message with none of them is returned untouched
         assert_eq!(without_state_headers(b"Subject: s\n\nb\n".to_vec()), b"Subject: s\n\nb\n".to_vec());
+    }
+
+    #[test]
+    fn keep_folders_names_come_from_the_mbox_file() {
+        assert_eq!(mbox_folder_name("Archive 2020.mbox").as_deref(), Some("Archive 2020"));
+        assert_eq!(mbox_folder_name("Old.MBX").as_deref(), Some("Old"));
+        assert_eq!(mbox_folder_name("  .mbox").as_deref(), Some("Imported"));
+        assert_eq!(mbox_folder_name("a.eml"), None);
+        assert_eq!(mbox_folder_name("mbox"), None);
+        assert_eq!(mbox_folder_name(&format!("{}.mbox", "x".repeat(300))).unwrap().chars().count(), 255);
+    }
+
+    #[test]
+    fn keep_folders_reuses_a_folder_of_that_name_under_the_parent_only() {
+        let mut boxes = vec![
+            json!({"id": "p", "name": "Parent", "parentId": null}),
+            json!({"id": "k", "name": " work ", "parentId": "p"}),
+            json!({"id": "o", "name": "Home", "parentId": "other"}),
+        ];
+        let mut made = vec![];
+        let mut create = |n: &str| { made.push(n.to_string()); Ok(format!("new{}", made.len())) };
+        assert_eq!(target_for(true, "Work.mbox", "p", &mut boxes, &mut create).unwrap(), "k");
+        // the same name under another parent is not it: a new one is made, then reused
+        assert_eq!(target_for(true, "Home.mbox", "p", &mut boxes, &mut create).unwrap(), "new1");
+        assert_eq!(target_for(true, "home.mbx", "p", &mut boxes, &mut create).unwrap(), "new1");
+        // an .eml, or keep folders off, files into the folder itself
+        assert_eq!(target_for(true, "a.eml", "p", &mut boxes, &mut create).unwrap(), "p");
+        assert_eq!(target_for(false, "Work.mbox", "p", &mut boxes, &mut create).unwrap(), "p");
+        assert_eq!(made, ["Home"]);
+        let mut fail = |_: &str| Err("denied".to_string());
+        assert_eq!(target_for(true, "New.mbox", "p", &mut boxes, &mut fail), Err("denied".to_string()));
     }
 }

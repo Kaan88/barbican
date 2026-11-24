@@ -217,6 +217,38 @@ pub fn shown_key(m: &Value) -> String { format!("{}|{}", m["id"].as_str().unwrap
 /// Whether a result computed for the message `then` may still be put on screen.
 fn still_shown(then: &str, now: Option<&str>) -> bool { now == Some(then) }
 
+/// Bulwark isHtmlBodyEffectivelyEmpty (email-viewer.tsx:474-484): Outlook writes an HTML body of
+/// Word CSS and &nbsp; with no text.
+pub fn html_effectively_empty(html: &str) -> bool {
+    use std::sync::OnceLock;
+    static RE: OnceLock<(regex::Regex, regex::Regex)> = OnceLock::new();
+    let (style, tag) = RE.get_or_init(|| (regex::Regex::new(r"(?is)<style[^>]*>.*?</style>").unwrap(), regex::Regex::new(r"<[^>]+>").unwrap()));
+    let t = style.replace_all(html, "");
+    let t = tag.replace_all(&t, "");
+    let t = t.replace("&#160;", " ");
+    let t = regex::Regex::new(r"(?i)&nbsp;").unwrap().replace_all(&t, " ").into_owned();
+    t.chars().all(char::is_whitespace)
+}
+
+/// Bulwark hasRealHtmlBody (email-viewer.tsx:2776-2779): the first htmlBody part of the message has
+/// a value that is not effectively empty. (JMAP lets a text-only message list its text part there.)
+pub fn has_real_html_body(m: &Value) -> bool {
+    let Some(pid) = m["htmlBody"][0]["partId"].as_str() else { return false };
+    let v = m["bodyValues"][pid]["value"].as_str().unwrap_or("").trim();
+    !v.is_empty() && !html_effectively_empty(v)
+}
+
+/// What a winmail.dat shows as the message body: its HTML, else its text (Bulwark
+/// email-viewer.tsx:2825-2830, 3270-3275); nothing when the outer message has a real HTML body.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Shown { Html(String), Text(String) }
+
+pub fn body_to_show(outer_has_real_html: bool, t: &Tnef) -> Option<Shown> {
+    if outer_has_real_html { return None; }
+    if let Some(h) = t.html.as_ref().filter(|h| !h.is_empty()) { return Some(Shown::Html(h.clone())); }
+    t.body.as_ref().filter(|b| !b.is_empty()).map(|b| Shown::Text(b.clone()))
+}
+
 /// A listed attachment standing for file `index` inside the winmail.dat `parent` (a blob id).
 fn synthetic(parent: &str, index: usize, a: &Attachment) -> Value {
     let name = if a.name.trim().is_empty() { "attachment" } else { a.name.as_str() };
@@ -244,6 +276,7 @@ pub fn expand(u: &crate::AppWindow, c: std::sync::Arc<Client>, id: &str, atts: &
     // which message these attachments belong to: the outer message and an attached .eml opened
     // from it share the open mail id, so the identity is the shown message's own id and blob id
     let Some(shown) = crate::CUR_MSG.with(|x| x.borrow().as_ref().map(|(m, _)| shown_key(m))) else { return };
+    let real_html = crate::CUR_MSG.with(|x| x.borrow().as_ref().is_some_and(|(m, _)| has_real_html_body(m)));
     let found: Vec<(usize, String)> = atts.iter().enumerate()
         .filter(|(_, a)| a.get("tnef").is_none() && is_tnef(a["name"].as_str().unwrap_or(""), a["type"].as_str().unwrap_or("")))
         .filter(|(_, a)| a["size"].as_u64().unwrap_or(0) as usize <= MAX_PARSE_BYTES)
@@ -254,20 +287,25 @@ pub fn expand(u: &crate::AppWindow, c: std::sync::Arc<Client>, id: &str, atts: &
     std::thread::spawn(move || {
         let mut all: Vec<Value> = vec![];
         let mut hide = std::collections::HashSet::new();
+        let mut shown_body: Option<Shown> = None;
         for (i, blob) in &found {
             let Ok(bytes) = c.download(blob, "winmail.dat", "application/ms-tnef") else { continue };
             if bytes.len() > MAX_PARSE_BYTES { continue; }
             let t = parse(&bytes);
+            if shown_body.is_none() { shown_body = body_to_show(real_html, &t); }
             if t.attachments.is_empty() { continue; }
             hide.insert(*i);
             all.extend(t.attachments.iter().enumerate().map(|(n, a)| synthetic(blob, n, a)));
         }
-        if all.is_empty() { return; }
+        if all.is_empty() && shown_body.is_none() { return; }
+        let all_empty = all.is_empty();
         let list: Vec<Value> = atts.iter().enumerate().filter(|(i, _)| !hide.contains(i)).map(|(_, a)| a.clone()).chain(all).collect();
         let _ = w.upgrade_in_event_loop(move |u| {
             // another message (or the attached one, or the outer one after Back) is shown now
             let now = crate::CUR_MSG.with(|x| x.borrow().as_ref().map(|(m, _)| shown_key(m)));
             if !still_shown(&shown, now.as_deref()) { return; }
+            if let Some(b) = shown_body { show_body(&u, b); }
+            if all_empty { return; }
             let rows: Vec<crate::Att> = list.iter().enumerate().map(|(i, a)| crate::Att {
                 name: a["name"].as_str().unwrap_or("attachment").into(), size: crate::human_size(a["size"].as_u64().unwrap_or(0)).into(), index: i as i32,
             }).collect();
@@ -276,6 +314,23 @@ pub fn expand(u: &crate::AppWindow, c: std::sync::Arc<Client>, id: &str, atts: &
             crate::CUR_MSG.with(|x| if let Some((_, a)) = x.borrow_mut().as_mut() { *a = list; });
         });
     });
+}
+
+/// Put the winmail.dat's body on screen through the normal render path (sanitiser, remote-content
+/// policy, links-off for phishing). Only replaces a body that is empty: the message's own, not a
+/// "View source" page.
+fn show_body(u: &crate::AppWindow, b: Shown) {
+    let replaced = crate::CUR.with(|c| {
+        let mut c = c.borrow_mut();
+        let Some(cur) = c.as_mut() else { return false };
+        if !(cur.html.as_deref().map_or(true, html_effectively_empty) && cur.text.trim().is_empty()) { return false; }
+        match b {
+            Shown::Html(h) => { cur.remote = crate::has_remote_images(&h); cur.html = Some(h); }
+            Shown::Text(t) => { cur.remote = false; cur.html = None; cur.text = t; }
+        }
+        true
+    });
+    if replaced { crate::render_current(u); }
 }
 
 #[cfg(test)]
@@ -450,5 +505,29 @@ mod tests {
     #[test]
     fn odd_length_utf16_is_safe() {
         assert_eq!(mapi_string(&[0x41, 0x00, 0x42], PT_UNICODE), "A");
+    }
+
+    #[test]
+    fn tnef_body_is_shown_only_without_a_real_html_body() {
+        let t = Tnef { body: Some("plain".into()), html: Some("<p>hi</p>".into()), attachments: vec![] };
+        assert_eq!(body_to_show(false, &t), Some(Shown::Html("<p>hi</p>".into())));
+        assert_eq!(body_to_show(true, &t), None);
+        let t = Tnef { body: Some("plain".into()), html: None, attachments: vec![] };
+        assert_eq!(body_to_show(false, &t), Some(Shown::Text("plain".into())));
+        assert_eq!(body_to_show(false, &Tnef::default()), None);
+        let t = Tnef { body: Some("plain".into()), html: Some(String::new()), attachments: vec![] };
+        assert_eq!(body_to_show(false, &t), Some(Shown::Text("plain".into())));
+    }
+
+    #[test]
+    fn word_boilerplate_is_an_empty_html_body() {
+        assert!(html_effectively_empty("<html><style>p{x:y}</style><body><p>&nbsp;</p>&#160; 
+</body></html>"));
+        assert!(!html_effectively_empty("<p>Hello</p>"));
+        let m = |v: &str| json!({"htmlBody": [{"partId": "1"}], "bodyValues": {"1": {"value": v}}});
+        assert!(!has_real_html_body(&m("<style>a{}</style>&nbsp;")));
+        assert!(!has_real_html_body(&m("  ")));
+        assert!(has_real_html_body(&m("<p>x</p>")));
+        assert!(!has_real_html_body(&json!({})));
     }
 }

@@ -232,6 +232,146 @@ pub fn summary(o: &Outcome, what: &str) -> String {
     s
 }
 
+// ------------------------------------------------------------------ the whole account
+
+/// One folder of a whole-account export: its mailbox id and its path of safe names from the top.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PlanFolder { pub id: String, pub path: Vec<String> }
+
+/// One path component: Bulwark safeName, then the attachment file-name rules on top.
+fn folder_component(name: &str) -> String { crate::attachments::safe_file_name(&safe_name(name, "Folder", 80)) }
+
+type ByParent<'a> = std::collections::HashMap<&'a str, Vec<&'a Value>>;
+
+fn plan_visit(parent: &str, path: &[String], by_parent: &ByParent, out: &mut Vec<PlanFolder>, depth: usize) {
+    const ROLES: [&str; 6] = ["inbox", "drafts", "sent", "archive", "junk", "trash"];
+    let rank = |m: &Value| m["role"].as_str().and_then(|r| ROLES.iter().position(|x| *x == r)).unwrap_or(ROLES.len());
+    let Some(kids) = by_parent.get(parent) else { return };
+    if depth > 64 { return; }
+    let mut kids = kids.clone();
+    kids.sort_by(|a, b| rank(a).cmp(&rank(b))
+        .then(a["sortOrder"].as_i64().unwrap_or(0).cmp(&b["sortOrder"].as_i64().unwrap_or(0)))
+        .then(a["name"].as_str().unwrap_or("").to_lowercase().cmp(&b["name"].as_str().unwrap_or("").to_lowercase())));
+    let mut used = std::collections::HashSet::new();
+    for m in kids {
+        let base = folder_component(m["name"].as_str().unwrap_or(""));
+        let mut name = base.clone();
+        let mut n = 2;
+        while used.contains(&name.to_lowercase()) { name = format!("{base} ({n})"); n += 1; }
+        used.insert(name.to_lowercase());
+        let mut p = path.to_vec();
+        p.push(name);
+        let id = m["id"].as_str().unwrap_or("");
+        out.push(PlanFolder { id: id.to_string(), path: p.clone() });
+        plan_visit(id, &p, by_parent, out, depth + 1);
+    }
+}
+
+/// The account's folders as export paths (Bulwark lib/mail-export/engine.ts folderTree, 148-174):
+/// parents first, siblings in the special-folder order then sortOrder then name, and two siblings
+/// whose names agree (case-insensitively) get " (2)", " (3)", ... A folder whose parent is not in
+/// the list is at the top.
+pub fn folder_plan(boxes: &[Value]) -> Vec<PlanFolder> {
+    let ids: std::collections::HashSet<&str> = boxes.iter().filter_map(|m| m["id"].as_str()).collect();
+    let mut by_parent: ByParent = std::collections::HashMap::new();
+    for m in boxes {
+        if m["id"].as_str().is_none() { continue; }
+        let parent = m["parentId"].as_str().filter(|p| ids.contains(p)).unwrap_or("");
+        by_parent.entry(parent).or_default().push(m);
+    }
+    let mut out = vec![];
+    plan_visit("", &[], &by_parent, &mut out, 0);
+    out
+}
+
+/// Write every planned folder under `root` (which exists): as `<path>.mbox` (only folders with
+/// messages; each written to `.part` and moved into place when whole) or as a directory per folder
+/// of .eml files (an empty folder is kept as an empty directory). `progress(done, total)` counts
+/// messages over the whole account. Stops at the first cancel or write error; a `.part` is removed.
+pub fn export_tree(plan: &[(PlanFolder, Vec<MsgRef>)], root: &std::path::Path, mbox: bool,
+                   fetch: &mut dyn FnMut(&MsgRef) -> Result<Vec<u8>, String>, cancel: &AtomicBool, progress: &mut dyn FnMut(usize, usize)) -> Result<Outcome, String> {
+    let total: usize = plan.iter().map(|(_, r)| r.len()).sum();
+    let mut all = Outcome::default();
+    let mut base = 0;
+    for (f, refs) in plan {
+        if cancel.load(Ordering::Relaxed) { all.cancelled = true; break; }
+        let Some((last, parents)) = f.path.split_last() else { continue };
+        let parent_dir = parents.iter().fold(root.to_path_buf(), |d, p| d.join(p));
+        let mut prog = |d: usize, _: usize| progress(base + d, total);
+        let o = if mbox {
+            if refs.is_empty() { continue; }
+            std::fs::create_dir_all(&parent_dir).map_err(|e| format!("Could not create the folder: {e}"))?;
+            let target = parent_dir.join(format!("{last}.mbox"));
+            let part = parent_dir.join(format!("{last}.mbox.part"));
+            let file = std::fs::File::create(&part).map_err(|e| format!("Could not create the file: {e}"))?;
+            let mut out = std::io::BufWriter::with_capacity(1 << 20, file);
+            let r = export_mbox(refs, fetch, &mut out, cancel, &mut prog).and_then(|o| out.flush().map(|_| o).map_err(|e| e.to_string()));
+            drop(out);
+            match &r {
+                Ok(o) if !o.cancelled => std::fs::rename(&part, &target).map_err(|e| { let _ = std::fs::remove_file(&part); format!("Could not write the file: {e}") })?,
+                _ => { let _ = std::fs::remove_file(&part); }
+            }
+            r?
+        } else {
+            let dir = parent_dir.join(last);
+            std::fs::create_dir_all(&dir).map_err(|e| format!("Could not create the folder: {e}"))?;
+            export_eml(refs, fetch, &dir, cancel, &mut prog)?
+        };
+        base += refs.len();
+        all.exported += o.exported;
+        all.failed += o.failed;
+        if all.first_error.is_none() { all.first_error = o.first_error; }
+        if o.cancelled { all.cancelled = true; break; }
+    }
+    Ok(all)
+}
+
+/// "Export all mail…": ask for a folder, make a new "Mail export <date>" folder in it, and write
+/// every folder of the account there (see `export_tree`), in the background with a running count.
+pub fn start_all(u: &crate::AppWindow, c: std::sync::Arc<Client>, mbox: bool) {
+    use slint::ComponentHandle;
+    if RUNNING.load(Ordering::Relaxed) { crate::mail::show_toast(u, "An export is already running.", false); return; }
+    let Some(target) = rfd::FileDialog::new().set_title("Choose where to put the exported mail").pick_folder() else { return };
+    RUNNING.store(true, Ordering::Relaxed);
+    CANCEL.store(false, Ordering::Relaxed);
+    crate::mail::show_toast(u, "Reading the folders…", false);
+    let w = u.as_weak();
+    std::thread::spawn(move || {
+        let _running = RunningGuard;
+        let mut shown = String::new();
+        let res = (|| -> Result<Outcome, String> {
+            let plan = folder_plan(&c.mailboxes()?);
+            let mut listed = Vec::with_capacity(plan.len());
+            for f in plan {
+                if CANCEL.load(Ordering::Relaxed) { return Ok(Outcome { cancelled: true, ..Default::default() }); }
+                let refs = list_refs(&c, &f.id)?;
+                listed.push((f, refs));
+            }
+            if listed.iter().all(|(_, r)| r.is_empty()) { return Err("The account has no messages.".into()); }
+            let root = make_dir(&target, &format!("Mail export {}", chrono::Local::now().format("%Y-%m-%d"))).map_err(|e| format!("Could not create the folder: {e}"))?;
+            shown = root.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+            let mut fetch = |r: &MsgRef| c.download(&r.blob_id, "message.eml", "message/rfc822").and_then(|b| if b.len() > MAX_MESSAGE { Err("A message is too large.".into()) } else { Ok(b) });
+            let mut last = std::time::Instant::now() - std::time::Duration::from_secs(1);
+            let w2 = w.clone();
+            let mut progress = move |done: usize, total: usize| {
+                if done != total && last.elapsed() < std::time::Duration::from_millis(250) { return; }
+                last = std::time::Instant::now();
+                let msg = format!("Exporting… {done} of {total} messages");
+                let _ = w2.upgrade_in_event_loop(move |u| u.set_toast(msg.into()));
+            };
+            let r = export_tree(&listed, &root, mbox, &mut fetch, &CANCEL, &mut progress);
+            // only the folder this export made is ever removed again
+            if !matches!(&r, Ok(o) if !o.cancelled) { let _ = std::fs::remove_dir_all(&root); }
+            r
+        })();
+        let msg = match res {
+            Ok(o) => summary(&o, &shown),
+            Err(e) => format!("Could not export: {e}"),
+        };
+        let _ = w.upgrade_in_event_loop(move |u| crate::mail::show_toast(&u, &msg, false));
+    });
+}
+
 /// "Export folder…" on a folder: ask where, then export in the background with a running count.
 /// `mbox` writes one .mbox file, otherwise a new folder of .eml files is made in the chosen folder.
 pub fn start(u: &crate::AppWindow, c: std::sync::Arc<Client>, mailbox: &str, folder_name: &str, mbox: bool) {
@@ -527,5 +667,87 @@ mod tests {
         let mut fetch = |_: &MsgRef| Ok(b"Subject: x\n\ny\n".to_vec());
         let e = export_mbox(&refs, &mut fetch, &mut Full, &AtomicBool::new(false), &mut |_, _| {}).unwrap_err();
         assert!(e.contains("disk full"), "{e}");
+    }
+
+    fn mb(id: &str, name: &str, parent: Option<&str>, role: Option<&str>, order: i64) -> Value {
+        json!({"id": id, "name": name, "parentId": parent, "role": role, "sortOrder": order})
+    }
+
+    #[test]
+    fn plan_lists_parents_first_in_role_order_and_numbers_twins() {
+        let boxes = vec![
+            mb("t", "Trash", None, Some("trash"), 9),
+            mb("z", "Zeta", None, None, 5),
+            mb("i", "Inbox", None, Some("inbox"), 1),
+            mb("c", "Kids", Some("z"), None, 1),
+            mb("a", "a/b", None, None, 2),
+            mb("a2", "A/B", None, None, 2),
+            mb("o", "Orphan", Some("gone"), None, 7),
+        ];
+        let plan: Vec<(String, Vec<String>)> = folder_plan(&boxes).into_iter().map(|f| (f.id, f.path)).collect();
+        let paths: Vec<String> = plan.iter().map(|(_, p)| p.join("/")).collect();
+        assert_eq!(paths, ["Inbox", "Trash", "a b", "A B (2)", "Zeta", "Zeta/Kids", "Orphan"]);
+        assert!(folder_plan(&[]).is_empty());
+    }
+
+    #[test]
+    fn plan_names_are_safe_components() {
+        let p = folder_plan(&[mb("1", "CON", None, None, 0), mb("2", "..", None, None, 1), mb("3", "", None, None, 2)]);
+        for f in &p { assert!(f.path.iter().all(|c| !c.contains(['/', '\\', ':']) && !c.starts_with('.') && !c.is_empty()), "{f:?}"); }
+        assert_eq!(p[0].path, ["_CON"]);
+    }
+
+    #[test]
+    fn plan_survives_a_parent_cycle() {
+        let p = folder_plan(&[mb("a", "A", Some("b"), None, 0), mb("b", "B", Some("a"), None, 0)]);
+        assert!(p.is_empty());
+    }
+
+    fn r(subject: &str) -> MsgRef { MsgRef { blob_id: subject.into(), keywords: vec![], received_at: None, subject: subject.into() } }
+
+    #[test]
+    fn tree_writes_one_mbox_per_folder_with_messages() {
+        let root = std::env::temp_dir().join(format!("barbican-export-tree-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let f = |id: &str, p: &[&str]| PlanFolder { id: id.into(), path: p.iter().map(|s| s.to_string()).collect() };
+        let plan = vec![(f("1", &["Inbox"]), vec![r("a"), r("b")]), (f("2", &["Inbox", "Kids"]), vec![r("c")]), (f("3", &["Empty"]), vec![])];
+        let mut fetch = |m: &MsgRef| Ok(format!("Subject: {}
+
+body
+", m.subject).into_bytes());
+        let mut seen = vec![];
+        let o = export_tree(&plan, &root, true, &mut fetch, &AtomicBool::new(false), &mut |d, t| seen.push((d, t))).unwrap();
+        assert_eq!((o.exported, o.failed, o.cancelled), (3, 0, false));
+        assert_eq!(seen.last(), Some(&(3, 3)));
+        assert_eq!(items_of("Inbox.mbox", &std::fs::read(root.join("Inbox.mbox")).unwrap()).len(), 2);
+        assert_eq!(items_of("Kids.mbox", &std::fs::read(root.join("Inbox").join("Kids.mbox")).unwrap()).len(), 1);
+        assert!(!root.join("Empty.mbox").exists());
+        assert!(!root.join("Inbox.mbox.part").exists());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn tree_as_eml_keeps_empty_folders_and_cancel_leaves_no_part() {
+        let root = std::env::temp_dir().join(format!("barbican-export-tree-eml-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let f = |id: &str, p: &[&str]| PlanFolder { id: id.into(), path: p.iter().map(|s| s.to_string()).collect() };
+        let plan = vec![(f("1", &["Inbox"]), vec![r("a")]), (f("3", &["Empty"]), vec![])];
+        let mut fetch = |_: &MsgRef| Ok(b"Subject: x
+
+y
+".to_vec());
+        let o = export_tree(&plan, &root, false, &mut fetch, &AtomicBool::new(false), &mut |_, _| {}).unwrap();
+        assert_eq!(o.exported, 1);
+        assert!(root.join("Inbox").join("00001 a.eml").exists());
+        assert!(root.join("Empty").is_dir());
+        // a cancel during the first mbox removes its .part and stops before the next folder
+        let cancel = AtomicBool::new(false);
+        let plan = vec![(f("1", &["One"]), vec![r("a"), r("b")]), (f("2", &["Two"]), vec![r("c")])];
+        let o = export_tree(&plan, &root, true, &mut fetch, &cancel, &mut |d, _| if d == 1 { cancel.store(true, Ordering::Relaxed) }).unwrap();
+        assert!(o.cancelled);
+        assert!(!root.join("One.mbox").exists() && !root.join("One.mbox.part").exists() && !root.join("Two.mbox").exists());
+        let _ = std::fs::remove_dir_all(&root);
     }
 }
