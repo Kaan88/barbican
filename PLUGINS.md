@@ -33,8 +33,8 @@ See `plugins/spam-score` for a complete Rust example (port of Bulwark's Spam Sco
 
 ## API v2 (design, ROADMAP Phase 5 step B1)
 
-Status: design only. Nothing below is built yet; steps B2-B7 build it. API 1 (above) keeps working until the
-spam-score plugin is ported (B7); after that it is deprecated but still loaded.
+Status: design only. Nothing below is built yet; steps B2-B7 build it. API 1 (above) keeps loading until Barbican
+1.0 and is dropped at 1.0 (decided; see "Decisions" below), so API 1 plugins have until then to move to v2.
 
 Bulwark 1.21.2 is the reference vocabulary, not a compatibility target. Hook, slot, host-method and permission names
 are Bulwark's, so a port rewrites the logic, not the API. Which catalogue rows v2 takes is the `barbican_status` column
@@ -183,7 +183,9 @@ granted, origin not allowed), `unsupported`, `not_found`, `quota`, `rate_limited
   Time the plugin spends waiting for the user in a host dialog (`ui.alert`, `ui.confirm`, `ui.prompt`, a permission
   request) does not count. **Hard cap:** no message is held more than 10 minutes in all (or its hook's budget when that is longer, the 15-min blob upload), counted from when it was
   queued (queue time, handling and user waits together; Bulwark `HELD_HOOK_DEADLINE_MS`, `lib/plugin-hooks.ts:79`). The
-  user can cancel a long intercept from the UI; the plugin then gets `cancel`.
+  user can cancel a long intercept from the UI; the plugin then gets `cancel`. For the pre-send check the send UI shows
+  a pending state ("Checking...") with a Cancel button. Cancel stops the send and does not skip the check; the user
+  may press Send again, which runs the check again.
 - While a plugin is inside `handle`, its later messages wait in its queue. A message that waits longer than its own
   budget is dropped before it is delivered: its action goes on as on a timeout (below), but a dropped message does
   **not** count toward the failure limit, because the plugin never saw it. A plugin that wants concurrency answers
@@ -295,7 +297,7 @@ High-risk ones come first and are marked in the consent dialog; the wording star
 | `security:read` | same | the Phase 3 Security page |
 | `auth:observe`, `auth:emit`, `auth:impersonation-return` | same | never a token or password |
 | `account:read`, `directory:read` | same | |
-| `http:fetch` | same, high risk | https only, to `httpOrigins` only. The host resolves the name once, refuses it unless every address is public (no private, loopback, link-local, CGNAT or metadata address, in any spelling) and connects only to those checked addresses (no DNS rebinding). Every redirect (at most 5) is checked again against `httpOrigins` and the address rules. No system proxy, no cookies, no credentials added |
+| `http:fetch` | same, high risk | https only, to `httpOrigins` only, and never to an IP literal. The host resolves the name once and refuses it unless every address is public (no private, loopback, link-local, CGNAT or metadata address, in any spelling), with one exception: a private, loopback or LAN host is allowed only when the manifest lists that exact host (or origin) in `httpOrigins` and the user has accepted it, named separately as a private host, in the consent dialog. That consent is per host and pinned like the rest of the grant; no wildcard covers a private address. Plain http stays refused, even for a declared LAN host. The host connects only to the checked addresses (no DNS rebinding). Every redirect (at most 5) is checked again against `httpOrigins`, the address rules and the private-host consent. No system proxy, no cookies, no credentials added |
 | `http:post` | dropped | Bulwark's own `/api/*` routes; Barbican has no app server |
 | `http:proxy` | dropped | Bulwark's server-side credential vault; use a `secret` setting |
 | `crypto:full` | same, high risk | Stalwart public keys and encryption at rest (Phase 3); no execution tier attached, WebAuthn calls skipped |
@@ -409,7 +411,9 @@ finish.
 - **Install (B2).** A folder or ZIP (size, entry-count and path checks; Bulwark caps a plugin at 5 MB,
   `lib/plugin-types.ts:1742`) is unpacked under `plugins\<id>\` and listed as off. Nothing is loaded.
 - **Consent.** Switching it on shows name, author, version, the fixed native-code line, every permission in plain words
-  (high-risk first) and every `httpOrigins` entry under `http:fetch` (as Bulwark `lib/plugin-sandbox/consent.ts`).
+  (high-risk first) and every `httpOrigins` entry under `http:fetch` (as Bulwark `lib/plugin-sandbox/consent.ts`);
+  entries that are private, loopback or LAN hosts are listed apart, under their own heading, because they let the
+  plugin reach machines inside the user's network.
   Accepting records `{ id, path, sha256, granted, origins, at }` in a `pluginGrants` pref, which replaces API 1's
   `pluginBindings`. **A file with another hash is always off until the user says yes again**; only the permission set
   carries over. The dialog for an update then says "Updated to version X, no new permissions", or lists just the
@@ -430,6 +434,25 @@ finish.
   Barbican profiles signed in to the same login share them. Signing out of a profile wipes a login's plugin data only
   when no other profile is still signed in to that login (Phase 0 item 5); removing a plugin wipes its data for every
   login at once. Account data lives on the server and is not wiped by either.
+
+### Decisions
+
+The owner's decisions on the questions v2 left open (2026-11-24):
+
+- **Barbican-only host calls are kept:** `secrets.*`, `blob.read` / `blob.create`, `permissions.request`, and the
+  `secret` settings type.
+- **`http:fetch` and private hosts.** https only, no IP literals. A private, loopback or LAN address is refused unless
+  the manifest declares that host (or origin) explicitly and the user consents to it in the consent dialog, which names
+  the private hosts separately. The consent is per host and pinned like other consent; no wildcard covers private
+  addresses. The connection goes only to the checked addresses (no DNS rebinding) and every redirect is re-checked,
+  including the private-host consent. Plain http stays refused, even for a declared LAN host.
+- **API 1 plugins** keep loading until Barbican 1.0 and are dropped at 1.0.
+- **A slow pre-send check** (compose intercept): the send UI shows a pending state and the user can cancel. Cancel
+  stops the send and does not skip the check; the user may press Send again.
+- **Phone-layout hooks** (`onViewChange`, `onDeviceTypeChange`, `onMobileBack`) stay skipped.
+- **`crypto:full` is kept**; WebAuthn stays skipped.
+- **Package layout is fixed:** `plugins\<id>\` holds the manifest and one library per platform; plugin data lives in
+  `plugin-data\<id>\`.
 
 ### Porting a Bulwark plugin
 

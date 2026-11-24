@@ -78,6 +78,29 @@ fn s(v: &str) -> SharedString {
     SharedString::from(v)
 }
 
+/// Largest retention (days) the Trash / Junk note accepts.
+pub const RETENTION_MAX: i64 = 3650;
+
+pub fn is_retention_key(key: &str) -> bool {
+    matches!(key, "retentionTrashDays" | "retentionJunkDays")
+}
+
+#[derive(Debug, PartialEq)]
+pub enum Retention { Days(i64), Unset, Invalid }
+
+/// What the user typed in a retention field: empty clears it, digits are capped at 3650
+/// (a minus sign counts as 0), anything else is ignored.
+pub fn parse_retention(s: &str) -> Retention {
+    let s = s.trim();
+    if s.is_empty() { return Retention::Unset; }
+    match s.parse::<i64>() {
+        Ok(n) => Retention::Days(n.clamp(0, RETENTION_MAX)),
+        Err(_) if s.strip_prefix('-').is_some_and(|d| !d.is_empty() && d.bytes().all(|b| b.is_ascii_digit())) => Retention::Days(0),
+        Err(_) if s.bytes().all(|b| b.is_ascii_digit()) => Retention::Days(RETENTION_MAX), // overflow
+        Err(_) => Retention::Invalid,
+    }
+}
+
 fn row(kind: &str, key: &str, label: &str, desc: &str) -> SRow {
     SRow { kind: s(kind), key: s(key), label: s(label), desc: s(desc), options: ModelRc::default(), index: 0, on: false, text: s("") }
 }
@@ -307,6 +330,10 @@ impl Settings {
                     let labels: Vec<&str> = opts.iter().map(|(_, l)| l.as_str()).collect();
                     out.push(select(key, label, desc, &labels, idx as i32));
                 }
+                "text" if is_retention_key(key) => {
+                    let v = self.prefs.get(key).map(|_| self.int(key, 0).clamp(0, RETENTION_MAX).to_string()).unwrap_or_default();
+                    out.push(text("text", key, label, desc, &v));
+                }
                 "text" if !key.is_empty() => out.push(text("text", key, label, desc, &self.str(key, r["default"].as_str().unwrap_or("")))),
                 "button" if !key.is_empty() => out.push(text("button", key, label, desc, r["text"].as_str().unwrap_or("Reset"))),
                 // Contacts > Import / Export (Bulwark contact-import-dialog, contact-export)
@@ -534,6 +561,15 @@ impl Settings {
                 self.save();
                 return;
             }
+            k if is_retention_key(k) => {
+                match parse_retention(value.as_str().unwrap_or("")) {
+                    Retention::Days(n) => { self.prefs.insert(key.into(), json!(n)); }
+                    Retention::Unset => { self.prefs.remove(key); }
+                    Retention::Invalid => return, // half-typed: keep the last good value
+                }
+                self.save();
+                return;
+            }
             "a11y.reset" => {
                 for k in crate::a11y::reset_keys() { self.prefs.remove(k); }
                 self.save();
@@ -614,6 +650,35 @@ mod tests {
     use super::*;
 
     // One test so the APPDATA override can't race other tests touching config_dir().
+    #[test]
+    fn retention_parse_and_set() {
+        assert_eq!(parse_retention(" 30 "), Retention::Days(30));
+        assert_eq!(parse_retention("0"), Retention::Days(0));
+        assert_eq!(parse_retention("99999"), Retention::Days(3650));
+        assert_eq!(parse_retention("99999999999999999999"), Retention::Days(3650));
+        assert_eq!(parse_retention("-5"), Retention::Days(0));
+        assert_eq!(parse_retention(""), Retention::Unset);
+        assert_eq!(parse_retention("abc"), Retention::Invalid);
+        assert_eq!(parse_retention("1.5"), Retention::Invalid);
+        assert!(is_retention_key("retentionJunkDays") && !is_retention_key("theme"));
+
+        // the rows exist under Message list with the owner's labels, and show the stored number
+        let mut prefs = Map::new();
+        prefs.insert("retentionTrashDays".into(), json!(30));
+        let s = Settings::with_prefs(prefs);
+        let rows = s.schema_rows("message_list");
+        let t = rows.iter().find(|r| r.key == "retentionTrashDays").unwrap();
+        assert_eq!(t.label.as_str(), "Trash retention (days)");
+        assert_eq!(t.text.as_str(), "30");
+        assert_eq!(t.desc.as_str(), "Shown as a note in that folder. Your server's retention policy decides; 0 hides the note.");
+        let j = rows.iter().find(|r| r.key == "retentionJunkDays").unwrap();
+        assert_eq!(j.label.as_str(), "Junk retention (days)");
+        assert_eq!(j.text.as_str(), "");
+        // what the folder line reads back
+        assert_eq!(s.int("retentionTrashDays", 0), 30);
+        assert_eq!(s.int("retentionJunkDays", 0), 0);
+    }
+
     #[test]
     fn import_export_reset_roundtrip() {
         let dir = std::env::temp_dir().join(format!("barbican-settings-test-{}", std::process::id()));
