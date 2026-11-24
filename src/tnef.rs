@@ -233,6 +233,7 @@ pub fn fetch(c: &Client, a: &Value) -> Result<Vec<u8>, String> {
 /// after the others. The winmail.dat itself is dropped from the list once it yielded files
 /// (Bulwark hides the chip then). Runs in the background; a message opened meanwhile is left alone.
 pub fn expand(u: &crate::AppWindow, c: std::sync::Arc<Client>, id: &str, atts: &[Value]) {
+    use slint::ComponentHandle;
     let found: Vec<(usize, String)> = atts.iter().enumerate()
         .filter(|(_, a)| a.get("tnef").is_none() && is_tnef(a["name"].as_str().unwrap_or(""), a["type"].as_str().unwrap_or("")))
         .filter(|(_, a)| a["size"].as_u64().unwrap_or(0) as usize <= MAX_PARSE_BYTES)
