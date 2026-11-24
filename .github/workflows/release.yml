@@ -158,7 +158,7 @@ jobs:
           Copy-Item target\release\barbican.exe $d
           Set-Content -NoNewline -Encoding ascii "$d\install-kind" "zip"
           Compress-Archive -Path "$d\*" -DestinationPath "dist\barbican-$v-windows-x86_64.zip"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: windows
           path: dist/*
@@ -200,7 +200,7 @@ jobs:
             --icon-file packaging/icons/barbican-256.png \
             --icon-filename barbican \
             --output appimage
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: linux
           path: dist/*
