@@ -7,6 +7,9 @@ example "## 0.1.0 — 2026-12-01", and start a new "Unreleased" above it.
 
 ## Unreleased
 
+- Calendar invitations: a counter proposal an attendee sends for an event you organise now shows what it changes (time, place, title, description) in the invitation banner, and "Apply proposed changes" updates the event and sends the update to the attendees, asking those who had answered to answer again when the time moves (as Bulwark does). It is offered only for a proposal from one of the event's participants.
+- Calendar invitations: a cancellation of an event is now offered as "Remove from calendar" in the banner when the message is verified as the organiser's and the stored event is theirs (a whole series is deleted, one cancelled occurrence is excluded from its series); one older than your copy, or from someone other than the organiser, says so and removes nothing.
+
 ## 0.1.1 — 2026-11-24
 
 - The window reopens where you left it: its size, position and whether it was maximised are remembered on this computer (not synced with your settings). When the monitor it was on is gone or the screen changed so the window would be off screen, Barbican opens at the default size and place instead.

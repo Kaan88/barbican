@@ -243,6 +243,309 @@ pub fn answer(c: &crate::jmap::Client, ev: &Value, mine: &[String], status: &str
     Ok(eid)
 }
 
+// ---------------------------------------------------------------- cancellations (G-002)
+
+/// `b`'s recurrence id as a local date-time in the zone of `a`'s, each read in its own zone
+/// (`recurrenceIdTimeZone`, else the event's `timeZone`); without a usable zone on either side
+/// it is taken as it is (Bulwark lib/calendar-cancellation.ts:6-16 recurrenceIdInZoneOf).
+fn recurrence_id_in_zone_of(a: &Value, b: &Value) -> Option<String> {
+    let rid = b["recurrenceId"].as_str()?;
+    let local = rid.get(..19).unwrap_or(rid);
+    let zone = |e: &Value| e["recurrenceIdTimeZone"].as_str().or(e["timeZone"].as_str()).filter(|z| !z.is_empty()).map(String::from);
+    Some(match (zone(a), zone(b)) {
+        (Some(za), Some(zb)) => move_local(local, &zb, &za),
+        _ => local.to_string(),
+    })
+}
+
+/// A local date-time moved from one zone's wall clock to another's (Bulwark lib/timezone.ts:196
+/// moveLocalDateTime); unusable input or zones leave it as it is.
+fn move_local(value: &str, from: &str, to: &str) -> String {
+    use chrono::{NaiveDateTime, TimeZone};
+    use chrono_tz::Tz;
+    if from == to { return value.to_string(); }
+    let (Ok(f), Ok(t)) = (from.parse::<Tz>(), to.parse::<Tz>()) else { return value.to_string() };
+    let Ok(n) = NaiveDateTime::parse_from_str(value, "%Y-%m-%dT%H:%M:%S") else { return value.to_string() };
+    match f.from_local_datetime(&n).earliest() {
+        Some(dt) => dt.with_timezone(&t).naive_local().format("%Y-%m-%dT%H:%M:%S").to_string(),
+        None => value.to_string(),
+    }
+}
+
+/// Whether two events name the same occurrence: their recurrence ids at the same moment, each in
+/// its own zone (Bulwark sameRecurrenceId, calendar-cancellation.ts:19-23).
+pub fn same_recurrence_id(a: &Value, b: &Value) -> bool {
+    let (Some(ra), Some(_)) = (a["recurrenceId"].as_str(), b["recurrenceId"].as_str()) else { return false };
+    Some(ra.get(..19).unwrap_or(ra).to_string()) == recurrence_id_in_zone_of(a, b)
+}
+
+/// What removing a cancelled meeting takes (Bulwark CancellationRemoval).
+#[derive(Clone, Debug, PartialEq)]
+pub enum Removal {
+    /// Destroy these stored events (the series, or an occurrence stored on its own).
+    Delete(Vec<String>),
+    /// Write `patch` on the series `id`, taking one occurrence out.
+    Exclude { id: String, patch: serde_json::Map<String, Value> },
+    /// The calendar holds a newer version than the cancellation.
+    Outdated,
+    /// Nothing in the calendar to remove.
+    Nothing,
+}
+
+fn sequence(e: &Value) -> i64 { e["sequence"].as_i64().unwrap_or(0) }
+
+/// How to remove what an iTIP CANCEL (RFC 5546 3.2.5) names from `stored`, the events stored
+/// with its uid (Bulwark planCancellationRemoval, calendar-cancellation.ts:50-86). Stalwart only
+/// marks the event cancelled and keeps it. A cancellation without a recurrence id is for the
+/// whole meeting, one with is for that occurrence; one with a lower SEQUENCE than the event it
+/// names is older and is not applied.
+pub fn plan_cancellation(stored: &[Value], cancel: &Value) -> Removal {
+    let Some(uid) = cancel["uid"].as_str().filter(|u| !u.is_empty()) else { return Removal::Nothing };
+    let same: Vec<&Value> = stored.iter().filter(|e| e["uid"].as_str() == Some(uid)).collect();
+    let cs = sequence(cancel);
+    let newer = |e: &Value| sequence(e) > cs;
+    let id = |e: &Value| e["id"].as_str().unwrap_or("").to_string();
+    if cancel["recurrenceId"].is_null() {
+        if same.is_empty() { return Removal::Nothing; }
+        if same.iter().any(|e| newer(e)) { return Removal::Outdated; }
+        return Removal::Delete(same.iter().map(|e| id(e)).collect());
+    }
+    if let Some(own) = same.iter().find(|e| same_recurrence_id(e, cancel)) {
+        return if newer(own) { Removal::Outdated } else { Removal::Delete(vec![id(own)]) };
+    }
+    let series = same.iter().find(|e| e["recurrenceId"].is_null() && e["recurrenceRules"].as_array().is_some_and(|r| !r.is_empty()));
+    // overrides not read: a whole-map write would drop the ones there are
+    let Some(series) = series.filter(|s| s.get("recurrenceOverrides").is_some()) else { return Removal::Nothing };
+    let Some(key) = recurrence_id_in_zone_of(series, cancel) else { return Removal::Nothing };
+    let ov = &series["recurrenceOverrides"][&key];
+    if ov["excluded"] == true { return Removal::Nothing; }
+    if ov.is_object() && newer(ov) { return Removal::Outdated; }
+    Removal::Exclude { id: id(series), patch: crate::cal_editor::override_patch(series, &key, json!({"excluded": true})) }
+}
+
+/// The stored events a removal would delete or change.
+pub fn removal_targets(stored: &[Value], r: &Removal) -> Vec<Value> {
+    match r {
+        Removal::Delete(ids) => stored.iter().filter(|e| e["id"].as_str().is_some_and(|i| ids.iter().any(|x| x == i))).cloned().collect(),
+        Removal::Exclude { id, .. } => stored.iter().filter(|e| e["id"].as_str() == Some(id.as_str())).cloned().collect(),
+        _ => vec![],
+    }
+}
+
+/// A stored event's organizer: its ORGANIZER address first, as the server keeps it.
+fn stored_organizer(e: &Value) -> Option<String> {
+    e["organizerCalendarAddress"].as_str().map(norm_addr).filter(|a| !a.is_empty())
+        .or_else(|| organizer(e).map(|o| o.1).filter(|a| !a.is_empty()))
+}
+
+/// Whether the sender is the organizer of every one of `events`, the stored copies a
+/// cancellation would remove (Bulwark isFromOrganizerOf, calendar-invitation.ts:221): only the
+/// organizer cancels a meeting, and the organizer inside the cancellation is the sender's own
+/// text, so the stored events decide.
+pub fn from_organizer_of(events: &[Value], sender: Option<&str>) -> bool {
+    let Some(s) = sender.map(norm_addr).filter(|s| !s.is_empty()) else { return false };
+    !events.is_empty() && events.iter().all(|e| stored_organizer(e).as_deref() == Some(s.as_str()))
+}
+
+/// What the banner knows about removing a cancelled event.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CancelPlan {
+    pub removal: Removal,
+    pub from_organizer: bool,
+    /// The stored organizer, for the notice that names both addresses.
+    pub organizer: Option<String>,
+}
+
+impl CancelPlan {
+    pub fn removable(&self) -> bool { matches!(self.removal, Removal::Delete(_) | Removal::Exclude { .. }) }
+}
+
+pub fn cancel_plan(stored: &[Value], cancel: &Value, sender: Option<&str>) -> CancelPlan {
+    let removal = plan_cancellation(stored, cancel);
+    let targets = removal_targets(stored, &removal);
+    CancelPlan { from_organizer: from_organizer_of(&targets, sender), organizer: targets.iter().find_map(stored_organizer), removal }
+}
+
+/// The notice under a cancellation that may not remove the meeting (Bulwark locales
+/// tTrust.cancel_not_organizer / cancel_unverified); None when the removal is offered.
+pub fn cancel_notice(p: &CancelPlan, trusted: bool, sender: &str) -> Option<String> {
+    if !p.removable() || (p.from_organizer && trusted) { return None; }
+    Some(match (&p.organizer, p.from_organizer) {
+        (Some(o), false) => format!("This cancellation was sent from {sender}, but the event in your calendar is organized by {o}. Only the organizer can cancel it. Remove it yourself if you trust this message."),
+        _ => "This cancellation could not be verified as coming from the organizer. Remove the event yourself if you trust this message.".into(),
+    })
+}
+
+/// All events stored with this uid (the series and any occurrence stored on its own).
+pub fn stored_all(c: &crate::jmap::Client, uid: &str) -> Result<Vec<Value>, String> {
+    let acc = c.account_for(CAP);
+    let r = c.call(json!([
+        ["CalendarEvent/query", {"accountId": acc, "filter": {"uid": uid}, "limit": 50}, "q"],
+        ["CalendarEvent/get", {"accountId": acc, "#ids": {"resultOf": "q", "name": "CalendarEvent/query", "path": "/ids"}, "properties": &crate::calendar::EVENT_PROPS[..]}, "g"]
+    ]))?;
+    if r[0][0] == "error" { return Err(crate::jmap::method_error(&r[0][1])); }
+    if r[1][0] == "error" { return Err(crate::jmap::method_error(&r[1][1])); }
+    Ok(r[1][1]["list"].as_array().cloned().unwrap_or_default())
+}
+
+/// The request that removes a cancelled event. No scheduling messages: the organizer cancelled
+/// it, there is no one to tell (Bulwark handleRemoveCancelled, banner:994-1003).
+pub fn removal_request(acc: &str, r: &Removal) -> Option<Value> {
+    let set = match r {
+        Removal::Delete(ids) if !ids.is_empty() => json!({"accountId": acc, "sendSchedulingMessages": false, "destroy": ids}),
+        Removal::Exclude { id, patch } => json!({"accountId": acc, "sendSchedulingMessages": false, "update": {id: patch}}),
+        _ => return None,
+    };
+    Some(json!([["CalendarEvent/set", set, "s"]]))
+}
+
+fn set_failure(r: &[Value]) -> Option<String> {
+    if r[0][0] == "error" { return Some(crate::jmap::method_error(&r[0][1])); }
+    for k in ["notUpdated", "notDestroyed"] {
+        if let Some(e) = r[0][1][k].as_object().and_then(|o| o.values().next()) { return Some(crate::jmap::set_error(e)); }
+    }
+    None
+}
+
+/// Remove the cancelled event from the calendar. Planned again on the events as they are now:
+/// the calendar may have changed since the mail was opened.
+pub fn remove_cancelled(c: &crate::jmap::Client, cancel: &Value, sender: Option<&str>) -> Result<String, String> {
+    let uid = cancel["uid"].as_str().ok_or("This cancellation names no event.")?;
+    let plan = cancel_plan(&stored_all(c, uid)?, cancel, sender);
+    match &plan.removal {
+        Removal::Outdated => return Err("Your calendar has a newer version of this event than this cancellation.".into()),
+        Removal::Nothing => return Err("The event is no longer in your calendar.".into()),
+        _ => {}
+    }
+    if !plan.from_organizer { return Err("This cancellation did not come from the event's organizer.".into()); }
+    let req = removal_request(&c.account_for(CAP), &plan.removal).ok_or("Nothing to remove.")?;
+    let r = c.call(req)?;
+    if let Some(e) = set_failure(&r) { return Err(e); }
+    Ok("Removed from your calendar.".into())
+}
+
+// ---------------------------------------------------------------- counter proposals (G-001)
+
+/// The event in the calendar a counter proposal is about: one for an occurrence names it by its
+/// recurrence id, one for the whole meeting names none (Bulwark counterTarget, banner:258-262).
+pub fn counter_target(events: &[Value], proposal: &Value) -> Option<Value> {
+    let uid = proposal["uid"].as_str()?;
+    let mut same = events.iter().filter(|e| e["uid"].as_str() == Some(uid));
+    if proposal["recurrenceId"].is_null() { return same.find(|e| e["recurrenceId"].is_null()).cloned(); }
+    same.find(|e| same_recurrence_id(e, proposal)).cloned()
+}
+
+/// What the proposal changes against the stored event (Bulwark buildProposalPatch, banner:264-312).
+pub fn proposal_patch(cur: &Value, prop: &Value) -> serde_json::Map<String, Value> {
+    let mut p = serde_json::Map::new();
+    for k in ["title", "description", "descriptionContentType", "start", "duration"] {
+        if prop[k].is_string() && prop[k] != cur[k] { p.insert(k.into(), prop[k].clone()); }
+    }
+    if prop["timeZone"] != cur["timeZone"] { p.insert("timeZone".into(), prop["timeZone"].clone()); }
+    if (prop["showWithoutTime"] == true) != (cur["showWithoutTime"] == true) { p.insert("showWithoutTime".into(), json!(prop["showWithoutTime"] == true)); }
+    for k in ["locations", "virtualLocations"] {
+        if prop[k] != cur[k] { p.insert(k.into(), prop[k].clone()); }
+    }
+    p
+}
+
+/// The changes as the banner lists them: (label, before, after) (Bulwark buildInvitationChangeItems).
+pub fn proposal_changes(cur: &Value, prop: &Value, zone: &str) -> Vec<(String, String, String)> {
+    let mut v = vec![];
+    let or_empty = |s: String| if s.is_empty() { "(none)".to_string() } else { s };
+    let title = |e: &Value| e["title"].as_str().unwrap_or("").to_string();
+    if title(cur) != title(prop) && !title(prop).is_empty() { v.push(("Title".into(), or_empty(title(cur)), title(prop))); }
+    if prop["start"].is_string() {
+        let (a, b) = (when(cur, zone), when(prop, zone));
+        if a != b { v.push(("Time".into(), or_empty(a), b)); }
+    }
+    let (la, lb) = (location(cur), location(prop));
+    if la != lb && !lb.is_empty() { v.push(("Location".into(), or_empty(la), lb)); }
+    let (da, db) = (crate::cal_editor::description_text(cur), crate::cal_editor::description_text(prop));
+    if da != db && !db.is_empty() { v.push(("Description".into(), or_empty(da), db)); }
+    v
+}
+
+/// `participants` with every attendee asked to answer again, the organizer's entries as they are
+/// (Bulwark participantsAskedAgain, calendar-participants.ts:303); None when no attendee has answered.
+pub fn participants_asked_again(ev: &Value) -> Option<Value> {
+    let ps = ev["participants"].as_object()?;
+    let org = stored_organizer(ev);
+    let mut asked = false;
+    let mut out = serde_json::Map::new();
+    for (id, p) in ps {
+        let is_org = is_organizer(p) || (org.is_some() && participant_email(p) == org);
+        let st = p["participationStatus"].as_str().unwrap_or("");
+        if is_org || st.is_empty() || st == "needs-action" { out.insert(id.clone(), p.clone()); continue; }
+        let mut p = p.clone();
+        p["participationStatus"] = json!("needs-action");
+        out.insert(id.clone(), p);
+        asked = true;
+    }
+    asked.then(|| Value::Object(out))
+}
+
+/// A counter proposal read against the calendar.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Proposal {
+    pub id: String,
+    pub patch: serde_json::Map<String, Value>,
+    pub changes: Vec<(String, String, String)>,
+    /// The sender is one of the stored event's participants.
+    pub from_participant: bool,
+    pub organizer_me: bool,
+    /// Attendees to ask again when the proposal moves the event.
+    pub asked: Option<Value>,
+}
+
+impl Proposal {
+    /// Applying a proposal sends it to every attendee, so it has to come from one of the meeting's
+    /// participants (anyone who learned the uid can write one, naming any attendee) and the
+    /// user has to organise the stored event (Bulwark canApplyProposal, banner:947-954).
+    pub fn can_apply(&self) -> bool { self.organizer_me && self.from_participant && !self.patch.is_empty() }
+
+    /// The update to write: the patch, and the attendees asked again when it moves the event.
+    pub fn update(&self) -> serde_json::Map<String, Value> {
+        let mut p = self.patch.clone();
+        if ["start", "duration", "timeZone", "showWithoutTime"].iter().any(|k| p.contains_key(*k)) {
+            if let Some(a) = &self.asked { p.insert("participants".into(), a.clone()); }
+        }
+        p
+    }
+}
+
+pub fn proposal(stored: &[Value], counter: &Value, sender: Option<&str>, mine: &[String], zone: &str) -> Option<Proposal> {
+    let target = counter_target(stored, counter)?;
+    let s = sender.map(norm_addr).filter(|s| !s.is_empty());
+    let from_participant = s.is_some_and(|s| target["participants"].as_object().is_some_and(|o| o.values().any(|p| participant_email(p).as_deref() == Some(s.as_str()))));
+    Some(Proposal {
+        id: target["id"].as_str()?.to_string(),
+        patch: proposal_patch(&target, counter),
+        changes: proposal_changes(&target, counter, zone),
+        from_participant,
+        organizer_me: i_organize(&target, mine),
+        asked: participants_asked_again(&target),
+    })
+}
+
+/// The request that applies a proposal: scheduling messages go out, so the attendees hear of the
+/// change (Bulwark handleApplyProposal, banner:957-978).
+pub fn proposal_request(acc: &str, p: &Proposal) -> Value {
+    json!([["CalendarEvent/set", {"accountId": acc, "sendSchedulingMessages": true, "update": {p.id.clone(): Value::Object(p.update())}}, "s"]])
+}
+
+/// Apply the proposal to the stored event, read again as it is now.
+pub fn apply_proposal(c: &crate::jmap::Client, counter: &Value, sender: Option<&str>, mine: &[String], zone: &str) -> Result<String, String> {
+    let uid = counter["uid"].as_str().ok_or("This proposal names no event.")?;
+    let p = proposal(&stored_all(c, uid)?, counter, sender, mine, zone).ok_or("The event is not in your calendar.")?;
+    if !p.organizer_me { return Err("You do not organize this event.".into()); }
+    if !p.from_participant { return Err("This proposal did not come from one of the event's participants.".into()); }
+    if p.patch.is_empty() { return Err("The event already has these changes.".into()); }
+    let r = c.call(proposal_request(&c.account_for(CAP), &p))?;
+    if let Some(e) = set_failure(&r) { return Err(e); }
+    Ok("Proposed changes applied.".into())
+}
+
 /// How far the message can be trusted to come from who the calendar data names (Bulwark
 /// getInvitationTrustAssessment): `Some((warning, text))` for a caution (false) or a warning
 /// (true), None when trusted. `from` is the message's From address, `auth` its topmost
@@ -362,5 +665,199 @@ mod tests {
         assert_eq!(i["calendarIds"], json!({"cal1": true}));
         assert_eq!(i["uid"], "u1");
         assert_eq!(rsvp_patch("a/b~c", "accepted"), json!({"participants/a~1b~0c/participationStatus": "accepted"}));
+    }
+
+    // ---- G-002: cancellations
+
+    fn stored(id: &str, seq: i64) -> Value {
+        json!({"id": id, "uid": "u1", "sequence": seq, "organizerCalendarAddress": "mailto:Olga@acme.com", "start": "2026-11-17T10:00:00", "timeZone": "Europe/Berlin",
+            "participants": {"o": {"calendarAddress": "mailto:olga@acme.com", "roles": {"owner": true, "attendee": true}, "participationStatus": "accepted"},
+                "a": {"calendarAddress": "mailto:ann@example.test", "roles": {"attendee": true}, "participationStatus": "accepted"}}})
+    }
+
+    #[test]
+    fn cancellation_of_the_whole_meeting() {
+        let cancel = json!({"uid": "u1", "sequence": 1});
+        assert_eq!(plan_cancellation(&[stored("e1", 0)], &cancel), Removal::Delete(vec!["e1".into()]));
+        assert_eq!(plan_cancellation(&[stored("e1", 1)], &cancel), Removal::Delete(vec!["e1".into()]), "the same sequence applies");
+        assert_eq!(plan_cancellation(&[stored("e1", 2)], &cancel), Removal::Outdated, "a newer stored copy is kept");
+        assert_eq!(plan_cancellation(&[], &cancel), Removal::Nothing);
+        assert_eq!(plan_cancellation(&[stored("e1", 0)], &json!({"sequence": 1})), Removal::Nothing, "no uid");
+        let mut other = stored("e2", 0);
+        other["uid"] = json!("u2");
+        assert_eq!(plan_cancellation(&[other, stored("e1", 0)], &cancel), Removal::Delete(vec!["e1".into()]));
+    }
+
+    #[test]
+    fn cancellation_of_one_occurrence() {
+        let mut series = stored("s1", 0);
+        series["recurrenceRules"] = json!([{"frequency": "weekly"}]);
+        series["recurrenceOverrides"] = Value::Null;
+        let cancel = json!({"uid": "u1", "recurrenceId": "2026-11-24T10:00:00", "timeZone": "Europe/Berlin", "sequence": 1});
+        // no overrides yet: the whole map is written
+        match plan_cancellation(&[series.clone()], &cancel) {
+            Removal::Exclude { id, patch } => {
+                assert_eq!(id, "s1");
+                assert_eq!(Value::Object(patch), json!({"recurrenceOverrides": {"2026-11-24T10:00:00": {"excluded": true}}}));
+            }
+            r => panic!("{r:?}"),
+        }
+        // overrides there: one pointer into the map
+        series["recurrenceOverrides"] = json!({"2026-12-01T10:00:00": {"title": "x"}});
+        match plan_cancellation(&[series.clone()], &cancel) {
+            Removal::Exclude { patch, .. } => assert_eq!(Value::Object(patch), json!({"recurrenceOverrides/2026-11-24T10:00:00": {"excluded": true}})),
+            r => panic!("{r:?}"),
+        }
+        // the cancellation's id is read in the series' zone
+        let utc = json!({"uid": "u1", "recurrenceId": "2026-11-24T09:00:00", "timeZone": "UTC"});
+        match plan_cancellation(&[series.clone()], &utc) {
+            Removal::Exclude { patch, .. } => assert!(patch.contains_key("recurrenceOverrides/2026-11-24T10:00:00"), "{patch:?}"),
+            r => panic!("{r:?}"),
+        }
+        // already excluded, newer override, overrides unknown
+        series["recurrenceOverrides"] = json!({"2026-11-24T10:00:00": {"excluded": true}});
+        assert_eq!(plan_cancellation(&[series.clone()], &cancel), Removal::Nothing);
+        series["recurrenceOverrides"] = json!({"2026-11-24T10:00:00": {"sequence": 5}});
+        assert_eq!(plan_cancellation(&[series.clone()], &cancel), Removal::Outdated);
+        series.as_object_mut().unwrap().remove("recurrenceOverrides");
+        assert_eq!(plan_cancellation(&[series.clone()], &cancel), Removal::Nothing, "overrides not read");
+        // an occurrence stored on its own is deleted, a newer one is kept
+        let mut own = stored("o1", 0);
+        own["recurrenceId"] = json!("2026-11-24T10:00:00");
+        assert_eq!(plan_cancellation(&[own.clone()], &cancel), Removal::Delete(vec!["o1".into()]));
+        own["sequence"] = json!(3);
+        assert_eq!(plan_cancellation(&[own], &cancel), Removal::Outdated);
+        assert!(same_recurrence_id(&json!({"recurrenceId": "2026-11-24T10:00:00", "timeZone": "Europe/Berlin"}), &utc));
+        assert!(!same_recurrence_id(&json!({"timeZone": "Europe/Berlin"}), &utc));
+    }
+
+    #[test]
+    fn only_the_organizer_removes() {
+        let e = stored("e1", 0);
+        assert!(from_organizer_of(&[e.clone()], Some("OLGA@acme.com")));
+        assert!(!from_organizer_of(&[e.clone()], Some("ann@example.test")), "an attendee cannot cancel");
+        assert!(!from_organizer_of(&[e.clone()], None));
+        assert!(!from_organizer_of(&[], Some("olga@acme.com")));
+        let cancel = json!({"uid": "u1", "sequence": 1, "organizerCalendarAddress": "mailto:ann@example.test"});
+        let p = cancel_plan(&[e.clone()], &cancel, Some("ann@example.test"));
+        assert!(p.removable() && !p.from_organizer, "the organizer written in the cancellation does not count");
+        assert!(cancel_notice(&p, true, "ann@example.test").unwrap().contains("organized by olga@acme.com"));
+        let p = cancel_plan(&[e], &cancel, Some("olga@acme.com"));
+        assert_eq!(cancel_notice(&p, true, "olga@acme.com"), None);
+        assert!(cancel_notice(&p, false, "olga@acme.com").unwrap().contains("could not be verified"));
+        assert_eq!(cancel_notice(&cancel_plan(&[], &cancel, Some("olga@acme.com")), false, "x"), None, "nothing to remove, nothing to say");
+    }
+
+    #[test]
+    fn removal_request_shapes() {
+        let del = removal_request("acc", &Removal::Delete(vec!["e1".into(), "e2".into()])).unwrap();
+        assert_eq!(del[0][0], "CalendarEvent/set");
+        assert_eq!(del[0][1]["sendSchedulingMessages"], false, "the organizer cancelled it, nobody to tell");
+        assert_eq!(del[0][1]["destroy"], json!(["e1", "e2"]));
+        let mut patch = serde_json::Map::new();
+        patch.insert("recurrenceOverrides/k".into(), json!({"excluded": true}));
+        let ex = removal_request("acc", &Removal::Exclude { id: "s1".into(), patch }).unwrap();
+        assert_eq!(ex[0][1]["update"]["s1"]["recurrenceOverrides/k"], json!({"excluded": true}));
+        assert_eq!(ex[0][1]["sendSchedulingMessages"], false);
+        assert!(removal_request("acc", &Removal::Outdated).is_none() && removal_request("acc", &Removal::Nothing).is_none());
+        assert_eq!(set_failure(&[json!(["CalendarEvent/set", {"destroyed": ["e1"]}, "s"])]), None);
+        assert!(set_failure(&[json!(["CalendarEvent/set", {"notDestroyed": {"e1": {"type": "forbidden"}}}, "s"])]).is_some());
+    }
+
+    // ---- G-001: counter proposals
+
+    fn counter() -> Value {
+        json!({"uid": "u1", "title": "Planning", "start": "2026-11-17T14:00:00", "timeZone": "Europe/Berlin", "duration": "PT1H30M",
+            "locations": {"l1": {"name": "Room 4"}}})
+    }
+
+    #[test]
+    fn counter_proposal_patch_and_changes() {
+        let cur = ev();
+        let prop = counter();
+        let patch = proposal_patch(&cur, &prop);
+        assert_eq!(Value::Object(patch.clone()), json!({"start": "2026-11-17T14:00:00"}), "only what differs");
+        let ch = proposal_changes(&cur, &prop, "Europe/Berlin");
+        assert_eq!(ch, vec![("Time".to_string(), "Tue 17 Nov 2026, 10:00 – 11:30".to_string(), "Tue 17 Nov 2026, 14:00 – 15:30".to_string())]);
+        assert!(proposal_patch(&cur, &cur).is_empty());
+        let mut moved_zone = prop.clone();
+        moved_zone["timeZone"] = Value::Null;
+        assert_eq!(proposal_patch(&cur, &moved_zone)["timeZone"], Value::Null);
+        let mut place = prop.clone();
+        place["start"] = cur["start"].clone();
+        place["locations"] = json!({"l2": {"name": "Cafe"}});
+        place["title"] = json!("Planning II");
+        assert!(proposal_patch(&cur, &place).contains_key("locations"));
+        let labels: Vec<String> = proposal_changes(&cur, &place, "Europe/Berlin").into_iter().map(|c| c.0).collect();
+        assert_eq!(labels, ["Title", "Location"]);
+    }
+
+    #[test]
+    fn counter_target_is_the_named_occurrence() {
+        let mut series = ev();
+        series["id"] = json!("s1");
+        series["recurrenceRules"] = json!([{"frequency": "weekly"}]);
+        let mut occ = ev();
+        occ["id"] = json!("o1");
+        occ["recurrenceId"] = json!("2026-11-24T10:00:00");
+        let all = [occ.clone(), series.clone()];
+        assert_eq!(counter_target(&all, &counter()).unwrap()["id"], "s1", "a proposal for the whole meeting");
+        let mut one = counter();
+        one["recurrenceId"] = json!("2026-11-24T10:00:00");
+        assert_eq!(counter_target(&all, &one).unwrap()["id"], "o1");
+        one["recurrenceId"] = json!("2026-12-01T10:00:00");
+        assert!(counter_target(&all, &one).is_none(), "not applied to another occurrence");
+        assert!(counter_target(&[occ], &counter()).is_none(), "series not in the calendar");
+        assert!(counter_target(&all, &json!({"uid": "zz"})).is_none());
+    }
+
+    #[test]
+    fn proposal_is_applied_only_by_the_organizer_for_a_participant() {
+        let mut target = ev();
+        target["id"] = json!("e1");
+        target["organizerCalendarAddress"] = json!("mailto:me@x.org");
+        target["participants"] = json!({
+            "o": {"calendarAddress": "mailto:me@x.org", "roles": {"owner": true, "attendee": true}, "participationStatus": "accepted"},
+            "a": {"calendarAddress": "mailto:ann@example.test", "roles": {"attendee": true}, "participationStatus": "accepted"},
+            "b": {"calendarAddress": "mailto:bob@example.test", "roles": {"attendee": true}, "participationStatus": "needs-action"}});
+        let mine = vec!["me@x.org".to_string()];
+        let p = proposal(&[target.clone()], &counter(), Some("Ann@example.test"), &mine, "Europe/Berlin").unwrap();
+        assert!(p.organizer_me && p.from_participant && p.can_apply());
+        assert_eq!(p.id, "e1");
+        // a stranger writes a proposal naming any attendee
+        let s = proposal(&[target.clone()], &counter(), Some("eve@evil.net"), &mine, "Europe/Berlin").unwrap();
+        assert!(!s.from_participant && !s.can_apply());
+        // not the organizer: nothing to apply
+        let n = proposal(&[target.clone()], &counter(), Some("ann@example.test"), &["ann@example.test".to_string()], "Europe/Berlin").unwrap();
+        assert!(!n.can_apply());
+        // nothing differs
+        let mut same = counter();
+        same["start"] = target["start"].clone();
+        let z = proposal(&[target.clone()], &same, Some("ann@example.test"), &mine, "Europe/Berlin").unwrap();
+        assert!(!z.can_apply());
+        // no stored copy
+        assert!(proposal(&[], &counter(), Some("ann@example.test"), &mine, "Europe/Berlin").is_none());
+        // the request: a move asks the answered attendees again, the organizer and needs-action stay
+        let req = proposal_request("acc", &p);
+        assert_eq!(req[0][1]["sendSchedulingMessages"], true, "the attendees hear of it");
+        let up = &req[0][1]["update"]["e1"];
+        assert_eq!(up["start"], "2026-11-17T14:00:00");
+        assert_eq!(up["participants"]["a"]["participationStatus"], "needs-action");
+        assert_eq!(up["participants"]["o"]["participationStatus"], "accepted");
+        assert_eq!(up["participants"]["b"]["participationStatus"], "needs-action");
+        // a change that does not move the event keeps the answers
+        let mut title = counter();
+        title["start"] = target["start"].clone();
+        title["title"] = json!("Planning II");
+        let t = proposal(&[target], &title, Some("ann@example.test"), &mine, "Europe/Berlin").unwrap();
+        let up = proposal_request("acc", &t);
+        assert_eq!(up[0][1]["update"]["e1"], json!({"title": "Planning II"}));
+    }
+
+    #[test]
+    fn asked_again_needs_an_answer_to_ask_for() {
+        let mut e = ev();
+        e["participants"]["m"]["participationStatus"] = json!("needs-action");
+        assert!(participants_asked_again(&e).is_none(), "the organizer's own entry stays and nobody else has answered");
     }
 }
