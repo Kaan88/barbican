@@ -2805,7 +2805,7 @@ export component AppWindow inherits Window {
                         VerticalLayout { alignment: center; HoverAction { icon: Icons.mail; clicked => { root.bulk("unread"); } } }
                         VerticalLayout { alignment: center; HoverAction { icon: Icons.star; clicked => { root.bulk("star"); } } }
                         VerticalLayout { alignment: center; HoverAction { icon: Icons.alert; clicked => { root.bulk("spam"); } } }
-                        if root.phish-ok: VerticalLayout { alignment: center; HoverAction { glyph: "\u{E7BA}"; clicked => { root.bulk("phish"); } } }
+                        if root.phish-ok: VerticalLayout { alignment: center; HoverAction { glyph: "\u{E7BA}"; clicked => { root.ctx("phish-bar", "", self.absolute-position.x, self.absolute-position.y + self.height); } } }
                         VerticalLayout { alignment: center; HoverAction { icon: Icons.close; clicked => { root.bulk("clear"); } } }
                     }
                 }

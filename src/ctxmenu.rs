@@ -174,6 +174,8 @@ pub fn request(u: &AppWindow, kind: &str, id: &str) {
                 danger(G_DELETE, "Delete", "Del", "delete"),
             ]
         }
+        // the selection bar's "Report phishing": the same question as the list menu, under the button
+        "phish-bar" => { t.ids = mail::checked_ids(); phish_confirm(u, &t.ids) }
         "addr" | "addr-to" => {
             let a = first_addr(id);
             if a.is_empty() { vec![] } else {
@@ -518,6 +520,21 @@ pub fn set_client(c: Option<Arc<jmap::Client>>) { CLIENT.with(|x| *x.borrow_mut(
 fn file_row(u: &AppWindow, id: &str) -> Option<crate::FileRow> {
     let m = u.get_files();
     (0..m.row_count()).filter_map(|i| m.row_data(i)).find(|f| f.id == id)
+}
+
+/// "Report to {address}?" with the report and Cancel (Bulwark phishing-report-host.tsx); nothing
+/// (and a toast saying why) when there is nothing to report.
+fn phish_confirm(u: &AppWindow, ids: &[String]) -> Vec<CtxItem> {
+    match crate::phishflow::prepare(ids) {
+        crate::phishflow::Ask::Say(text) => { mail::show_toast(u, &text, false); vec![] }
+        crate::phishflow::Ask::Confirm { address, count, left_out } => {
+            let mut v = vec![header(&format!("Report to {address}?"))];
+            if !left_out.is_empty() { v.push(header(&left_out)); }
+            v.push(danger(G_PHISH, &if count == 1 { "Report and move to Junk".to_string() } else { format!("Report {count} messages and move to Junk") }, "", "do:phish-go"));
+            v.push(it("\u{E711}", "Cancel", "Esc", ""));
+            v
+        }
+    }
 }
 
 fn mail_items(u: &AppWindow, t: &Target) -> Vec<CtxItem> {
@@ -1086,16 +1103,10 @@ pub fn pick(u: &AppWindow, st: &Shared, action: &str) {
     }
     if action == "phish" && matches!(t.kind.as_str(), "mail" | "thread") {
         // "Report phishing?" with the address, for the whole selection (Bulwark phishing-report-host.tsx)
-        match crate::phishflow::prepare(&target_ids(u, &t)) {
-            crate::phishflow::Ask::Say(text) => mail::show_toast(u, &text, false),
-            crate::phishflow::Ask::Confirm { address, count, left_out } => {
-                let mut v = vec![header(&format!("Report to {address}?"))];
-                if !left_out.is_empty() { v.push(header(&left_out)); }
-                v.push(danger(G_PHISH, &if count == 1 { "Report and move to Junk".to_string() } else { format!("Report {count} messages and move to Junk") }, "", "do:phish-go"));
-                v.push(it("\u{E711}", "Cancel", "Esc", ""));
-                u.global::<crate::CtxHl>().set_id(HL.with(|h| h.borrow().clone()).into());
-                reopen(u, v);
-            }
+        let v = phish_confirm(u, &target_ids(u, &t));
+        if !v.is_empty() {
+            u.global::<crate::CtxHl>().set_id(HL.with(|h| h.borrow().clone()).into());
+            reopen(u, v);
         }
         return;
     }

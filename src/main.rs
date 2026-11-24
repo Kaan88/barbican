@@ -1936,7 +1936,6 @@ fn main() -> Result<(), slint::PlatformError> {
     ui.on_bulk(move |a| {
         let u = w.unwrap();
         if a == "clear" { mail::select_all(&u); return; }
-        if a == "phish" { phishflow::ask_toolbar(&u, &st, mail::checked_ids()); return; }
         apply_routed(&u, &st, mail::checked_ids(), &a);
     });
 

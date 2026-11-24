@@ -134,8 +134,6 @@ thread_local! {
     /// The Undo the toast on screen offers: its text and what it takes back.
     static UNDO: RefCell<Option<(String, Vec<UndoItem>)>> = const { RefCell::new(None) };
     static BUSY: Cell<bool> = const { Cell::new(false) };
-    /// The toolbar's "press again" confirmation is waiting.
-    static ARMED: RefCell<Option<(Vec<String>, String)>> = const { RefCell::new(None) };
 }
 
 /// A new toast replaced the one that offered Undo.
@@ -168,6 +166,10 @@ pub fn undo(u: &AppWindow) -> bool {
 
 fn undo_one(i: &UndoItem) -> Result<(), String> {
     let junk = i.client.role_ids()?.get("junk").cloned();
+    // only a message that is still in Junk goes back: one the user filed elsewhere since stays
+    let got = i.client.call(serde_json::json!([["Email/get", {"accountId": i.client.account, "ids": [i.id], "properties": ["mailboxIds"]}, "g"]]))?;
+    let still = got.first().map(|x| &x[1]["list"][0]["mailboxIds"]).and_then(|m| junk.as_ref().map(|j| m[j.as_str()].as_bool() == Some(true))).unwrap_or(false);
+    if !still { return Err("The message is no longer in Junk.".into()); }
     let r = i.client.call(phish::undo_call(&i.client.account, &i.id, &i.origin, junk.as_deref()))?;
     match r.first().and_then(|x| x[1]["notUpdated"].get(&i.id)).filter(|e| !e.is_null()) {
         Some(e) => Err(crate::jmap::set_error(e)),
@@ -176,36 +178,6 @@ fn undo_one(i: &UndoItem) -> Result<(), String> {
 }
 
 // ---------------------------------------------------------------- the run
-
-/// Whether a press of the selection bar's button confirms an earlier one: the button was armed
-/// for exactly this selection and the question it asked is still the toast on screen. A changed
-/// selection, a replaced or expired toast, or a closed toast never confirms.
-pub fn press_confirms(armed: &Option<(Vec<String>, String)>, ids: &[String], question: &str, showing: &str) -> bool {
-    let mut key = ids.to_vec();
-    key.sort();
-    armed.as_ref().is_some_and(|(k, q)| *k == key && q == question) && showing == question
-}
-
-/// The selection bar's "Report phishing": asks by toast (press again), then reports.
-pub fn ask_toolbar(u: &AppWindow, st: &Shared, ids: Vec<String>) {
-    match prepare(&ids) {
-        Ask::Say(t) => mail::show_toast(u, &t, false),
-        Ask::Confirm { address, count, left_out } => {
-            let question = format!("Report phishing? {} {left_out} Press the button again to confirm.", confirm_text(&address, count)).replace("  ", " ");
-            let armed = ARMED.with(|a| a.borrow().clone());
-            if press_confirms(&armed, &ids, &question, u.get_toast().as_str()) {
-                ARMED.with(|a| *a.borrow_mut() = None);
-                run(u, st, ids);
-                return;
-            }
-            let mut key = ids;
-            key.sort();
-            mail::show_toast(u, &question, false);
-            ARMED.with(|a| *a.borrow_mut() = Some((key, question)));
-            slint::Timer::single_shot(std::time::Duration::from_secs(8), || ARMED.with(|a| *a.borrow_mut() = None));
-        }
-    }
-}
 
 struct Job { row: String, client: Arc<Client>, msg: Value, origin: Option<String> }
 
@@ -320,23 +292,6 @@ mod tests {
         assert_eq!(left_out_text(&Plan { ok: vec!["a".into()], shared: 0, skipped: 0 }), "");
         assert_eq!(left_out_text(&Plan { ok: vec!["a".into()], shared: 1, skipped: 1 }), "2 messages are left out (shared account, sent, draft or already reported).");
         assert!(left_out_text(&Plan { ok: vec![], shared: 1, skipped: 0 }).starts_with("1 message is left out"));
-    }
-
-    #[test]
-    fn a_second_press_confirms_only_the_same_selection_and_question() {
-        let ids: Vec<String> = vec!["b".into(), "a".into()];
-        let q = "Report phishing? The message goes to x and moves to Junk. Press the button again to confirm.";
-        let armed = Some((vec!["a".to_string(), "b".to_string()], q.to_string()));
-        assert!(press_confirms(&armed, &ids, q, q));
-        // one message, then thirty more: a different selection arms again, never fires
-        let more: Vec<String> = (0..31).map(|i| i.to_string()).collect();
-        assert!(!press_confirms(&armed, &more, "Report phishing? Each of the 31 messages", q));
-        assert!(!press_confirms(&armed, &more, q, q));
-        // the question is no longer on screen (replaced, expired, closed)
-        assert!(!press_confirms(&armed, &ids, q, "Moved to Inbox"));
-        assert!(!press_confirms(&armed, &ids, q, ""));
-        // not armed at all
-        assert!(!press_confirms(&None, &ids, q, q));
     }
 
     #[test]
