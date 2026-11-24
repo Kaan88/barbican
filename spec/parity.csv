@@ -34,12 +34,12 @@ G-032,templates,Templates: edit an existing template,template-manager-modal.tsx;
 G-033,templates,Templates: rich body,template-form.tsx,partial,,G-033 (GAPS P1-8),3,S/M
 G-034,templates,Templates: placeholder fill on insert,placeholder-fill-modal.tsx; lib/template-merge.ts,partial,,G-034 (GAPS P1-8),3,S/M
 G-035,templates,Templates: save the current draft as a template,quick-save-template-dialog.tsx,partial,,G-035 (GAPS P1-8),3,S/M
-G-036,folders,Folders: subscribe and unsubscribe,organize-settings.tsx,missing,,G-036 (GAPS P1-9),3,S/M
-G-037,folders,Folders: assign standard roles,folder-settings.tsx,missing,,G-037 (GAPS P1-9),3,S/M
-G-038,folders,"Folders: icons and count modes (folderIcons, folderCountModes)",icon-picker.tsx,missing,,G-038 (GAPS P1-9),3,S/M
-G-039,folders,Folders: pin,organize-settings.tsx,missing,,G-039 (GAPS P1-9),3,S/M
-G-040,folders,Folders: mark the whole tree read,organize-settings.tsx,missing,,G-040 (GAPS P1-9),3,S/M
-G-041,folders,Folders: per-folder notification mute (notificationMutes),folder-settings.tsx,missing,,G-041 (GAPS P1-9),3,S/M
+G-036,folders,Folders: subscribe and unsubscribe,organize-settings.tsx,done,"src/folders.rs, src/ctxmenu.rs (Subscribe; unsubscribed rows dimmed, Barbican's own)",G-036 (GAPS P1-9),3,S/M
+G-037,folders,Folders: assign standard roles,folder-settings.tsx,done,"src/folders.rs, src/jmap.rs set_mailbox_role (confirm before moving inbox/sent/drafts)",G-037 (GAPS P1-9),3,S/M
+G-038,folders,"Folders: icons and count modes (folderIcons, folderCountModes)",icon-picker.tsx,done,"src/folders.rs, src/mail.rs (icons show in the Bento theme only)",G-038 (GAPS P1-9),3,S/M
+G-039,folders,Folders: pin,organize-settings.tsx,done,"src/folders.rs pin_key, src/mail.rs (Barbican's own; pinnedFolders per server and account)",G-039 (GAPS P1-9),3,S/M
+G-040,folders,Folders: mark the whole tree read,organize-settings.tsx,done,"src/folders.rs, src/jmap.rs mark_folders_read",G-040 (GAPS P1-9),3,S/M
+G-041,folders,Folders: per-folder notification mute (notificationMutes),folder-settings.tsx,done,"src/folders.rs, src/main.rs check_new_mail (no account-level mute UI)",G-041 (GAPS P1-9),3,S/M
 G-042,folders,Folders: export and import a folder,mail-transfer/,done,"src/mailexport.rs, src/mailimport.rs (keep folders), src/ctxmenu.rs; target = right-clicked folder, no account-root import",G-042 (GAPS P1-9; P1-11),2,S/M
 G-043,sharing,"Sharing folders, calendars and address books with other users (Barbican shares Files only)",layout/mailbox-share-dialog.tsx; share-collection-dialog.tsx,missing,,G-043 (GAPS P1-9),3,M
 G-044,live-updates,"Live updates for calendars, contacts, files and identities: push types cover mail only, and there is no /changes delta for them",EventSource types,missing,,G-044 (GAPS P1-10),3,S/M
