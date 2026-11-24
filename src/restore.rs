@@ -32,8 +32,10 @@ pub fn who(user: &str, server: &str) -> String {
     if host.is_empty() { "This account".to_string() } else { host }
 }
 
-/// The text for a saved sign-in the server turned down.
+/// The text for a saved sign-in the server turned down. A cleared saved password was never sent,
+/// so its own text says what happened instead.
 pub fn turned_down(who: &str, err: &str) -> String {
+    if err == crate::jmap::CLEARED_PASSWORD { return format!("{who}: {err}"); }
     format!("{who}: the saved sign-in was turned down by the server (expired or revoked). Sign in again. The server said: {err} Your saved sign-in stays on this computer until you sign in.")
 }
 
@@ -107,6 +109,13 @@ mod tests {
         for e in ["The server did not accept the sign-in token.", "Wrong username, password or 2FA code"] {
             assert!(matches!(restore_outcome(e, 0, "ann@example.test", "x"), RestoreOutcome::ShowForm(_)));
         }
+    }
+
+    #[test]
+    fn a_cleared_saved_password_is_not_called_turned_down_by_the_server() {
+        let RestoreOutcome::ShowForm(m) = restore_outcome(crate::jmap::CLEARED_PASSWORD, 0, "ann@example.test", "x") else { panic!("final") };
+        assert_eq!(m, format!("ann@example.test: {}", crate::jmap::CLEARED_PASSWORD));
+        assert!(!m.contains("turned down by the server"), "{m}");
     }
 
     #[test]

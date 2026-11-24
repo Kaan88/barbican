@@ -369,6 +369,31 @@ pub fn cleared_password_entry(accounts: &[Value], user: &str, base: &str, typed:
     (a["pass"] == typed && !typed.is_empty()).then(|| json!({"kind": "password", "server": a["server"], "user": a["user"], "pass": ""}))
 }
 
+/// What a sign-in on the form stores, once it worked.
+#[derive(Debug, PartialEq)]
+pub enum FormEntry {
+    /// Remember the sign-in (it becomes the startup session).
+    Remember(Value),
+    /// Put the password back into the account's saved entry where it stands.
+    Repair(Value),
+    Nothing,
+}
+
+/// With "remember" ticked and no code, the password is remembered (a code is single-use). A saved
+/// entry whose password was cleared when two-step sign-in was turned on is repaired even when
+/// "remember" is not ticked, by a password that signs in without a code (an app password, or
+/// two-step sign-in turned off since): the account stays in the switcher and could otherwise never
+/// sign in from there again. A sign-in with a code leaves it as it is (there is no password that
+/// works on its own to store).
+pub fn form_sign_in_entry(accounts: &[Value], server: &str, user: &str, pass: &str, totp: &str, remember: bool) -> FormEntry {
+    if !totp.trim().is_empty() || pass.is_empty() { return FormEntry::Nothing; }
+    if remember { return FormEntry::Remember(json!({"kind": "password", "server": server, "user": user, "pass": pass})); }
+    match remembered_password_entry(accounts, user, server) {
+        Some(a) if a["pass"].as_str().unwrap_or("").is_empty() => FormEntry::Repair(json!({"kind": "password", "server": a["server"], "user": a["user"], "pass": pass})),
+        _ => FormEntry::Nothing,
+    }
+}
+
 /// What the authenticator app lists the entry under (Bulwark totp-issuer.ts: a stock install names
 /// the account's server).
 pub const TOTP_ISSUER: &str = "Stalwart";
@@ -629,15 +654,22 @@ fn run(st: &mut State, work: impl FnOnce(&Client) -> Result<Update, String> + Se
 }
 
 /// How the app signs out on the event loop (set by main): the password change ended this session,
-/// and the user is asked to sign in again with the message shown on the sign-in page.
-static SIGN_OUT: std::sync::Mutex<Option<Box<dyn Fn(String) + Send>>> = std::sync::Mutex::new(None);
+/// and the user is asked to sign in again with the message shown on the sign-in page. The hook is
+/// given the `state_key` of the account whose session ended and the message.
+type SignOutHook = Box<dyn Fn(String, String) + Send>;
+static SIGN_OUT: std::sync::Mutex<Option<SignOutHook>> = std::sync::Mutex::new(None);
 
-pub fn set_sign_out_hook(f: Box<dyn Fn(String) + Send>) { *SIGN_OUT.lock().unwrap_or_else(|e| e.into_inner()) = Some(f); }
+pub fn set_sign_out_hook(f: SignOutHook) { *SIGN_OUT.lock().unwrap_or_else(|e| e.into_inner()) = Some(f); }
 
-/// Run the app's sign-out with `msg`; false when no hook is set.
-pub fn sign_out(msg: &str) -> bool {
-    match SIGN_OUT.lock().unwrap_or_else(|e| e.into_inner()).as_ref() { Some(f) => { f(msg.to_string()); true } None => false }
+/// Run the app's sign-out of the account `key` (its `state_key`) with `msg`; false when no hook is set.
+pub fn sign_out(key: &str, msg: &str) -> bool {
+    match SIGN_OUT.lock().unwrap_or_else(|e| e.into_inner()).as_ref() { Some(f) => { f(key.to_string(), msg.to_string()); true } None => false }
 }
+
+/// Whether the hook's sign-out applies: only while the account whose session ended (`key`) is
+/// still the one in use (`current`, its `state_key`). After a switch to another account in the
+/// meantime nothing is signed out, so that account's session and saved sign-in stay as they are.
+pub fn sign_out_applies(current: Option<&str>, key: &str) -> bool { !key.is_empty() && current == Some(key) }
 
 /// Clears `busy` when a job ends in any way, a panic included (only for the page session it started in).
 struct BusyGuard<'a> { cache: &'a Shared, epoch: u64 }
@@ -712,7 +744,7 @@ fn button_at(st: &mut State, what: &str, now: std::time::Instant) -> Option<Job>
                         // (an app password) still works and is kept
                         clear_remembered_password(c, &cur);
                         c.end_session();
-                        sign_out(&msg);
+                        sign_out(&c.state_key(), &msg);
                         msg
                     }
                     Followup::Keep => "Password changed. This session signs in with something else (an app password), which still works.".to_string(),
@@ -1142,11 +1174,42 @@ mod tests {
 
     #[test]
     fn ending_the_session_signs_the_app_out_with_the_message() {
-        let seen: std::sync::Arc<std::sync::Mutex<Vec<String>>> = Default::default();
+        let seen: std::sync::Arc<std::sync::Mutex<Vec<(String, String)>>> = Default::default();
         let s2 = seen.clone();
-        set_sign_out_hook(Box::new(move |m| s2.lock().unwrap_or_else(|e| e.into_inner()).push(m)));
-        assert!(sign_out("Password changed. Sign in again with your new password."));
-        assert_eq!(seen.lock().unwrap_or_else(|e| e.into_inner()).as_slice(), ["Password changed. Sign in again with your new password."]);
+        set_sign_out_hook(Box::new(move |k, m| s2.lock().unwrap_or_else(|e| e.into_inner()).push((k, m))));
+        assert!(sign_out("ann-key", "Password changed. Sign in again with your new password."));
+        assert_eq!(seen.lock().unwrap_or_else(|e| e.into_inner()).as_slice(), [("ann-key".to_string(), "Password changed. Sign in again with your new password.".to_string())]);
+    }
+
+    #[test]
+    fn a_cleared_saved_password_is_repaired_by_a_password_that_works_alone() {
+        let base = "https://mail.example.test";
+        let cleared = json!({"kind": "password", "server": "mail.example.test", "user": "Ann@example.test", "pass": ""});
+        let bob = json!({"kind": "password", "server": "mail.example.test", "user": "bob@example.test", "pass": "b"});
+        let accounts = [bob.clone(), cleared];
+        // not ticked: the cleared entry gets the password back, as stored (its server and user)
+        assert_eq!(form_sign_in_entry(&accounts, base, "ann@example.test", "app-pw", "", false),
+            FormEntry::Repair(json!({"kind": "password", "server": "mail.example.test", "user": "Ann@example.test", "pass": "app-pw"})));
+        // ticked: remembered as before
+        assert_eq!(form_sign_in_entry(&accounts, base, "ann@example.test", "pw", "", true),
+            FormEntry::Remember(json!({"kind": "password", "server": base, "user": "ann@example.test", "pass": "pw"})));
+        // with a code nothing works on its own, so nothing is stored
+        assert_eq!(form_sign_in_entry(&accounts, base, "ann@example.test", "pw", "123456", true), FormEntry::Nothing);
+        assert_eq!(form_sign_in_entry(&accounts, base, "ann@example.test", "pw", "123456", false), FormEntry::Nothing);
+        // not ticked: a saved password that is not cleared, another account, or no entry stays
+        assert_eq!(form_sign_in_entry(&accounts, base, "bob@example.test", "new", "", false), FormEntry::Nothing);
+        assert_eq!(form_sign_in_entry(&accounts, "https://other.example.test", "ann@example.test", "pw", "", false), FormEntry::Nothing);
+        assert_eq!(form_sign_in_entry(&[bob], base, "ann@example.test", "pw", "", false), FormEntry::Nothing);
+    }
+
+    #[test]
+    fn the_sign_out_applies_only_to_the_account_still_in_use() {
+        assert!(sign_out_applies(Some("ann-key"), "ann-key"));
+        // switched to another account meanwhile: that one is not signed out
+        assert!(!sign_out_applies(Some("bob-key"), "ann-key"));
+        // already signed out, or no account named
+        assert!(!sign_out_applies(None, "ann-key"));
+        assert!(!sign_out_applies(Some(""), ""));
     }
 
     #[test]

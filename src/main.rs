@@ -939,8 +939,13 @@ fn main() -> Result<(), slint::PlatformError> {
         let (server, user, pass, totp) = (server.to_string(), user.to_string(), pass.to_string(), totp.to_string());
         std::thread::spawn(move || {
             let res = jmap::Client::connect(&server, &user, &pass, &totp);
-            // a 2FA code is single-use, so only the password itself can be remembered
-            let rem = (remember && totp.trim().is_empty()).then(|| serde_json::json!({"kind": "password", "server": server, "user": user, "pass": pass}));
+            // a 2FA code is single-use, so only the password itself can be remembered; a saved
+            // sign-in whose password was cleared gets back one that worked on its own
+            let rem = match security::form_sign_in_entry(&oauth::accounts(), &server, &user, &pass, &totp, remember) {
+                security::FormEntry::Remember(v) => Some(v),
+                security::FormEntry::Repair(v) => { if res.is_ok() { oauth::update_account(&v); } None }
+                security::FormEntry::Nothing => None,
+            };
             finish_login(w, st, res, server, user, rem, oauth::Origin::SignIn);
         });
     });
@@ -972,8 +977,14 @@ fn main() -> Result<(), slint::PlatformError> {
     let srv_out = server_cache.clone();
     // a password change that ended the session signs out through the same flow, then says why
     let w_hook = ui.as_weak();
-    security::set_sign_out_hook(Box::new(move |msg| {
+    let st_hook = state.clone();
+    security::set_sign_out_hook(Box::new(move |key, msg| {
+        let st_hook = st_hook.clone();
         let _ = w_hook.upgrade_in_event_loop(move |u| {
+            // only the account whose session ended: after a switch meanwhile, the account now in
+            // use (its session, its saved sign-in) is left alone
+            let current = st_hook.lock().unwrap_or_else(|e| e.into_inner()).as_ref().map(|c| c.state_key());
+            if !security::sign_out_applies(current.as_deref(), &key) { return; }
             // the saved sign-in stays unless the password change cleared it (security.rs decided)
             KEEP_SAVED_SIGN_IN.store(true, std::sync::atomic::Ordering::SeqCst);
             u.invoke_sign_out();
