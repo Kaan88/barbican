@@ -550,6 +550,62 @@ impl Client {
         }
     }
 
+    /// Subscribe or unsubscribe a folder (Mailbox isSubscribed, RFC 8621 2).
+    pub fn set_mailbox_subscribed(&self, id: &str, on: bool) -> R<()> {
+        let (_, bad) = self.update("Mailbox/set", &self.account, vec![(id.into(), json!({"isSubscribed": on}))])?;
+        if bad.is_empty() { Ok(()) } else { Err(bad.join("; ")) }
+    }
+
+    /// Give a folder a standard role (None removes its role), taking the role off the folder that
+    /// held it first: one request per update, in order (Bulwark setMailboxRole).
+    pub fn set_mailbox_role(&self, list: &[Value], id: &str, role: Option<&str>) -> R<()> {
+        let mut cleared: Vec<String> = vec![];
+        let mut result = Ok(());
+        for p in crate::folders::role_patches(list, id, role) {
+            let is_clear = p.0 != id;
+            let name = p.0.clone();
+            let r = self.update("Mailbox/set", &self.account, vec![p]).and_then(|(_, bad)| if bad.is_empty() { Ok(()) } else { Err(bad.join("; ")) });
+            match r {
+                Ok(()) => if is_clear { cleared.push(name) },
+                Err(e) => { result = Err(e); break }
+            }
+        }
+        if result.is_err() {
+            // the new holder could not be set: the old one gets its role back
+            for h in cleared { let _ = self.update("Mailbox/set", &self.account, vec![(h, json!({"role": role}))]); }
+        }
+        self.roles.lock().unwrap().take();
+        result
+    }
+
+    /// Mark every unread message of these folders read: the unread ids of all of them are read
+    /// first (a message in two folders once), then set in groups of at most maxObjectsInSet.
+    /// Returns (marked, failures).
+    pub fn mark_folders_read(&self, folders: &[String]) -> R<(usize, Vec<String>)> {
+        let mut ids: Vec<String> = vec![];
+        let mut seen = std::collections::HashSet::new();
+        let mut failed = vec![];
+        for f in folders {
+            // a folder that cannot be read leaves the others to go on
+            let found = match self.query_all("Email/query", &self.account, json!({"filter": {"inMailbox": f, "notKeyword": "$seen"}, "limit": self.max_set()})) {
+                Ok(v) => v,
+                Err(e) => { failed.push(format!("{f}: {e}")); continue }
+            };
+            for id in found.iter().filter_map(|v| v.as_str()) {
+                if seen.insert(id.to_string()) { ids.push(id.to_string()); }
+            }
+        }
+        let mut marked = 0;
+        for group in crate::folders::batches(&ids, self.max_set()) {
+            // a transport error mid-way keeps what was marked so far
+            match self.set_keyword(group, "$seen", true) {
+                Ok((ok, bad)) => { marked += ok; failed.extend(bad); }
+                Err(e) => { failed.push(e); break }
+            }
+        }
+        Ok((marked, failed))
+    }
+
     /// Empty a folder (Trash / Junk): destroys every message in it.
     pub fn empty_mailbox(&self, id: &str) -> R<usize> {
         let mut n = 0;

@@ -32,6 +32,23 @@ pub struct Cache {
     pub tpl_name: String,
     pub tpl_subject: String,
     pub tpl_body: String,
+    /// Id of the template the form edits ("" while it makes a new one).
+    pub tpl_edit: String,
+    pub tpl_category: String,
+    pub tpl_to: String,
+    pub tpl_cc: String,
+    pub tpl_bcc: String,
+    pub tpl_html: bool,
+    pub tpl_fav: bool,
+    pub tpl_error: String,
+    /// Whether the server keeps metadata: 0 not known yet (not loaded, or the load failed),
+    /// 1 it does, 2 it does not.
+    pub tpl_state: u8,
+    /// Bumped whenever the form is cleared, switched to another template or typed in, so a save
+    /// that finishes later clears only the form it was started from.
+    pub tpl_gen: u64,
+    /// The template the form edits, as it was loaded (its `updatedAt` is what a save checks).
+    pub tpl_old: Option<Value>,
     pub rules: Vec<Value>,
     pub external: String,
     pub rules_locked: bool,
@@ -58,6 +75,20 @@ pub const CAL_COLORS: [(&str, &str); 14] = [
     ("#3b82f6", "Blue"), ("#ef4444", "Red"), ("#22c55e", "Green"), ("#f59e0b", "Amber"), ("#8b5cf6", "Violet"), ("#ec4899", "Pink"), ("#14b8a6", "Teal"),
     ("#f97316", "Orange"), ("#06b6d4", "Cyan"), ("#84cc16", "Lime"), ("#6366f1", "Indigo"), ("#a855f7", "Purple"), ("#e11d48", "Rose"), ("#0ea5e9", "Sky"),
 ];
+
+fn form_fields(k: &Cache) -> crate::templates::Fields {
+    crate::templates::Fields {
+        name: k.tpl_name.clone(), subject: k.tpl_subject.clone(), body: k.tpl_body.clone(), html: k.tpl_html, category: k.tpl_category.clone(),
+        to: crate::templates::split_addrs(&k.tpl_to), cc: crate::templates::split_addrs(&k.tpl_cc), bcc: crate::templates::split_addrs(&k.tpl_bcc), favorite: k.tpl_fav,
+    }
+}
+
+fn clear_tpl_form(k: &mut Cache) {
+    k.tpl_old = None;
+    k.tpl_gen += 1;
+    k.tpl_edit.clear(); k.tpl_name.clear(); k.tpl_subject.clear(); k.tpl_body.clear(); k.tpl_category.clear();
+    k.tpl_to.clear(); k.tpl_cc.clear(); k.tpl_bcc.clear(); k.tpl_html = false; k.tpl_fav = false; k.tpl_error.clear();
+}
 
 /// Calendars as the management page lists them: by sortOrder, then name.
 pub fn sorted_calendars(list: &[Value]) -> Vec<Value> {
@@ -212,10 +243,12 @@ pub fn load(tab: &str, c: &Client, cache: &Shared) {
             }
             "composing" => {
                 let ids = c.identities()?;
-                let tpls = crate::templates::list(c).unwrap_or_default();
+                // a failed load is an error on the page, not an empty list
+                let tpls = crate::templates::list(c)?;
                 let mut k = cache.lock().unwrap();
                 k.identities = ids;
                 k.templates = tpls;
+                k.tpl_state = if crate::templates::supported(c) { 1 } else { 2 };
             }
             _ => {}
         }
@@ -340,15 +373,32 @@ pub fn rows(tab: &str, cache: &Shared) -> Option<Vec<SRow>> {
             }
             if tab == "composing" {
                 out.push(row("section", "", "Email templates", "Reusable messages, shared with Bulwark (kept in your Inbox's metadata). Insert them from the composer.", "", false));
+                if k.tpl_state == 2 {
+                    out.push(row("value", "", "This server keeps no metadata", "Templates need it (Stalwart 1.0 or later has it), so none can be stored or shown here.", "", false));
+                }
                 for t in &k.templates {
                     let id = t["id"].as_str().unwrap_or("");
-                    out.push(row("button", &format!("server.tpl.delete:{id}"), t["name"].as_str().unwrap_or("(unnamed)"),
-                        t["subject"].as_str().unwrap_or(""), if k.confirm_delete == id { "Click again to delete" } else { "Delete" }, false));
+                    let mut desc = t["subject"].as_str().unwrap_or("").to_string();
+                    if let Some(c) = t["category"].as_str().filter(|c| !c.is_empty()) { desc = if desc.is_empty() { c.into() } else { format!("{c} · {desc}") }; }
+                    if t["isHTML"] == true { desc = if desc.is_empty() { "Rich text".into() } else { format!("{desc} · rich text") }; }
+                    out.push(row("button", &format!("server.tpl.edit:{id}"), t["name"].as_str().unwrap_or("(unnamed)"), &desc, if k.tpl_edit == id { "Editing" } else if k.confirm_delete == format!("edit:{id}") { "Click again to discard what you typed" } else { "Edit" }, false));
+                    out.push(row("button", &format!("server.tpl.delete:{id}"), "", "", if k.confirm_delete == id { "Click again to delete" } else { "Delete" }, false));
                 }
-                out.push(row("text", "server.tpl.name", "New template name", "", &k.tpl_name, false));
+                let editing = !k.tpl_edit.is_empty();
+                out.push(row("section", "", if editing { "Edit template" } else { "New template" }, "", "", false));
+                out.push(row("text", "server.tpl.name", "Name", "", &k.tpl_name, false));
+                out.push(row("text", "server.tpl.category", "Category", "Optional", &k.tpl_category, false));
                 out.push(row("text", "server.tpl.subject", "Subject", "", &k.tpl_subject, false));
-                out.push(row("textarea", "server.tpl.body", "Text", "", &k.tpl_body, false));
-                out.push(row("button", "server.tpl.create", "", "", "Save template", false));
+                out.push(row("toggle", "server.tpl.html", "Rich text (HTML) body", "Off: plain text. On: the body below is HTML; scripts and the like are removed when it is saved.", "", k.tpl_html));
+                out.push(row("textarea", "server.tpl.body", if k.tpl_html { "Body (HTML)" } else { "Body" },
+                    "Placeholders: {{recipient_name}}, {{company}}, {{date}}, {{short_date}}, {{day}}, {{month}}, {{year}}, {{day_of_week}}, {{sender_name}}, or your own; {{name:default}} gives a default.", &k.tpl_body, false));
+                out.push(row("text", "server.tpl.to", "To", "Comma separated; put in new messages", &k.tpl_to, false));
+                out.push(row("text", "server.tpl.cc", "Cc", "", &k.tpl_cc, false));
+                out.push(row("text", "server.tpl.bcc", "Bcc", "", &k.tpl_bcc, false));
+                out.push(row("toggle", "server.tpl.fav", "Favourite", "", "", k.tpl_fav));
+                if !k.tpl_error.is_empty() { out.push(row("value", "", "Not saved", &k.tpl_error, "", false)); }
+                out.push(row("button", "server.tpl.create", "", "", if editing { "Save changes" } else { "Save template" }, false));
+                if editing { out.push(row("button", "server.tpl.cancel", "", "", "Cancel", false)); }
             }
             return Some(out);
         }
@@ -379,10 +429,25 @@ pub fn edit(key: &str, value: &Value, cache: &Shared) -> Option<Box<dyn FnOnce(&
         let (script, scripts) = (crate::sieve::generate_meta(&crate::sieve::with_rules(&k.filter_meta, &k.rules), &k.external, &k.sieve_ext), k.scripts.clone());
         return Some(Box::new(move |c: &Client| save_script(c, &script, &scripts)));
     }
+    if key.starts_with("server.tpl.") { k.tpl_gen += 1; }
     match key {
         "server.tpl.name" => { k.tpl_name = value.as_str().unwrap_or("").into(); return None; }
         "server.tpl.subject" => { k.tpl_subject = value.as_str().unwrap_or("").into(); return None; }
         "server.tpl.body" => { k.tpl_body = value.as_str().unwrap_or("").into(); return None; }
+        "server.tpl.category" => { k.tpl_category = value.as_str().unwrap_or("").into(); return None; }
+        "server.tpl.to" => { k.tpl_to = value.as_str().unwrap_or("").into(); return None; }
+        "server.tpl.cc" => { k.tpl_cc = value.as_str().unwrap_or("").into(); return None; }
+        "server.tpl.bcc" => { k.tpl_bcc = value.as_str().unwrap_or("").into(); return None; }
+        "server.tpl.html" => {
+            // the body changes format with the switch (Bulwark template-form.tsx toggleHTML)
+            let on = value.as_bool().unwrap_or(false);
+            if on != k.tpl_html {
+                k.tpl_body = if on { crate::rte::html::export(&crate::rte::model::Doc { blocks: crate::rte::html::import_text(&k.tpl_body) }) } else { crate::rte::html::html_text(&k.tpl_body) };
+            }
+            k.tpl_html = on;
+            return None;
+        }
+        "server.tpl.fav" => { k.tpl_fav = value.as_bool().unwrap_or(false); return None; }
         _ => {}
     }
     if key == "server.cal.newname" { k.new_cal = value.as_str().unwrap_or("").to_string(); return None; }
@@ -510,14 +575,41 @@ pub fn button(key: &str, cache: &Shared) -> Option<Box<dyn FnOnce(&Client, &Shar
         let (script, scripts) = (crate::sieve::generate_meta(&crate::sieve::with_rules(&k.filter_meta, &rules), &k.external, &k.sieve_ext), k.scripts.clone());
         return Some(Box::new(move |c: &Client, _| save_script(c, &script, &scripts)));
     }
+    if key == "server.tpl.cancel" {
+        clear_tpl_form(&mut cache.lock().unwrap());
+        return Some(Box::new(|_, _| Ok(())));
+    }
+    if let Some(id) = key.strip_prefix("server.tpl.edit:") {
+        let mut k = cache.lock().unwrap();
+        if k.tpl_edit == id { return Some(Box::new(|_, _| Ok(()))); }
+        // what is half typed is not thrown away by one click
+        let dirty = format!("{:?}", form_fields(&k)) != format!("{:?}", k.tpl_old.as_ref().map(crate::templates::fields_of).unwrap_or_default());
+        let ask = format!("edit:{id}");
+        if dirty && k.confirm_delete != ask { k.confirm_delete = ask; return Some(Box::new(|_, _| Ok(()))); }
+        k.confirm_delete.clear();
+        if let Some(t) = k.templates.iter().find(|t| t["id"] == id).cloned() {
+            let f = crate::templates::fields_of(&t);
+            k.tpl_edit = id.to_string();
+            k.tpl_gen += 1;
+            (k.tpl_name, k.tpl_subject, k.tpl_body, k.tpl_category, k.tpl_html, k.tpl_fav) = (f.name, f.subject, f.body, f.category, f.html, f.favorite);
+            (k.tpl_to, k.tpl_cc, k.tpl_bcc) = (f.to.join(", "), f.cc.join(", "), f.bcc.join(", "));
+            k.tpl_error.clear();
+            k.tpl_old = Some(t);
+        }
+        return Some(Box::new(|_, _| Ok(())));
+    }
     if key == "server.tpl.create" {
-        let (n, s, b) = { let k = cache.lock().unwrap(); (k.tpl_name.trim().to_string(), k.tpl_subject.clone(), k.tpl_body.clone()) };
-        if n.is_empty() { return None; }
+        let (old, f, generation) = {
+            let k = cache.lock().unwrap();
+            if !k.tpl_edit.is_empty() && k.tpl_old.is_none() { return Some(Box::new(|_, k: &Shared| { let e = "This template is no longer in the list; reload and try again.".to_string(); k.lock().unwrap().tpl_error = e.clone(); Err(e) })); }
+            (k.tpl_old.clone().filter(|_| !k.tpl_edit.is_empty()), form_fields(&k), k.tpl_gen)
+        };
         return Some(Box::new(move |c: &Client, k: &Shared| {
-            crate::templates::create(c, &n, &s, &b)?;
-            let mut g = k.lock().unwrap();
-            g.tpl_name.clear(); g.tpl_subject.clear(); g.tpl_body.clear();
-            Ok(())
+            match crate::templates::save(c, old.as_ref(), &f) {
+                // only when the form still holds what was saved (the user may have moved to another template)
+                Ok(()) => { let mut k = k.lock().unwrap(); if k.tpl_gen == generation { clear_tpl_form(&mut k); } Ok(()) }
+                Err(e) => { k.lock().unwrap().tpl_error = e.clone(); Err(e) }
+            }
         }));
     }
     if let Some(id) = key.strip_prefix("server.tpl.delete:") {
@@ -525,7 +617,13 @@ pub fn button(key: &str, cache: &Shared) -> Option<Box<dyn FnOnce(&Client, &Shar
         let mut k = cache.lock().unwrap();
         if k.confirm_delete != id { k.confirm_delete = id; return Some(Box::new(|_, _| Ok(()))); }
         k.confirm_delete.clear();
-        return Some(Box::new(move |c: &Client, _| crate::templates::delete(c, &id)));
+        return Some(Box::new(move |c: &Client, k: &Shared| {
+            crate::templates::delete(c, &id)?;
+            // the form was editing the template just deleted
+            let mut k = k.lock().unwrap();
+            if k.tpl_edit == id { clear_tpl_form(&mut k); }
+            Ok(())
+        }));
     }
     if let Some(id) = key.strip_prefix("server.restore:") {
         let id = id.to_string();
