@@ -445,7 +445,14 @@ impl Settings {
                 out.extend(crate::desktop::settings_rows(tab, self));
                 if tab == "privacy" {
                     out.insert(0, row("section", "", "Remote content", "Images and other content loaded from the internet can tell senders when you read their mail."));
-                    out.insert(1, select("desktop.remoteImages", "Load remote images", "", &["Ask first (blocked until you choose)", "Always load"], if cfg.remote_images { 1 } else { 0 }));
+                    // Bulwark externalContentPolicy (stores/settings-store.ts:444): ask / block / allow
+                    let policy = crate::trust::policy(&self.prefs, cfg.remote_images);
+                    out.insert(1, select(crate::trust::POLICY_KEY, "Remote content", "Ask: blocked until you load a message's images or trust its sender. Always block: only trusted senders load. Always load: never blocked.",
+                        &crate::trust::ContentPolicy::ALL.map(|p| p.label()), crate::trust::ContentPolicy::ALL.iter().position(|p| *p == policy).unwrap_or(0) as i32));
+                    out.insert(2, text("textarea", crate::trust::TRUSTED_KEY, "Trusted senders", "Images from these addresses always load. One address per line; \"Trust sender\" in a message adds it here, and removing a line stops trusting it.", &crate::trust::list_text(&crate::trust::trusted_list(&self.prefs))));
+                    out.insert(3, row("section", "", "Outside your organisation", "Your own domains are those of your identities."));
+                    out.insert(4, toggle(crate::trust::SENDER_LABEL_KEY, "Label external senders", "Shows \"External\" next to a sender outside your own domains when you read a message.", self.bool(crate::trust::SENDER_LABEL_KEY, true)));
+                    out.insert(5, toggle(crate::trust::RECIPIENT_CONFIRM_KEY, "Confirm before sending outside", "Asks before sending to a recipient outside your own domains, and lists them.", self.bool(crate::trust::RECIPIENT_CONFIRM_KEY, false)));
                     out.push(row("section", "", "Read receipts", ""));
                     out.push(sel_pref("readReceiptResponse", "Respond to read-receipt requests", "What to do when an incoming message asks for a read receipt."));
                 }
@@ -497,7 +504,13 @@ impl Settings {
             "ai.lang" => cfg.lang = value.as_str().unwrap_or("").into(),
             "spam.showClean" => cfg.show_clean_spam = value.as_bool().unwrap_or(true),
             "desktop.renderMode" => cfg.render_mode = value.as_i64().unwrap_or(0) as i32,
-            "desktop.remoteImages" => cfg.remote_images = value.as_i64() == Some(1),
+            // Bulwark's list is an array of lower-cased addresses; the page edits it as text
+            "trustedSenders" => {
+                let list = crate::trust::parse_list(value.as_str().unwrap_or(""));
+                self.prefs.insert(key.into(), crate::trust::trusted_json(&list));
+                self.save();
+                return;
+            }
             k if k.starts_with("hoverAction:") => {
                 let id = &k[12..];
                 let mut list = self.hover_actions();
@@ -577,6 +590,7 @@ impl Settings {
     /// Value to store for a select row's chosen index.
     pub fn select_value(&self, key: &str, index: i32) -> Value {
         if key.starts_with("ai.") || key.starts_with("desktop.") { return json!(index); }
+        if key == crate::trust::POLICY_KEY { return crate::trust::ContentPolicy::ALL.get(index as usize).map_or(Value::Null, |p| json!(p.as_str())); }
         if let Some(o) = option_override(key) { return o.get(index as usize).map(|x| x.0.clone()).unwrap_or(Value::Null); }
         for t in self.schema["tabs"].as_array().unwrap() {
             for r in t["rows"].as_array().unwrap() {
@@ -654,6 +668,21 @@ mod tests {
         assert_eq!(reloaded.prefs["enabledPlugins"], json!(["local-plugin"]));
         assert_eq!(reloaded.prefs["pluginBindings"], json!({"local-plugin": "C:/p/local.dll|hash"}));
 
+        // sign-out forgets only the trusted senders, on the live settings and in the file
+        let live = std::sync::Arc::new(std::sync::Mutex::new(Settings { schema: schema(), prefs: Default::default() }));
+        live.lock().unwrap().remember("trustedSenders", json!(["a@x.test"]));
+        live.lock().unwrap().remember("externalContentPolicy", json!("block"));
+        register_live(live.clone());
+        forget_trusted_senders();
+        assert_eq!(live.lock().unwrap().prefs, json!({"externalContentPolicy": "block"}).as_object().unwrap().clone());
+        // a later save from the live settings does not bring the list back
+        live.lock().unwrap().remember("theme", json!("dark"));
+        let on_disk = Settings::load();
+        assert!(on_disk.prefs.get("trustedSenders").is_none());
+        assert_eq!(on_disk.str("externalContentPolicy", ""), "block");
+        assert_eq!(on_disk.str("theme", ""), "dark");
+        if let Ok(mut l) = LIVE.lock() { *l = None; }
+
         s.reset();
         assert!(s.prefs.is_empty());
         assert!(!crate::config_dir().join("settings.json").exists());
@@ -670,6 +699,37 @@ pub fn h12() -> bool {
         .and_then(|t| serde_json::from_str::<Value>(&t).ok())
         .map(|v| v["timeFormat"].as_str() == Some("12h"))
         .unwrap_or(false)
+}
+
+/// The running program's settings (the one object every settings change goes through), so a change
+/// made from another thread can be made on it instead of on the file.
+static LIVE: std::sync::Mutex<Option<std::sync::Arc<std::sync::Mutex<Settings>>>> = std::sync::Mutex::new(None);
+
+/// Called once at start with the program's settings.
+pub fn register_live(s: std::sync::Arc<std::sync::Mutex<Settings>>) {
+    if let Ok(mut l) = LIVE.lock() { *l = Some(s); }
+}
+
+/// Remove the trusted senders from `prefs`; whether there were any.
+fn drop_trusted(prefs: &mut Map<String, Value>) -> bool {
+    prefs.remove(crate::trust::TRUSTED_KEY).is_some()
+}
+
+/// Sign-out of the last account: forget the trusted senders, keep every other preference. Done on
+/// the live settings and saved through them (the writer's lock and sequence), so the program's
+/// next save cannot bring the list back; without live settings (not started) on a fresh load.
+pub fn forget_trusted_senders() {
+    let live = LIVE.lock().ok().and_then(|l| l.clone());
+    match live {
+        Some(s) => {
+            let mut s = s.lock().unwrap_or_else(|e| e.into_inner());
+            if drop_trusted(&mut s.prefs) { s.save(); }
+        }
+        None => {
+            let mut s = Settings::load();
+            if drop_trusted(&mut s.prefs) { s.save(); }
+        }
+    }
 }
 
 /// Write one Bulwark-keyed pref (a value with no settings row, such as sharedCalendarColors).
