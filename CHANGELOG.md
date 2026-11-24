@@ -9,6 +9,8 @@ example "## 0.1.0 — 2026-12-01", and start a new "Unreleased" above it.
 
 - Templates: Settings > Composing can now edit an existing template (name, category, subject, body, default To/Cc/Bcc, favourite) and make its body rich text (HTML, cleaned by the same sanitiser as incoming mail). Inserting a template that has {{placeholders}} opens a dialog first, pre-filled with today's date, your name and any {{name:default}} defaults, with an "Insert as written" choice; the composer's Templates menu also has "Save as template..." for the current draft. Templates are stored exactly as Bulwark stores them (your Inbox's metadata, one entry per template, 8 KB at most each), so both apps see the same ones; a server without metadata keeps showing none.
 
+- Templates: editing a template no longer flattens its rich body or overwrites a newer change made in Bulwark, inserting one into a reply or forward keeps the recipients, and the HTML switch converts the body.
+
 ## 0.2.0 — 2026-11-24
 
 - Plugins: API v2 decisions recorded in PLUGINS.md (for plugin authors, nothing changes in the app yet): web access to a private, loopback or LAN host needs that exact host named in the manifest and the user's separate consent (https only, never a wildcard); API 1 plugins keep loading until 1.0; a slow pre-send check shows a pending state and can be cancelled without skipping it; Barbican's own host calls, `crypto:full` and the package layout are kept, phone-layout hooks and WebAuthn stay out.

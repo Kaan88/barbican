@@ -1894,10 +1894,10 @@ fn main() -> Result<(), slint::PlatformError> {
     // templates in the composer
     let (w, st) = (ui.as_weak(), state.clone());
     ui.on_tpl_refresh(move || {
-        let Some(c) = st.lock().unwrap().clone() else { return };
+        let Some(c) = compose_client(&st) else { return };
         let w = w.clone();
         std::thread::spawn(move || {
-            let list = templates::list(&c).unwrap_or_default();
+            let list = match templates::list(&c) { Ok(l) => l, Err(e) => { let _ = w.upgrade_in_event_loop(move |u| u.set_c_status(format!("Could not load templates: {e}").into())); return; } };
             let _ = w.upgrade_in_event_loop(move |u| {
                 TEMPLATES.with(|t| *t.borrow_mut() = list.clone());
                 let mut names: Vec<slint::SharedString> = vec!["Insert template…".into()];

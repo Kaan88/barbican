@@ -12,6 +12,9 @@ struct Pending {
     template: Value,
     names: Vec<String>,
     values: HashMap<String, String>,
+    /// The values the dialog opened with, and whether discarding changes was already asked about.
+    initial: HashMap<String, String>,
+    asked: bool,
 }
 
 thread_local! {
@@ -56,9 +59,14 @@ fn apply(u: &AppWindow, t: &Value, values: &HashMap<String, String>) {
     rte::insert_blocks(u, blocks);
     let addrs = |k: &str| t["defaultRecipients"][k].as_array().map(|a| a.iter().filter_map(|x| x.as_str()).collect::<Vec<_>>().join(", ")).unwrap_or_default();
     let (to, cc, bcc) = (addrs("to"), addrs("cc"), addrs("bcc"));
-    if !to.is_empty() { u.set_c_to(to.into()); }
-    if !cc.is_empty() { u.set_c_cc(cc.into()); u.set_c_show_ccbcc(true); u.set_c_show_cc(true); }
-    if !bcc.is_empty() { u.set_c_bcc(bcc.into()); u.set_c_show_ccbcc(true); u.set_c_show_bcc(true); }
+    // a reply or forward keeps the people it is addressed to (email-composer.tsx handleTemplateSelect)
+    if crate::compose::is_new_message() {
+        if !to.is_empty() { u.set_c_to(to.into()); }
+        if !cc.is_empty() { u.set_c_cc(cc.into()); u.set_c_show_ccbcc(true); u.set_c_show_cc(true); }
+        if !bcc.is_empty() { u.set_c_bcc(bcc.into()); u.set_c_show_ccbcc(true); u.set_c_show_bcc(true); }
+    }
+    // the sending identity, when the composing account has it
+    if let Some(i) = t["identityId"].as_str().and_then(crate::compose::identity_position) { u.set_c_from_index(i as i32); }
 }
 
 /// The picker chose a template: straight in when it has no placeholders, else the dialog.
@@ -80,7 +88,8 @@ pub fn insert(u: &AppWindow, t: Value) {
     x.set_tpl_fill_name(t["name"].as_str().unwrap_or("").into());
     x.set_tpl_preview(preview(&t, &values).into());
     x.set_tpl_fields(ModelRc::new(VecModel::from(rows)));
-    PENDING.with(|p| *p.borrow_mut() = Some(Pending { template: t, names, values }));
+    PENDING.with(|p| *p.borrow_mut() = Some(Pending { template: t, names, initial: values.clone(), values, asked: false }));
+    x.set_tpl_fill_warn("".into());
     x.set_tpl_fill_open(true);
 }
 
@@ -100,19 +109,25 @@ fn open_save(u: &AppWindow) {
 
 /// The draft as the template stores it: the composer's HTML (through the sanitiser), or its text
 /// when the draft is plain. Recipients are not kept (Bulwark's quick save leaves them out).
-fn draft_fields(u: &AppWindow, name: &str) -> templates::Fields {
+/// Inline (cid) images are left out, as they cannot live in an 8 KB entry: the flag says some were.
+fn draft_fields(u: &AppWindow, name: &str) -> (templates::Fields, bool) {
     let html = !u.get_c_plain();
-    templates::Fields {
-        name: name.to_string(), subject: u.get_c_subject().to_string(),
-        body: if html { rte::to_html() } else { rte::to_text() }, html, ..Default::default()
-    }
+    let mut dropped = false;
+    let body = if html {
+        let mut d = rte::doc();
+        let before = d.blocks.len();
+        d.blocks.retain(|b| !matches!(&b.kind, rte::model::Kind::Image(i) if i.cid.is_some()));
+        dropped = d.blocks.len() != before;
+        rte::html::export(&d)
+    } else { rte::to_text() };
+    (templates::Fields { name: name.to_string(), subject: u.get_c_subject().to_string(), body, html, ..Default::default() }, dropped)
 }
 
 fn save_draft(u: &AppWindow, st: &Shared) {
     let x = u.global::<CompX>();
     let name = x.get_tpl_save_name().to_string();
     if let Some(e) = templates::validate_name(&name) { x.set_tpl_save_error(e.into()); return; }
-    let f = draft_fields(u, &name);
+    let (f, dropped) = draft_fields(u, &name);
     if let Err(e) = templates::build(None, &f, "1970-01-01T00:00:00.000Z", || "x".into()) { x.set_tpl_save_error(e.into()); return; }
     let Some(c) = crate::compose_client(st) else { x.set_tpl_save_error("Not signed in.".into()); return };
     if !templates::supported(&c) {
@@ -124,7 +139,7 @@ fn save_draft(u: &AppWindow, st: &Shared) {
     let w = u.as_weak();
     std::thread::spawn(move || {
         let r = templates::save(&c, None, &f);
-        let _ = w.upgrade_in_event_loop(move |u| u.set_c_status(match r { Ok(()) => "Saved as template".into(), Err(e) => format!("Template not saved: {e}").into() }));
+        let _ = w.upgrade_in_event_loop(move |u| u.set_c_status(match r { Ok(()) if dropped => "Saved as template (images are not saved in templates)".into(), Ok(()) => "Saved as template".into(), Err(e) => format!("Template not saved: {e}").into() }));
     });
 }
 
@@ -150,7 +165,13 @@ pub fn wire(ui: &AppWindow, st: Shared) {
         apply(&u, &p.template, &if with_values { p.values } else { HashMap::new() });
     });
     let w = ui.as_weak();
-    x.on_tpl_fill_cancel(move || { if let Some(u) = w.upgrade() { close_fill(&u); } });
+    x.on_tpl_fill_cancel(move || {
+        let Some(u) = w.upgrade() else { return };
+        // typed values are not thrown away by one click on the backdrop or Escape
+        let changed = PENDING.with(|p| p.borrow_mut().as_mut().is_some_and(|p| { let c = p.values != p.initial && !p.asked; p.asked = true; c }));
+        if changed { u.global::<CompX>().set_tpl_fill_warn("Click outside or press Escape again to discard what you typed.".into()); return; }
+        close_fill(&u);
+    });
     let w = ui.as_weak();
     x.on_tpl_save_open_compose(move || { if let Some(u) = w.upgrade() { open_save(&u); } });
     let w = ui.as_weak();

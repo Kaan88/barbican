@@ -18,6 +18,7 @@ struct State {
     in_reply_to: Vec<String>,
     references: Vec<String>,
     identities: Vec<String>,
+    identity_ids: Vec<String>,
     /// (text, html) signature per identity.
     signatures: Vec<(String, String)>,
     kind_new: bool,
@@ -298,7 +299,7 @@ fn apply_identities(u: &AppWindow, c: &Client, ids: &[Value], reply: &ReplyFrom)
     }).collect();
     // the From and signature the composer starts with are no edit of the user's
     let unedited = crate::autosave::unedited(u);
-    ST.with(|s| { let mut s = s.borrow_mut(); s.identities = list.clone(); s.signatures = sigs; });
+    ST.with(|s| { let mut s = s.borrow_mut(); s.identities = list.clone(); s.identity_ids = ids.iter().map(|i| i["id"].as_str().unwrap_or("").to_string()).collect(); s.signatures = sigs; });
     let model: Vec<SharedString> = list.iter().map(|x| x.as_str().into()).collect();
     crate::listsync::sync_into(&u.get_c_identities(), model, |r| r.to_string(), |a, b| a == b, |m| u.set_c_identities(m));
     // default to the identity of the signed-in address, as Bulwark does
@@ -1580,3 +1581,9 @@ mod gate_tests {
         assert_eq!(b, f(&|_| {}));
     }
 }
+
+/// The open composer is a new message (not a reply or forward).
+pub fn is_new_message() -> bool { ST.with(|s| s.borrow().kind_new) }
+
+/// Position of identity `id` in the composing account's From list.
+pub fn identity_position(id: &str) -> Option<usize> { ST.with(|s| s.borrow().identity_ids.iter().position(|x| x == id)) }

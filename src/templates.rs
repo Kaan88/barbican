@@ -42,7 +42,7 @@ fn scan(text: &str, html: bool) -> Vec<Hit> {
     while i + 1 < b.len() {
         if b[i].1 != '{' || b[i + 1].1 != '{' { i += 1; continue; }
         let mut j = i + 2;
-        while j < b.len() && (b[j].1.is_alphanumeric() || b[j].1 == '_') { j += 1; }
+        while j < b.len() && (b[j].1.is_ascii_alphanumeric() || b[j].1 == '_') { j += 1; }
         if j == i + 2 { i += 1; continue; }
         let name: String = b[i + 2..j].iter().map(|x| x.1).collect();
         let mut def = None;
@@ -74,6 +74,11 @@ pub fn template_placeholders(subject: &str, body: &str, html: bool) -> Vec<Strin
     v
 }
 
+/// Bulwark escapeHtml (email-sanitization.ts): `& < > " '`.
+fn esc_html(s: &str) -> String {
+    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;").replace('\'', "&#39;")
+}
+
 /// Fill in placeholders; a name without a value stays as written. Values are text: escaped in an
 /// HTML body, as typed otherwise (substitutePlaceholders).
 pub fn substitute(text: &str, values: &HashMap<String, String>, html: bool) -> String {
@@ -82,7 +87,7 @@ pub fn substitute(text: &str, values: &HashMap<String, String>, html: bool) -> S
     for (r, name, _) in scan(text, html) {
         out.push_str(&text[at..r.start]);
         match values.get(&name) {
-            Some(v) if html => out.push_str(&crate::esc(v)),
+            Some(v) if html => out.push_str(&esc_html(v)),
             Some(v) => out.push_str(v),
             None => out.push_str(&text[r.clone()]),
         }
@@ -135,7 +140,22 @@ pub fn validate_name(name: &str) -> Option<&'static str> {
 /// show: text, lists, links, images, quotes), the same step that inserting it would take.
 pub fn clean_html(html: &str) -> String {
     let first = crate::mailview::sanitize_mail_html_opts(html, false);
-    crate::rte::html::export(&crate::rte::model::Doc { blocks: crate::rte::html::import(&first) })
+    let mut blocks = crate::rte::html::import(&first);
+    for b in &mut blocks {
+        for r in &mut b.runs {
+            if r.marks.link.as_deref().is_some_and(|l| !safe_link(l)) { r.marks.link = None; }
+        }
+    }
+    crate::rte::html::export(&crate::rte::model::Doc { blocks })
+}
+
+/// A link a template may keep: no scheme (relative), or http, https, mailto, tel or cid.
+fn safe_link(href: &str) -> bool {
+    let h: String = href.chars().filter(|c| !c.is_control() && !c.is_whitespace()).collect::<String>().to_ascii_lowercase();
+    match h.find([':', '/', '?', '#']) {
+        Some(i) if h.as_bytes()[i] == b':' => ["http", "https", "mailto", "tel", "cid"].contains(&&h[..i]),
+        _ => true,
+    }
 }
 
 /// The size Stalwart counts: the value's JSON in UTF-8 (metadataValueBytes).
@@ -179,6 +199,8 @@ pub fn parse_template(v: &Value, id: &str) -> Option<Value> {
         t["defaultRecipients"] = Value::Object(m);
     }
     if let Some(i) = get("identityId").as_str() { t["identityId"] = json!(i); }
+    // the body as stored: an edit that leaves it alone writes it back as it was
+    if html { t["rawBody"] = json!(text(get("body"))); }
     Some(t)
 }
 
@@ -199,12 +221,31 @@ pub struct Fields {
 /// Comma separated addresses as the editor shows them.
 pub fn split_addrs(s: &str) -> Vec<String> { s.split(',').map(|x| x.trim().to_string()).filter(|x| !x.is_empty()).collect() }
 
+/// The editor's fields for a template as loaded: the body as stored (not the cleaned copy).
+pub fn fields_of(t: &Value) -> Fields {
+    let list = |k: &str| t["defaultRecipients"][k].as_array().map(|a| a.iter().filter_map(|s| s.as_str().map(String::from)).collect()).unwrap_or_default();
+    Fields {
+        name: t["name"].as_str().unwrap_or("").into(), subject: t["subject"].as_str().unwrap_or("").into(),
+        body: t.get("rawBody").or(t.get("body")).and_then(|b| b.as_str()).unwrap_or("").into(), html: t["isHTML"] == true,
+        category: t["category"].as_str().unwrap_or("").into(), to: list("to"), cc: list("cc"), bcc: list("bcc"), favorite: t["isFavorite"] == true,
+    }
+}
+
 /// The stored template for `f`: new (`old` is None: a fresh id and `createdAt`) or edited (id,
 /// `createdAt` and sending identity kept, `updatedAt` now). An HTML body goes through the mail
 /// sanitiser first. Errors on a bad name or a template over the 8 KB entry limit.
 pub fn build(old: Option<&Value>, f: &Fields, now: &str, new_id: impl FnOnce() -> String) -> Result<Value, String> {
     if let Some(e) = validate_name(&f.name) { return Err(e.into()); }
-    let body = if f.html { clean_html(&f.body) } else { f.body.clone() };
+    // a body the user did not touch (same text, same format as stored) goes back verbatim: the
+    // cleaned copy is for inserting and would flatten what another Bulwark device wrote
+    let unchanged = old.is_some_and(|o| (o["isHTML"] == true) == f.html && o.get("rawBody").or(o.get("body")).and_then(|b| b.as_str()) == Some(f.body.as_str()));
+    let body = if unchanged || !f.html { f.body.clone() } else { clean_html(&f.body) };
+    // never older than the version being replaced, so other devices take the edit
+    let now = match old.and_then(|o| o["updatedAt"].as_str()).and_then(|u| chrono::DateTime::parse_from_rfc3339(u).ok()).zip(chrono::DateTime::parse_from_rfc3339(now).ok()) {
+        Some((prev, n)) if n <= prev => (prev + chrono::Duration::milliseconds(1)).with_timezone(&chrono::Utc).to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+        _ => now.to_string(),
+    };
+    let now = now.as_str();
     let mut t = json!({
         "id": old.and_then(|o| o["id"].as_str()).map(String::from).unwrap_or_else(new_id),
         "name": f.name.trim(), "subject": f.subject, "body": body, "isHTML": f.html,
@@ -232,20 +273,36 @@ pub fn valid_key(key: &str) -> bool {
 }
 
 /// A tombstone hides a template unless it was edited after the deletion (planPersonalSync).
-fn hidden(t: &Value, deleted: &Map<String, Value>) -> bool {
+/// A tombstone with a bad date, or older than 90 days, counts for nothing (template-merge.ts).
+fn hidden(t: &Value, deleted: &Map<String, Value>, now: chrono::DateTime<chrono::Utc>) -> bool {
     let Some(at) = deleted.get(t["id"].as_str().unwrap_or("")).and_then(|d| d.as_str()) else { return false };
-    match (chrono::DateTime::parse_from_rfc3339(at), chrono::DateTime::parse_from_rfc3339(t["updatedAt"].as_str().unwrap_or(UNKNOWN_TIME))) {
-        (Ok(a), Ok(u)) => u <= a,
-        _ => true,
-    }
+    let Ok(a) = chrono::DateTime::parse_from_rfc3339(at) else { return false };
+    if a < now - chrono::Duration::days(90) { return false; }
+    chrono::DateTime::parse_from_rfc3339(t["updatedAt"].as_str().unwrap_or(UNKNOWN_TIME)).map_or(true, |u| u <= a)
 }
 
 /// The templates in an Inbox's metadata object, tombstones applied, sorted by name.
-pub fn from_metadata(meta: &Value) -> Vec<Value> {
+pub fn from_metadata(meta: &Value) -> Vec<Value> { from_metadata_at(meta, chrono::Utc::now()) }
+
+/// Whether the server's copy of the template `old` is still the one `old` was read from: the
+/// entry exists with the same `updatedAt` and no newer tombstone covers it.
+pub fn check_fresh(old: &Value, meta: &Value) -> Result<(), String> {
+    const MSG: &str = "This template was changed elsewhere; reload and try again.";
+    let id = old["id"].as_str().unwrap_or("");
+    let entry = &meta[format!("{NS}.template.{id}")];
+    if !entry.is_object() || entry["updatedAt"].as_str().unwrap_or(UNKNOWN_TIME) != old["updatedAt"].as_str().unwrap_or(UNKNOWN_TIME) { return Err(MSG.into()); }
+    if let Some(at) = meta[format!("{NS}.templates")]["deleted"][id].as_str() {
+        let (a, u) = (chrono::DateTime::parse_from_rfc3339(at), chrono::DateTime::parse_from_rfc3339(old["updatedAt"].as_str().unwrap_or(UNKNOWN_TIME)));
+        if let (Ok(a), Ok(u)) = (a, u) { if a > u { return Err(MSG.into()); } }
+    }
+    Ok(())
+}
+
+pub fn from_metadata_at(meta: &Value, now: chrono::DateTime<chrono::Utc>) -> Vec<Value> {
     let deleted = meta[format!("{NS}.templates")]["deleted"].as_object().cloned().unwrap_or_default();
     let mut out: Vec<Value> = meta.as_object().map(|o| o.iter()
         .filter_map(|(k, v)| k.strip_prefix(&format!("{NS}.template.")).and_then(|tid| parse_template(v, tid)))
-        .filter(|t| !hidden(t, &deleted)).collect()).unwrap_or_default();
+        .filter(|t| !hidden(t, &deleted, now)).collect()).unwrap_or_default();
     out.sort_by_key(|t| t["name"].as_str().unwrap_or("").to_lowercase());
     out
 }
@@ -286,8 +343,22 @@ pub fn save(c: &Client, old: Option<&Value>, f: &Fields) -> Result<(), String> {
     let id = t["id"].as_str().unwrap_or("").to_string();
     if !valid_key(&format!("template.{id}")) { return Err("This template's id cannot be a metadata key.".into()); }
     let inbox = inbox(c)?;
-    let (_, bad) = c.update("Mailbox/set", &c.account, vec![(inbox, json!({ format!("metadata/{NS}.template.{id}"): t }))])?;
-    if bad.is_empty() { Ok(()) } else { Err(bad.join("; ")) }
+    let Some(old) = old else {
+        let (_, bad) = c.update("Mailbox/set", &c.account, vec![(inbox, json!({ format!("metadata/{NS}.template.{id}"): t }))])?;
+        return if bad.is_empty() { Ok(()) } else { Err(bad.join("; ")) };
+    };
+    // an edit: the server's copy must still be the one this edit started from, and the write
+    // carries the state that was checked (ifInState), so a Bulwark edit in between is not lost
+    let r = c.call(json!([["Mailbox/get", {"accountId": c.account, "ids": [inbox.clone()], "properties": ["metadata"]}, "m"]]))?;
+    check_fresh(old, &r[0][1]["list"][0]["metadata"])?;
+    let mut args = json!({"accountId": c.account, "update": { inbox.clone(): { format!("metadata/{NS}.template.{id}"): t }}});
+    if r[0][1]["state"].is_string() { args["ifInState"] = r[0][1]["state"].clone(); }
+    let r = c.request(json!([["Mailbox/set", args, "s"]]))?;
+    if r[0][0] == "error" {
+        if r[0][1]["type"] == "stateMismatch" { return Err("This template was changed elsewhere; reload and try again.".into()); }
+        return Err(crate::jmap::method_error(&r[0][1]));
+    }
+    match r[0][1]["notUpdated"].get(&inbox) { Some(err) => Err(crate::jmap::set_error(err)), None => Ok(()) }
 }
 
 /// Delete: remove the entry and record a tombstone so other Bulwark devices drop it too.
@@ -420,7 +491,7 @@ mod tests {
             "org.bulwarkmail.tags": {"x": 1},
             "org.other.template.z": {"name": "Z"},
         });
-        let names: Vec<String> = from_metadata(&meta).iter().map(|t| t["name"].as_str().unwrap().to_string()).collect();
+        let names: Vec<String> = from_metadata_at(&meta, chrono::Utc.with_ymd_and_hms(2026, 3, 10, 0, 0, 0).unwrap()).iter().map(|t| t["name"].as_str().unwrap().to_string()).collect();
         assert_eq!(names, vec!["alpha", "Back", "Beta"]);
         assert!(from_metadata(&Value::Null).is_empty());
     }
@@ -463,6 +534,75 @@ mod tests {
         assert!(!valid_key("template.-x"));
         assert!(!valid_key("template.a b"));
         assert!(!valid_key(&format!("template.{}", "a".repeat(120))));
+    }
+
+    #[test]
+    fn a_rename_keeps_a_rich_body_the_cleaner_would_change() {
+        let raw = "<table><tr><td>Hi {{n}}</td></tr></table><p>x</p>";
+        assert_ne!(clean_html(raw), raw);
+        let stored = json!({"name": "T", "body": raw, "isHTML": true, "updatedAt": "2026-05-01T00:00:00.000Z", "createdAt": "2026-05-01T00:00:00.000Z"});
+        let old = parse_template(&stored, "id1").unwrap();
+        assert_eq!(old["rawBody"], raw);
+        // the form is filled from rawBody; a rename-only save writes it back as it was
+        let f = Fields { name: "Renamed".into(), body: old["rawBody"].as_str().unwrap().into(), html: true, ..Default::default() };
+        let e = build(Some(&old), &f, "2026-06-01T00:00:00.000Z", || unreachable!()).unwrap();
+        assert_eq!(e["body"], raw);
+        assert!(e.get("rawBody").is_none());
+        // a changed body is cleaned; switching the format is a change too
+        let f2 = Fields { body: format!("{raw}<script>1</script>"), ..f.clone() };
+        assert!(!build(Some(&old), &f2, "2026-06-01T00:00:00.000Z", || unreachable!()).unwrap()["body"].as_str().unwrap().contains("script"));
+        let f3 = Fields { html: false, ..f };
+        assert_eq!(build(Some(&old), &f3, "2026-06-01T00:00:00.000Z", || unreachable!()).unwrap()["body"], raw);
+    }
+
+    #[test]
+    fn an_edit_is_never_older_than_what_it_replaces() {
+        let old = json!({"id": "i", "createdAt": "2026-05-01T00:00:00.000Z", "updatedAt": "2026-07-01T00:00:00.000Z"});
+        let f = Fields { name: "N".into(), ..Default::default() };
+        let e = build(Some(&old), &f, "2026-06-01T00:00:00.000Z", || unreachable!()).unwrap();
+        assert_eq!(e["updatedAt"], "2026-07-01T00:00:00.001Z");
+    }
+
+    #[test]
+    fn a_stale_save_is_refused() {
+        let old = json!({"id": "i", "updatedAt": "2026-05-01T00:00:00.000Z"});
+        let meta = |u: &str| json!({"org.bulwarkmail.template.i": {"name": "N", "updatedAt": u}});
+        assert!(check_fresh(&old, &meta("2026-05-01T00:00:00.000Z")).is_ok());
+        assert!(check_fresh(&old, &meta("2026-05-02T00:00:00.000Z")).unwrap_err().contains("changed elsewhere"));
+        assert!(check_fresh(&old, &json!({})).is_err());
+        let mut gone = meta("2026-05-01T00:00:00.000Z");
+        gone["org.bulwarkmail.templates"] = json!({"deleted": {"i": "2026-05-03T00:00:00.000Z"}});
+        assert!(check_fresh(&old, &gone).is_err());
+        // a tombstone older than the edit does not block it
+        gone["org.bulwarkmail.templates"] = json!({"deleted": {"i": "2026-04-03T00:00:00.000Z"}});
+        assert!(check_fresh(&old, &gone).is_ok());
+    }
+
+    #[test]
+    fn tombstones_with_a_bad_date_or_older_than_90_days_count_for_nothing() {
+        let now = chrono::Utc.with_ymd_and_hms(2026, 6, 1, 0, 0, 0).unwrap();
+        let meta = json!({
+            "org.bulwarkmail.template.a": {"name": "A", "updatedAt": "2026-01-01T00:00:00.000Z"},
+            "org.bulwarkmail.template.b": {"name": "B", "updatedAt": "2026-01-01T00:00:00.000Z"},
+            "org.bulwarkmail.template.c": {"name": "C", "updatedAt": "2026-01-01T00:00:00.000Z"},
+            "org.bulwarkmail.templates": {"deleted": {"a": "not a date", "b": "2026-01-02T00:00:00.000Z", "c": "2026-05-20T00:00:00.000Z"}},
+        });
+        let names: Vec<String> = from_metadata_at(&meta, now).iter().map(|t| t["name"].as_str().unwrap().to_string()).collect();
+        assert_eq!(names, vec!["A", "B"]);
+    }
+
+    #[test]
+    fn names_are_ascii_and_html_values_escape_quotes() {
+        assert_eq!(extract_placeholders("{{naïve}} {{ok_1}}", false), vec!["ok_1"]);
+        assert_eq!(substitute("<a title=\"{{t}}\">", &vals(&[("t", "a\"b'c")]), true), "<a title=\"a&quot;b&#39;c\">");
+    }
+
+    #[test]
+    fn links_keep_only_safe_schemes() {
+        for ok in ["https://a.test", "HTTP://a.test", "mailto:a@example.test", "tel:+1", "cid:x", "/rel", "page.html?a=b:c", "#x"] { assert!(safe_link(ok), "{ok}"); }
+        for bad in ["javascript:alert(1)", " JaVa\tScript:x", "data:text/html,x", "vbscript:x", "file:///c"] { assert!(!safe_link(bad), "{bad}"); }
+        let c = clean_html("<p><a href=\"javascript:alert(1)\">x</a> <a href=\"https://a.test\">y</a></p>");
+        assert!(!c.contains("javascript") && c.contains("https://a.test"));
     }
 
     #[test]

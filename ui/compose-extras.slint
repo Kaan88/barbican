@@ -26,6 +26,7 @@ export global CompX {
     callback tpl-fill-edit(int, string);
     // true: insert with the values, false: insert as written
     callback tpl-fill-confirm(bool);
+    in-out property <string> tpl-fill-warn;
     callback tpl-fill-cancel();
     // save the draft as a template (Bulwark quick-save-template-dialog.tsx)
     in-out property <bool> tpl-save-open;
@@ -118,7 +119,7 @@ component DialogField inherits Rectangle {
 export component TplFillDialog inherits Rectangle {
     background: CTheme.scrim;
     TouchArea { clicked => { CompX.tpl-fill-cancel(); } }
-    FocusScope {
+    fs := FocusScope {
         capture-key-pressed(e) => {
             if e.text == Key.Escape { CompX.tpl-fill-cancel(); return accept; }
             reject
@@ -162,6 +163,7 @@ export component TplFillDialog inherits Rectangle {
                         }
                     }
                 }
+                if CompX.tpl-fill-warn != "": Text { text: CompX.tpl-fill-warn; color: CTheme.amber-fg; font-size: 12.5px; wrap: word-wrap; }
                 if CompX.tpl-preview != "": VerticalLayout {
                     spacing: 4px;
                     Rectangle { height: 1px; background: CTheme.line; }
@@ -171,12 +173,14 @@ export component TplFillDialog inherits Rectangle {
                 HorizontalLayout {
                     alignment: end;
                     spacing: 8px;
+                    PillButton { text: "Cancel"; clicked => { CompX.tpl-fill-cancel(); } }
                     PillButton { text: "Insert as written"; clicked => { CompX.tpl-fill-confirm(false); } }
                     PillButton { text: "Insert with values"; primary: true; clicked => { CompX.tpl-fill-confirm(true); } }
                 }
             }
         }
     }
+    init => { fs.focus(); }
 }
 
 // Modal: a name for the draft saved as a template.
