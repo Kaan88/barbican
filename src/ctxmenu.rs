@@ -560,7 +560,11 @@ fn folder_items(u: &AppWindow, id: &str) -> Vec<CtxItem> {
         off(it(G_RENAME, "Rename", "", "rename"), role.is_empty()),
         // Bulwark mail import: .eml and .mbox files into this folder (Email/import)
         it(G_UPLOAD, "Import messages (.eml, .mbox)…", "", "import"),
+        // Bulwark mail export: the folder as .mbox or as .eml files
+        it(G_DOWNLOAD, "Export folder as .mbox…", "", "export-mbox"),
+        it(G_DOWNLOAD, "Export folder as .eml files…", "", "export-eml"),
     ];
+    if crate::mailexport::running() { v.push(it(G_DELETE, "Cancel export", "", "export-cancel")); }
     if role == "trash" || role == "junk" {
         v.push(sep());
         v.push(danger(G_EMPTY, if role == "trash" { "Empty trash" } else { "Empty spam" }, "", "ask:empty"));
@@ -938,6 +942,11 @@ pub fn pick(u: &AppWindow, st: &Shared, action: &str) {
                 "refresh" => u.invoke_refresh(),
                 "new-sub" => prompt(u, "New subfolder", "", "new-sub", id),
                 "import" => crate::mailimport::start(u, c, &fid),
+                "export-mbox" | "export-eml" => {
+                    let name = folder(u, id).map(|f| f.name.to_string()).unwrap_or_default();
+                    crate::mailexport::start(u, c, &fid, &name, action == "export-mbox");
+                }
+                "export-cancel" => crate::mailexport::cancel(),
                 "rename" => prompt(u, "Rename folder", &folder(u, id).map(|f| f.name.to_string()).unwrap_or_default(), "rename-folder", id),
                 "empty" => mailbox_op(u, c, "Folder emptied", move |c| c.empty_mailbox(&fid).map(|n| format!("Deleted {n} messages"))),
                 "delete" => mailbox_op(u, c, "Folder deleted", move |c| c.delete_mailbox(&fid).map(|_| String::new())),

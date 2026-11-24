@@ -8,7 +8,9 @@ mod avatars;
 mod quota;
 mod crashguard;
 mod tags;
+mod mailexport;
 mod mailimport;
+mod tnef;
 mod admin;
 mod dashboard;
 mod automation;
@@ -1916,7 +1918,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let Some(a) = CUR_MSG.with(|x| x.borrow().as_ref().and_then(|(_, atts)| atts.get(i as usize).cloned())) else { return };
         std::thread::spawn(move || {
             let name = sanitize_name(a["name"].as_str().unwrap_or("attachment"));
-            if let Ok(bytes) = c.download(a["blobId"].as_str().unwrap_or(""), &name, a["type"].as_str().unwrap_or("")) {
+            if let Ok(bytes) = tnef::fetch(&c, &a) {
                 let dir = platform::mail_temp_dir();
                 let _ = std::fs::create_dir_all(&dir);
                 let p = dir.join(&name);
@@ -1944,7 +1946,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let Some(path) = rfd::FileDialog::new().set_file_name(&name).save_file() else { return };
         let w = w.clone();
         std::thread::spawn(move || {
-            let res = c.download(a["blobId"].as_str().unwrap_or(""), &name, a["type"].as_str().unwrap_or(""))
+            let res = tnef::fetch(&c, &a)
                 .and_then(|b| std::fs::write(&path, b).map_err(|e| e.to_string()));
             let msg = match res { Ok(()) => format!("Saved {name}"), Err(e) => format!("Could not save: {e}") };
             let _ = w.upgrade_in_event_loop(move |u| mail::show_toast(&u, &msg, false));

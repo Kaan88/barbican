@@ -881,7 +881,8 @@ fn show_parsed(u: &AppWindow, m: &Value) {
         name: a["name"].as_str().unwrap_or("attachment").into(), size: crate::human_size(a["size"].as_u64().unwrap_or(0)).into(), index: i as i32,
     }).collect();
     u.set_attachments(ModelRc::new(VecModel::from(rows)));
-    crate::CUR_MSG.with(|x| *x.borrow_mut() = Some((Arc::new(m.clone()), atts)));
+    crate::CUR_MSG.with(|x| *x.borrow_mut() = Some((Arc::new(m.clone()), atts.clone())));
+    if let Some(c) = ST.with(|s| s.borrow().client.clone()) { crate::tnef::expand(u, c, u.get_current_mail().as_str(), &atts); }
     show_message_body(u, m);
     ST.with(|s| s.borrow_mut().view = View::Eml { subject });
     refresh(u);
@@ -922,7 +923,7 @@ fn download_all(u: &AppWindow, st: &Shared) {
         let names = crate::zip::unique_names(&atts.iter().map(|a| crate::sanitize_name(a["name"].as_str().unwrap_or("attachment"))).collect::<Vec<_>>(), "attachment");
         let mut entries = vec![];
         for (a, name) in atts.iter().zip(names) {
-            if let Ok(data) = c.download(a["blobId"].as_str().unwrap_or(""), &name, a["type"].as_str().unwrap_or("")) {
+            if let Ok(data) = crate::tnef::fetch(&c, a) {
                 entries.push(crate::zip::Entry { name, data });
             }
         }
