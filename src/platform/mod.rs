@@ -119,6 +119,15 @@ pub fn first_instance() -> bool {
     { true }
 }
 
+/// Windows: listen for the installer's quit signal (`Local\Barbican.Quit.<pid>`); `on_signal`
+/// runs on a background thread. Elsewhere nothing.
+pub fn start_quit_listener(on_signal: fn()) {
+    #[cfg(windows)]
+    win::start_quit_listener(on_signal);
+    #[cfg(not(windows))]
+    let _ = on_signal;
+}
+
 /// Whether this is the first Barbican of this profile to start (Windows: decided by the
 /// profile's own mutex, so a second instance of another profile does not count). Elsewhere
 /// always true for now.

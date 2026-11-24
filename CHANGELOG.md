@@ -7,6 +7,8 @@ example "## 0.1.0 — 2026-12-01", and start a new "Unreleased" above it.
 
 ## Unreleased
 
+- Updates through Hub or the installer now close a Barbican that is running in the tray (it saves an open draft first) instead of stopping with "Setup could not close Barbican". The update to this version still needs Barbican to be quit by hand once (tray icon, Quit), because the older version does not listen for the signal.
+
 ## 0.2.0 — 2026-11-24
 
 - Plugins: API v2 decisions recorded in PLUGINS.md (for plugin authors, nothing changes in the app yet): web access to a private, loopback or LAN host needs that exact host named in the manifest and the user's separate consent (https only, never a wildcard); API 1 plugins keep loading until 1.0; a slow pre-send check shows a pending state and can be cancelled without skipping it; Barbican's own host calls, `crypto:full` and the package layout are kept, phone-layout hooks and WebAuthn stay out.
