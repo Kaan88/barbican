@@ -40,12 +40,12 @@ G-038,folders,"Folders: icons and count modes (folderIcons, folderCountModes)",i
 G-039,folders,Folders: pin,organize-settings.tsx,missing,,G-039 (GAPS P1-9),3,S/M
 G-040,folders,Folders: mark the whole tree read,organize-settings.tsx,missing,,G-040 (GAPS P1-9),3,S/M
 G-041,folders,Folders: per-folder notification mute (notificationMutes),folder-settings.tsx,missing,,G-041 (GAPS P1-9),3,S/M
-G-042,folders,Folders: export and import a folder,mail-transfer/,partial,"src/mailexport.rs, src/mailimport.rs, src/ctxmenu.rs; no import target-folder picker / keep folders",G-042 (GAPS P1-9; P1-11),2,S/M
+G-042,folders,Folders: export and import a folder,mail-transfer/,done,"src/mailexport.rs, src/mailimport.rs (keep folders), src/ctxmenu.rs; target = right-clicked folder, no account-root import",G-042 (GAPS P1-9; P1-11),2,S/M
 G-043,sharing,"Sharing folders, calendars and address books with other users (Barbican shares Files only)",layout/mailbox-share-dialog.tsx; share-collection-dialog.tsx,missing,,G-043 (GAPS P1-9),3,M
 G-044,live-updates,"Live updates for calendars, contacts, files and identities: push types cover mail only, and there is no /changes delta for them",EventSource types,missing,,G-044 (GAPS P1-10),3,S/M
 G-045,notifications,ShareNotification and CalendarEventNotification; the notification centre,share-notification-store.ts; calendar-event-notification-store.ts; notifications/notification-center.tsx,missing,,G-045 (GAPS P1-10),3,M
-G-046,mail-transfer,Mail export of a folder to mbox or eml,mail-transfer/,partial,"src/mailexport.rs (mbox, .eml folder); no whole-account export, .eml as folder not .zip",G-046 (GAPS P1-11),2,M
-G-047,mail-transfer,winmail.dat (TNEF) decoding,lib/tnef.ts,partial,src/tnef.rs (attachments); TNEF body not displayed,G-047 (GAPS P1-11),2,M
+G-046,mail-transfer,Mail export of a folder to mbox or eml,mail-transfer/,done,"src/mailexport.rs (folder and all mail; directory tree, not .zip)",G-046 (GAPS P1-11),2,M
+G-047,mail-transfer,winmail.dat (TNEF) decoding,lib/tnef.ts,done,"src/tnef.rs (attachments, body when outer HTML is empty)",G-047 (GAPS P1-11),2,M
 G-048,mail-transfer,"Email/copy: copy a message to another account (Email/copy inside one login, Email/import across logins)","n/a (JMAP Email/copy, Email/import); stores/email-store.ts:5601-5648, lib/jmap/client.ts:12242/:12290",partial,"src/copymsg.rs, src/ctxmenu.rs (copy_to_account); no cross-account move UI",G-048 (GAPS P1-11),2,M
 G-049,reader-safety,Turn links off in a reported phishing message,lib/phishing-links.ts; phishing-mark-banner.tsx,done,"src/phish.rs, src/mailview.rs (links off), src/reader.rs",G-049 (GAPS P1-12),2,M
 G-050,reader-safety,Phishing report,phishing-mark-banner.tsx; phishing-report*,partial,"src/phish.rs (forward or ARF to a Settings address), src/reader.rs; reader menu only, no undo, own account only",G-050 (GAPS P1-12),2,M
