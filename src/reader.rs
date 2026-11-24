@@ -919,7 +919,7 @@ fn download_all(u: &AppWindow, st: &Shared) {
     mail::show_toast(u, &format!("Downloading {} attachments…", atts.len()), false);
     let w = u.as_weak();
     std::thread::spawn(move || {
-        let names = crate::zip::unique_names(&atts.iter().map(|a| crate::sanitize_name(a["name"].as_str().unwrap_or("attachment"))).collect::<Vec<_>>(), "attachment");
+        let names = crate::zip::unique_names(&atts.iter().map(crate::attachments::save_name).collect::<Vec<_>>(), "attachment");
         let mut entries = vec![];
         for (a, name) in atts.iter().zip(names) {
             if let Ok(data) = c.download(a["blobId"].as_str().unwrap_or(""), &name, a["type"].as_str().unwrap_or("")) {
@@ -1084,6 +1084,11 @@ pub fn menu(u: &AppWindow) -> Vec<CtxItem> {
         off(it(G_DOWNLOAD, "Download (.eml)", "rx:eml"), has_blob && !eml_view),
         off(it(G_ZIP, "Download all attachments (.zip)", "rx:zip"), n_atts > 0),
     ];
+    // Bulwark copy_to_account: a copy of the open message in another signed-in account
+    if !eml_view && crate::unified::several_accounts() {
+        v.push(sub(G_FOLDER, "Copy to account", "sub:copy-acct"));
+        crate::ctxmenu::prefetch_for(u, &u.get_current_mail());
+    }
     if let Some(s) = rule_subject(u).filter(|_| !eml_view) {
         v.push(sep());
         v.push(head("Rules"));

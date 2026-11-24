@@ -32,6 +32,7 @@ mod contact_merge;
 mod vcard;
 mod pim;
 mod ctxmenu;
+mod copymsg;
 mod files;
 mod glance;
 mod jmap;
@@ -546,12 +547,7 @@ thread_local! {
     static CUR_MSG: std::cell::RefCell<Option<(Arc<Value>, Vec<Value>)>> = const { std::cell::RefCell::new(None) };
 }
 
-fn sanitize_name(n: &str) -> String {
-    let bad = ['<', '>', ':', '"', '/', '\\', '|', '?', '*'];
-    let s: String = n.chars().map(|c| if bad.contains(&c) || c.is_control() { '_' } else { c }).collect();
-    let s = s.trim().trim_matches('.').to_string();
-    if s.is_empty() { "attachment".into() } else { s }
-}
+fn sanitize_name(n: &str) -> String { attachments::safe_file_name(n) }
 
 static SESSION_GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
@@ -1915,7 +1911,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let Some(c) = reader_client(&st) else { return };
         let Some(a) = CUR_MSG.with(|x| x.borrow().as_ref().and_then(|(_, atts)| atts.get(i as usize).cloned())) else { return };
         std::thread::spawn(move || {
-            let name = sanitize_name(a["name"].as_str().unwrap_or("attachment"));
+            let name = attachments::save_name(&a);
             if let Ok(bytes) = c.download(a["blobId"].as_str().unwrap_or(""), &name, a["type"].as_str().unwrap_or("")) {
                 let dir = platform::mail_temp_dir();
                 let _ = std::fs::create_dir_all(&dir);
@@ -1940,7 +1936,7 @@ fn main() -> Result<(), slint::PlatformError> {
     ui.on_save_attachment(move |i| {
         let Some(c) = st.lock().unwrap().clone() else { return };
         let Some(a) = CUR_MSG.with(|x| x.borrow().as_ref().and_then(|(_, atts)| atts.get(i as usize).cloned())) else { return };
-        let name = sanitize_name(a["name"].as_str().unwrap_or("attachment"));
+        let name = attachments::save_name(&a);
         let Some(path) = rfd::FileDialog::new().set_file_name(&name).save_file() else { return };
         let w = w.clone();
         std::thread::spawn(move || {
