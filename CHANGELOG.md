@@ -7,7 +7,7 @@ example "## 0.1.0 — 2026-12-01", and start a new "Unreleased" above it.
 
 ## Unreleased
 
-- Reminders: an event's own reminder set far ahead (for example "2 weeks before" on an event a month away, or a reminder at a fixed date and time) now fires. Before, only events starting within about 8 days (or as far as the calendar's default reminder reaches) were watched, so such a reminder was missed. Barbican now also looks at later events that carry an early reminder, once at start, every half hour and when a calendar changes, without reading the whole calendar every few minutes. Reminders that were already shown or listed as missed stay acknowledged.
+- Reminders: an event's own reminder set far ahead (for example "2 weeks before" on an event a month away, or a reminder at a fixed date and time) now fires. Before, only events starting within about 8 days (or as far as the calendar's default reminder reaches) were watched, so such a reminder was missed. Barbican now also looks at later events that carry an early reminder, once at start, every half hour and when a calendar changes, without reading the whole calendar every few minutes. A shared calendar that cannot be read no longer hides your own far reminders or makes Barbican scan again every few minutes. Reminders that were already shown or listed as missed stay acknowledged.
 
 ## 0.1.1 — 2026-11-24
 

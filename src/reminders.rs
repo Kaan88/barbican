@@ -83,6 +83,57 @@ pub fn merge_events(window: Vec<Value>, far: &[Value]) -> Vec<Value> {
     out
 }
 
+/// How soon a far scan is tried again when an account failed (its last result is kept meanwhile).
+const FAR_FAIL_RETRY_SECS: u64 = 600;
+
+/// The far scan's schedule and results, kept per account: an account that fails keeps its last
+/// far events and is tried again later, it never hides another account's far events, and it never
+/// makes the others scan again every tick.
+#[derive(Default)]
+pub struct FarState {
+    by_account: HashMap<String, Vec<Value>>,
+    /// when the last scan finished (ms), and when the next one is due even without a change
+    scanned_at: Option<i64>,
+    next_at: i64,
+    /// a calendar changed: scan again as soon as the minimum gap allows
+    dirty: bool,
+}
+
+impl FarState {
+    /// Whether a far scan runs now. `force` is a calendar change (push, save); a change inside
+    /// the minimum gap waits (stays dirty) for the next fetch.
+    pub fn due(&mut self, now_ms: i64, force: bool) -> bool {
+        self.dirty |= force;
+        let gap_ok = self.scanned_at.is_none_or(|t| now_ms - t >= FAR_MIN_GAP_SECS as i64 * 1000);
+        let due = self.scanned_at.is_none() || now_ms >= self.next_at || (self.dirty && gap_ok);
+        if due { self.dirty = false; }
+        due
+    }
+
+    /// The scan's outcome per account: `Some` replaces that account's far events, `None` (it
+    /// failed) keeps its last ones. Accounts not listed any more are dropped. The next scan is the
+    /// usual half hour out, or sooner (ten minutes) when an account failed.
+    pub fn apply(&mut self, now_ms: i64, results: Vec<(String, Option<Vec<Value>>)>) {
+        let mut next: HashMap<String, Vec<Value>> = HashMap::new();
+        let mut failed = false;
+        for (acc, far) in results {
+            match far {
+                Some(f) => { next.insert(acc, f); }
+                None => { failed = true; if let Some(old) = self.by_account.remove(&acc) { next.insert(acc, old); } }
+            }
+        }
+        self.by_account = next;
+        self.scanned_at = Some(now_ms);
+        let wait = if failed { FAR_FAIL_RETRY_SECS } else { FAR_REFETCH_SECS };
+        self.next_at = now_ms + wait as i64 * 1000;
+    }
+
+    /// The scan did not run (nothing could be read): try at the next fetch.
+    pub fn failed(&mut self) { self.dirty = true; }
+
+    pub fn events(&self) -> Vec<Value> { self.by_account.values().flatten().cloned().collect() }
+}
+
 /// One editable reminder: an amount and unit before the start, and how it fires.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Row {
@@ -426,10 +477,7 @@ struct Run {
     gen: u64,
     /// events starting beyond the read-ahead window that keep an alert for later (`needs_far`),
     /// from the last far scan; `events` holds them next to the window's
-    far: Vec<Value>,
-    far_at: Option<std::time::Instant>,
-    /// a calendar changed since the far scan was started: scan again at the next fetch
-    far_dirty: bool,
+    far: FarState,
 }
 
 thread_local! {
@@ -468,26 +516,22 @@ pub fn stop() {
 pub fn fetch(w: slint::Weak<AppWindow>, c: Arc<Client>) { fetch_with(w, c, false) }
 
 fn fetch_with(w: slint::Weak<AppWindow>, c: Arc<Client>, force_far: bool) {
+    let now = now_ms();
     let (owner, gen, far_due) = RUN.with(|r| {
         let mut r = r.borrow_mut();
-        let age = r.far_at.map(|t| t.elapsed());
-        // a change asks for a scan, but not more than once a minute (pushes can come in bursts)
-        let asked = (force_far || r.far_dirty) && age.is_none_or(|a| a >= std::time::Duration::from_secs(FAR_MIN_GAP_SECS));
-        let due = asked || age.is_none_or(|a| a >= std::time::Duration::from_secs(FAR_REFETCH_SECS));
-        if due { r.far_dirty = false; } else if force_far { r.far_dirty = true; }
+        let due = r.far.due(now, force_far);
         (r.owner.clone(), r.gen, due)
     });
-    let now = now_ms();
     let from = last_check(&owner).map(|l| l.max(now - MISSED_WINDOW_MS)).unwrap_or(now - STALE_MS) - 86_400_000;
     std::thread::spawn(move || {
         let primary = c.account_for(CAL);
         // the window's events, the calendars, and (when scanned and all accounts answered) the far events
-        type Fetched = (Vec<Value>, Vec<Value>, Option<Vec<Value>>);
+        type Fetched = (Vec<Value>, Vec<Value>, Option<Vec<(String, Option<Vec<Value>>)>>);
         let res: Result<Fetched, String> = (|| {
             let props = json!(["id", "@type", "uid", "title", "start", "duration", "timeZone", "showWithoutTime", "calendarIds", "recurrenceRules",
                 "excludedRecurrenceRules", "recurrenceOverrides", "alerts", "useDefaultAlerts", "status", "due", "progress", "locations", "virtualLocations"]);
             let (mut all_cals, mut all_events) = (vec![], vec![]);
-            let (mut all_far, mut far_ok) = (vec![], far_due);
+            let mut far_results: Vec<(String, Option<Vec<Value>>)> = vec![];
             // every account with calendars: the user's own and the ones shared with them
             for (acc, _, is_primary) in calendar::calendar_accounts(&c) {
                 let one: Result<(), String> = (|| {
@@ -500,43 +544,40 @@ fn fetch_with(w: slint::Weak<AppWindow>, c: Arc<Client>, force_far: bool) {
                     for e in events.iter_mut() { calendar::namespace_event(e, &primary, &acc); }
                     all_cals.extend(cals); all_events.extend(events);
                     if far_due {
-                        // a failed far scan keeps the last one, it never hides the window's reminders
+                        // a failed far scan keeps this account's last one, it never hides the window's reminders
                         let far: Result<Vec<Value>, String> = (|| {
                             let ids = c.query_all("CalendarEvent/query", &acc, far_filter(now, ahead))
                                 .or_else(|_| c.query_all("CalendarEvent/query", &acc, far_filter_bounded(now, ahead, 10)))?;
                             c.get_all("CalendarEvent/get", &acc, &ids, Some(&props))
                         })();
-                        match far {
-                            Ok(mut far) => {
-                                far.retain(|e| needs_far(e, ahead));
-                                for e in far.iter_mut() { calendar::namespace_event(e, &primary, &acc); }
-                                all_far.extend(far);
-                            }
-                            Err(_) => far_ok = false,
-                        }
+                        far_results.push((acc.clone(), far.ok().map(|mut far| {
+                            far.retain(|e| needs_far(e, ahead));
+                            for e in far.iter_mut() { calendar::namespace_event(e, &primary, &acc); }
+                            far
+                        })));
                     }
                     Ok(())
                 })();
                 // a shared account that fails must not hide the user's own reminders
-                if is_primary { one?; } else if one.is_err() { far_ok = false; }
+                if one.is_err() {
+                    // the account could not be read at all: its far events are kept as they were
+                    if far_due && !far_results.iter().any(|(a, _)| *a == acc) { far_results.push((acc.clone(), None)); }
+                    if is_primary { one?; }
+                }
             }
-            Ok((all_cals, all_events, far_ok.then_some(all_far)))
+            Ok((all_cals, all_events, far_due.then_some(far_results)))
         })();
         let _ = w.upgrade_in_event_loop(move |u| {
             if RUN.with(|r| r.borrow().gen) != gen { return; }
             let Ok((cals, events, far)) = res else {
                 // nothing was read: scan again at the next fetch
-                if far_due { RUN.with(|r| r.borrow_mut().far_dirty = true); }
+                if far_due { RUN.with(|r| r.borrow_mut().far.failed()); }
                 return;
             };
             RUN.with(|r| {
                 let mut r = r.borrow_mut();
-                match far {
-                    Some(f) => { r.far = f; r.far_at = Some(std::time::Instant::now()); }
-                    None if far_due => r.far_dirty = true,
-                    None => {}
-                }
-                r.events = merge_events(events, &r.far);
+                if let Some(f) = far { r.far.apply(now_ms(), f); }
+                r.events = merge_events(events, &r.far.events());
                 r.cals = cals;
                 r.fetched = Some(std::time::Instant::now());
             });
@@ -962,4 +1003,75 @@ mod tests {
         let fire = ms("2026-11-25T09:45:00");
         assert_eq!(due_between(&[e], &cals, fire, fire + 1, true).len(), 1);
     }
+
+    // ---- far scan schedule and per-account results ----
+
+    fn far_ev(id: &str) -> Value { json!({"id": id}) }
+    fn ids(s: &FarState) -> Vec<String> { let mut v: Vec<String> = s.events().iter().map(|e| e["id"].as_str().unwrap().to_string()).collect(); v.sort(); v }
+    const MIN: i64 = 60_000;
+
+    #[test]
+    fn far_scan_runs_first_then_every_half_hour() {
+        let mut s = FarState::default();
+        assert!(s.due(0, false));
+        s.apply(0, vec![("a".into(), Some(vec![]))]);
+        // the 5-minute refetches in between do not scan
+        for m in [5, 10, 15, 20, 25, 29] { assert!(!s.due(m * MIN, false), "minute {m}"); }
+        assert!(s.due(30 * MIN, false));
+    }
+
+    #[test]
+    fn far_scan_after_a_change_waits_the_minimum_gap_then_runs_once() {
+        let mut s = FarState::default();
+        assert!(s.due(0, false));
+        s.apply(0, vec![("a".into(), Some(vec![]))]);
+        // a change 30 s after the scan stays pending, the next fetch picks it up
+        assert!(!s.due(30_000, true));
+        assert!(s.due(5 * MIN, false));
+        s.apply(5 * MIN, vec![("a".into(), Some(vec![]))]);
+        // and it is not asked for again
+        assert!(!s.due(10 * MIN, false));
+        // a change long after the scan runs at once
+        assert!(s.due(20 * MIN, true));
+    }
+
+    #[test]
+    fn a_failing_share_keeps_the_own_far_events_and_does_not_rescan_every_tick() {
+        let mut s = FarState::default();
+        assert!(s.due(0, false));
+        // the user's own account answers, the share keeps failing
+        s.apply(0, vec![("own".into(), Some(vec![far_ev("o1")])), ("share".into(), None)]);
+        assert_eq!(ids(&s), ["o1"]);
+        // no scan at the next 5-minute fetch, one at the retry after ten minutes
+        assert!(!s.due(5 * MIN, false));
+        assert!(s.due(10 * MIN, false));
+        s.apply(10 * MIN, vec![("own".into(), Some(vec![far_ev("o1"), far_ev("o2")])), ("share".into(), None)]);
+        assert_eq!(ids(&s), ["o1", "o2"]);
+        assert!(!s.due(15 * MIN, false));
+    }
+
+    #[test]
+    fn a_failed_account_keeps_its_last_far_events_and_a_recovered_one_replaces_them() {
+        let mut s = FarState::default();
+        s.apply(0, vec![("own".into(), Some(vec![far_ev("o1")])), ("share".into(), Some(vec![far_ev("s1")]))]);
+        s.apply(MIN, vec![("own".into(), None), ("share".into(), Some(vec![far_ev("s2")]))]);
+        assert_eq!(ids(&s), ["o1", "s2"]);
+        // an account that is gone (share removed) is dropped, even if it failed
+        s.apply(2 * MIN, vec![("own".into(), Some(vec![]))]);
+        assert!(ids(&s).is_empty());
+    }
+
+    #[test]
+    fn a_scan_that_read_nothing_is_tried_at_the_next_fetch() {
+        let mut s = FarState::default();
+        assert!(s.due(0, false));
+        s.failed();
+        assert!(s.due(5 * MIN, false));
+        s.apply(5 * MIN, vec![("a".into(), Some(vec![]))]);
+        s.failed();
+        // dirty, but only after the minimum gap
+        assert!(!s.due(5 * MIN + 30_000, false));
+        assert!(s.due(7 * MIN, false));
+    }
 }
+
