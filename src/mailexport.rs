@@ -195,6 +195,25 @@ pub fn list_refs(c: &Client, mailbox: &str) -> Result<Vec<MsgRef>, String> {
     })).collect())
 }
 
+/// Makes a new folder `name` (or "name (2)", ...) in `parent`. `create_dir` fails when the name
+/// exists, so a folder that was there before is never reused (and never removed on a cancel).
+pub fn make_dir(parent: &std::path::Path, name: &str) -> std::io::Result<std::path::PathBuf> {
+    let mut last = None;
+    for _ in 0..100 {
+        let p = free_dir(parent, name);
+        match std::fs::create_dir(&p) {
+            Ok(()) => return Ok(p),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => last = Some(e),
+            Err(e) => return Err(e),
+        }
+    }
+    Err(last.unwrap_or_else(|| std::io::Error::other("no free folder name")))
+}
+
+/// Clears `RUNNING` when the export thread ends, however it ends.
+struct RunningGuard;
+impl Drop for RunningGuard { fn drop(&mut self) { RUNNING.store(false, Ordering::Relaxed); } }
+
 static RUNNING: AtomicBool = AtomicBool::new(false);
 static CANCEL: AtomicBool = AtomicBool::new(false);
 
@@ -221,14 +240,19 @@ pub fn start(u: &crate::AppWindow, c: std::sync::Arc<Client>, mailbox: &str, fol
     let target = if mbox {
         crate::automation::save_file(&format!("{}.mbox", safe_name(folder_name, "Folder", 80)), "mbox", &["mbox"])
     } else {
-        rfd::FileDialog::new().set_title("Choose where to put the .eml files").pick_folder().map(|p| free_dir(&p, folder_name))
+        // the folder to make the export folder in; the export folder itself is made in the thread
+        rfd::FileDialog::new().set_title("Choose where to put the .eml files").pick_folder()
     };
     let Some(target) = target else { return };
+    let folder_name = folder_name.to_string();
     RUNNING.store(true, Ordering::Relaxed);
     CANCEL.store(false, Ordering::Relaxed);
     crate::mail::show_toast(u, "Reading the folder…", false);
     let (w, mailbox) = (u.as_weak(), mailbox.to_string());
     std::thread::spawn(move || {
+        // cleared however the thread ends, a panic included
+        let _running = RunningGuard;
+        let mut shown = target.clone();
         let res = (|| -> Result<Outcome, String> {
             let refs = list_refs(&c, &mailbox)?;
             if refs.is_empty() { return Err("The folder has no messages.".into()); }
@@ -243,23 +267,31 @@ pub fn start(u: &crate::AppWindow, c: std::sync::Arc<Client>, mailbox: &str, fol
                 let _ = w2.upgrade_in_event_loop(move |u| u.set_toast(msg.into()));
             };
             if mbox {
-                let file = std::fs::File::create(&target).map_err(|e| format!("Could not create the file: {e}"))?;
+                // written beside the chosen file and moved over it at the end, so a cancel or a
+                // failure never destroys a file the user chose to replace
+                let mut part = target.clone().into_os_string();
+                part.push(".part");
+                let part = std::path::PathBuf::from(part);
+                let file = std::fs::File::create(&part).map_err(|e| format!("Could not create the file: {e}"))?;
                 let mut out = std::io::BufWriter::with_capacity(1 << 20, file);
                 let r = export_mbox(&refs, &mut fetch, &mut out, &CANCEL, &mut progress).and_then(|o| out.flush().map(|_| o).map_err(|e| e.to_string()));
                 drop(out);
-                // a cancelled or failed export leaves no half file behind
-                if !matches!(&r, Ok(o) if !o.cancelled) { let _ = std::fs::remove_file(&target); }
+                match &r {
+                    Ok(o) if !o.cancelled => std::fs::rename(&part, &target).map_err(|e| { let _ = std::fs::remove_file(&part); format!("Could not write the file: {e}") })?,
+                    _ => { let _ = std::fs::remove_file(&part); }
+                }
                 r
             } else {
-                std::fs::create_dir_all(&target).map_err(|e| format!("Could not create the folder: {e}"))?;
-                let r = export_eml(&refs, &mut fetch, &target, &CANCEL, &mut progress);
-                if !matches!(&r, Ok(o) if !o.cancelled) { let _ = std::fs::remove_dir_all(&target); }
+                // only a folder this export made is ever removed again
+                let dir = make_dir(&target, &folder_name).map_err(|e| format!("Could not create the folder: {e}"))?;
+                shown = dir.clone();
+                let r = export_eml(&refs, &mut fetch, &dir, &CANCEL, &mut progress);
+                if !matches!(&r, Ok(o) if !o.cancelled) { let _ = std::fs::remove_dir_all(&dir); }
                 r
             }
         })();
-        RUNNING.store(false, Ordering::Relaxed);
         let msg = match res {
-            Ok(o) => summary(&o, &target.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()),
+            Ok(o) => summary(&o, &shown.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()),
             Err(e) => format!("Could not export: {e}"),
         };
         let _ = w.upgrade_in_event_loop(move |u| crate::mail::show_toast(&u, &msg, false));
@@ -370,6 +402,26 @@ mod tests {
         let _ = std::fs::remove_dir_all(&base);
     }
 
+    #[test]
+    fn make_dir_never_reuses_an_existing_folder() {
+        let base = std::env::temp_dir().join(format!("barbican-export-mk-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(base.join("Inbox")).unwrap();
+        std::fs::write(base.join("Inbox").join("keep.txt"), b"x").unwrap();
+        let made = make_dir(&base, "Inbox").unwrap();
+        assert_eq!(made, base.join("Inbox (2)"));
+        assert!(base.join("Inbox").join("keep.txt").exists());
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn the_running_flag_is_cleared_by_a_panicking_thread() {
+        RUNNING.store(true, Ordering::Relaxed);
+        let h = std::thread::spawn(|| { let _g = RunningGuard; panic!("boom"); });
+        assert!(h.join().is_err());
+        assert!(!running());
+    }
+
     fn msgs() -> Vec<(MsgRef, Vec<u8>)> {
         let mk = |n: usize, kws: &[&str], raw: &[u8]| (MsgRef { blob_id: format!("b{n}"), keywords: kw(kws), received_at: Some(AT.into()), subject: format!("Subject {n}") }, raw.to_vec());
         vec![
@@ -392,10 +444,8 @@ mod tests {
         let items: Vec<Item> = items_of("export.mbox", &out);
         assert_eq!(items.len(), 3);
         for (it, (r, raw)) in items.iter().zip(&list) {
-            // the same message, with the state header the export put in front
-            let text = String::from_utf8(it.bytes.clone()).unwrap();
-            let status_end = text.find("Message-ID").unwrap();
-            assert_eq!(&it.bytes[status_end..], &raw[..], "body of {}", r.subject);
+            // the same bytes: the import drops the state headers the export added
+            assert_eq!(&it.bytes, raw, "bytes of {}", r.subject);
             let mut got = it.keywords.clone();
             got.sort();
             let mut want = r.keywords.clone();
@@ -403,6 +453,19 @@ mod tests {
             assert_eq!(got, want, "keywords of {}", r.subject);
         }
         assert_eq!(items[0].received_at.as_deref(), Some("2020-05-05T10:11:12Z"));
+        // messages 2 and 3 have no Date header: the export's own envelope date is kept
+        assert_eq!(items[1].received_at.as_deref(), Some("2020-05-05T10:11:12Z"));
+        assert_eq!(items[2].received_at.as_deref(), Some("2020-05-05T10:11:12Z"));
+    }
+
+    #[test]
+    fn a_receivedat_that_differs_from_the_date_header_survives() {
+        let r = MsgRef { blob_id: "b".into(), keywords: vec![], received_at: Some("2021-03-04T05:06:07Z".into()), subject: "s".into() };
+        let raw = b"Message-ID: <d@example.test>\nDate: Tue, 05 May 2020 10:11:12 +0000\nSubject: s\n\nb\n".to_vec();
+        let mut fetch = |_: &MsgRef| Ok(raw.clone());
+        let mut out = vec![];
+        export_mbox(&[r], &mut fetch, &mut out, &AtomicBool::new(false), &mut |_, _| {}).unwrap();
+        assert_eq!(items_of("x.mbox", &out)[0].received_at.as_deref(), Some("2021-03-04T05:06:07Z"));
     }
 
     #[test]

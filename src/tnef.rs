@@ -210,6 +210,13 @@ pub fn parse(data: &[u8]) -> Tnef {
 
 // ------------------------------------------------------------------ in the reader
 
+/// The identity of the message the reader shows: its id and blob id (an attached message read
+/// through Email/parse has a blob id of its own and no id).
+pub fn shown_key(m: &Value) -> String { format!("{}|{}", m["id"].as_str().unwrap_or(""), m["blobId"].as_str().unwrap_or("")) }
+
+/// Whether a result computed for the message `then` may still be put on screen.
+fn still_shown(then: &str, now: Option<&str>) -> bool { now == Some(then) }
+
 /// A listed attachment standing for file `index` inside the winmail.dat `parent` (a blob id).
 fn synthetic(parent: &str, index: usize, a: &Attachment) -> Value {
     let name = if a.name.trim().is_empty() { "attachment" } else { a.name.as_str() };
@@ -234,6 +241,9 @@ pub fn fetch(c: &Client, a: &Value) -> Result<Vec<u8>, String> {
 /// (Bulwark hides the chip then). Runs in the background; a message opened meanwhile is left alone.
 pub fn expand(u: &crate::AppWindow, c: std::sync::Arc<Client>, id: &str, atts: &[Value]) {
     use slint::ComponentHandle;
+    // which message these attachments belong to: the outer message and an attached .eml opened
+    // from it share the open mail id, so the identity is the shown message's own id and blob id
+    let Some(shown) = crate::CUR_MSG.with(|x| x.borrow().as_ref().map(|(m, _)| shown_key(m))) else { return };
     let found: Vec<(usize, String)> = atts.iter().enumerate()
         .filter(|(_, a)| a.get("tnef").is_none() && is_tnef(a["name"].as_str().unwrap_or(""), a["type"].as_str().unwrap_or("")))
         .filter(|(_, a)| a["size"].as_u64().unwrap_or(0) as usize <= MAX_PARSE_BYTES)
@@ -255,7 +265,9 @@ pub fn expand(u: &crate::AppWindow, c: std::sync::Arc<Client>, id: &str, atts: &
         if all.is_empty() { return; }
         let list: Vec<Value> = atts.iter().enumerate().filter(|(i, _)| !hide.contains(i)).map(|(_, a)| a.clone()).chain(all).collect();
         let _ = w.upgrade_in_event_loop(move |u| {
-            if u.get_current_mail().as_str() != id { return; }
+            // another message (or the attached one, or the outer one after Back) is shown now
+            let now = crate::CUR_MSG.with(|x| x.borrow().as_ref().map(|(m, _)| shown_key(m)));
+            if !still_shown(&shown, now.as_deref()) { return; }
             let rows: Vec<crate::Att> = list.iter().enumerate().map(|(i, a)| crate::Att {
                 name: a["name"].as_str().unwrap_or("attachment").into(), size: crate::human_size(a["size"].as_u64().unwrap_or(0)).into(), index: i as i32,
             }).collect();
@@ -323,6 +335,21 @@ mod tests {
         assert_eq!(t.attachments.len(), 2);
         assert_eq!(t.attachments[0], Attachment { name: "Quarterly report.txt".into(), mime: "text/plain".into(), data: b"report bytes".to_vec() });
         assert_eq!(t.attachments[1], Attachment { name: "b.bin".into(), mime: "application/octet-stream".into(), data: vec![1, 2, 3] });
+    }
+
+    #[test]
+    fn a_result_is_dropped_when_another_message_is_shown() {
+        let outer = json!({"id": "m1", "blobId": "bo"});
+        let inner = json!({"blobId": "bi"});
+        let other = json!({"id": "m2", "blobId": "bx"});
+        let (k_outer, k_inner) = (shown_key(&outer), shown_key(&inner));
+        assert!(still_shown(&k_outer, Some(&shown_key(&outer))));
+        // the attached .eml is open: the outer message's winmail result must not land on it
+        assert!(!still_shown(&k_outer, Some(&k_inner)));
+        // and the inner message's result must not land on the outer one after Back
+        assert!(!still_shown(&k_inner, Some(&k_outer)));
+        assert!(!still_shown(&k_outer, Some(&shown_key(&other))));
+        assert!(!still_shown(&k_outer, None));
     }
 
     #[test]

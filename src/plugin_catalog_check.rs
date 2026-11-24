@@ -33,7 +33,22 @@ const API_CSV: &str = include_str!("../spec/plugins/host-api.csv");
 
 #[test]
 fn counts() {
-    assert_eq!((HOOKS.len(), SLOTS.len(), HOST_API.len()), (218, 58, 186));
+    assert_eq!((HOOKS.len(), SLOTS.len(), HOST_API.len()), (218, 58, 192));
+}
+
+fn support(s: Support) -> &'static str {
+    match s { Support::Adopt => "adopt", Support::Adapt => "adapt", Support::Skip => "skip" }
+}
+
+/// adopt / adapt / skip per table, pinned like the row counts (spec/plugins/README.md has the same numbers).
+#[test]
+fn support_counts() {
+    fn count(it: impl Iterator<Item = Support>) -> (usize, usize, usize) {
+        it.fold((0, 0, 0), |(a, d, s), x| match x { Support::Adopt => (a + 1, d, s), Support::Adapt => (a, d + 1, s), Support::Skip => (a, d, s + 1) })
+    }
+    assert_eq!(count(HOOKS.iter().map(|h| h.support)), (194, 20, 4), "hooks adopt/adapt/skip");
+    assert_eq!(count(SLOTS.iter().map(|s| s.support)), (19, 37, 2), "slots adopt/adapt/skip");
+    assert_eq!(count(HOST_API.iter().map(|m| m.support)), (150, 28, 14), "host API adopt/adapt/skip");
 }
 
 #[test]
@@ -45,6 +60,8 @@ fn hooks_match_csv() {
         assert_eq!((r["name"].as_str(), r["group"].as_str(), r["kind"].as_str(), r["permission"].as_str()), (h.name, h.group, kind, h.permission), "stale: run python tools/gen-plugin-catalog.py");
         assert_eq!(r["budget_ms"].parse::<u32>().unwrap(), h.budget_ms, "{}", h.name);
         assert_eq!(r["fail_closed"] == "true", h.fail_closed, "{}", h.name);
+        assert_eq!(r["barbican_status"], support(h.support), "{}", h.name);
+        assert!(!r["barbican_note"].is_empty(), "{}: barbican_note", h.name);
     }
 }
 
@@ -55,14 +72,22 @@ fn slots_match_csv() {
     for (r, s) in t.iter().zip(SLOTS.iter()) {
         let kind = match s.kind { SlotKind::Frame => "frame", SlotKind::Action => "action", SlotKind::Data => "data" };
         assert_eq!((r["name"].as_str(), r["area"].as_str(), r["kind"].as_str(), r["permissions"].as_str()), (s.name, s.area, kind, s.permissions), "stale: run python tools/gen-plugin-catalog.py");
+        assert_eq!(r["barbican_status"], support(s.support), "{}", s.name);
+        assert!(!r["barbican_note"].is_empty(), "{}: barbican_note", s.name);
     }
 }
 
 #[test]
 fn host_api_matches_csv() {
     let t = table(API_CSV);
-    let names: Vec<&str> = t.iter().map(|r| r["method"].as_str()).collect();
-    assert_eq!(names, HOST_API.to_vec(), "run python tools/gen-plugin-catalog.py");
+    assert_eq!(t.len(), HOST_API.len(), "run python tools/gen-plugin-catalog.py");
+    for (r, m) in t.iter().zip(HOST_API.iter()) {
+        assert_eq!((r["method"].as_str(), r["base_permission"].as_str()), (m.name, m.permission), "stale: run python tools/gen-plugin-catalog.py");
+        assert_eq!(r["barbican_status"], support(m.support), "{}", m.name);
+        assert!(!r["barbican_note"].is_empty(), "{}: barbican_note", m.name);
+    }
+    assert_eq!(lookup_host_method("http.fetch").map(|m| m.support), Some(Support::Adopt));
+    assert_eq!(lookup_host_method("http.post").map(|m| m.support), Some(Support::Skip));
 }
 
 #[test]

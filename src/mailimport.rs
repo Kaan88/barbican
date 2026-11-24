@@ -16,7 +16,7 @@ const MAX_EML: u64 = 200_000_000;
 /// Streaming mbox splitter: feed it lines, it hands back each message as soon as the next
 /// separator shows up, so a multi-GB mbox never sits in memory whole.
 #[derive(Default)]
-pub struct MboxSplitter { cur: Option<Vec<u8>>, pending_empty: Option<Vec<u8>> }
+pub struct MboxSplitter { cur: Option<Vec<u8>>, pending_empty: Option<Vec<u8>>, cur_from: Vec<u8>, done_from: Vec<u8> }
 
 impl MboxSplitter {
     /// One line (with its line ending); returns a finished message when `l` starts the next.
@@ -24,6 +24,7 @@ impl MboxSplitter {
         let separator = l.starts_with(b"From ") && (self.cur.is_none() || self.pending_empty.is_some()) && is_envelope_line(l);
         if separator {
             self.pending_empty = None;
+            self.done_from = std::mem::replace(&mut self.cur_from, strip_eol(l).to_vec());
             let done = self.cur.replace(vec![]);
             return done.filter(|m| !blank(m));
         }
@@ -36,7 +37,14 @@ impl MboxSplitter {
     }
 
     /// The last message, at the end of the file.
-    pub fn finish(&mut self) -> Option<Vec<u8>> { self.pending_empty = None; self.cur.take().filter(|m| !blank(m)) }
+    pub fn finish(&mut self) -> Option<Vec<u8>> {
+        self.pending_empty = None;
+        self.done_from = std::mem::take(&mut self.cur_from);
+        self.cur.take().filter(|m| !blank(m))
+    }
+
+    /// The envelope line (without its line ending) of the message `push` or `finish` returned last.
+    pub fn last_from(&self) -> &[u8] { &self.done_from }
 }
 
 fn blank(m: &[u8]) -> bool { m.iter().all(|b| b.is_ascii_whitespace()) }
@@ -152,10 +160,82 @@ pub fn received_at(f: &[(String, String)]) -> Option<String> {
     chrono::DateTime::parse_from_rfc2822(d).ok().map(|t| t.with_timezone(&chrono::Utc).format("%Y-%m-%dT%H:%M:%SZ").to_string())
 }
 
-fn to_item(m: Vec<u8>) -> Option<Item> {
+/// A date between 1980 and a day from now, else None (Bulwark `plausible`).
+fn plausible(t: Option<chrono::DateTime<chrono::Utc>>) -> Option<chrono::DateTime<chrono::Utc>> {
+    let t = t?;
+    let min = chrono::NaiveDate::from_ymd_opt(1980, 1, 1)?.and_hms_opt(0, 0, 0)?.and_utc();
+    (t >= min && t <= chrono::Utc::now() + chrono::Duration::days(1)).then_some(t)
+}
+
+/// The date of an envelope line, "From sender Tue May  5 10:11:12 2020" (read as UTC, with an
+/// optional zone before the year) (Bulwark `envelopeDate`).
+pub fn envelope_date(from_line: &str) -> Option<chrono::DateTime<chrono::Utc>> {
+    use std::sync::OnceLock;
+    static RE: OnceLock<regex::Regex> = OnceLock::new();
+    let re = RE.get_or_init(|| regex::Regex::new(r"(?i)(?:^|\s)(?:mon|tue|wed|thu|fri|sat|sun)\w*\s+([a-z]{3})\w*\s+(\d{1,2})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s+(?:([+-]\d{4})\s+)?(\d{4})").unwrap());
+    let c = re.captures(from_line)?;
+    const MONTHS: [&str; 12] = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+    let month = MONTHS.iter().position(|m| *m == c[1].to_lowercase())? as u32 + 1;
+    let num = |i: usize| c.get(i).map(|m| m.as_str().parse::<u32>().unwrap_or(0)).unwrap_or(0);
+    let t = chrono::NaiveDate::from_ymd_opt(c[7].parse().ok()?, month, num(2))?.and_hms_opt(num(3), num(4), num(5))?.and_utc();
+    let off = match c.get(6) {
+        Some(z) => {
+            let z = z.as_str();
+            let mins = z[1..3].parse::<i64>().ok()? * 60 + z[3..].parse::<i64>().ok()?;
+            if z.starts_with('-') { -mins } else { mins }
+        }
+        None => 0,
+    };
+    Some(t - chrono::Duration::minutes(off))
+}
+
+/// When an mbox message arrived (Bulwark `arrivalTime`): the envelope line is trusted where it is
+/// the arrival time for sure, Barbican's and Bulwark's own export and lines with a time zone
+/// (Google Takeout); elsewhere it may be when the message was copied into the folder
+/// (Thunderbird's `From - <date>`, local time), so the Date header comes first and a plausible
+/// envelope date is the fallback.
+pub fn arrival_time(from_line: &str, f: &[(String, String)]) -> Option<String> {
+    use std::sync::OnceLock;
+    static ZONE: OnceLock<regex::Regex> = OnceLock::new();
+    let zone = ZONE.get_or_init(|| regex::Regex::new(r"\s[+-]\d{4}\s+\d{4}\s*$").unwrap());
+    let fmt = |t: chrono::DateTime<chrono::Utc>| t.format("%Y-%m-%dT%H:%M:%SZ").to_string();
+    let envelope = plausible(envelope_date(from_line)).map(fmt);
+    let trusted = from_line.starts_with("From barbican-export ") || from_line.starts_with("From bulwark-export ") || zone.is_match(from_line);
+    if trusted { envelope.or_else(|| received_at(f)) } else { received_at(f).or(envelope) }
+}
+
+/// The headers the mbox state is read from (and the export writes); dropped on import.
+const STATE_HEADERS: [&str; 6] = ["status", "x-status", "x-keywords", "x-mozilla-status", "x-mozilla-status2", "x-mozilla-keys"];
+
+/// The message without the mbox state headers (their state is now in keywords, and a stale copy
+/// would contradict it) (Bulwark `withoutStateHeaders`). Everything else stays byte for byte.
+pub fn without_state_headers(m: Vec<u8>) -> Vec<u8> {
+    let mut out = Vec::with_capacity(m.len());
+    let (mut in_headers, mut skipping, mut found) = (true, false, false);
+    for line in m.split_inclusive(|b| *b == b'\n') {
+        if in_headers {
+            if strip_eol(line).is_empty() { in_headers = false; }
+            else if line[0] == b' ' || line[0] == b'\t' { if skipping { continue; } }
+            else {
+                let name = line.iter().position(|b| *b == b':').map(|c| String::from_utf8_lossy(&line[..c]).trim().to_ascii_lowercase()).unwrap_or_default();
+                skipping = STATE_HEADERS.contains(&name.as_str());
+                if skipping { found = true; continue; }
+            }
+        }
+        out.extend_from_slice(line);
+    }
+    if found { out } else { m }
+}
+
+/// `from_line` is the mbox envelope line, empty for an .eml file (whose state headers are kept).
+fn to_item(m: Vec<u8>, from_line: Option<&[u8]>) -> Option<Item> {
     let f = header_fields(&m);
     let (keywords, expunged) = mbox_state(&f);
-    (!expunged).then(|| Item { received_at: received_at(&f), keywords, bytes: m })
+    if expunged { return None; }
+    match from_line {
+        Some(l) => Some(Item { received_at: arrival_time(&String::from_utf8_lossy(l), &f), keywords, bytes: without_state_headers(m) }),
+        None => Some(Item { received_at: received_at(&f), keywords, bytes: m }),
+    }
 }
 
 fn looks_mbox(name: &str, first_line: &[u8]) -> bool {
@@ -182,6 +262,8 @@ pub struct Reader<R: std::io::BufRead> {
     pub read: u64,
     /// an .eml over the cap was skipped
     pub too_big: bool,
+    /// the envelope line of the mbox message `next_raw` returned last
+    from_line: Vec<u8>,
 }
 
 impl<R: std::io::BufRead> Reader<R> {
@@ -189,20 +271,20 @@ impl<R: std::io::BufRead> Reader<R> {
         let mut first = vec![];
         let ok = src.read_until(b'\n', &mut first).is_ok();
         let mbox = (ok && looks_mbox(name, &first)).then(MboxSplitter::default);
-        Reader { read: first.len() as u64, src, mbox, first: Some(first), done: !ok, eml_cap, too_big: false }
+        Reader { read: first.len() as u64, src, mbox, first: Some(first), done: !ok, eml_cap, too_big: false, from_line: vec![] }
     }
 
     fn next_raw(&mut self) -> Option<Vec<u8>> {
         if self.done { return None; }
         match self.mbox.as_mut() {
             Some(sp) => {
-                if let Some(f) = self.first.take() { if let Some(m) = sp.push(&f) { return Some(m); } }
+                if let Some(f) = self.first.take() { if let Some(m) = sp.push(&f) { self.from_line = sp.last_from().to_vec(); return Some(m); } }
                 let mut l = vec![];
                 loop {
                     l.clear();
                     match self.src.read_until(b'\n', &mut l) {
-                        Ok(0) | Err(_) => { self.done = true; return sp.finish(); }
-                        Ok(n) => { self.read += n as u64; if let Some(m) = sp.push(&l) { return Some(m); } }
+                        Ok(0) | Err(_) => { self.done = true; let m = sp.finish(); self.from_line = sp.last_from().to_vec(); return m; }
+                        Ok(n) => { self.read += n as u64; if let Some(m) = sp.push(&l) { self.from_line = sp.last_from().to_vec(); return Some(m); } }
                     }
                 }
             }
@@ -223,7 +305,8 @@ impl<R: std::io::BufRead> Reader<R> {
     pub fn next_item(&mut self) -> Option<Item> {
         loop {
             let m = self.next_raw()?;
-            if let Some(it) = to_item(m) { return Some(it); }
+            let from = self.mbox.is_some().then(|| self.from_line.clone());
+            if let Some(it) = to_item(m, from.as_deref()) { return Some(it); }
         }
     }
 }
@@ -524,5 +607,72 @@ mod tests {
         assert!(big.too_big);
         assert_eq!(message_id(b"Message-Id: <a.b@c>\r\n\r\n").as_deref(), Some("a.b@c"));
         assert_eq!(message_id(b"Subject: x\r\n\r\n"), None);
+    }
+}
+
+#[cfg(test)]
+mod arrival_tests {
+    use super::*;
+
+    fn hdr(date: Option<&str>) -> Vec<(String, String)> {
+        date.map(|d| vec![("date".to_string(), d.to_string())]).unwrap_or_default()
+    }
+
+    #[test]
+    fn envelope_dates_are_read_as_utc_with_an_optional_zone() {
+        let f = |l: &str| envelope_date(l).map(|t| t.format("%Y-%m-%dT%H:%M:%SZ").to_string());
+        assert_eq!(f("From a Tue May  5 10:11:12 2020").as_deref(), Some("2020-05-05T10:11:12Z"));
+        assert_eq!(f("From a Thu May  7 09:00 +0200 2020").as_deref(), Some("2020-05-07T07:00:00Z"));
+        assert_eq!(f("From a Thu May  7 09:00:30 -0130 2020").as_deref(), Some("2020-05-07T10:30:30Z"));
+        assert_eq!(f("From a Thu Foo  7 09:00:30 2020"), None);
+        assert_eq!(f("From a Tue Feb 31 10:11:12 2020"), None);
+        assert_eq!(f("From someone"), None);
+    }
+
+    #[test]
+    fn own_exports_and_zoned_lines_trust_the_envelope() {
+        let date = hdr(Some("Mon, 01 Jan 2018 00:00:00 +0000"));
+        assert_eq!(arrival_time("From barbican-export Tue May  5 10:11:12 2020", &date).as_deref(), Some("2020-05-05T10:11:12Z"));
+        assert_eq!(arrival_time("From bulwark-export Tue May  5 10:11:12 2020", &date).as_deref(), Some("2020-05-05T10:11:12Z"));
+        assert_eq!(arrival_time("From x Tue May  5 10:11:12 +0200 2020", &date).as_deref(), Some("2020-05-05T08:11:12Z"));
+        // trusted but unusable (before 1980): the Date header
+        assert_eq!(arrival_time("From barbican-export Thu Jan  1 00:00:00 1970", &date).as_deref(), Some("2018-01-01T00:00:00Z"));
+    }
+
+    #[test]
+    fn other_programs_lines_come_second() {
+        let date = hdr(Some("Mon, 01 Jan 2018 00:00:00 +0000"));
+        assert_eq!(arrival_time("From - Tue May  5 10:11:12 2020", &date).as_deref(), Some("2018-01-01T00:00:00Z"));
+        // no Date header: a plausible envelope date, never an implausible one
+        assert_eq!(arrival_time("From - Tue May  5 10:11:12 2020", &hdr(None)).as_deref(), Some("2020-05-05T10:11:12Z"));
+        assert_eq!(arrival_time("From - Thu Jan  1 00:00:00 1970", &hdr(None)), None);
+        assert_eq!(arrival_time("From - Tue May  5 10:11:12 2999", &hdr(None)), None);
+        assert_eq!(arrival_time("", &hdr(None)), None);
+    }
+
+    #[test]
+    fn the_splitter_hands_back_each_messages_envelope_line() {
+        let mut sp = MboxSplitter::default();
+        let mut got = vec![];
+        for l in [&b"From a Tue May  5 10:11:12 2020\n"[..], b"Subject: 1\n", b"\n", b"From b Wed May  6 10:11:12 2020\r\n", b"Subject: 2\r\n"] {
+            if sp.push(l).is_some() { got.push(sp.last_from().to_vec()); }
+        }
+        assert!(sp.finish().is_some());
+        got.push(sp.last_from().to_vec());
+        assert_eq!(got, vec![b"From a Tue May  5 10:11:12 2020".to_vec(), b"From b Wed May  6 10:11:12 2020".to_vec()]);
+    }
+
+    #[test]
+    fn mbox_items_lose_their_state_headers_and_eml_files_keep_them() {
+        let mbox = b"From barbican-export Tue May  5 10:11:12 2020\nStatus: RO\nX-Status: F\nX-Keywords: a\n b\nSubject: s\nX-Mozilla-Status: 0001\n\nStatus: in the body\n";
+        let it = items_of("x.mbox", mbox);
+        assert_eq!(it.len(), 1);
+        assert_eq!(it[0].bytes, b"Subject: s\n\nStatus: in the body\n".to_vec());
+        assert!(it[0].keywords.contains(&"$seen".to_string()) && it[0].keywords.contains(&"$flagged".to_string()));
+        assert_eq!(it[0].received_at.as_deref(), Some("2020-05-05T10:11:12Z"));
+        let eml = b"Status: RO\nSubject: s\n\nb\n";
+        assert_eq!(items_of("a.eml", eml)[0].bytes, eml.to_vec());
+        // a message with none of them is returned untouched
+        assert_eq!(without_state_headers(b"Subject: s\n\nb\n".to_vec()), b"Subject: s\n\nb\n".to_vec());
     }
 }

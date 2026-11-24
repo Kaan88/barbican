@@ -9,9 +9,9 @@
 //! signed in only takes what is that account's (stores/auth-store.ts `removeAccount`).
 //!
 //! Barbican keeps no mail, calendar, contact or search index on disk, drafts live on the
-//! server, there is no trusted-senders or remote-content allow list (the server's address
-//! book holds trusted senders) and plugins keep no data of their own, so the list in
-//! [`targets`] is short. The one list lives there; [`wipe`] runs it.
+//! server, and plugins keep no data of their own, so the list in
+//! [`targets`] is short. The one thing inside a kept file that goes is the trusted-senders list
+//! in `prefs.json` (`trustedSenders`, [`crate::settings::forget_trusted_senders`], called by the sign-out handler before the wipe starts), when the last account signs out. The one list lives there; [`wipe`] runs it.
 //!
 //! Everything that list names belongs to the signing-out profile ([`Roots`]): the config folder
 //! (per profile), the mail view's WebView folder, the folder mail attachments are opened from
