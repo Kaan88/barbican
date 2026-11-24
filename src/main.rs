@@ -60,6 +60,7 @@ mod server_settings;
 mod settings;
 mod sieve;
 mod templates;
+mod tplflow;
 mod spam;
 // composer extras (p2-composer)
 mod autosave;
@@ -1911,12 +1912,10 @@ fn main() -> Result<(), slint::PlatformError> {
         let u = w.unwrap();
         if i <= 0 { return; }
         let Some(t) = TEMPLATES.with(|x| x.borrow().get(i as usize - 1).cloned()) else { return };
-        if u.get_c_subject().trim().is_empty() { u.set_c_subject(t["subject"].as_str().unwrap_or("").into()); }
-        let body = t["body"].as_str().unwrap_or("");
-        let blocks = if t["isHTML"] == true { rte::html::import(body) } else { rte::html::import_text(body) };
-        rte::insert_blocks(&u, blocks);
         u.set_tpl_index(0);
+        tplflow::insert(&u, t);
     });
+    tplflow::wire(&ui, state.clone());
 
     // ---------------- mail actions ----------------
     let w = ui.as_weak();

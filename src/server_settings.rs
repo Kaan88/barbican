@@ -25,6 +25,17 @@ pub struct Cache {
     pub tpl_name: String,
     pub tpl_subject: String,
     pub tpl_body: String,
+    /// Id of the template the form edits ("" while it makes a new one).
+    pub tpl_edit: String,
+    pub tpl_category: String,
+    pub tpl_to: String,
+    pub tpl_cc: String,
+    pub tpl_bcc: String,
+    pub tpl_html: bool,
+    pub tpl_fav: bool,
+    pub tpl_error: String,
+    /// The server keeps metadata, so it can store templates.
+    pub tpl_supported: bool,
     pub rules: Vec<Value>,
     pub external: String,
     pub rules_locked: bool,
@@ -51,6 +62,11 @@ pub const CAL_COLORS: [(&str, &str); 14] = [
     ("#3b82f6", "Blue"), ("#ef4444", "Red"), ("#22c55e", "Green"), ("#f59e0b", "Amber"), ("#8b5cf6", "Violet"), ("#ec4899", "Pink"), ("#14b8a6", "Teal"),
     ("#f97316", "Orange"), ("#06b6d4", "Cyan"), ("#84cc16", "Lime"), ("#6366f1", "Indigo"), ("#a855f7", "Purple"), ("#e11d48", "Rose"), ("#0ea5e9", "Sky"),
 ];
+
+fn clear_tpl_form(k: &mut Cache) {
+    k.tpl_edit.clear(); k.tpl_name.clear(); k.tpl_subject.clear(); k.tpl_body.clear(); k.tpl_category.clear();
+    k.tpl_to.clear(); k.tpl_cc.clear(); k.tpl_bcc.clear(); k.tpl_html = false; k.tpl_fav = false; k.tpl_error.clear();
+}
 
 /// Calendars as the management page lists them: by sortOrder, then name.
 pub fn sorted_calendars(list: &[Value]) -> Vec<Value> {
@@ -191,6 +207,7 @@ pub fn load(tab: &str, c: &Client, cache: &Shared) {
                 let mut k = cache.lock().unwrap();
                 k.identities = ids;
                 k.templates = tpls;
+                k.tpl_supported = crate::templates::supported(c);
             }
             _ => {}
         }
@@ -323,15 +340,32 @@ pub fn rows(tab: &str, cache: &Shared) -> Option<Vec<SRow>> {
             }
             if tab == "composing" {
                 out.push(row("section", "", "Email templates", "Reusable messages, shared with Bulwark (kept in your Inbox's metadata). Insert them from the composer.", "", false));
+                if !k.tpl_supported {
+                    out.push(row("value", "", "This server keeps no metadata", "Templates need it (Stalwart 1.0 or later has it), so none can be stored or shown here.", "", false));
+                }
                 for t in &k.templates {
                     let id = t["id"].as_str().unwrap_or("");
-                    out.push(row("button", &format!("server.tpl.delete:{id}"), t["name"].as_str().unwrap_or("(unnamed)"),
-                        t["subject"].as_str().unwrap_or(""), if k.confirm_delete == id { "Click again to delete" } else { "Delete" }, false));
+                    let mut desc = t["subject"].as_str().unwrap_or("").to_string();
+                    if let Some(c) = t["category"].as_str().filter(|c| !c.is_empty()) { desc = if desc.is_empty() { c.into() } else { format!("{c} · {desc}") }; }
+                    if t["isHTML"] == true { desc = if desc.is_empty() { "Rich text".into() } else { format!("{desc} · rich text") }; }
+                    out.push(row("button", &format!("server.tpl.edit:{id}"), t["name"].as_str().unwrap_or("(unnamed)"), &desc, if k.tpl_edit == id { "Editing" } else { "Edit" }, false));
+                    out.push(row("button", &format!("server.tpl.delete:{id}"), "", "", if k.confirm_delete == id { "Click again to delete" } else { "Delete" }, false));
                 }
-                out.push(row("text", "server.tpl.name", "New template name", "", &k.tpl_name, false));
+                let editing = !k.tpl_edit.is_empty();
+                out.push(row("section", "", if editing { "Edit template" } else { "New template" }, "", "", false));
+                out.push(row("text", "server.tpl.name", "Name", "", &k.tpl_name, false));
+                out.push(row("text", "server.tpl.category", "Category", "Optional", &k.tpl_category, false));
                 out.push(row("text", "server.tpl.subject", "Subject", "", &k.tpl_subject, false));
-                out.push(row("textarea", "server.tpl.body", "Text", "", &k.tpl_body, false));
-                out.push(row("button", "server.tpl.create", "", "", "Save template", false));
+                out.push(row("toggle", "server.tpl.html", "Rich text (HTML) body", "Off: plain text. On: the body below is HTML; scripts and the like are removed when it is saved.", "", k.tpl_html));
+                out.push(row("textarea", "server.tpl.body", if k.tpl_html { "Body (HTML)" } else { "Body" },
+                    "Placeholders: {{recipient_name}}, {{company}}, {{date}}, {{short_date}}, {{day}}, {{month}}, {{year}}, {{day_of_week}}, {{sender_name}}, or your own; {{name:default}} gives a default.", &k.tpl_body, false));
+                out.push(row("text", "server.tpl.to", "To", "Comma separated; put in new messages", &k.tpl_to, false));
+                out.push(row("text", "server.tpl.cc", "Cc", "", &k.tpl_cc, false));
+                out.push(row("text", "server.tpl.bcc", "Bcc", "", &k.tpl_bcc, false));
+                out.push(row("toggle", "server.tpl.fav", "Favourite", "", "", k.tpl_fav));
+                if !k.tpl_error.is_empty() { out.push(row("value", "", "Not saved", &k.tpl_error, "", false)); }
+                out.push(row("button", "server.tpl.create", "", "", if editing { "Save changes" } else { "Save template" }, false));
+                if editing { out.push(row("button", "server.tpl.cancel", "", "", "Cancel", false)); }
             }
             return Some(out);
         }
@@ -379,6 +413,12 @@ pub fn edit(key: &str, value: &Value, cache: &Shared) -> Option<Box<dyn FnOnce(&
         "server.tpl.name" => { k.tpl_name = value.as_str().unwrap_or("").into(); return None; }
         "server.tpl.subject" => { k.tpl_subject = value.as_str().unwrap_or("").into(); return None; }
         "server.tpl.body" => { k.tpl_body = value.as_str().unwrap_or("").into(); return None; }
+        "server.tpl.category" => { k.tpl_category = value.as_str().unwrap_or("").into(); return None; }
+        "server.tpl.to" => { k.tpl_to = value.as_str().unwrap_or("").into(); return None; }
+        "server.tpl.cc" => { k.tpl_cc = value.as_str().unwrap_or("").into(); return None; }
+        "server.tpl.bcc" => { k.tpl_bcc = value.as_str().unwrap_or("").into(); return None; }
+        "server.tpl.html" => { k.tpl_html = value.as_bool().unwrap_or(false); return None; }
+        "server.tpl.fav" => { k.tpl_fav = value.as_bool().unwrap_or(false); return None; }
         _ => {}
     }
     if key == "server.cal.newname" { k.new_cal = value.as_str().unwrap_or("").to_string(); return None; }
@@ -506,14 +546,40 @@ pub fn button(key: &str, cache: &Shared) -> Option<Box<dyn FnOnce(&Client, &Shar
         let (script, scripts) = (crate::sieve::generate_meta(&crate::sieve::with_rules(&k.filter_meta, &rules), &k.external, &k.sieve_ext), k.scripts.clone());
         return Some(Box::new(move |c: &Client, _| save_script(c, &script, &scripts)));
     }
+    if key == "server.tpl.cancel" {
+        clear_tpl_form(&mut cache.lock().unwrap());
+        return Some(Box::new(|_, _| Ok(())));
+    }
+    if let Some(id) = key.strip_prefix("server.tpl.edit:") {
+        let mut k = cache.lock().unwrap();
+        if let Some(t) = k.templates.iter().find(|t| t["id"] == id).cloned() {
+            let addrs = |f: &str| t["defaultRecipients"][f].as_array().map(|a| a.iter().filter_map(|s| s.as_str()).collect::<Vec<_>>().join(", ")).unwrap_or_default();
+            k.tpl_edit = id.to_string();
+            k.tpl_name = t["name"].as_str().unwrap_or("").into();
+            k.tpl_subject = t["subject"].as_str().unwrap_or("").into();
+            k.tpl_body = t["body"].as_str().unwrap_or("").into();
+            k.tpl_category = t["category"].as_str().unwrap_or("").into();
+            k.tpl_html = t["isHTML"] == true;
+            k.tpl_fav = t["isFavorite"] == true;
+            (k.tpl_to, k.tpl_cc, k.tpl_bcc) = (addrs("to"), addrs("cc"), addrs("bcc"));
+            k.tpl_error.clear();
+        }
+        return Some(Box::new(|_, _| Ok(())));
+    }
     if key == "server.tpl.create" {
-        let (n, s, b) = { let k = cache.lock().unwrap(); (k.tpl_name.trim().to_string(), k.tpl_subject.clone(), k.tpl_body.clone()) };
-        if n.is_empty() { return None; }
+        let (old, f) = {
+            let k = cache.lock().unwrap();
+            let f = crate::templates::Fields {
+                name: k.tpl_name.clone(), subject: k.tpl_subject.clone(), body: k.tpl_body.clone(), html: k.tpl_html, category: k.tpl_category.clone(),
+                to: crate::templates::split_addrs(&k.tpl_to), cc: crate::templates::split_addrs(&k.tpl_cc), bcc: crate::templates::split_addrs(&k.tpl_bcc), favorite: k.tpl_fav,
+            };
+            (k.templates.iter().find(|t| t["id"] == k.tpl_edit.as_str()).cloned(), f)
+        };
         return Some(Box::new(move |c: &Client, k: &Shared| {
-            crate::templates::create(c, &n, &s, &b)?;
-            let mut g = k.lock().unwrap();
-            g.tpl_name.clear(); g.tpl_subject.clear(); g.tpl_body.clear();
-            Ok(())
+            match crate::templates::save(c, old.as_ref(), &f) {
+                Ok(()) => { clear_tpl_form(&mut k.lock().unwrap()); Ok(()) }
+                Err(e) => { k.lock().unwrap().tpl_error = e.clone(); Err(e) }
+            }
         }));
     }
     if let Some(id) = key.strip_prefix("server.tpl.delete:") {
