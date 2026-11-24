@@ -589,14 +589,15 @@ pub fn button(key: &str, cache: &Shared) -> Option<Box<dyn FnOnce(&Client, &Shar
         return Some(Box::new(|_, _| Ok(())));
     }
     if key == "server.tpl.create" {
-        let (old, f) = {
+        let (old, f, editing) = {
             let k = cache.lock().unwrap();
             if !k.tpl_edit.is_empty() && k.tpl_old.is_none() { return Some(Box::new(|_, k: &Shared| { let e = "This template is no longer in the list; reload and try again.".to_string(); k.lock().unwrap().tpl_error = e.clone(); Err(e) })); }
-            (k.tpl_old.clone().filter(|_| !k.tpl_edit.is_empty()), form_fields(&k))
+            (k.tpl_old.clone().filter(|_| !k.tpl_edit.is_empty()), form_fields(&k), k.tpl_edit.clone())
         };
         return Some(Box::new(move |c: &Client, k: &Shared| {
             match crate::templates::save(c, old.as_ref(), &f) {
-                Ok(()) => { clear_tpl_form(&mut k.lock().unwrap()); Ok(()) }
+                // only when the form still holds what was saved (the user may have moved to another template)
+                Ok(()) => { let mut k = k.lock().unwrap(); if k.tpl_edit == editing { clear_tpl_form(&mut k); } Ok(()) }
                 Err(e) => { k.lock().unwrap().tpl_error = e.clone(); Err(e) }
             }
         }));
@@ -606,7 +607,13 @@ pub fn button(key: &str, cache: &Shared) -> Option<Box<dyn FnOnce(&Client, &Shar
         let mut k = cache.lock().unwrap();
         if k.confirm_delete != id { k.confirm_delete = id; return Some(Box::new(|_, _| Ok(()))); }
         k.confirm_delete.clear();
-        return Some(Box::new(move |c: &Client, _| crate::templates::delete(c, &id)));
+        return Some(Box::new(move |c: &Client, k: &Shared| {
+            crate::templates::delete(c, &id)?;
+            // the form was editing the template just deleted
+            let mut k = k.lock().unwrap();
+            if k.tpl_edit == id { clear_tpl_form(&mut k); }
+            Ok(())
+        }));
     }
     if let Some(id) = key.strip_prefix("server.restore:") {
         let id = id.to_string();

@@ -272,12 +272,17 @@ pub fn valid_key(key: &str) -> bool {
     })
 }
 
+/// A tombstone's time when it counts: a good date, not older than 90 days.
+fn live_tombstone(at: &str, now: chrono::DateTime<chrono::Utc>) -> Option<chrono::DateTime<chrono::FixedOffset>> {
+    let a = chrono::DateTime::parse_from_rfc3339(at).ok()?;
+    if a < now - chrono::Duration::days(90) { None } else { Some(a) }
+}
+
 /// A tombstone hides a template unless it was edited after the deletion (planPersonalSync).
 /// A tombstone with a bad date, or older than 90 days, counts for nothing (template-merge.ts).
 fn hidden(t: &Value, deleted: &Map<String, Value>, now: chrono::DateTime<chrono::Utc>) -> bool {
     let Some(at) = deleted.get(t["id"].as_str().unwrap_or("")).and_then(|d| d.as_str()) else { return false };
-    let Ok(a) = chrono::DateTime::parse_from_rfc3339(at) else { return false };
-    if a < now - chrono::Duration::days(90) { return false; }
+    let Some(a) = live_tombstone(at, now) else { return false };
     chrono::DateTime::parse_from_rfc3339(t["updatedAt"].as_str().unwrap_or(UNKNOWN_TIME)).map_or(true, |u| u <= a)
 }
 
@@ -286,14 +291,17 @@ pub fn from_metadata(meta: &Value) -> Vec<Value> { from_metadata_at(meta, chrono
 
 /// Whether the server's copy of the template `old` is still the one `old` was read from: the
 /// entry exists with the same `updatedAt` and no newer tombstone covers it.
-pub fn check_fresh(old: &Value, meta: &Value) -> Result<(), String> {
+pub fn check_fresh(old: &Value, meta: &Value) -> Result<(), String> { check_fresh_at(old, meta, chrono::Utc::now()) }
+
+pub fn check_fresh_at(old: &Value, meta: &Value, now: chrono::DateTime<chrono::Utc>) -> Result<(), String> {
     const MSG: &str = "This template was changed elsewhere; reload and try again.";
     let id = old["id"].as_str().unwrap_or("");
     let entry = &meta[format!("{NS}.template.{id}")];
     if !entry.is_object() || entry["updatedAt"].as_str().unwrap_or(UNKNOWN_TIME) != old["updatedAt"].as_str().unwrap_or(UNKNOWN_TIME) { return Err(MSG.into()); }
     if let Some(at) = meta[format!("{NS}.templates")]["deleted"][id].as_str() {
-        let (a, u) = (chrono::DateTime::parse_from_rfc3339(at), chrono::DateTime::parse_from_rfc3339(old["updatedAt"].as_str().unwrap_or(UNKNOWN_TIME)));
-        if let (Ok(a), Ok(u)) = (a, u) { if a > u { return Err(MSG.into()); } }
+        // the same rules as hidden(): a bad or 90-day-old tombstone counts for nothing
+        let u = chrono::DateTime::parse_from_rfc3339(old["updatedAt"].as_str().unwrap_or(UNKNOWN_TIME));
+        if let (Some(a), Ok(u)) = (live_tombstone(at, now), u) { if a > u { return Err(MSG.into()); } }
     }
     Ok(())
 }
@@ -390,13 +398,33 @@ pub fn delete(c: &Client, id: &str) -> Result<(), String> {
 }
 
 /// The tombstone map with `id` marked deleted now.
-fn tombstone(old: &Value, id: &str) -> Value {
+fn tombstone(old: &Value, id: &str) -> Value { tombstone_at(old, id, chrono::Utc::now()) }
+
+/// Metadata values are capped at 8 KB (Bulwark pruneTombstones: 90 days, then the oldest go).
+const TOMBSTONE_MAX_BYTES: usize = 8 * 1024;
+
+fn tombstone_at(old: &Value, id: &str, now: chrono::DateTime<chrono::Utc>) -> Value {
     let mut marker = old.clone();
     if !marker.is_object() { marker = json!({"version": 1, "deleted": {}}); }
     if !marker["deleted"].is_object() { marker["deleted"] = json!({}); }
     marker["version"] = json!(1);
-    marker["deleted"][id] = json!(now_iso());
-    marker
+    marker["deleted"][id] = json!(now.to_rfc3339_opts(chrono::SecondsFormat::Millis, true));
+    // drop bad and old entries, then the oldest until it fits
+    let mut kept: Vec<(chrono::DateTime<chrono::FixedOffset>, String)> = marker["deleted"].as_object().into_iter().flatten()
+        .filter_map(|(k, v)| live_tombstone(v.as_str()?, now).map(|t| (t, k.clone()))).collect();
+    kept.sort();
+    let build = |kept: &[(chrono::DateTime<chrono::FixedOffset>, String)]| {
+        let mut m = json!({"version": 1, "deleted": {}});
+        for (t, k) in kept { m["deleted"][k] = json!(t.with_timezone(&chrono::Utc).to_rfc3339_opts(chrono::SecondsFormat::Millis, true)); }
+        m
+    };
+    let mut m = build(&kept);
+    while m.to_string().len() > TOMBSTONE_MAX_BYTES && kept.len() > 1 {
+        let drop = kept.iter().position(|(_, k)| k != id).unwrap_or(0);
+        kept.remove(drop);
+        m = build(&kept);
+    }
+    m
 }
 
 #[cfg(test)]
@@ -408,11 +436,39 @@ mod tests {
 
     #[test]
     fn tombstone_keeps_other_deletions() {
-        let m = tombstone(&json!({"version": 1, "deleted": {"a": "2026-01-01T00:00:00.000Z"}}), "b");
+        let now = chrono::Utc.with_ymd_and_hms(2026, 6, 1, 0, 0, 0).unwrap();
+        let m = tombstone_at(&json!({"version": 1, "deleted": {"a": "2026-05-01T00:00:00.000Z"}}), "b", now);
         assert!(m["deleted"]["a"].is_string() && m["deleted"]["b"].is_string());
-        let m = tombstone(&Value::Null, "x");
+        let m = tombstone_at(&Value::Null, "x", now);
         assert_eq!(m["version"], 1);
         assert!(m["deleted"]["x"].is_string());
+    }
+
+    #[test]
+    fn tombstones_are_pruned_by_age_and_size() {
+        let now = chrono::Utc.with_ymd_and_hms(2026, 6, 1, 0, 0, 0).unwrap();
+        let m = tombstone_at(&json!({"version": 1, "deleted": {"old": "2026-01-01T00:00:00.000Z", "bad": "x", "ok": "2026-05-20T00:00:00.000Z"}}), "new", now);
+        let d = m["deleted"].as_object().unwrap();
+        let mut keys: Vec<_> = d.keys().cloned().collect();
+        keys.sort();
+        assert_eq!(keys, vec!["new", "ok"]);
+        let many: serde_json::Map<String, Value> = (0..400).map(|i| (format!("{:040}", i), json!(format!("2026-05-{:02}T00:00:{:02}.000Z", 1 + i / 60 % 28, i % 60)))).collect();
+        let m = tombstone_at(&json!({"version": 1, "deleted": many}), "fresh", now);
+        assert!(m.to_string().len() <= TOMBSTONE_MAX_BYTES);
+        assert!(m["deleted"]["fresh"].is_string());
+    }
+
+    #[test]
+    fn a_stale_tombstone_does_not_block_a_save() {
+        let now = chrono::Utc.with_ymd_and_hms(2026, 6, 1, 0, 0, 0).unwrap();
+        let old = json!({"id": "i", "updatedAt": "2026-01-01T00:00:00.000Z"});
+        let mut meta = json!({"org.bulwarkmail.template.i": {"name": "N", "updatedAt": "2026-01-01T00:00:00.000Z"}});
+        meta["org.bulwarkmail.templates"] = json!({"deleted": {"i": "2026-01-05T00:00:00.000Z"}});
+        assert!(check_fresh_at(&old, &meta, now).is_ok());
+        meta["org.bulwarkmail.templates"] = json!({"deleted": {"i": "garbage"}});
+        assert!(check_fresh_at(&old, &meta, now).is_ok());
+        meta["org.bulwarkmail.templates"] = json!({"deleted": {"i": "2026-05-25T00:00:00.000Z"}});
+        assert!(check_fresh_at(&old, &meta, now).is_err());
     }
 
     #[test]
@@ -565,17 +621,18 @@ mod tests {
 
     #[test]
     fn a_stale_save_is_refused() {
+        let now = chrono::Utc.with_ymd_and_hms(2026, 6, 1, 0, 0, 0).unwrap();
         let old = json!({"id": "i", "updatedAt": "2026-05-01T00:00:00.000Z"});
         let meta = |u: &str| json!({"org.bulwarkmail.template.i": {"name": "N", "updatedAt": u}});
-        assert!(check_fresh(&old, &meta("2026-05-01T00:00:00.000Z")).is_ok());
-        assert!(check_fresh(&old, &meta("2026-05-02T00:00:00.000Z")).unwrap_err().contains("changed elsewhere"));
-        assert!(check_fresh(&old, &json!({})).is_err());
+        assert!(check_fresh_at(&old, &meta("2026-05-01T00:00:00.000Z"), now).is_ok());
+        assert!(check_fresh_at(&old, &meta("2026-05-02T00:00:00.000Z"), now).unwrap_err().contains("changed elsewhere"));
+        assert!(check_fresh_at(&old, &json!({}), now).is_err());
         let mut gone = meta("2026-05-01T00:00:00.000Z");
         gone["org.bulwarkmail.templates"] = json!({"deleted": {"i": "2026-05-03T00:00:00.000Z"}});
-        assert!(check_fresh(&old, &gone).is_err());
+        assert!(check_fresh_at(&old, &gone, now).is_err());
         // a tombstone older than the edit does not block it
         gone["org.bulwarkmail.templates"] = json!({"deleted": {"i": "2026-04-03T00:00:00.000Z"}});
-        assert!(check_fresh(&old, &gone).is_ok());
+        assert!(check_fresh_at(&old, &gone, now).is_ok());
     }
 
     #[test]

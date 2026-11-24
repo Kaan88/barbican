@@ -66,7 +66,7 @@ fn apply(u: &AppWindow, t: &Value, values: &HashMap<String, String>) {
         if !bcc.is_empty() { u.set_c_bcc(bcc.into()); u.set_c_show_ccbcc(true); u.set_c_show_bcc(true); }
     }
     // the sending identity, when the composing account has it
-    if let Some(i) = t["identityId"].as_str().and_then(crate::compose::identity_position) { u.set_c_from_index(i as i32); }
+    if let Some(id) = t["identityId"].as_str() { crate::compose::choose_identity(u, id); }
 }
 
 /// The picker chose a template: straight in when it has no placeholders, else the dialog.
@@ -75,7 +75,7 @@ pub fn insert(u: &AppWindow, t: Value) {
     let (subject, body) = (t["subject"].as_str().unwrap_or(""), t["body"].as_str().unwrap_or(""));
     let names = templates::template_placeholders(subject, body, html);
     if names.is_empty() { apply(u, &t, &HashMap::new()); return; }
-    let auto = templates::auto_fill(chrono::Local::now(), u.get_c_from_name().trim());
+    let auto = templates::auto_fill(chrono::Local::now(), &crate::compose::sender_name(u));
     let defaults = templates::placeholder_defaults(subject, body, html);
     let values: HashMap<String, String> = names.iter().map(|n| {
         let v = auto.get(n).filter(|v| !v.is_empty()).or_else(|| defaults.get(n)).cloned().unwrap_or_default();
