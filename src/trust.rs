@@ -236,7 +236,9 @@ pub fn recipient_warning(on: bool, to: &str, cc: &str, bcc: &str, internal: &[St
 /// that were not written on arrival give no verdict, so they never hide "Trust sender" (a sender
 /// could otherwise hide it from the user by sending a failing header) and never allow it either.
 pub fn forged(t: &crate::auth::Trust, from: &str) -> bool {
-    if !t.trusted { return false; }
+    // results that exist but are not our server's are unverified, like none that vouch for the
+    // From: "Trust sender" is hidden (main, Bulwark). With no results at all there is nothing to doubt.
+    if !t.trusted { return t.present; }
     let res = &t.results;
     let aligned = crate::auth::aligned_pass(res, from);
     // only spf, dkim and dmarc count as results (email-headers.ts:136): an iprev-only header says nothing
@@ -363,9 +365,11 @@ mod tests {
         // results that are not our server's give no verdict either way
         let foreign = t("mx.sender.test; dmarc=fail header.from=example.test");
         assert!(foreign.present && !foreign.trusted);
-        assert!(!forged(&foreign, from), "a failing header the sender wrote does not hide Trust sender");
+        assert!(forged(&foreign, from), "results that are not the server's leave the sender unverified");
+        let foreign_pass = t("mx.sender.test; dmarc=pass header.from=example.test");
+        assert!(forged(&foreign_pass, from), "and a pass the sender wrote does not verify it");
         let submitted = assess_list(&[("received".to_string(), IN.replace("ESMTPS", "ESMTPSA")), ("authentication-results".to_string(), " mx.mine.test; dmarc=fail header.from=example.test".to_string())], &org);
-        assert!(!forged(&submitted, from));
+        assert!(forged(&submitted, from), "submitted mail carries the submitter's own results: unverified");
         // a header planted after the server's own does not change the verdict
         let planted = assess_list(&[("received".to_string(), IN.to_string()), ("authentication-results".to_string(), " mx.mine.test; dmarc=fail header.from=example.test".to_string()),
             ("authentication-results".to_string(), " mx.mine.test; dmarc=pass header.from=example.test".to_string())], &org);

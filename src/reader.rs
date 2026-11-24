@@ -809,7 +809,7 @@ fn load_full_body(u: &AppWindow) {
                             // goes through show_message_body (render_current), never around it; an
                             // already granted "Load images" stays granted
                             let allowed = crate::CUR.with(|c| c.borrow().as_ref().is_some_and(|c| c.allow));
-                            show_message_body(&u, &m);
+                            show_message_body(&u, &m, false);
                             if allowed {
                                 crate::CUR.with(|c| if let Some(c) = c.borrow_mut().as_mut() { c.allow = true; });
                                 crate::render_current(&u);
@@ -828,13 +828,13 @@ fn load_full_body(u: &AppWindow) {
 }
 
 /// Show a message's body in the reader (as main.rs does when a message opens).
-fn show_message_body(u: &AppWindow, m: &Value) {
+fn show_message_body(u: &AppWindow, m: &Value, links_off: bool) {
     let (html, text) = crate::body_text(m);
     let is_html = m["htmlBody"].as_array().is_some_and(|a| a.iter().any(|p| p["type"] == "text/html"));
     let html = (is_html && !html.is_empty()).then_some(html);
     let remote = html.as_deref().is_some_and(crate::has_remote_images);
     let allow = crate::allow_remote(u, m);
-    crate::CUR.with(|c| *c.borrow_mut() = Some(crate::Current { html, text, remote, allow, links_off: crate::phish::marked(m) }));
+    crate::CUR.with(|c| *c.borrow_mut() = Some(crate::Current { html, text, remote, allow, links_off: links_off || crate::phish::marked(m) }));
     crate::render_current(u);
 }
 
@@ -922,7 +922,8 @@ pub fn parse_eml(c: &Client, blob: &str) -> Result<Value, String> {
     if !m.is_object() { return Err("The attachment is not a readable message.".into()); }
     // a message read from a file has no place in the account: no id, keywords or mailboxes
     m["receivedAt"] = m["sentAt"].clone();
-    m["keywords"] = json!({"$seen": true});
+    // `$imported`: the server never checked it, so its own headers are never trusted
+    m["keywords"] = json!({"$seen": true, "$imported": true});
     Ok(m)
 }
 
@@ -961,8 +962,7 @@ fn show_parsed(u: &AppWindow, m: &Value) {
     mail::set_reader_avatar(u, Some(m), "");
     // an attached message inside a reported one keeps the links off
     let links_off = crate::CUR.with(|c| c.borrow().as_ref().is_some_and(|c| c.links_off));
-    show_message_body(u, m);
-    if links_off { crate::links_off_now(u); }
+    show_message_body(u, m, links_off);
     ST.with(|s| s.borrow_mut().view = View::Eml { subject });
     refresh(u);
 }

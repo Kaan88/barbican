@@ -150,7 +150,7 @@ pub fn failure(res: &[AuthResult], verified: bool) -> bool {
 /// message arrived, which is
 ///   1. the first results header below the topmost `Received` header (a receiving server writes
 ///      its Received line first and its results right under it; trace headers may sit between,
-///      a second Received may not; later results headers can only add failures),
+///      a second Received may not; later results headers add SPF failures only),
 ///   2. that Received names our server (`by <host>`) and records no authenticated submission
 ///      (`with ESMTPSA`, `ESMTPA`, `LMTPA`: the client handed the message in, so the text
 ///      below is the client's own), and
@@ -231,9 +231,11 @@ pub fn assess_list(headers: &[(String, String)], origin: &Origin) -> Trust {
     if headers[r + 1..first].iter().any(|h| h.0 == "received") { return untrusted; }
     if !same_server(&authserv_id(&headers[first].1), origin.server_host) { return untrusted; }
     let mut results = parse(&headers[first].1);
-    // later results headers (ours or not) may only add something that is not a pass
+    // later results headers (an earlier hop's, or planted) add SPF failures only (Bulwark
+    // email-headers.ts): DKIM and DMARC come from our own header, so a forwarder's or a list's
+    // dkim=fail / dmarc=none does not sink genuine mail, and nothing later can add a pass
     for h in headers[first + 1..].iter().filter(|h| is_ar(h)) {
-        results.extend(parse(&h.1).into_iter().filter(|x| x.result != "pass"));
+        results.extend(parse(&h.1).into_iter().filter(|x| x.method == "spf" && matches!(x.result.as_str(), "fail" | "softfail" | "permerror")));
     }
     if results.is_empty() { return untrusted; }
     Trust { present, trusted: true, results }
@@ -429,9 +431,13 @@ mod tests {
         assert!(t.trusted && !dmarc_pass_for(&t.results, "bank.example"), "{t:?}");
         let t = assess_list(&hs(&[("Received", IN), ("Authentication-Results", "mx.mine.test; dmarc=none header.from=bank.example"), ("Authentication-Results", forged_ar)]), &org(HOST));
         assert!(!dmarc_pass_for(&t.results, "bank.example"), "a later pass is dropped");
-        // the real pass stays, a later failure (ours or not) still counts
-        let t = assess_list(&hs(&[("Received", IN), ("Authentication-Results", "mx.mine.test; dmarc=pass header.from=bank.example"), ("Authentication-Results", "x.elsewhere.test; dkim=fail header.d=bank.example")]), &org(HOST));
-        assert!(t.results.iter().any(|r| r.method == "dkim" && r.result == "fail") && dmarc_pass_for(&t.results, "bank.example"));
+        // an earlier hop's DKIM or DMARC verdict (a forwarder, a list) does not sink genuine mail
+        let t = assess_list(&hs(&[("Received", IN), ("Authentication-Results", "mx.mine.test; dmarc=pass header.from=bank.example"),
+            ("Authentication-Results", "x.elsewhere.test; dkim=fail header.d=bank.example; dmarc=none header.from=bank.example; dkim=none")]), &org(HOST));
+        assert!(dmarc_pass_for(&t.results, "bank.example") && !t.results.iter().any(|r| r.method == "dkim" || r.result == "none"), "{t:?}");
+        // but a later SPF failure still counts
+        let t = assess_list(&hs(&[("Received", IN), ("Authentication-Results", "mx.mine.test; dmarc=pass header.from=bank.example"), ("Authentication-Results", "x.elsewhere.test; spf=softfail smtp.mailfrom=a@bank.example")]), &org(HOST));
+        assert!(t.results.iter().any(|r| r.method == "spf" && r.result == "softfail"));
         // a forged first header with another authserv-id is not skipped to reach a later one
         assert!(!assess_list(&hs(&[("Received", IN), ("Authentication-Results", "evil.example; dmarc=pass header.from=bank.example"), ("Authentication-Results", AR)]), &org(HOST)).trusted);
         // 6. an authserv-id that is not ours (an upstream hop's, or the sender's)
