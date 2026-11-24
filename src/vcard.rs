@@ -227,6 +227,10 @@ fn decode_qp(input: &str) -> String {
 
 fn parse_params(s: &str) -> Map<String, Value> {
     let mut p = Map::new();
+    // Every TYPE value (repeated TYPE=, bare WORK/HOME/...) is collected here and joined once, so a line of
+    // 200 000 repeats costs linear time; at most MAX_ENTRIES are kept.
+    let mut types: Vec<String> = vec![];
+    let add_type = |t: String, types: &mut Vec<String>| { if types.len() < MAX_ENTRIES { types.push(t); } };
     for part in split_quoted(s, ';') {
         if part.is_empty() { continue; }
         if let Some(eq) = part.find('=') {
@@ -235,17 +239,17 @@ fn parse_params(s: &str) -> Map<String, Value> {
             if raw.len() >= 2 && raw.starts_with('"') && raw.ends_with('"') { raw = raw[1..raw.len() - 1].to_string(); }
             let val = decode_param(&raw);
             // repeated TYPE params add up (TYPE=WORK;TYPE=VOICE)
-            if name == "TYPE" { if let Some(old) = p.get("TYPE").and_then(|v| v.as_str()) { p.insert(name, json!(format!("{old},{val}"))); continue; } }
+            if name == "TYPE" { add_type(val, &mut types); continue; }
             p.insert(name, json!(val));
         } else {
             let up = part.to_uppercase();
             if up == "QUOTED-PRINTABLE" || up == "BASE64" { p.insert("ENCODING".into(), json!(up)); }
             else if ["WORK", "HOME", "CELL", "FAX", "VOICE", "PREF", "PAGER", "VIDEO", "TEXT", "TEXTPHONE", "INTERNET"].contains(&up.as_str()) {
-                let t = p.get("TYPE").and_then(|v| v.as_str()).map(|o| format!("{o},{up}")).unwrap_or(up);
-                p.insert("TYPE".into(), json!(t));
+                add_type(up, &mut types);
             }
         }
     }
+    if !types.is_empty() { p.insert("TYPE".into(), json!(types.join(","))); }
     p
 }
 
@@ -477,7 +481,8 @@ fn build(props: Vec<(String, String, String)>, rep: &mut ParseReport) -> Option<
             "EMAIL" => push(&mut card, "emails", "e", clean(json!({"@type": "EmailAddress", "address": strip_scheme(&val, "mailto"), "contexts": ctx, "label": label, "pref": pf}))),
             "TEL" => push(&mut card, "phones", "p", clean(json!({"@type": "Phone", "number": strip_scheme(&val, "tel"), "contexts": ctx, "features": phone_features(ty.as_deref()), "label": label, "pref": pf}))),
             "ORG" => {
-                let parts: Vec<&str> = val.split(';').filter(|x| !x.is_empty()).collect();
+                // the organisation name and at most MAX_ENTRIES units
+                let parts: Vec<&str> = val.split(';').filter(|x| !x.is_empty()).take(MAX_ENTRIES + 1).collect();
                 if let Some(first) = parts.first() {
                     let units: Vec<Value> = parts[1..].iter().map(|u| json!({"@type": "OrgUnit", "name": u})).collect();
                     let mut o = json!({"@type": "Organization", "name": first});
@@ -564,7 +569,7 @@ fn build(props: Vec<(String, String, String)>, rep: &mut ParseReport) -> Option<
             },
             "RELATED" => {
                 let mut rel = Map::new();
-                if let Some(t) = &ty { for x in t.split(',') { let n = x.trim().to_lowercase(); if !n.is_empty() { rel.insert(n, json!(true)); } } }
+                if let Some(t) = &ty { for x in t.split(',') { let n = x.trim().to_lowercase(); if !n.is_empty() && rel.len() < MAX_ENTRIES { rel.insert(n, json!(true)); } } }
                 put_keyed(&mut card, "relatedTo", &val, if rel.is_empty() { json!({"@type": "Relation"}) } else { json!({"@type": "Relation", "relation": rel}) });
             }
             "X-ABRELATEDNAMES" | "X-SPOUSE" | "X-MANAGER" | "X-ASSISTANT" => {
@@ -977,6 +982,49 @@ PHOTO;ENCODING=b;TYPE=JPEG:/9j/4AAQ\r\n SkZJRg==\r\nEND:VCARD\r\n";
         // 500 exactly are all kept
         let (cards, _) = parse_report(&one_card(&format!("FN:A B\r\n{}", (0..MAX_ENTRIES).map(|i| format!("EMAIL:e{i}@example.test")).collect::<Vec<_>>().join("\r\n"))));
         assert_eq!(cards[0]["emails"].as_object().unwrap().len(), MAX_ENTRIES);
+    }
+
+    #[test]
+    fn organisation_units_and_relation_types_are_capped_at_500() {
+        // 600 units: the name and 500 units are kept
+        let org = (0..601).map(|i| format!("u{i}")).collect::<Vec<_>>().join(";");
+        let (cards, _) = parse_report(&one_card(&format!("FN:Ann Example\r\nORG:{org}")));
+        let o = &cards[0]["organizations"]["o0"];
+        assert_eq!(o["name"], "u0");
+        assert_eq!(o["units"].as_array().unwrap().len(), MAX_ENTRIES);
+        assert_eq!(o["units"][0]["name"], "u1");
+        assert_eq!(o["units"][MAX_ENTRIES - 1]["name"], format!("u{MAX_ENTRIES}"));
+        // exactly 500 units are all kept
+        let org = (0..=MAX_ENTRIES).map(|i| format!("u{i}")).collect::<Vec<_>>().join(";");
+        let (cards, _) = parse_report(&one_card(&format!("FN:Ann Example\r\nORG:{org}")));
+        assert_eq!(cards[0]["organizations"]["o0"]["units"].as_array().unwrap().len(), MAX_ENTRIES);
+        // a long line of units is still bounded (200 000 units in one line)
+        let (cards, _) = parse_report(&one_card(&format!("FN:Ann Example\r\nORG:{}", "a;".repeat(200_000))));
+        assert_eq!(cards[0]["organizations"]["o0"]["units"].as_array().unwrap().len(), MAX_ENTRIES);
+        // 600 distinct relation types: 500 keys
+        let types = (0..600).map(|i| format!("t{i}")).collect::<Vec<_>>().join(",");
+        let (cards, _) = parse_report(&one_card(&format!("FN:Ann Example\r\nRELATED;TYPE={types}:bob")));
+        assert_eq!(cards[0]["relatedTo"]["bob"]["relation"].as_object().unwrap().len(), MAX_ENTRIES);
+    }
+
+    #[test]
+    fn repeated_type_parameters_cost_linear_time_and_keep_500_types() {
+        // 190 000 repeats on one line: with a quadratic join this took minutes
+        let line = format!("TEL{}:1", ";WORK".repeat(190_000));
+        assert!(line.len() < MAX_LINE_CHARS);
+        let started = std::time::Instant::now();
+        let (cards, rep) = parse_report(&one_card(&format!("FN:Ann Example\r\n{line}\r\nTEL{}:2", ";TYPE=HOME".repeat(90_000))));
+        assert!(started.elapsed().as_secs() < 20, "parse took {:?}", started.elapsed());
+        assert_eq!(rep.lines_dropped, 0);
+        assert_eq!(cards[0]["phones"]["p0"]["number"], "1");
+        assert_eq!(cards[0]["phones"]["p0"]["contexts"]["work"], true);
+        assert_eq!(cards[0]["phones"]["p1"]["contexts"]["private"], true);
+        // order and joining are as before for the ordinary case
+        let p = parse_params("TYPE=WORK;VOICE;TYPE=pref");
+        assert_eq!(p["TYPE"], "WORK,VOICE,pref");
+        let p = parse_params("WORK;TYPE=VOICE");
+        assert_eq!(p["TYPE"], "WORK,VOICE");
+        assert_eq!(parse_params(&"WORK;".repeat(900))["TYPE"].as_str().unwrap().split(',').count(), MAX_ENTRIES);
     }
 
     #[test]
