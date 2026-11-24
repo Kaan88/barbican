@@ -728,7 +728,7 @@ fn check_new_mail(c: Arc<jmap::Client>, w: Option<slint::Weak<AppWindow>>) {
         let place = if inbox_only {
             json!({"inMailbox": inbox})
         } else {
-            let skip: Vec<String> = ["junk", "trash", "sent", "drafts"].iter().filter_map(|r| roles.get(*r).cloned()).collect();
+            let skip: Vec<String> = ["junk", "trash", "sent", "drafts", "archive"].iter().filter_map(|r| roles.get(*r).cloned()).collect();
             json!({"inMailboxOtherThan": skip})
         };
         let Ok((list, _, _)) = c.list(json!({"operator": "AND", "conditions": [place, {"notKeyword": "$seen"}]}), 0, 10) else { return };
@@ -738,7 +738,7 @@ fn check_new_mail(c: Arc<jmap::Client>, w: Option<slint::Weak<AppWindow>>) {
         let mut batch = vec![];
         // per-folder notification mutes (Bulwark notificationMutes, lib/desktop/new-mail.ts:42-47)
         let mutes = folders::Mutes::decode(prefs_mutes.as_ref());
-        let skip: Vec<String> = ["junk", "trash", "sent", "drafts"].iter().filter_map(|r| roles.get(*r).cloned()).collect();
+        let skip: Vec<String> = ["junk", "trash", "sent", "drafts", "archive"].iter().filter_map(|r| roles.get(*r).cloned()).collect();
         for m in list.iter().rev() {
             let id = m["id"].as_str().unwrap_or("").to_string();
             // a muted message is still marked as told about: unmuting later must not replay it
@@ -898,12 +898,12 @@ fn main() -> Result<(), slint::PlatformError> {
         PLUGIN_ERRORS.with(|e| *e.borrow_mut() = errors);
         plugins_synced();
         // plugins used to be on by default: tell upgraders once why theirs are off now
-        let mut st = settings::Settings::load();
+        let st = settings::Settings::load();
         if st.prefs.get("pluginsOffNoticeShown").is_none() {
             let en = enabled_plugins();
             if PLUGINS.with(|p| plugins::has_unenabled(&p.borrow(), &en)) {
                 mail::show_toast(&ui, "Plugins are now off until you switch them on in Settings > Add-ons.", false);
-                st.remember("pluginsOffNoticeShown", serde_json::json!(true));
+                settings::set_pref("pluginsOffNoticeShown", serde_json::json!(true));
             }
         }
     }

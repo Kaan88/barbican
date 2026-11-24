@@ -885,9 +885,7 @@ fn apply_trusted(prefs: &mut Map<String, Value>, f: impl FnOnce(&mut Vec<String>
 
 /// Write one Bulwark-keyed pref (a value with no settings row, such as sharedCalendarColors).
 pub fn set_pref(key: &str, value: Value) {
-    let mut s = Settings::load();
-    s.prefs.insert(key.into(), value);
-    s.save();
+    update_pref(key, |_| value);
 }
 
 /// Change one pref from its current value (`f` gets it, or None): on the live settings under their
@@ -908,5 +906,15 @@ pub fn update_pref(key: &str, f: impl FnOnce(Option<&Value>) -> Value) {
             s.prefs.insert(key.into(), v);
             s.save();
         }
+    }
+}
+
+/// Run `f` on the live settings under their lock (the program's one settings object), or on a
+/// fresh load when not started, so its saves never race the settings page's.
+pub fn with_live(f: impl FnOnce(&mut Settings)) {
+    let live = LIVE.lock().ok().and_then(|l| l.clone());
+    match live {
+        Some(s) => f(&mut s.lock().unwrap_or_else(|e| e.into_inner())),
+        None => f(&mut Settings::load()),
     }
 }

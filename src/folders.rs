@@ -78,7 +78,7 @@ pub fn count_text(mode: CountMode, unread: i64, total: i64) -> String {
 /// Barbican draws for each (see Icons.for-glyph in ui/theme.slint).
 pub const ICON_CHOICES: [(&str, &str); 18] = [
     ("Folder", "\u{E8B7}"), ("Star", "\u{E734}"), ("Heart", "\u{EB51}"), ("Bookmark", "\u{E8A4}"), ("Tag", "\u{E8EC}"),
-    ("Flag", "\u{E7C1}"), ("Briefcase", "\u{E821}"), ("Users", "\u{E716}"), ("Bell", "\u{E7ED}"), ("Zap", "\u{E945}"),
+    ("Flag", "\u{E7C1}"), ("Briefcase", "\u{E821}"), ("Users", "\u{E716}"), ("Bell", "\u{EA8F}"), ("Zap", "\u{E945}"),
     ("Globe", "\u{E774}"), ("Lock", "\u{E72E}"), ("Eye", "\u{E7B3}"), ("MessageSquare", "\u{E8BD}"), ("Mail", "\u{E119}"),
     ("Inbox", "\u{E715}"), ("Archive", "\u{E7B8}"), ("FileText", "\u{E70B}"),
 ];
@@ -102,6 +102,32 @@ pub fn encode_icon(v: Option<&Value>, id: &str, icon: Option<&str>) -> Value {
 }
 
 // ---------------- pins ----------------
+
+/// The key of a pin: "accountId/mailboxId" like notificationMutes. Mailbox ids repeat across
+/// accounts (Stalwart numbers them from the same small ids), so a bare id would pin in all.
+pub fn pin_key(account: &str, mailbox: &str) -> String { mailbox_key(account, mailbox) }
+
+/// The sidebar order of sibling folders, shared with the folder drag and drop: pinned first, then
+/// the system folders, then sortOrder and name.
+pub fn sibling_key(m: &Value, pinned: bool) -> (bool, i64, i64, String) {
+    let rank = match m["role"].as_str().unwrap_or("") { "inbox" => 0, "drafts" => 1, "sent" => 2, "archive" => 3, "junk" => 4, "trash" => 5, _ => 10 };
+    (!pinned, rank, m["sortOrder"].as_i64().unwrap_or(0), m["name"].as_str().unwrap_or("").to_lowercase())
+}
+
+/// Whether the standard role has no mute entry in Bulwark's menu (mailbox-context-menu.tsx:316).
+pub fn mute_hidden(role: &str) -> bool { matches!(role, "trash" | "junk" | "sent" | "drafts") }
+
+/// Roles whose move to another folder asks first: they decide where mail is sent, filed and saved.
+pub fn role_needs_confirm(list: &[Value], id: &str, role: Option<&str>) -> bool {
+    matches!(role, Some("inbox" | "sent" | "drafts"))
+        && list.iter().any(|m| m["role"].as_str() == role && m["id"].as_str() != Some(id))
+}
+
+/// Unread messages in a folder and everything below it.
+pub fn subtree_unread(list: &[Value], id: &str) -> i64 {
+    let ids: HashSet<String> = subtree(list, id).into_iter().collect();
+    list.iter().filter(|m| m["id"].as_str().is_some_and(|i| ids.contains(i))).map(|m| m["unreadEmails"].as_i64().unwrap_or(0)).sum()
+}
 
 pub fn decode_pinned(v: Option<&Value>) -> Vec<String> {
     v.and_then(Value::as_array).map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect()).unwrap_or_default()
@@ -277,6 +303,41 @@ mod tests {
         assert_eq!(icon_glyph("tabler:rocket"), None);
         let glyphs: HashSet<_> = ICON_CHOICES.iter().map(|c| c.1).collect();
         assert_eq!(glyphs.len(), ICON_CHOICES.len());
+    }
+
+    #[test]
+    fn pins_are_per_account() {
+        let v = encode_pin(None, &pin_key("acc1", "f"), true);
+        let pins = decode_pinned(Some(&v));
+        assert!(pins.contains(&pin_key("acc1", "f")));
+        assert!(!pins.contains(&pin_key("acc2", "f")), "the same mailbox id in another account is not pinned");
+        assert_ne!(sibling_key(&json!({"id": "f", "name": "A"}), true), sibling_key(&json!({"id": "f", "name": "A"}), false));
+    }
+
+    #[test]
+    fn pinned_folders_sort_before_system_folders() {
+        let inbox = json!({"id": "in", "role": "inbox", "name": "Inbox"});
+        let news = json!({"id": "n", "name": "News", "sortOrder": 5});
+        let other = json!({"id": "o", "name": "Aaa"});
+        let mut l = vec![&other, &inbox, &news];
+        l.sort_by_key(|m| sibling_key(m, m["id"] == "n"));
+        assert_eq!(l.iter().map(|m| m["id"].as_str().unwrap()).collect::<Vec<_>>(), vec!["n", "in", "o"]);
+    }
+
+    #[test]
+    fn menu_rules_follow_bulwark() {
+        assert!(mute_hidden("trash") && mute_hidden("junk") && mute_hidden("sent") && mute_hidden("drafts"));
+        assert!(!mute_hidden("inbox") && !mute_hidden("") && !mute_hidden("archive"));
+        let mut l = boxes();
+        assert!(role_needs_confirm(&l, "a", Some("inbox")));
+        assert!(!role_needs_confirm(&l, "in", Some("inbox")), "the holder itself keeps it");
+        assert!(!role_needs_confirm(&l, "a", Some("archive")));
+        assert!(!role_needs_confirm(&l, "a", Some("sent")), "nobody holds sent here");
+        assert_eq!(subtree_unread(&l, "a"), 0);
+        l[2]["unreadEmails"] = json!(3);
+        l[4]["unreadEmails"] = json!(4);
+        assert_eq!(subtree_unread(&l, "a"), 7);
+        assert_eq!(subtree_unread(&l, "a2"), 0);
     }
 
     #[test]

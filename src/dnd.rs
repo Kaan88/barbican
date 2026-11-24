@@ -83,7 +83,7 @@ pub fn drop(u: &AppWindow, st: &Shared) {
         "folder" => {
             let Some((zone, to)) = target.strip_prefix("folder:").and_then(|r| r.split_once(':')) else { return };
             let list = crate::mail::mailbox_list();
-            match plan_folder_drop(&list, &id, to, zone) {
+            match plan_folder_drop(&list, &crate::mail::pinned_ids(), &id, to, zone) {
                 Ok(patches) if patches.is_empty() => {}
                 Ok(patches) => {
                     let Some(c) = st.lock().unwrap().clone() else { return };
@@ -136,9 +136,9 @@ fn parent(m: &Value) -> String { m["parentId"].as_str().unwrap_or("").to_string(
 fn id_of(m: &Value) -> String { m["id"].as_str().unwrap_or("").to_string() }
 
 /// Children of `p` in the order the sidebar shows them (role folders first, then sortOrder, name).
-fn siblings(list: &[Value], p: &str) -> Vec<String> {
+fn siblings(list: &[Value], p: &str, pins: &HashSet<String>) -> Vec<String> {
     let mut v: Vec<&Value> = list.iter().filter(|m| parent(m) == p).collect();
-    v.sort_by_key(|m| (role_rank(m["role"].as_str().unwrap_or("")), m["sortOrder"].as_i64().unwrap_or(0), m["name"].as_str().unwrap_or("").to_lowercase()));
+    v.sort_by_key(|m| crate::folders::sibling_key(m, pins.contains(&id_of(m))));
     v.into_iter().map(id_of).collect()
 }
 
@@ -157,7 +157,7 @@ fn descendants(list: &[Value], root: &str) -> HashSet<String> {
 /// Mailbox/set patches for dropping folder `drag` onto `target`: `inside` nests it there (last),
 /// `before` / `after` put it next to the target under the target's parent. The new parent's
 /// children get sortOrder 1..n in their new order; only what changes is written.
-pub fn plan_folder_drop(list: &[Value], drag: &str, target: &str, zone: &str) -> Result<Vec<(String, Value)>, String> {
+pub fn plan_folder_drop(list: &[Value], pins: &HashSet<String>, drag: &str, target: &str, zone: &str) -> Result<Vec<(String, Value)>, String> {
     let by_id: HashMap<String, &Value> = list.iter().map(|m| (id_of(m), m)).collect();
     let Some(d) = by_id.get(drag) else { return Err("That folder is gone".into()) };
     let Some(t) = by_id.get(target) else { return Err("Can't drop it there".into()) };
@@ -170,7 +170,7 @@ pub fn plan_folder_drop(list: &[Value], drag: &str, target: &str, zone: &str) ->
     if !role.is_empty() && new_parent != parent(d) {
         return Err("Special folders (Inbox, Sent, …) stay where they are".into());
     }
-    let mut order: Vec<String> = siblings(list, &new_parent).into_iter().filter(|x| x != drag).collect();
+    let mut order: Vec<String> = siblings(list, &new_parent, pins).into_iter().filter(|x| x != drag).collect();
     match zone {
         "inside" => order.push(drag.to_string()),
         z => {
@@ -344,29 +344,29 @@ mod tests {
     #[test]
     fn reorder_among_siblings() {
         // Gamma before Alpha: Inbox stays first (role folders lead) and its sortOrder is left alone
-        let p = plan_folder_drop(&tree(), "c", "a", "before").unwrap();
+        let p = plan_folder_drop(&tree(), &HashSet::new(), "c", "a", "before").unwrap();
         assert_eq!(p, vec![
             ("c".to_string(), json!({"sortOrder": 2})),
             ("a".to_string(), json!({"sortOrder": 3})),
             ("b".to_string(), json!({"sortOrder": 4})),
         ]);
         // Alpha after Beta
-        let p = plan_folder_drop(&tree(), "a", "b", "after").unwrap();
+        let p = plan_folder_drop(&tree(), &HashSet::new(), "a", "b", "after").unwrap();
         assert!(p.contains(&("a".to_string(), json!({"sortOrder": 3}))));
         assert!(p.contains(&("c".to_string(), json!({"sortOrder": 4}))));
         // Beta keeps its place: nothing written for it
         assert!(!p.iter().any(|x| x.0 == "b"));
         // no-op drop
-        assert!(plan_folder_drop(&tree(), "a", "a", "inside").unwrap().is_empty());
+        assert!(plan_folder_drop(&tree(), &HashSet::new(), "a", "a", "inside").unwrap().is_empty());
     }
 
     #[test]
     fn reparent() {
         // Beta into Gamma: becomes its only child
-        let p = plan_folder_drop(&tree(), "b", "c", "inside").unwrap();
+        let p = plan_folder_drop(&tree(), &HashSet::new(), "b", "c", "inside").unwrap();
         assert_eq!(p, vec![("b".to_string(), json!({"sortOrder": 1, "parentId": "c"}))]);
         // the grandchild out to the top level, after Beta
-        let p = plan_folder_drop(&tree(), "a11", "b", "after").unwrap();
+        let p = plan_folder_drop(&tree(), &HashSet::new(), "a11", "b", "after").unwrap();
         let mine = p.iter().find(|x| x.0 == "a11").unwrap();
         assert_eq!(mine.1["parentId"], Value::Null);
         assert_eq!(mine.1["sortOrder"], 4);
@@ -374,12 +374,12 @@ mod tests {
 
     #[test]
     fn refuses_cycles_and_moving_special_folders() {
-        assert!(plan_folder_drop(&tree(), "a", "a11", "inside").is_err());
-        assert!(plan_folder_drop(&tree(), "a", "a1", "after").is_err());
-        assert!(plan_folder_drop(&tree(), "in", "a", "inside").is_err());
+        assert!(plan_folder_drop(&tree(), &HashSet::new(), "a", "a11", "inside").is_err());
+        assert!(plan_folder_drop(&tree(), &HashSet::new(), "a", "a1", "after").is_err());
+        assert!(plan_folder_drop(&tree(), &HashSet::new(), "in", "a", "inside").is_err());
         // reordering Inbox among the top level is fine
-        assert!(plan_folder_drop(&tree(), "in", "b", "after").is_ok());
-        assert!(plan_folder_drop(&tree(), "zz", "a", "inside").is_err());
+        assert!(plan_folder_drop(&tree(), &HashSet::new(), "in", "b", "after").is_ok());
+        assert!(plan_folder_drop(&tree(), &HashSet::new(), "zz", "a", "inside").is_err());
     }
 
     #[test]

@@ -574,18 +574,24 @@ impl Client {
     pub fn mark_folders_read(&self, folders: &[String]) -> R<(usize, Vec<String>)> {
         let mut ids: Vec<String> = vec![];
         let mut seen = std::collections::HashSet::new();
+        let mut failed = vec![];
         for f in folders {
-            let found = self.query_all("Email/query", &self.account, json!({"filter": {"inMailbox": f, "notKeyword": "$seen"}, "limit": self.max_set()}))?;
+            // a folder that cannot be read leaves the others to go on
+            let found = match self.query_all("Email/query", &self.account, json!({"filter": {"inMailbox": f, "notKeyword": "$seen"}, "limit": self.max_set()})) {
+                Ok(v) => v,
+                Err(e) => { failed.push(format!("{f}: {e}")); continue }
+            };
             for id in found.iter().filter_map(|v| v.as_str()) {
                 if seen.insert(id.to_string()) { ids.push(id.to_string()); }
             }
         }
         let mut marked = 0;
-        let mut failed = vec![];
         for group in crate::folders::batches(&ids, self.max_set()) {
-            let (ok, bad) = self.set_keyword(group, "$seen", true)?;
-            marked += ok;
-            failed.extend(bad);
+            // a transport error mid-way keeps what was marked so far
+            match self.set_keyword(group, "$seen", true) {
+                Ok((ok, bad)) => { marked += ok; failed.extend(bad); }
+                Err(e) => { failed.push(e); break }
+            }
         }
         Ok((marked, failed))
     }

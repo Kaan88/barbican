@@ -789,8 +789,10 @@ fn folder_items(u: &AppWindow, id: &str) -> Vec<CtxItem> {
         header(&name),
         it(G_READ, "Mark folder as read", "", "folder-read"),
     ];
-    if crate::folders::has_children(&mail::mailbox_list(), id) {
-        v.push(it(G_READ, "Mark folder and subfolders as read", "", "folder-read-tree"));
+    let boxes = mail::mailbox_list();
+    if crate::folders::has_children(&boxes, id) {
+        // nothing to do below a folder without unread mail (Bulwark mailbox-context-menu.tsx:58-70)
+        v.push(off(it(G_READ, "Mark folder and subfolders as read", "", "folder-read-tree"), crate::folders::subtree_unread(&boxes, id) > 0));
     }
     // Bulwark folder settings: subscribe, pin, notification mute, counter, icon, standard role
     let row = folder(u, id);
@@ -799,7 +801,12 @@ fn folder_items(u: &AppWindow, id: &str) -> Vec<CtxItem> {
         it(G_REFRESH, "Refresh", "", "refresh"),
         sep(),
         it("\u{E718}", if row.as_ref().is_some_and(|f| f.pinned) { "Unpin from top" } else { "Pin to top" }, "", "pin"),
-        it("\u{E74F}", if row.as_ref().is_some_and(|f| f.quiet) { "Unmute notifications" } else { "Mute notifications" }, "", "mute"),
+    ]);
+    // nothing arrives in Trash, Spam, Sent or Drafts, so there is nothing to mute (mailbox-context-menu.tsx:316,393)
+    if !crate::folders::mute_hidden(&role) {
+        v.push(it("\u{E74F}", if row.as_ref().is_some_and(|f| f.quiet) { "Unmute notifications" } else { "Mute notifications" }, "", "mute"));
+    }
+    v.extend([
         it(if subscribed { "\u{E711}" } else { "\u{E710}" }, if subscribed { "Unsubscribe" } else { "Subscribe" }, "", "subscribe"),
         sub("\u{E8FD}", "Counter", "sub:fcount"),
         sub("\u{E790}", "Icon", "sub:ficon"),
@@ -1292,7 +1299,8 @@ pub fn pick(u: &AppWindow, st: &Shared, action: &str) {
                 "folder-read-tree" => mark_tree_read(u, c, crate::folders::subtree(&mail::mailbox_list(), &fid)),
                 "pin" => {
                     let pin = !folder(u, id).is_some_and(|f| f.pinned);
-                    crate::settings::update_pref(crate::folders::KEY_PINNED, |v| crate::folders::encode_pin(v, &fid, pin));
+                    let key = crate::folders::pin_key(&mail::account_id(), &fid);
+                    crate::settings::update_pref(crate::folders::KEY_PINNED, |v| crate::folders::encode_pin(v, &key, pin));
                     mail::rebuild_folders(u);
                 }
                 "mute" => {
@@ -1322,9 +1330,17 @@ pub fn pick(u: &AppWindow, st: &Shared, action: &str) {
                     crate::settings::update_pref(crate::folders::KEY_ICONS, |v| crate::folders::encode_icon(v, &fid, icon));
                     mail::rebuild_folders(u);
                 }
-                a if a.starts_with("frole:") => {
-                    let role = Some(&a[6..]).filter(|r| *r != "none").map(String::from);
+                a if a.starts_with("frole:") || a.starts_with("frole-go:") => {
+                    let (go, r) = match a.strip_prefix("frole-go:") { Some(r) => (true, r), None => (false, &a[6..]) };
+                    let role = Some(r).filter(|r| *r != "none").map(String::from);
                     let list = mail::mailbox_list();
+                    // the Inbox, Sent and Drafts roles decide where mail goes: ask before taking one from its folder
+                    if !go && crate::folders::role_needs_confirm(&list, &fid, role.as_deref()) {
+                        let label = format!("Move the {r} role here from the folder that has it");
+                        u.global::<crate::CtxHl>().set_id(HL.with(|h| h.borrow().clone()).into());
+                        reopen(u, confirm(&label, &format!("do:frole-go:{r}")));
+                        return;
+                    }
                     mailbox_op(u, c, "Folder role changed", move |c| c.set_mailbox_role(&list, &fid, role.as_deref()).map(|_| String::new()));
                 }
                 "refresh" => u.invoke_refresh(),

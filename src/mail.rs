@@ -131,8 +131,9 @@ pub fn rebuild_folders(u: &AppWindow) {
         for m in &b.list {
             children.entry(m["parentId"].as_str().unwrap_or("").to_string()).or_default().push(m);
         }
+        let is_pinned = |m: &Value| pins.contains(&crate::folders::pin_key(account, m["id"].as_str().unwrap_or("")));
         for v in children.values_mut() {
-            v.sort_by_key(|m| (!pins.iter().any(|p| m["id"].as_str() == Some(p.as_str())), role_rank(m["role"].as_str().unwrap_or("")), m["sortOrder"].as_i64().unwrap_or(0), m["name"].as_str().unwrap_or("").to_lowercase()));
+            v.sort_by_key(|m| crate::folders::sibling_key(m, is_pinned(m)));
         }
         struct Look<'a> { modes: &'a HashMap<String, crate::folders::CountMode>, icons: &'a HashMap<String, String>, pins: &'a [String], mutes: &'a crate::folders::Mutes, account: &'a str }
         fn walk(p: &str, d: i32, ch: &HashMap<String, Vec<&Value>>, col: &HashSet<String>, out: &mut Vec<Folder>, colorful: bool, totals: bool, look: &Look) {
@@ -162,7 +163,7 @@ pub fn rebuild_folders(u: &AppWindow) {
                     }).into(),
                     chevron: if has_kids { if collapsed { 2 } else { 1 } } else { 0 },
                     muted: m["isSubscribed"].as_bool() == Some(false),
-                    pinned: look.pins.iter().any(|p| p == id),
+                    pinned: look.pins.contains(&crate::folders::pin_key(look.account, id)),
                     quiet: look.mutes.muted(look.account, id),
                 });
                 if !collapsed { walk(id, d + 1, ch, col, out, colorful, totals, look); }
@@ -192,7 +193,10 @@ pub fn rebuild_folders(u: &AppWindow) {
             for f in out.iter_mut() {
                 // a folder set to "No counter" shows no dot either
                 if f.unread > 0 && modes.get(f.id.as_str()) != Some(&crate::folders::CountMode::None) {
-                    f.count = if style == "dot" { "\u{25CF}".into() } else { "".into() };
+                    // "unread counts hidden" still shows the total of a folder set to "all" (sidebar.tsx:305-309)
+                    f.count = if style == "dot" { "\u{25CF}".into() }
+                        else if modes.get(f.id.as_str()) == Some(&crate::folders::CountMode::All) && f.total > 0 { f.total.to_string().into() }
+                        else { "".into() };
                 }
             }
         }
@@ -261,6 +265,15 @@ pub fn mailbox_info(id: &str) -> (String, String) {
 
 /// The active account's folders as Mailbox/get returned them.
 pub fn mailboxes() -> Vec<Value> { BOXES.with(|b| b.borrow().list.clone()) }
+/// The active account's pinned folder ids (pins are stored per account).
+pub fn pinned_ids() -> HashSet<String> {
+    let account = account_id();
+    let prefs = crate::settings::Settings::load();
+    let pins = crate::folders::decode_pinned(prefs.prefs.get(crate::folders::KEY_PINNED));
+    BOXES.with(|b| b.borrow().list.iter().filter_map(|m| m["id"].as_str())
+        .filter(|id| pins.contains(&crate::folders::pin_key(&account, id))).map(String::from).collect())
+}
+
 /// The JMAP account id of the folders loaded (the key of their notification mutes).
 pub fn account_id() -> String { BOXES.with(|b| b.borrow().account.clone()) }
 /// The id of the active account's folder with this role (inbox, sent, drafts, trash, junk, ...).
@@ -324,6 +337,8 @@ pub fn load_mailboxes(w: slint::Weak<AppWindow>, c: Arc<Client>, select_inbox: b
             // list meanwhile, the merge is stale and the newer list stays
             let stale = base.is_some() && BOXES.with(|b| b.borrow().state != base);
             if stale { return; }
+            // a change that finished after an account switch must not install the old login's list
+            if !crate::unified::is_active(&c) && !crate::unified::active_user().is_empty() { return; }
             BOXES.with(|b| { let mut b = b.borrow_mut(); b.list = list; b.account = c.account.clone(); b.state = state.map(|s| (c.state_key(), s)); });
             // the copy and move pickers hold this login's folders from before
             crate::ctxmenu::folders_changed(&crate::unified::login_of(&c));
