@@ -33,7 +33,9 @@ See `plugins/spam-score` for a complete Rust example (port of Bulwark's Spam Sco
 
 ## API v2 (design, ROADMAP Phase 5 step B1)
 
-Status: design only. Nothing below is built yet; steps B2-B7 build it. API 1 (above) keeps loading until Barbican
+Status: B2 is built (the manifest checks, the consent dialog and `pluginGrants`, package install and uninstall:
+`src/plugins.rs`, `src/plugin_package.rs`); the rest is design, and steps B3-B7 build it. Until B3/B4 an installed API 2
+plugin is listed and consented to but not loaded. API 1 (above) keeps loading until Barbican
 1.0 and is dropped at 1.0 (decided; see "Decisions" below), so API 1 plugins have until then to move to v2.
 
 Bulwark 1.21.2 is the reference vocabulary, not a compatibility target. Hook, slot, host-method and permission names

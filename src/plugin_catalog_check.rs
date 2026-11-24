@@ -107,3 +107,21 @@ fn aliases_resolve() {
     assert!(lookup_hook("nope").is_none());
     for (old, new) in HOOK_ALIASES { assert!(lookup_hook(new).is_some() && lookup_hook(old).is_some()); }
 }
+
+#[test]
+fn also_permission_table_matches_the_csv() {
+    let mut csv: Vec<(String, String)> = table(HOOKS_CSV).into_iter()
+        .filter(|r| !r["also_permission"].is_empty()).map(|r| (r["name"].clone(), r["also_permission"].clone())).collect();
+    let mut ours: Vec<(String, String)> = crate::plugins::ALSO_PERMISSION.iter().map(|(a, b)| (a.to_string(), b.to_string())).collect();
+    csv.sort();
+    ours.sort();
+    assert_eq!(ours, csv, "plugins::ALSO_PERMISSION must list hooks.csv also_permission");
+}
+
+#[test]
+fn every_catalogued_permission_is_offered_or_dropped() {
+    use crate::plugins::{DROPPED_PERMISSIONS, PERMISSIONS};
+    let offered = |p: &str| PERMISSIONS.iter().any(|x| x.name == p) || DROPPED_PERMISSIONS.contains(&p);
+    for h in HOOKS.iter() { assert!(offered(h.permission), "hook {} needs {}", h.name, h.permission); }
+    for s in SLOTS.iter() { for p in s.permissions.split(';') { assert!(offered(p), "slot {} needs {p}", s.name); } }
+}

@@ -44,8 +44,9 @@ of truth; `src/plugin_catalog.rs` is generated from them.
 - `budget_ms`: the time a handler gets (Bulwark `lib/plugin-hooks.ts:62-72`: 5 s, intercepts 60 s, the send intercept and takeovers 10 min, blob upload 15 min).
 - `fail_closed`: true when a handler that fails or times out stops the action (the send takeover).
 - `barbican_status`: `adopt`, `adapt` or `skip` (B1, the same in all three files); `barbican_note` says why, and for adapt what changes.
-  A skipped row has `status` `n/a(...)`. Refusing a manifest that names a skipped hook, slot or method is planned for B2
-  (install checks); nothing enforces it yet.
+  A skipped row has `status` `n/a(...)`. Since B2 an install refuses a manifest that names a skipped (or unknown) hook or
+  slot, or one whose catalogue permission it does not declare (`plugins::validate_manifest`); a skipped host method is
+  answered `unsupported` when it is called (B3).
 
 ## slots.csv columns
 `name, area, kind, permissions, props, where, bulwark_ref, phase, status, barbican_status, barbican_note`. `kind` is frame, action or data; `phase` is `5-B6`;

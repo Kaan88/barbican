@@ -53,6 +53,7 @@ mod redirect;
 mod restore;
 mod secrets;
 mod plugins;
+mod plugin_package;
 mod plugin_catalog;
 #[cfg(test)]
 mod plugin_catalog_check;
@@ -550,10 +551,10 @@ pub fn enabled_plugins() -> Vec<String> {
     p.prefs.get("enabledPlugins").and_then(|v| v.as_array()).map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect()).unwrap_or_default()
 }
 
-/// The allow-list as it counts: switched on AND still bound to the file it was enabled for.
+/// The allow-list as it counts: switched on AND its grant still covers the file and what it asks for.
 fn effective_plugins() -> Vec<String> {
-    let bindings = settings::Settings::load().prefs.get("pluginBindings").cloned().unwrap_or_default();
-    PLUGINS.with(|p| plugins::bound_enabled(&p.borrow(), &enabled_plugins(), &bindings))
+    let grants = plugins::grants_from_prefs(&settings::Settings::load().prefs);
+    PLUGINS.with(|p| plugins::granted_enabled(&p.borrow(), &enabled_plugins(), &grants))
 }
 
 /// Load what was switched on, unload what was switched off; returns the effective allow-list.
@@ -567,9 +568,76 @@ fn plugins_synced() -> Vec<String> {
 /// A plugin was switched on or off in Settings.
 pub fn plugin_toggled() { plugins_synced(); }
 
-/// What enabling a plugin pins (its file path and hash).
-pub fn plugin_binding(key: &str) -> Option<String> {
-    PLUGINS.with(|p| p.borrow().iter().find(|x| x.key == key).map(|x| x.binding()))
+thread_local! {
+    /// The grant the user just accepted in the consent dialog, until Settings records it.
+    static PENDING_GRANT: std::cell::RefCell<Option<plugins::Grant>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Switching a plugin on: show the consent dialog when its grant does not cover it (PLUGINS.md "Consent").
+/// Returns whether the user said yes; the grant to record is then waiting in [`take_plugin_grant`].
+pub fn plugin_consent(key: &str) -> bool {
+    let grants = plugins::grants_from_prefs(&settings::Settings::load().prefs);
+    // the dialog text is built first and PLUGINS released: the dialog runs a nested event loop
+    let ask = PLUGINS.with(|p| {
+        let list = p.borrow();
+        let x = list.iter().find(|x| x.key == key)?;
+        let at = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+        Some(match x.consent(&grants) {
+            plugins::Consent::Granted => (None, grants.iter().find(|g| g.id == key).cloned().unwrap_or_else(|| x.grant(vec![], &at))),
+            c => {
+                let (title, body, private) = x.consent_dialog(&c, &grants, &|h: &str| plugins::resolves_private(h, std::time::Duration::from_secs(2)));
+                (Some((title, body)), x.grant(private, &at))
+            }
+        })
+    });
+    let Some((dialog, grant)) = ask else { return false };
+    if let Some((title, body)) = dialog {
+        let yes = rfd::MessageDialog::new().set_level(rfd::MessageLevel::Warning).set_title(title.as_str())
+            .set_description(body.as_str()).set_buttons(rfd::MessageButtons::YesNo).show();
+        if yes != rfd::MessageDialogResult::Yes { return false; }
+    }
+    PENDING_GRANT.with(|g| *g.borrow_mut() = Some(grant));
+    true
+}
+
+/// The grant accepted for `key` by [`plugin_consent`], as the `pluginGrants` entry.
+pub fn take_plugin_grant(key: &str) -> Option<serde_json::Value> {
+    PENDING_GRANT.with(|g| g.borrow_mut().take()).filter(|g| g.id == key).map(|g| g.to_json())
+}
+
+/// Settings > Add-ons > Install plugin: pick a ZIP (or a folder), check it and unpack it into the plugins folder.
+fn plugin_install(u: &AppWindow, folder: bool) {
+    let picked = if folder { rfd::FileDialog::new().pick_folder() } else { rfd::FileDialog::new().add_filter("Plugin package", &["zip"]).pick_file() };
+    let Some(src) = picked else { return };
+    let msg = match plugin_package::install(&src, &plugins::dir()) {
+        Ok(r) if r.updated => format!("Updated {} to {}. Switch it on again to review its permissions.", r.name, r.version),
+        Ok(r) => format!("Installed {} {}. It stays off until you switch it on.", r.name, r.version),
+        Err(e) => format!("Could not install the plugin: {e}"),
+    };
+    mail::show_toast(u, &msg, false);
+    refresh_plugins();
+}
+
+/// Settings > Add-ons > Uninstall: after a confirm, remove `plugins\<id>\` and `plugin-data\<id>\`.
+/// Returns true when it was removed (the caller then forgets its grant).
+fn plugin_uninstall(u: &AppWindow, key: &str) -> bool {
+    let name = PLUGINS.with(|p| p.borrow().iter().find(|x| x.key == key && x.decl.package.is_some()).map(|x| x.name.clone()));
+    let Some(name) = name else { return false };
+    let yes = rfd::MessageDialog::new().set_level(rfd::MessageLevel::Warning).set_title(format!("Uninstall {name}?").as_str())
+        .set_description(format!("This deletes the plugin and everything it stored on this computer. It cannot be undone.
+
+{}
+{}",
+            plugins::dir().join(key).display(), plugins::data_dir().join(key).display()).as_str())
+        .set_buttons(rfd::MessageButtons::YesNo).show();
+    if yes != rfd::MessageDialogResult::Yes { return false; }
+    let r = plugin_package::uninstall(key, &plugins::dir(), &plugins::data_dir());
+    match &r {
+        Ok(()) => mail::show_toast(u, &format!("{name} was uninstalled."), false),
+        Err(e) => mail::show_toast(u, &format!("Could not uninstall {name}: {e}"), false),
+    }
+    refresh_plugins();
+    r.is_ok()
 }
 
 /// Re-read the plugins folder (Settings → Add-ons opened).
@@ -602,7 +670,7 @@ pub fn plugin_list() -> Vec<serde_json::Value> {
         let was_on = raw.contains(&x.key);
         d["enabled"] = (was_on && eff.contains(&x.key)).into();
         if was_on && !eff.contains(&x.key) {
-            d["description"] = format!("{} The file changed since you switched it on: switch it off and on again.", d["description"].as_str().unwrap_or("")).into();
+            d["description"] = format!("{} It changed since you switched it on: switch it on again to review its permissions.", d["description"].as_str().unwrap_or("")).into();
         }
         d
     }).collect())
@@ -1230,6 +1298,8 @@ fn main() -> Result<(), slint::PlatformError> {
 
     let (pf, cf, rs, srv, sw, wt, stg) = (prefs.clone(), cfg.clone(), refresh_settings.clone(), server_cache.clone(), server_write.clone(), ui.as_weak(), state.clone());
     ui.on_settings_set_toggle(move |key, on| {
+        // switching a plugin on asks for consent first; a no leaves it off
+        if let Some(id) = key.strip_prefix("plugin:") { if on && !plugin_consent(id) { rs(); return; } }
         if key.starts_with("server.") {
             if let Some(job) = server_settings::edit(&key, &serde_json::json!(on), &srv) { sw(job, 10); }
             rs();
@@ -1343,6 +1413,17 @@ fn main() -> Result<(), slint::PlatformError> {
             u.invoke_settings_search(u.get_settings_query());
         }
         if key == "plugins.folder" { oauth::open_browser(&plugins::dir().to_string_lossy()); }
+        if key == "plugins.install" || key == "plugins.installFolder" {
+            plugin_install(&u, key == "plugins.installFolder");
+            u.invoke_settings_search(u.get_settings_query());
+            return;
+        }
+        if let Some(id) = key.strip_prefix("plugin-uninstall:") {
+            if plugin_uninstall(&u, id) { pf2.lock().unwrap().set(&format!("pluginForget:{id}"), Value::Null, &mut cf2.lock().unwrap()); }
+            plugins_synced();
+            u.invoke_settings_search(u.get_settings_query());
+            return;
+        }
         if key == "avatars.refresh" { avatars::refresh(); mail::refresh_avatars(&u); mail::show_toast(&u, "Sender icons will be fetched again", false); }
         if key == "backup.export" {
             if let Some(path) = rfd::FileDialog::new().set_file_name("barbican-settings.json").add_filter("JSON", &["json"]).save_file() {

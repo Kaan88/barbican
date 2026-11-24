@@ -200,7 +200,7 @@ impl Settings {
         // Plugin consent is per computer and per file: never copy an allow-list or its file bindings
         // from a settings file, or an import could switch on code this user has not agreed to run.
         // The current local values stay, so an import does not switch off plugins enabled here either.
-        for key in ["enabledPlugins", "pluginBindings"] {
+        for key in ["enabledPlugins", "pluginBindings", "pluginGrants"] {
             match self.prefs.get(key) {
                 Some(v) => { imported.insert(key.into(), v.clone()); }
                 None => { imported.remove(key); }
@@ -393,21 +393,27 @@ impl Settings {
                 out.push(text("text", "ai.lang", "Translate into", "", &cfg.lang));
             }
             "addons" => {
-                out.push(row("section", "", "Plugins", "Native plugins dropped into the plugins folder stay off until you switch them on. A plugin runs code on your computer: switch on only the ones you trust."));
+                out.push(row("section", "", "Plugins", "Installed plugins stay off until you switch them on and accept what they ask for. A plugin runs code on your computer: switch on only the ones you trust."));
                 crate::refresh_plugins();
                 let list = crate::plugin_list();
                 if list.is_empty() {
-                    out.push(text("value", "", "No plugins installed", "Copy a plugin .dll into the folder, then reopen this page.", ""));
+                    out.push(text("value", "", "No plugins installed", "Install a plugin package below, or copy a plugin .dll into the folder and reopen this page.", ""));
                 }
                 for p in list {
                     let id = p["id"].as_str().unwrap_or("");
                     let hooks = p["hooks"].as_array().map(|a| a.iter().filter_map(|h| h.as_str()).collect::<Vec<_>>().join(", ")).unwrap_or_default();
                     out.push(toggle(&format!("plugin:{id}"), &format!("{} {}", p["name"].as_str().unwrap_or(id), p["version"].as_str().unwrap_or("")),
                         &format!("{}  (hooks: {hooks})", p["description"].as_str().unwrap_or("")), p["enabled"].as_bool().unwrap_or(false)));
+                    if p["packaged"].as_bool() == Some(true) {
+                        out.push(text("button", &format!("plugin-uninstall:{id}"), &format!("Uninstall {}", p["name"].as_str().unwrap_or(id)),
+                            "Removes the plugin and everything it stored on this computer.", "Uninstall"));
+                    }
                 }
                 for e in crate::plugin_errors() {
                     out.push(text("value", "", "Could not load", &e, ""));
                 }
+                out.push(text("button", "plugins.install", "Install plugin", "A plugin package (.zip) with a manifest.json and its library. It is checked, unpacked and listed here, switched off.", "Choose ZIP..."));
+                out.push(text("button", "plugins.installFolder", "Install from a folder", "An unpacked plugin package.", "Choose folder..."));
                 out.push(text("button", "plugins.folder", "Plugins folder", &crate::plugins::dir().display().to_string(), "Open folder"));
             }
             "backup" => {
@@ -598,19 +604,33 @@ impl Settings {
                 self.save();
                 return;
             }
+            k if k.starts_with("pluginForget:") => {
+                // an uninstalled plugin: off, and its grant and binding gone
+                let id = &k[13..];
+                if let Some(Value::Array(l)) = self.prefs.get_mut("enabledPlugins") { l.retain(|x| x.as_str() != Some(id)); }
+                for key in ["pluginGrants", "pluginBindings"] {
+                    if let Some(Value::Object(m)) = self.prefs.get_mut(key) { m.remove(id); }
+                }
+                self.save();
+                return;
+            }
             k if k.starts_with("plugin:") => {
                 let id = &k[7..];
                 let mut list: Vec<Value> = self.prefs.get("enabledPlugins").and_then(|v| v.as_array().cloned()).unwrap_or_default();
                 list.retain(|x| x.as_str() != Some(id));
-                if value.as_bool() == Some(true) { list.push(json!(id)); }
-                self.prefs.insert("enabledPlugins".into(), Value::Array(list));
-                // enabling pins the plugin's file (path + hash): a replaced file must be switched on again
-                let mut bindings = self.prefs.get("pluginBindings").and_then(|v| v.as_object().cloned()).unwrap_or_default();
-                bindings.remove(id);
+                // switching on records the grant the consent dialog accepted (path + SHA-256 + permissions); without
+                // one the plugin stays off. Switching off keeps the grant, so the same file comes back without asking.
+                let mut grants = self.prefs.get("pluginGrants").and_then(|v| v.as_object().cloned()).unwrap_or_default();
                 if value.as_bool() == Some(true) {
-                    if let Some(b) = crate::plugin_binding(id) { bindings.insert(id.to_string(), json!(b)); }
+                    if let Some(g) = crate::take_plugin_grant(id) {
+                        grants.insert(id.to_string(), g);
+                        list.push(json!(id));
+                    }
                 }
-                self.prefs.insert("pluginBindings".into(), Value::Object(bindings));
+                self.prefs.insert("enabledPlugins".into(), Value::Array(list));
+                self.prefs.insert("pluginGrants".into(), Value::Object(grants));
+                // API 1's bindings are read as grants until a grant replaces them
+                if let Some(Value::Object(b)) = self.prefs.get_mut("pluginBindings") { if value.as_bool() == Some(true) { b.remove(id); } }
                 self.save();
                 crate::plugin_toggled();
                 return;
@@ -758,9 +778,10 @@ mod tests {
         assert_eq!(s.str("density", ""), "compact");
 
         // Plugin consent is not imported: with no local consent, the file's allow-list and bindings are dropped.
-        s.import(&json!({"theme": "light", "enabledPlugins": ["spam-score"], "pluginBindings": {"spam-score": "C:/p/a.dll|abc"}})).unwrap();
+        s.import(&json!({"theme": "light", "enabledPlugins": ["spam-score"], "pluginBindings": {"spam-score": "C:/p/a.dll|abc"},
+            "pluginGrants": {"spam-score": {"id": "spam-score", "path": "C:/p/a.dll", "sha256": "abc", "granted": ["email:read"]}}})).unwrap();
         assert_eq!(s.str("theme", ""), "light");
-        assert!(s.prefs.get("enabledPlugins").is_none() && s.prefs.get("pluginBindings").is_none());
+        assert!(s.prefs.get("enabledPlugins").is_none() && s.prefs.get("pluginBindings").is_none() && s.prefs.get("pluginGrants").is_none());
         assert!(Settings::load().prefs.get("enabledPlugins").is_none());
 
         // Local consent survives an import instead of switching the user's plugins off.
