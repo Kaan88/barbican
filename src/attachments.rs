@@ -107,7 +107,8 @@ pub fn safe_file_name(name: &str) -> String {
     let (stem, s) = if reserved { (format!("_{stem}"), format!("_{s}")) } else { (stem, s) };
     if s.len() <= MAX_NAME_BYTES { return s; }
     // too long: keep a sane extension (an absurd one is cut too), shorten the stem to fit
-    let ext = cut_bytes(&ext, MAX_EXT_BYTES);
+    let ext = cut_bytes(&ext, MAX_EXT_BYTES).trim_end_matches(['.', ' ']);
+    let ext = if ext == "." { "" } else { ext };
     let stem = cut_bytes(&stem, MAX_NAME_BYTES - ext.len()).trim_end_matches(['.', ' ']);
     if stem.is_empty() { return format!("attachment{ext}"); }
     format!("{stem}{ext}")
@@ -293,6 +294,11 @@ mod tests {
         assert!(cut.len() <= 255 && cut.starts_with("nnn") && cut.rsplit_once('.').unwrap().1.len() < 16);
         let cut = safe_file_name(&format!("a.{}", "e".repeat(400)));
         assert!(cut.len() <= 255 && cut.starts_with("a.e"));
+        // a cut extension does not end in a dot or space either
+        let cut = safe_file_name(&format!("n.{}. .{}", "e".repeat(13), "x".repeat(300)));
+        assert!(cut.len() <= 255 && !cut.ends_with('.') && !cut.ends_with(' '));
+        let cut = safe_file_name(&format!("{}.{}.", "n".repeat(300), "e".repeat(300)));
+        assert!(!cut.ends_with('.'));
         // a cut never leaves a trailing dot or space
         let cut = safe_file_name(&format!("{} .pdf", "d".repeat(253)));
         assert!(cut.len() <= 255 && !cut.contains(" ."));

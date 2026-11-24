@@ -58,6 +58,16 @@ pub fn setup_from_settings() -> Option<Setup> {
     setup(&s.str("phishingReportAddress", ""), &s.str("phishingReportFormat", "forward"))
 }
 
+/// The same, kept for a couple of seconds: menus and the selection bar ask on every build.
+pub fn setup_cached() -> Option<Setup> {
+    static C: std::sync::Mutex<Option<(std::time::Instant, Option<Setup>)>> = std::sync::Mutex::new(None);
+    let mut g = C.lock().unwrap();
+    if let Some((at, s)) = g.as_ref() { if at.elapsed() < std::time::Duration::from_secs(2) { return s.clone(); } }
+    let s = setup_from_settings();
+    *g = Some((std::time::Instant::now(), s.clone()));
+    s
+}
+
 /// Folders whose messages are the user's own: nothing to report there.
 const OWN_MAIL_ROLES: &[&str] = &["sent", "drafts", "scheduled"];
 
@@ -273,13 +283,26 @@ pub fn origin_mailbox(m: &Value) -> Option<String> {
 /// The patch that takes a reported message back (Bulwark client.ts undoSpam with `$phishing` cleared):
 /// back to its folder, `$junk` off and `$notjunk` on (moving alone would leave it flagged as junk
 /// for every other client).
-pub fn undo_patch(origin: &str) -> Value {
-    json!({"mailboxIds": {origin: true}, "keywords/$junk": null, "keywords/$notjunk": true, "keywords/$phishing": null})
+/// Only the two folders are touched (`mailboxIds/<junk>` off, `mailboxIds/<origin>` on), so a
+/// message that was filed in another folder meanwhile keeps that one.
+pub fn undo_patch(origin: &str, junk: Option<&str>) -> Value {
+    let mut p = json!({"keywords/$junk": null, "keywords/$notjunk": true, "keywords/$phishing": null});
+    if let Some(j) = junk.filter(|j| *j != origin) { p[format!("mailboxIds/{j}")] = Value::Null; }
+    p[format!("mailboxIds/{origin}")] = json!(true);
+    p
 }
 
 /// The request that moves the reported message `id` back to `origin`.
-pub fn undo_call(account: &str, id: &str, origin: &str) -> Value {
-    json!([["Email/set", {"accountId": account, "update": { id: undo_patch(origin) }}, "u"]])
+pub fn undo_call(account: &str, id: &str, origin: &str, junk: Option<&str>) -> Value {
+    json!([["Email/set", {"accountId": account, "update": { id: undo_patch(origin, junk) }}, "u"]])
+}
+
+/// Whether `m` is in one of the login's own mail folders (Sent, Drafts, Scheduled), by the
+/// login's own role map (role -> folder id): a row of another login must be judged by its own
+/// folders, not by the open account's.
+pub fn in_own_mail(m: &Value, roles: &std::collections::HashMap<String, String>) -> bool {
+    let Some(boxes) = m["mailboxIds"].as_object() else { return false };
+    OWN_MAIL_ROLES.iter().filter_map(|r| roles.get(*r)).any(|id| boxes.get(id).and_then(|v| v.as_bool()) == Some(true))
 }
 
 /// What went wrong while reporting.
@@ -386,8 +409,11 @@ mod tests {
         let m = json!({"mailboxIds": {"gone": false, "inbox1": true}});
         assert_eq!(origin_mailbox(&m).as_deref(), Some("inbox1"));
         assert_eq!(origin_mailbox(&json!({})), None);
-        let patch = undo_patch("inbox1");
-        assert_eq!(patch["mailboxIds"], json!({"inbox1": true}));
+        let patch = undo_patch("inbox1", Some("junk1"));
+        assert_eq!(patch["mailboxIds/inbox1"], json!(true));
+        assert!(patch["mailboxIds/junk1"].is_null() && patch.get("mailboxIds/junk1").is_some());
+        assert!(patch.get("mailboxIds").is_none(), "the folder set is not replaced");
+        assert!(undo_patch("junk1", Some("junk1")).get("mailboxIds/junk1").is_some_and(|v| v == &json!(true)));
         assert!(patch["keywords/$junk"].is_null() && patch["keywords/$phishing"].is_null());
         assert_eq!(patch["keywords/$notjunk"], json!(true));
         // the reverse of what filing did: every key the report set is touched again
@@ -395,7 +421,17 @@ mod tests {
         for k in filed.as_object().unwrap().keys().filter(|k| k.starts_with("keywords/") && *k != "keywords/$seen") {
             assert!(patch.get(k).is_some(), "{k} is not undone");
         }
-        assert_eq!(undo_call("A", "M1", "inbox1")[0][1]["update"]["M1"], patch);
+        assert_eq!(undo_call("A", "M1", "inbox1", Some("junk1"))[0][1]["update"]["M1"], patch);
+    }
+
+    #[test]
+    fn own_mail_is_judged_by_the_logins_own_folders() {
+        let roles: std::collections::HashMap<String, String> = [("sent", "s9"), ("drafts", "d9"), ("inbox", "i9")].iter().map(|(a, b)| (a.to_string(), b.to_string())).collect();
+        assert!(in_own_mail(&json!({"mailboxIds": {"s9": true}}), &roles));
+        assert!(in_own_mail(&json!({"mailboxIds": {"i9": true, "d9": true}}), &roles));
+        assert!(!in_own_mail(&json!({"mailboxIds": {"i9": true}}), &roles));
+        assert!(!in_own_mail(&json!({"mailboxIds": {"s9": false}}), &roles));
+        assert!(!in_own_mail(&json!({}), &roles));
     }
 
     #[test]

@@ -135,7 +135,7 @@ thread_local! {
     static UNDO: RefCell<Option<(String, Vec<UndoItem>)>> = const { RefCell::new(None) };
     static BUSY: Cell<bool> = const { Cell::new(false) };
     /// The toolbar's "press again" confirmation is waiting.
-    static ARMED: Cell<bool> = const { Cell::new(false) };
+    static ARMED: RefCell<Option<(Vec<String>, String)>> = const { RefCell::new(None) };
 }
 
 /// A new toast replaced the one that offered Undo.
@@ -151,8 +151,8 @@ pub fn offer_undo(u: &AppWindow, text: &str, items: Vec<UndoItem>) {
 /// is the one on screen. Returns whether it was one (otherwise the send's Undo applies).
 pub fn undo(u: &AppWindow) -> bool {
     let Some((text, items)) = UNDO.with(|x| x.borrow_mut().take()) else { return false };
-    // the toast ran out or was closed: nothing to undo any more
-    if u.get_toast().as_str() != text { return true; }
+    // the toast ran out, was closed or replaced: this Undo is gone, the send's applies
+    if u.get_toast().as_str() != text { return false; }
     u.set_toast("".into());
     let clients: Vec<Arc<Client>> = items.iter().map(|i| i.client.clone()).collect();
     let w = u.as_weak();
@@ -167,7 +167,8 @@ pub fn undo(u: &AppWindow) -> bool {
 }
 
 fn undo_one(i: &UndoItem) -> Result<(), String> {
-    let r = i.client.call(phish::undo_call(&i.client.account, &i.id, &i.origin))?;
+    let junk = i.client.role_ids()?.get("junk").cloned();
+    let r = i.client.call(phish::undo_call(&i.client.account, &i.id, &i.origin, junk.as_deref()))?;
     match r.first().and_then(|x| x[1]["notUpdated"].get(&i.id)).filter(|e| !e.is_null()) {
         Some(e) => Err(crate::jmap::set_error(e)),
         None => Ok(()),
@@ -176,20 +177,32 @@ fn undo_one(i: &UndoItem) -> Result<(), String> {
 
 // ---------------------------------------------------------------- the run
 
+/// Whether a press of the selection bar's button confirms an earlier one: the button was armed
+/// for exactly this selection and the question it asked is still the toast on screen. A changed
+/// selection, a replaced or expired toast, or a closed toast never confirms.
+pub fn press_confirms(armed: &Option<(Vec<String>, String)>, ids: &[String], question: &str, showing: &str) -> bool {
+    let mut key = ids.to_vec();
+    key.sort();
+    armed.as_ref().is_some_and(|(k, q)| *k == key && q == question) && showing == question
+}
+
 /// The selection bar's "Report phishing": asks by toast (press again), then reports.
 pub fn ask_toolbar(u: &AppWindow, st: &Shared, ids: Vec<String>) {
     match prepare(&ids) {
         Ask::Say(t) => mail::show_toast(u, &t, false),
         Ask::Confirm { address, count, left_out } => {
-            if !ARMED.with(|a| a.get()) {
-                ARMED.with(|a| a.set(true));
-                let q = confirm_text(&address, count);
-                mail::show_toast(u, &format!("Report phishing? {q} {left_out} Press the button again to confirm.").replace("  ", " "), false);
-                slint::Timer::single_shot(std::time::Duration::from_secs(8), || ARMED.with(|a| a.set(false)));
+            let question = format!("Report phishing? {} {left_out} Press the button again to confirm.", confirm_text(&address, count)).replace("  ", " ");
+            let armed = ARMED.with(|a| a.borrow().clone());
+            if press_confirms(&armed, &ids, &question, u.get_toast().as_str()) {
+                ARMED.with(|a| *a.borrow_mut() = None);
+                run(u, st, ids);
                 return;
             }
-            ARMED.with(|a| a.set(false));
-            run(u, st, ids);
+            let mut key = ids;
+            key.sort();
+            mail::show_toast(u, &question, false);
+            ARMED.with(|a| *a.borrow_mut() = Some((key, question)));
+            slint::Timer::single_shot(std::time::Duration::from_secs(8), || ARMED.with(|a| *a.borrow_mut() = None));
         }
     }
 }
@@ -220,22 +233,28 @@ pub fn run(u: &AppWindow, st: &Shared, ids: Vec<String>) {
 }
 
 /// One report's result.
-struct Done { row: String, client: Arc<Client>, id: String, origin: Option<String>, res: Result<(), Failure> }
+struct Done { row: String, client: Arc<Client>, id: String, origin: Option<String>, res: Result<(), Failure>, skipped: bool }
 
 fn report_jobs(setup: &Setup, jobs: Vec<Job>) -> Vec<Done> {
     jobs.into_iter().map(|j| {
         let id = j.msg["id"].as_str().unwrap_or("").to_string();
+        // judged by this login's own folders, before anything is sent (the list's roles are the
+        // open account's): a Sent, Drafts or Scheduled message of another login is not reported
+        if j.client.role_ids().is_ok_and(|roles| phish::in_own_mail(&j.msg, &roles)) {
+            return Done { row: j.row, client: j.client, id, origin: j.origin, res: Ok(()), skipped: true };
+        }
         let res = phish::report(&j.client, &j.msg, setup);
         // reported but not filed: the keyword alone still turns the links off
         if matches!(res, Err(Failure::NotMoved(_))) { let _ = j.client.set_keyword(std::slice::from_ref(&id), phish::KEYWORD, true); }
-        Done { row: j.row, client: j.client, id, origin: j.origin, res }
+        Done { row: j.row, client: j.client, id, origin: j.origin, res, skipped: false }
     }).collect()
 }
 
 fn finish(u: &AppWindow, setup: &Setup, done: Vec<Done>, mut failed: Vec<String>) {
     BUSY.with(|b| b.set(false));
-    let (mut filed, mut undo, mut not_moved) = (vec![], vec![], vec![]);
+    let (mut filed, mut undo, mut not_moved, mut skipped) = (vec![], vec![], vec![], 0usize);
     for d in done {
+        if d.skipped { skipped += 1; continue; }
         match d.res {
             Ok(()) => {
                 filed.push((d.client.clone(), d.row.clone()));
@@ -251,7 +270,12 @@ fn finish(u: &AppWindow, setup: &Setup, done: Vec<Done>, mut failed: Vec<String>
     }
     let moved = filed.len();
     if !filed.is_empty() { mail::phishing_filed_all(u, &filed); }
-    offer_undo(u, &outcome_text(&setup.address, moved, &not_moved, &failed), undo);
+    let mut text = outcome_text(&setup.address, moved, &not_moved, &failed);
+    if skipped > 0 {
+        let note = format!("{skipped} sent, draft or scheduled message{} left out.", if skipped == 1 { " was" } else { "s were" });
+        text = if text.is_empty() { note } else { format!("{text} {note}") };
+    }
+    offer_undo(u, &text, undo);
 }
 
 #[cfg(test)]
@@ -296,6 +320,23 @@ mod tests {
         assert_eq!(left_out_text(&Plan { ok: vec!["a".into()], shared: 0, skipped: 0 }), "");
         assert_eq!(left_out_text(&Plan { ok: vec!["a".into()], shared: 1, skipped: 1 }), "2 messages are left out (shared account, sent, draft or already reported).");
         assert!(left_out_text(&Plan { ok: vec![], shared: 1, skipped: 0 }).starts_with("1 message is left out"));
+    }
+
+    #[test]
+    fn a_second_press_confirms_only_the_same_selection_and_question() {
+        let ids: Vec<String> = vec!["b".into(), "a".into()];
+        let q = "Report phishing? The message goes to x and moves to Junk. Press the button again to confirm.";
+        let armed = Some((vec!["a".to_string(), "b".to_string()], q.to_string()));
+        assert!(press_confirms(&armed, &ids, q, q));
+        // one message, then thirty more: a different selection arms again, never fires
+        let more: Vec<String> = (0..31).map(|i| i.to_string()).collect();
+        assert!(!press_confirms(&armed, &more, "Report phishing? Each of the 31 messages", q));
+        assert!(!press_confirms(&armed, &more, q, q));
+        // the question is no longer on screen (replaced, expired, closed)
+        assert!(!press_confirms(&armed, &ids, q, "Moved to Inbox"));
+        assert!(!press_confirms(&armed, &ids, q, ""));
+        // not armed at all
+        assert!(!press_confirms(&None, &ids, q, q));
     }
 
     #[test]

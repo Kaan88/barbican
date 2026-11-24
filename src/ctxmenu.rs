@@ -550,7 +550,7 @@ fn mail_items(u: &AppWindow, t: &Target) -> Vec<CtxItem> {
         sep(),
         if junk { it(G_SPAM, "Not spam", "", "notspam") } else { it(G_SPAM, "Report spam", "!", "spam") },
         // Bulwark message-actions.ts: "Report phishing…" next to the spam entry, for the whole selection
-        if crate::phish::setup_from_settings().is_some() { it(G_PHISH, "Report phishing\u{2026}", "", "phish") }
+        if crate::phish::setup_cached().is_some() { it(G_PHISH, "Report phishing\u{2026}", "", "phish") }
         else { off(it(G_PHISH, "Report phishing\u{2026}", "Set an address in Settings", ""), false) },
         sep(),
         sub(G_MORE, "More actions", "sub:more"),
@@ -592,25 +592,28 @@ pub fn prefetch_for(u: &AppWindow, id: &str) { prefetch_copy_targets(u, &[id.to_
 
 pub fn prefetch_copy_targets(u: &AppWindow, ids: &[String]) {
     let from = ids.first().map(|i| row_login(i)).unwrap_or_default();
-    for login in other_logins(&from) {
-        let Some(gen) = with_cache(|c| c.begin(&login)) else { continue };
-        let w = u.as_weak();
-        std::thread::spawn(move || {
-            let res = crate::unified::cached(&login).ok_or_else(|| "The account is not connected.".to_string())
-                .and_then(|c| crate::unified::mailboxes_of(&c, &c.account))
-                .map(|list| crate::copymsg::folder_choices(&list));
-            let taken = with_cache(|c| c.finish(&login, gen, res));
-            if !taken { return; }
-            // a flyout opened meanwhile shows "Loading folders…": fill it in (and a drag's targets)
-            let _ = w.upgrade_in_event_loop(|u| {
-                if u.get_ctx_open() && u.get_ctx_sub_action().as_str() == "sub:copy-acct" {
-                    u.set_ctx_sub_action("".into());
-                    hover(&u, "sub:copy-acct", -1);
-                }
-                if u.global::<crate::Pd>().get_dnd_active() { show_drag_targets(&u); }
-            });
+    for login in other_logins(&from) { start_load(u.as_weak(), login); }
+}
+
+/// Load `login`'s folders unless that is running or done. When the account's folders changed
+/// while it ran, its answer is dropped and a new load starts at once.
+fn start_load(w: slint::Weak<AppWindow>, login: String) {
+    let Some(gen) = with_cache(|c| c.begin(&login)) else { return };
+    std::thread::spawn(move || {
+        let res = crate::unified::cached(&login).ok_or_else(|| "The account is not connected.".to_string())
+            .and_then(|c| crate::unified::mailboxes_of(&c, &c.account))
+            .map(|list| crate::copymsg::folder_choices(&list));
+        let taken = with_cache(|c| c.finish(&login, gen, res));
+        if !taken { start_load(w, login); return; }
+        // a flyout opened meanwhile shows "Loading folders…": fill it in (and a drag's targets)
+        let _ = w.upgrade_in_event_loop(|u| {
+            if u.get_ctx_open() && u.get_ctx_sub_action().as_str() == "sub:copy-acct" {
+                u.set_ctx_sub_action("".into());
+                hover(&u, "sub:copy-acct", -1);
+            }
+            if u.global::<crate::Pd>().get_dnd_active() { show_drag_targets(&u); }
         });
-    }
+    });
 }
 
 /// The messages a menu acts on (the reader's menu acts on the open one).
@@ -669,13 +672,15 @@ pub fn show_drag_targets(u: &AppWindow) {
 }
 
 /// The path of the folder a drop on `spec` ("login", unit separator, folder id) lands in, for the toast.
-pub fn drop_path(spec: &str) -> Option<String> {
+pub fn drop_path(spec: &str) -> String {
     use crate::copymsg::Slot;
-    let (login, mailbox) = spec.split_once('\u{1f}')?;
-    match with_cache(|c| c.slot(login).cloned()) {
+    let (login, mailbox) = spec.split_once('\u{1f}').unwrap_or((spec, ""));
+    let path = match with_cache(|c| c.slot(login).cloned()) {
         Some(Slot::Ready(list)) => crate::copymsg::path_of(&list, mailbox),
         _ => None,
-    }
+    };
+    // the folders were forgotten meanwhile (a push): name the account rather than nothing
+    path.filter(|p| !p.is_empty()).unwrap_or_else(|| login.to_string())
 }
 
 /// Copy `ids` into folder `spec` ("login", unit separator, mailbox id) of another account. Runs
@@ -690,7 +695,7 @@ fn copy_to_account(u: &AppWindow, st: &Shared, ids: Vec<String>, spec: &str) {
 pub fn transfer(u: &AppWindow, st: &Shared, ids: Vec<String>, spec: &str, keep_original: bool) {
     let Some((dest_login, mailbox)) = spec.split_once('\u{1f}') else { return };
     let (dest_login, mailbox) = (dest_login.to_string(), mailbox.to_string());
-    let path = drop_path(spec).unwrap_or_default();
+    let path = drop_path(spec);
     let active = crate::unified::active_user();
     let mut clients: std::collections::HashMap<String, Arc<jmap::Client>> = Default::default();
     for id in &ids {
@@ -713,12 +718,25 @@ pub fn transfer(u: &AppWindow, st: &Shared, ids: Vec<String>, spec: &str, keep_o
                 (id.clone(), crate::copymsg::Place { login: login.clone(), account })
             }).collect();
             let dest = crate::copymsg::Dest { place: crate::copymsg::Place { login: dest_login.clone(), account: dst.account.clone() }, mailbox };
-            let plan = crate::copymsg::plan(&items, &dest.place);
             let side = |l: &str| clients.get(l).map(|c| c.as_ref() as &dyn crate::copymsg::Side);
-            let rep = crate::copymsg::run(&plan, &dest, dst.as_ref(), &side, keep_original);
-            if !keep_original {
-                moved_rows = rows.iter().filter(|(_, _, id, _)| rep.copied.contains(id) && !rep.failed.iter().any(|f| f.0 == *id)).map(|r| r.0.clone()).collect();
-                touched.extend(rows.iter().filter(|r| moved_rows.contains(&r.0)).map(|r| r.1.clone()));
+            // one run per source place: an id is only unique within its account, so what moved is
+            // matched to its rows within that place
+            let mut places: Vec<crate::copymsg::Place> = vec![];
+            for (_, p) in &items { if !places.contains(p) { places.push(p.clone()); } }
+            let mut rep = crate::copymsg::Report::default();
+            for place in places {
+                let group: Vec<(String, crate::copymsg::Place)> = items.iter().filter(|(_, p)| *p == place).cloned().collect();
+                let plan = crate::copymsg::plan(&group, &dest.place);
+                let r = crate::copymsg::run(&plan, &dest, dst.as_ref(), &side, keep_original);
+                if !keep_original {
+                    let moved: Vec<String> = rows.iter().zip(&items)
+                        .filter(|(row, (id, p))| *p == place && r.copied.contains(id) && !r.failed.iter().any(|f| f.0 == *id) && row.1 == place.login)
+                        .map(|(row, _)| row.0.clone()).collect();
+                    touched.extend(moved.iter().map(|_| place.login.clone()));
+                    moved_rows.extend(moved);
+                }
+                rep.copied.extend(r.copied);
+                rep.failed.extend(r.failed);
             }
             Ok::<String, String>(if keep_original { crate::copymsg::summary(&rep, true) } else { crate::copymsg::move_toast(&rep, &path) })
         })().unwrap_or_else(|e: String| format!("Could not {}: {e}", if keep_original { "copy" } else { "move" }));
