@@ -153,6 +153,11 @@ pub fn trust_of(m: &Value, c: &Client) -> crate::auth::Trust {
     crate::auth::assess(m["headers"].as_array().map(|a| a.as_slice()).unwrap_or(&[]), &crate::auth::Origin::of(m, &host, &roles))
 }
 
+/// [`trust_of`] for the message on screen; no verdict when there is no signed-in client.
+pub fn open_trust(m: &Value) -> crate::auth::Trust {
+    ST.with(|s| s.borrow().client.clone()).map(|c| trust_of(m, &c)).unwrap_or_default()
+}
+
 /// Whether an address is on the public internet (not loopback, private, link-local, CGNAT,
 /// unique-local, multicast or unspecified): a mail's link must not reach the user's own network.
 pub fn public_ip(ip: std::net::IpAddr) -> bool {
@@ -728,6 +733,7 @@ fn report_phishing(u: &AppWindow) {
                         set_step(&u, |s| { s.phish = true; s.phish_step = Step::Idle; });
                         crate::links_off_now(&u);
                     }
+                    mail::mark_phishing_local(&id);
                     mail::show_toast(&u, &format!("Reported to {addr}, but the message could not be moved to Junk: {e}"), false);
                 }
                 Err(crate::phish::Failure::NotReported(e)) => {
@@ -827,7 +833,7 @@ fn show_message_body(u: &AppWindow, m: &Value) {
     let is_html = m["htmlBody"].as_array().is_some_and(|a| a.iter().any(|p| p["type"] == "text/html"));
     let html = (is_html && !html.is_empty()).then_some(html);
     let remote = html.as_deref().is_some_and(crate::has_remote_images);
-    let allow = u.get_auto_images();
+    let allow = crate::allow_remote(u, m);
     crate::CUR.with(|c| *c.borrow_mut() = Some(crate::Current { html, text, remote, allow, links_off: crate::phish::marked(m) }));
     crate::render_current(u);
 }
@@ -936,6 +942,7 @@ fn show_parsed(u: &AppWindow, m: &Value) {
     let subject = m["subject"].as_str().unwrap_or("").to_string();
     u.set_r_subject(if subject.is_empty() { "(no subject)".into() } else { subject.clone().into() });
     u.set_r_from(from.into());
+    u.set_r_external(crate::message_external(m));
     u.set_r_date(mail::parse_time(&m["sentAt"]).map(|t| t.format("%a %d %b %Y, %H:%M").to_string()).unwrap_or_default().into());
     u.set_thread_msgs(ModelRc::default());
     u.set_plugin_rows(ModelRc::default());
@@ -947,8 +954,15 @@ fn show_parsed(u: &AppWindow, m: &Value) {
         name: a["name"].as_str().unwrap_or("attachment").into(), size: crate::human_size(a["size"].as_u64().unwrap_or(0)).into(), index: i as i32,
     }).collect();
     u.set_attachments(ModelRc::new(VecModel::from(rows)));
-    crate::CUR_MSG.with(|x| *x.borrow_mut() = Some((Arc::new(m.clone()), atts)));
+    crate::CUR_MSG.with(|x| *x.borrow_mut() = Some((Arc::new(m.clone()), atts.clone())));
+    if let Some(c) = ST.with(|s| s.borrow().client.clone()) { crate::tnef::expand(u, c, u.get_current_mail().as_str(), &atts); }
+    // the outer message's brand badge and logo are not the inner sender's: no server vouches for
+    // an attached message, so neither is shown for it
+    mail::set_reader_avatar(u, Some(m), "");
+    // an attached message inside a reported one keeps the links off
+    let links_off = crate::CUR.with(|c| c.borrow().as_ref().is_some_and(|c| c.links_off));
     show_message_body(u, m);
+    if links_off { crate::links_off_now(u); }
     ST.with(|s| s.borrow_mut().view = View::Eml { subject });
     refresh(u);
 }
@@ -985,10 +999,10 @@ fn download_all(u: &AppWindow, st: &Shared) {
     mail::show_toast(u, &format!("Downloading {} attachments…", atts.len()), false);
     let w = u.as_weak();
     std::thread::spawn(move || {
-        let names = crate::zip::unique_names(&atts.iter().map(|a| crate::sanitize_name(a["name"].as_str().unwrap_or("attachment"))).collect::<Vec<_>>(), "attachment");
+        let names = crate::zip::unique_names(&atts.iter().map(crate::attachments::save_name).collect::<Vec<_>>(), "attachment");
         let mut entries = vec![];
         for (a, name) in atts.iter().zip(names) {
-            if let Ok(data) = c.download(a["blobId"].as_str().unwrap_or(""), &name, a["type"].as_str().unwrap_or("")) {
+            if let Ok(data) = crate::tnef::fetch(&c, a) {
                 entries.push(crate::zip::Entry { name, data });
             }
         }
@@ -1157,6 +1171,11 @@ pub fn menu(u: &AppWindow) -> Vec<CtxItem> {
         if crate::phish::setup_from_settings().is_some() { v.push(off(it(G_BLOCK, "Report phishing\u{2026}", "rx:phish"), can)); }
         else { v.push(hinted(off(it(G_BLOCK, "Report phishing\u{2026}", ""), false), "Set an address in Settings")); }
     }
+    // Bulwark copy_to_account: a copy of the open message in another signed-in account
+    if !eml_view && crate::unified::several_accounts() {
+        v.push(sub(G_FOLDER, "Copy to account", "sub:copy-acct"));
+        crate::ctxmenu::prefetch_for(u, &u.get_current_mail());
+    }
     if let Some(s) = rule_subject(u).filter(|_| !eml_view) {
         v.push(sep());
         v.push(head("Rules"));
@@ -1234,8 +1253,11 @@ pub fn att_items(idx: &str) -> Vec<CtxItem> {
     let (files, loading) = ST.with(|s| (s.borrow().files.is_some(), s.borrow().files_loading));
     let i: usize = idx.parse().unwrap_or(0);
     let is_msg = crate::CUR_MSG.with(|x| x.borrow().as_ref().and_then(|(_, a)| a.get(i).map(is_message_attachment))).unwrap_or(false);
+    // a file decoded from a winmail.dat has no blob to file or to open as a message
+    let local = crate::CUR_MSG.with(|x| x.borrow().as_ref().and_then(|(_, a)| a.get(i).map(|a| a.get("tnef").is_some()))).unwrap_or(false);
+    let is_msg = is_msg && !local;
     let mut v = vec![];
-    if files || loading { v.push(sub(G_FOLDER, "Save to Files", "sub:rx-files")); }
+    if (files || loading) && !local { v.push(sub(G_FOLDER, "Save to Files", "sub:rx-files")); }
     let n_atts = crate::CUR_MSG.with(|x| x.borrow().as_ref().map(|(_, a)| a.len()).unwrap_or(0));
     if n_atts > 1 { v.push(it(G_ZIP, "Download all (.zip)", "rx:zip")); }
     if is_msg { v.insert(0, it(G_SOURCE, "Open message", "rx:open-eml")); }

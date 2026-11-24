@@ -191,6 +191,7 @@ pub fn request(u: &AppWindow, kind: &str, id: &str) {
             let mut v = vec![
                 it(G_OPEN, "Open", "", "open"),
                 it(G_DOWNLOAD, "Save as…", "", "save"),
+                it(G_EDIT, "Rename…", "", "rename"),
             ];
             // reader extras: open an attached message, Save to Files, Download all (.zip)
             v.extend(crate::reader::att_items(id));
@@ -198,6 +199,11 @@ pub fn request(u: &AppWindow, kind: &str, id: &str) {
             v.push(it(G_COPY, "Copy file name", "", "copy-name"));
             v
         }
+        // a composer chip (Bulwark: Rename… in the chip's menu)
+        "cmp-att" => vec![
+            it(G_EDIT, "Rename…", "", "rename"),
+            danger(G_DELETE, "Remove", "", "remove"),
+        ],
         "reader" => crate::reader::menu(u),
         "body" => {
             let mut v = vec![];
@@ -545,7 +551,107 @@ fn mail_items(u: &AppWindow, t: &Target) -> Vec<CtxItem> {
         sep(),
         sub(G_MORE, "More actions", "sub:more"),
     ]);
+    // Bulwark copy_to_account: next to Move, only with another account signed in
+    if crate::unified::several_accounts() {
+        if let Some(at) = v.iter().position(|i| i.action == "sub:move") { v.insert(at + 1, sub(G_COPY, "Copy to account", "sub:copy-acct")); }
+        prefetch_copy_targets(u, &t.ids);
+    }
     v
+}
+
+// ---- copy to another account (Bulwark useCopyToAccount) ----
+
+/// Folders of the other signed-in accounts, loaded in the background when a message menu opens:
+/// login -> (id, name, depth).
+type Folders = std::collections::HashMap<String, Vec<(String, String, usize)>>;
+static ACCT_FOLDERS: std::sync::Mutex<Option<Folders>> = std::sync::Mutex::new(None);
+
+/// The login a list row belongs to.
+fn row_login(id: &str) -> String { mail::owner(id).unwrap_or_else(crate::unified::active_user) }
+
+/// The signed-in logins a message of `from` can be copied to.
+fn other_logins(from: &str) -> Vec<String> {
+    crate::oauth::accounts().iter().filter_map(|a| a["user"].as_str().map(String::from)).filter(|l| l != from).collect()
+}
+
+/// Same, for the reader's menu (the open message's row id).
+pub fn prefetch_for(u: &AppWindow, id: &str) { prefetch_copy_targets(u, &[id.to_string()]); }
+
+fn prefetch_copy_targets(u: &AppWindow, ids: &[String]) {
+    let from = ids.first().map(|i| row_login(i)).unwrap_or_default();
+    let todo: Vec<String> = other_logins(&from).into_iter()
+        .filter(|l| !ACCT_FOLDERS.lock().unwrap().as_ref().is_some_and(|m| m.contains_key(l))).collect();
+    for login in todo {
+        let w = u.as_weak();
+        std::thread::spawn(move || {
+            let Some(c) = crate::unified::client(&login) else { return };
+            let Ok(list) = crate::unified::mailboxes_of(&c, &c.account) else { return };
+            ACCT_FOLDERS.lock().unwrap().get_or_insert_with(Default::default).insert(login, crate::copymsg::folder_choices(&list));
+            // a flyout opened meanwhile shows "Loading folders…": fill it in
+            let _ = w.upgrade_in_event_loop(|u| {
+                if u.get_ctx_open() && u.get_ctx_sub_action().as_str() == "sub:copy-acct" {
+                    u.set_ctx_sub_action("".into());
+                    hover(&u, "sub:copy-acct", -1);
+                }
+            });
+        });
+    }
+}
+
+/// The messages a menu acts on (the reader's menu acts on the open one).
+fn target_ids(u: &AppWindow, t: &Target) -> Vec<String> {
+    if t.kind == "reader" { vec![u.get_current_mail().to_string()] } else { t.ids.clone() }
+}
+
+/// The flyout: every other account with its folders.
+fn copy_items(from: &str) -> Vec<CtxItem> {
+    let mut v = vec![];
+    let cache = ACCT_FOLDERS.lock().unwrap();
+    for login in other_logins(from) {
+        if !v.is_empty() { v.push(sep()); }
+        v.push(header(&login));
+        match cache.as_ref().and_then(|m| m.get(&login)) {
+            Some(list) if !list.is_empty() => for (id, name, depth) in list {
+                v.push(it(G_FOLDER, &format!("{}{name}", "   ".repeat(*depth)), "", &format!("copyacct:{login}\u{1f}{id}")));
+            },
+            Some(_) => v.push(off(it("", "No folders", "", ""), false)),
+            None => v.push(off(it("", "Loading folders…", "", ""), false)),
+        }
+    }
+    if v.is_empty() { v.push(off(it("", "No other accounts", "", ""), false)); }
+    v
+}
+
+/// Copy `ids` into folder `spec` ("login", unit separator, mailbox id) of another account. Runs
+/// in the background; one toast reports the whole run, failures included. Nothing is removed.
+fn copy_to_account(u: &AppWindow, st: &Shared, ids: Vec<String>, spec: &str) {
+    let Some((dest_login, mailbox)) = spec.split_once('\u{1f}') else { return };
+    let (dest_login, mailbox) = (dest_login.to_string(), mailbox.to_string());
+    let active = crate::unified::active_user();
+    let mut clients: std::collections::HashMap<String, Arc<jmap::Client>> = Default::default();
+    for id in &ids {
+        let l = row_login(id);
+        let c = if l == active { client(st) } else { crate::unified::cached(&l) };
+        if let Some(c) = c { clients.entry(l).or_insert(c); }
+    }
+    let rows: Vec<(String, String, Option<String>)> = ids.iter().map(|i| (row_login(i), crate::unified::real_id(i).to_string(), mail::shared_account(i))).collect();
+    mail::show_toast(u, &format!("Copying {} message{}…", ids.len(), if ids.len() == 1 { "" } else { "s" }), false);
+    let w = u.as_weak();
+    std::thread::spawn(move || {
+        let msg = (|| {
+            let dst = crate::unified::client(&dest_login).ok_or("The other account is not connected.")?;
+            let items: Vec<(String, crate::copymsg::Place)> = rows.into_iter().map(|(login, id, shared)| {
+                let account = shared.or_else(|| clients.get(&login).map(|c| c.account.clone())).unwrap_or_default();
+                (id, crate::copymsg::Place { login, account })
+            }).collect();
+            let dest = crate::copymsg::Dest { place: crate::copymsg::Place { login: dest_login.clone(), account: dst.account.clone() }, mailbox };
+            let plan = crate::copymsg::plan(&items, &dest.place);
+            let side = |l: &str| clients.get(l).map(|c| c.as_ref() as &dyn crate::copymsg::Side);
+            let rep = crate::copymsg::run(&plan, &dest, dst.as_ref(), &side, true);
+            Ok::<String, String>(crate::copymsg::summary(&rep, true))
+        })().unwrap_or_else(|e: String| format!("Could not copy: {e}"));
+        let _ = w.upgrade_in_event_loop(move |u| mail::show_toast(&u, &msg, false));
+    });
 }
 
 fn folder_items(u: &AppWindow, id: &str) -> Vec<CtxItem> {
@@ -560,7 +666,11 @@ fn folder_items(u: &AppWindow, id: &str) -> Vec<CtxItem> {
         off(it(G_RENAME, "Rename", "", "rename"), role.is_empty()),
         // Bulwark mail import: .eml and .mbox files into this folder (Email/import)
         it(G_UPLOAD, "Import messages (.eml, .mbox)…", "", "import"),
+        // Bulwark mail export: the folder as .mbox or as .eml files
+        it(G_DOWNLOAD, "Export folder as .mbox…", "", "export-mbox"),
+        it(G_DOWNLOAD, "Export folder as .eml files…", "", "export-eml"),
     ];
+    if crate::mailexport::running() { v.push(it(G_DELETE, "Cancel export", "", "export-cancel")); }
     if role == "trash" || role == "junk" {
         v.push(sep());
         v.push(danger(G_EMPTY, if role == "trash" { "Empty trash" } else { "Empty spam" }, "", "ask:empty"));
@@ -583,6 +693,7 @@ fn submenu(u: &AppWindow, t: &Target, which: &str) -> Vec<CtxItem> {
                 v.push(it(&f.icon, &format!("{indent}{}", f.name), "", &format!("move:{}", f.id)));
             }
         }
+        "copy-acct" => v = copy_items(&row_login(target_ids(u, t).first().map(String::as_str).unwrap_or(""))),
         "tag" => {
             let first = mail::email(&t.ids[0]);
             let m = u.get_tags();
@@ -799,6 +910,17 @@ pub fn prompt_ok(u: &AppWindow, st: &Shared, text: &str) {
     let name = text.trim().to_string();
     if name.is_empty() { return; }
     match action.as_str() {
+        "rename-att" | "rename-cmp-att" => {
+            let i: usize = id.parse().unwrap_or(usize::MAX);
+            let old = if action == "rename-att" { crate::attachments::reader_name(i) } else { crate::compose::attachment_name(i) };
+            let Some(old) = old else { return };
+            match crate::attachments::renamed(&old, &name) {
+                Err(why) => mail::show_toast(u, why, false),
+                Ok(None) => {}
+                Ok(Some(new)) => if action == "rename-att" { crate::attachments::rename_in_reader(u, i, &new) } else { crate::compose::rename_attachment(u, i, &new) },
+            }
+            return;
+        }
         "new-tag" => {
             let parent = (!id.is_empty()).then_some(id.as_str());
             return edit_tags(u, |d| crate::tags::add(d, parent, &name).map(|_| "Tag created".to_string()));
@@ -851,6 +973,7 @@ pub fn pick(u: &AppWindow, st: &Shared, action: &str) {
         reopen(u, confirm(label, &format!("do:{a}")));
         return;
     }
+    if let Some(spec) = action.strip_prefix("copyacct:") { copy_to_account(u, st, target_ids(u, &t), spec); return; }
     let action = action.strip_prefix("do:").unwrap_or(action);
     let id = t.id.as_str();
     match t.kind.as_str() {
@@ -906,12 +1029,30 @@ pub fn pick(u: &AppWindow, st: &Shared, action: &str) {
             _ => {}
         },
         "reader" => crate::reader::pick(u, st, action, id),
+        "cmp-att" => {
+            let i: i32 = id.parse().unwrap_or(-1);
+            match action {
+                "remove" => u.invoke_remove_attachment(i),
+                "rename" => {
+                    let Some(name) = crate::compose::attachment_name(i.max(0) as usize).filter(|_| i >= 0) else { return };
+                    let (stem, ext) = crate::attachments::split_stem_ext(&name);
+                    prompt(u, &if ext.is_empty() { "Rename attachment".to_string() } else { format!("Rename attachment (keeps {ext})") }, &stem, "rename-cmp-att", id);
+                }
+                _ => {}
+            }
+        }
         "att" if action.starts_with("rx") => crate::reader::pick(u, st, action, id),
         "att" => {
             let i: i32 = id.parse().unwrap_or(0);
             match action {
                 "open" => u.invoke_open_attachment(i),
                 "save" => u.invoke_save_attachment(i),
+                "rename" => {
+                    let Some(name) = crate::attachments::reader_name(i as usize) else { return };
+                    // only the part before the extension is edited, so the file keeps its type
+                    let (stem, ext) = crate::attachments::split_stem_ext(&name);
+                    prompt(u, &if ext.is_empty() { "Rename attachment".to_string() } else { format!("Rename attachment (keeps {ext})") }, &stem, "rename-att", id);
+                }
                 "copy-name" => {
                     let m = u.get_attachments();
                     if let Some(a) = (0..m.row_count()).filter_map(|k| m.row_data(k)).find(|a| a.index == i) { u.invoke_copy_text(a.name); }
@@ -938,6 +1079,11 @@ pub fn pick(u: &AppWindow, st: &Shared, action: &str) {
                 "refresh" => u.invoke_refresh(),
                 "new-sub" => prompt(u, "New subfolder", "", "new-sub", id),
                 "import" => crate::mailimport::start(u, c, &fid),
+                "export-mbox" | "export-eml" => {
+                    let name = folder(u, id).map(|f| f.name.to_string()).unwrap_or_default();
+                    crate::mailexport::start(u, c, &fid, &name, action == "export-mbox");
+                }
+                "export-cancel" => crate::mailexport::cancel(),
                 "rename" => prompt(u, "Rename folder", &folder(u, id).map(|f| f.name.to_string()).unwrap_or_default(), "rename-folder", id),
                 "empty" => mailbox_op(u, c, "Folder emptied", move |c| c.empty_mailbox(&fid).map(|n| format!("Deleted {n} messages"))),
                 "delete" => mailbox_op(u, c, "Folder deleted", move |c| c.delete_mailbox(&fid).map(|_| String::new())),

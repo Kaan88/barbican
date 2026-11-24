@@ -148,8 +148,9 @@ pub fn failure(res: &[AuthResult], verified: bool) -> bool {
 /// The rule (RFC 8601 §5, §7.1; Bulwark `authenticationResultsOnReceipt`, C# R3-06): the
 /// results are the server's own only when they stand in the block our server wrote when the
 /// message arrived, which is
-///   1. directly below the topmost `Received` header (a receiving server writes its Received
-///      line first and its results right under it),
+///   1. the first results header below the topmost `Received` header (a receiving server writes
+///      its Received line first and its results right under it; trace headers may sit between,
+///      a second Received may not; later results headers can only add failures),
 ///   2. that Received names our server (`by <host>`) and records no authenticated submission
 ///      (`with ESMTPSA`, `ESMTPA`, `LMTPA`: the client handed the message in, so the text
 ///      below is the client's own), and
@@ -223,11 +224,16 @@ pub fn assess_list(headers: &[(String, String)], origin: &Origin) -> Trust {
     // anything above our server's own Received was not written by it
     if headers[..r].iter().any(is_ar) { return untrusted; }
     if is_submission(&headers[r].1) || !received_by(&headers[r].1, origin.server_host) { return untrusted; }
-    let mut results = vec![];
-    // directly below it: the run of results headers, the ones with our authserv-id
-    for h in &headers[r + 1..] {
-        if !is_ar(h) { break; }
-        if same_server(&authserv_id(&h.1), origin.server_host) { results.extend(parse(&h.1)); }
+    // The server's results are the FIRST results header below that Received (Bulwark
+    // `own = perHeader[0]`): a header the sender planted after it is never believed for a pass.
+    // Other trace headers (Received-SPF, ARC-*, X-...) may sit in between, a second Received may not.
+    let Some(first) = headers.iter().skip(r + 1).position(is_ar).map(|i| r + 1 + i) else { return untrusted };
+    if headers[r + 1..first].iter().any(|h| h.0 == "received") { return untrusted; }
+    if !same_server(&authserv_id(&headers[first].1), origin.server_host) { return untrusted; }
+    let mut results = parse(&headers[first].1);
+    // later results headers (ours or not) may only add something that is not a pass
+    for h in headers[first + 1..].iter().filter(|h| is_ar(h)) {
+        results.extend(parse(&h.1).into_iter().filter(|x| x.result != "pass"));
     }
     if results.is_empty() { return untrusted; }
     Trust { present, trusted: true, results }
@@ -414,8 +420,20 @@ mod tests {
         // a forged header after something that is not results is not in the server's block
         let t = assess_list(&hs(&[("Received", IN), ("Authentication-Results", "mx.mine.test; dmarc=none header.from=bank.example"), ("X-Other", "1"), ("Authentication-Results", forged_ar)]), &org(HOST));
         assert!(!dmarc_pass_for(&t.results, "bank.example"));
-        // 5. not directly below the Received
-        assert!(!assess_list(&hs(&[("Received", IN), ("X-Spam", "no"), ("Authentication-Results", AR)]), &org(HOST)).trusted);
+        // 5. other trace headers may sit between the Received and the results, a second Received may not
+        assert!(assess_list(&hs(&[("Received", IN), ("Received-SPF", "pass"), ("ARC-Seal", "i=1"), ("Authentication-Results", AR)]), &org(HOST)).trusted);
+        assert!(!assess_list(&hs(&[("Received", IN), ("Received", "from a by b"), ("Authentication-Results", AR)]), &org(HOST)).trusted);
+        // 5b. a results header the sender planted right after the real one is not believed
+        let real_fail = "mx.mine.test; dmarc=fail header.from=bank.example";
+        let t = assess_list(&hs(&[("Received", IN), ("Authentication-Results", real_fail), ("Authentication-Results", forged_ar)]), &org(HOST));
+        assert!(t.trusted && !dmarc_pass_for(&t.results, "bank.example"), "{t:?}");
+        let t = assess_list(&hs(&[("Received", IN), ("Authentication-Results", "mx.mine.test; dmarc=none header.from=bank.example"), ("Authentication-Results", forged_ar)]), &org(HOST));
+        assert!(!dmarc_pass_for(&t.results, "bank.example"), "a later pass is dropped");
+        // the real pass stays, a later failure (ours or not) still counts
+        let t = assess_list(&hs(&[("Received", IN), ("Authentication-Results", "mx.mine.test; dmarc=pass header.from=bank.example"), ("Authentication-Results", "x.elsewhere.test; dkim=fail header.d=bank.example")]), &org(HOST));
+        assert!(t.results.iter().any(|r| r.method == "dkim" && r.result == "fail") && dmarc_pass_for(&t.results, "bank.example"));
+        // a forged first header with another authserv-id is not skipped to reach a later one
+        assert!(!assess_list(&hs(&[("Received", IN), ("Authentication-Results", "evil.example; dmarc=pass header.from=bank.example"), ("Authentication-Results", AR)]), &org(HOST)).trusted);
         // 6. an authserv-id that is not ours (an upstream hop's, or the sender's)
         assert!(!assess_list(&hs(&[("Received", IN), ("Authentication-Results", "mx.bank.example; dmarc=pass header.from=bank.example")]), &org(HOST)).trusted);
         assert!(!assess_list(&hs(&[("Received", IN), ("Authentication-Results", "; dmarc=pass header.from=bank.example")]), &org(HOST)).trusted);

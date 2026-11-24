@@ -306,9 +306,9 @@ pub fn split_pem(pem: &str) -> Result<Vec<Vec<u8>>, String> {
         let start = pos + b + PEM_BEGIN.len();
         let Some(e) = pem[start..].find(PEM_END) else { break };
         let body: String = pem[start..start + e].chars().filter(|c| !c.is_whitespace()).collect();
+        if out.len() >= MAX_CERTS { return Err("too many certificates".into()); }
         out.push(base64::engine::general_purpose::STANDARD.decode(body).map_err(|_| "unparsable PEM".to_string())?);
         pos = start + e + PEM_END.len();
-        if out.len() > MAX_CERTS { return Err("too many certificates".into()); }
     }
     Ok(out)
 }

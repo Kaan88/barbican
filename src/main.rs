@@ -10,7 +10,9 @@ mod phish;
 mod quota;
 mod crashguard;
 mod tags;
+mod mailexport;
 mod mailimport;
+mod tnef;
 mod admin;
 mod dashboard;
 mod automation;
@@ -34,6 +36,7 @@ mod contact_merge;
 mod vcard;
 mod pim;
 mod ctxmenu;
+mod copymsg;
 mod files;
 mod glance;
 mod jmap;
@@ -75,6 +78,7 @@ mod gsearch;
 mod palette;
 mod search_history;
 mod signout;
+mod trust;
 mod search_ui;
 mod dnd;
 // distribution: platform layer, tray, notifications, updater
@@ -148,6 +152,56 @@ fn has_remote_images(h: &str) -> bool {
     ["src=http", "url(http", "background=http", "srcset=http", "src=//", "url(//"].iter().any(|p| l.contains(p))
 }
 
+/// The user's own addresses (identities and login): their domains are the organisation, for the
+/// "External" chip and the send confirm alike.
+pub fn own_addresses() -> Vec<String> {
+    match msgload::SHARED.with(|s| s.borrow().clone()) {
+        Some(st) => my_addrs(&st),
+        None => my_addrs_cached(),
+    }
+}
+
+/// The "External" chip for message `m`: any From address is outside the own domains and the
+/// setting is on (Bulwark `externalSenders`: a message is external when any of them is).
+pub fn message_external(m: &Value) -> bool {
+    let label_on = settings::Settings::load().bool(trust::SENDER_LABEL_KEY, true);
+    let own = trust::own_domains(&own_addresses());
+    m["from"].as_array().is_some_and(|a| a.iter().any(|f| {
+        let e = f["email"].as_str().unwrap_or("");
+        // an entry with no address at all has nothing to label
+        !e.is_empty() && trust::external_sender(e, &own, label_on)
+    }))
+}
+
+/// Whether the remote content of message `m` loads when it opens: policy `allow`, or a trusted
+/// sender (Bulwark email-viewer.tsx:3129).
+pub fn allow_remote(u: &AppWindow, m: &Value) -> bool {
+    let prefs = settings::Settings::load().prefs;
+    let from = m["from"][0]["email"].as_str().unwrap_or("");
+    trust::loads_on_open(trust::policy(&prefs, u.get_auto_images()), trust::is_trusted(&trust::trusted_list(&prefs), from))
+}
+
+/// What the "remote images blocked" banner offers for the open message.
+fn images_offers(u: &AppWindow) -> trust::Offers {
+    let prefs = settings::Settings::load().prefs;
+    let (from, forged) = CUR_MSG.with(|x| x.borrow().as_ref().map(|(m, _)| {
+        let from = m["from"][0]["email"].as_str().unwrap_or("").to_string();
+        let forged = trust::forged(&reader::open_trust(m), &from);
+        (from, forged)
+    }).unwrap_or_default());
+    trust::offers(trust::policy(&prefs, u.get_auto_images()), &from, trust::is_trusted(&trust::trusted_list(&prefs), &from), forged)
+}
+
+/// The policy or the trusted list changed: decide again whether the open message's remote content loads.
+fn redecide_remote(u: &AppWindow) {
+    let Some(m) = CUR_MSG.with(|x| x.borrow().as_ref().map(|(m, _)| m.clone())) else { return };
+    let decided = allow_remote(u, &m);
+    // under Ask a one-off "Load images" grant for this message stays
+    let ask = trust::policy(&settings::Settings::load().prefs, u.get_auto_images()) == trust::ContentPolicy::Ask;
+    let changed = CUR.with(|c| c.borrow_mut().as_mut().is_some_and(|c| { let was = c.allow; c.allow = decided || (ask && was); c.remote && was != c.allow }));
+    if changed { render_current(u); }
+}
+
 fn render_current(u: &AppWindow) {
     render_current_then(u, None);
 }
@@ -172,6 +226,11 @@ fn render_current_then(u: &AppWindow, on_ready: Option<Box<dyn FnOnce() -> bool>
         // every renderer below reads this: the page (links lose their address), the navigation
         // handlers and the light renderer's click
         mailview::set_links_off(cur.links_off);
+        if cur.remote && !cur.allow && mode != 2 {
+            let o = images_offers(u);
+            u.set_images_can_load(o.load_once);
+            u.set_images_can_trust(o.trust);
+        }
         // Settings > Accessibility > Show messages as: plain text drops the layout
         let plain_view = a11y::A11y::load().plain_view;
         let body = match &cur.html {
@@ -563,12 +622,7 @@ thread_local! {
     static CUR_MSG: std::cell::RefCell<Option<(Arc<Value>, Vec<Value>)>> = const { std::cell::RefCell::new(None) };
 }
 
-fn sanitize_name(n: &str) -> String {
-    let bad = ['<', '>', ':', '"', '/', '\\', '|', '?', '*'];
-    let s: String = n.chars().map(|c| if bad.contains(&c) || c.is_control() { '_' } else { c }).collect();
-    let s = s.trim().trim_matches('.').to_string();
-    if s.is_empty() { "attachment".into() } else { s }
-}
+fn sanitize_name(n: &str) -> String { attachments::safe_file_name(n) }
 
 static SESSION_GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
@@ -933,6 +987,8 @@ fn main() -> Result<(), slint::PlatformError> {
         // cookies, cache and storage of the mail view, and the account's files on disk
         mailview::clear_browsing_data();
         // live, now: this process's view, or another Barbican of this profile (same WebView folder)
+        // synchronously: the wipe's thread retries locked files and may not finish before the program quits
+        if last { settings::forget_trusted_senders(); }
         signout::wipe(signout::Who { user: account, owner, last, webview_live: mailview::is_built() || platform::other_of_profile_running() });
         // nobody at this computer finds the last person's password or code in the form
         u.set_login_password("".into());
@@ -1062,6 +1118,7 @@ fn main() -> Result<(), slint::PlatformError> {
     ui.set_spam_show_clean(cfg.lock().unwrap().show_clean_spam);
 
     let prefs = Arc::new(Mutex::new(settings::Settings::load()));
+    settings::register_live(prefs.clone());
     ui.set_show_advanced_settings(prefs.lock().unwrap().bool("showAdvancedSettings", false));
     let st_acc = state.clone();
     let account_info = move || {
@@ -1212,7 +1269,8 @@ fn main() -> Result<(), slint::PlatformError> {
         p.set(&key, v, &mut cf.lock().unwrap());
         drop(p);
         rs();
-        if key == "desktop.renderMode" || key == "desktop.remoteImages" { render_current(&w.unwrap()); }
+        if key == "desktop.renderMode" { render_current(&w.unwrap()); }
+        if key == trust::POLICY_KEY { redecide_remote(&w.unwrap()); }
         if key == "theme" || key == "uiStyle" { apply_theme(&w.unwrap()); }
         if key == "writingLanguage" { rte::spell::reload(); }
         if key == "desktop.updateChannel" { desktop::setting_changed(&key, true); }
@@ -1229,6 +1287,7 @@ fn main() -> Result<(), slint::PlatformError> {
             return;
         }
         pf.lock().unwrap().set(&key, serde_json::json!(t.to_string()), &mut cf.lock().unwrap());
+        if key == trust::TRUSTED_KEY { if let Some(u) = wk.upgrade() { redecide_remote(&u); } }
         if key == "admin.key" { if let Some(u) = wk.upgrade() { u.set_admin_enabled(!t.trim().is_empty()); } }
     });
 
@@ -1393,6 +1452,20 @@ fn main() -> Result<(), slint::PlatformError> {
     ui.set_auto_images(cfg.lock().unwrap().remote_images);
 
     let w = ui.as_weak();
+    let (wt, pft) = (ui.as_weak(), prefs.clone());
+    ui.on_trust_sender(move || {
+        let u = wt.unwrap();
+        let from = CUR_MSG.with(|x| x.borrow().as_ref().map(|(m, _)| m["from"][0]["email"].as_str().unwrap_or("").to_string())).unwrap_or_default();
+        {
+            let mut p = pft.lock().unwrap();
+            let mut list = trust::trusted_list(&p.prefs);
+            if trust::add_trusted(&mut list, &from) { p.remember(trust::TRUSTED_KEY, trust::trusted_json(&list)); }
+        }
+        CUR.with(|c| if let Some(c) = c.borrow_mut().as_mut() { c.allow = true; });
+        render_current(&u);
+        mail::show_toast(&u, &format!("Images from {} will load from now on.", trust::sender_key(&from)), false);
+    });
+
     ui.on_load_images(move || {
         let u = w.unwrap();
         CUR.with(|c| if let Some(c) = c.borrow_mut().as_mut() { c.allow = true; });
@@ -1923,7 +1996,8 @@ fn main() -> Result<(), slint::PlatformError> {
     ui.on_open_attachment(move |i| {
         // an attached message (message/rfc822, .eml) opens in the reader through Email/parse
         if let (Some(u), Some(c), Some(a)) = (wa.upgrade(), reader_client(&st), CUR_MSG.with(|x| x.borrow().as_ref().and_then(|(_, atts)| atts.get(i as usize).cloned()))) {
-            if reader::is_message_attachment(&a) { reader::open_eml(&u, c, a); return; }
+            // (a file decoded from a winmail.dat has no blob of its own: it opens like any attachment)
+            if reader::is_message_attachment(&a) && a["blobId"].is_string() { reader::open_eml(&u, c, a); return; }
         }
         // Bulwark mailAttachmentAction: preview (open) or download (save)
         if settings::Settings::load().str("mailAttachmentAction", "preview") == "download" {
@@ -1933,8 +2007,8 @@ fn main() -> Result<(), slint::PlatformError> {
         let Some(c) = reader_client(&st) else { return };
         let Some(a) = CUR_MSG.with(|x| x.borrow().as_ref().and_then(|(_, atts)| atts.get(i as usize).cloned())) else { return };
         std::thread::spawn(move || {
-            let name = sanitize_name(a["name"].as_str().unwrap_or("attachment"));
-            if let Ok(bytes) = c.download(a["blobId"].as_str().unwrap_or(""), &name, a["type"].as_str().unwrap_or("")) {
+            let name = attachments::save_name(&a);
+            if let Ok(bytes) = tnef::fetch(&c, &a) {
                 let dir = platform::mail_temp_dir();
                 let _ = std::fs::create_dir_all(&dir);
                 let p = dir.join(&name);
@@ -1958,11 +2032,11 @@ fn main() -> Result<(), slint::PlatformError> {
     ui.on_save_attachment(move |i| {
         let Some(c) = st.lock().unwrap().clone() else { return };
         let Some(a) = CUR_MSG.with(|x| x.borrow().as_ref().and_then(|(_, atts)| atts.get(i as usize).cloned())) else { return };
-        let name = sanitize_name(a["name"].as_str().unwrap_or("attachment"));
+        let name = attachments::save_name(&a);
         let Some(path) = rfd::FileDialog::new().set_file_name(&name).save_file() else { return };
         let w = w.clone();
         std::thread::spawn(move || {
-            let res = c.download(a["blobId"].as_str().unwrap_or(""), &name, a["type"].as_str().unwrap_or(""))
+            let res = tnef::fetch(&c, &a)
                 .and_then(|b| std::fs::write(&path, b).map_err(|e| e.to_string()));
             let msg = match res { Ok(()) => format!("Saved {name}"), Err(e) => format!("Could not save: {e}") };
             let _ = w.upgrade_in_event_loop(move |u| mail::show_toast(&u, &msg, false));

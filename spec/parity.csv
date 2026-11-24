@@ -40,19 +40,19 @@ G-038,folders,"Folders: icons and count modes (folderIcons, folderCountModes)",i
 G-039,folders,Folders: pin,organize-settings.tsx,missing,,G-039 (GAPS P1-9),3,S/M
 G-040,folders,Folders: mark the whole tree read,organize-settings.tsx,missing,,G-040 (GAPS P1-9),3,S/M
 G-041,folders,Folders: per-folder notification mute (notificationMutes),folder-settings.tsx,missing,,G-041 (GAPS P1-9),3,S/M
-G-042,folders,Folders: export and import a folder,mail-transfer/,partial,,G-042 (GAPS P1-9; P1-11),2,S/M
+G-042,folders,Folders: export and import a folder,mail-transfer/,partial,"src/mailexport.rs, src/mailimport.rs, src/ctxmenu.rs; no import target-folder picker / keep folders",G-042 (GAPS P1-9; P1-11),2,S/M
 G-043,sharing,"Sharing folders, calendars and address books with other users (Barbican shares Files only)",layout/mailbox-share-dialog.tsx; share-collection-dialog.tsx,missing,,G-043 (GAPS P1-9),3,M
 G-044,live-updates,"Live updates for calendars, contacts, files and identities: push types cover mail only, and there is no /changes delta for them",EventSource types,missing,,G-044 (GAPS P1-10),3,S/M
 G-045,notifications,ShareNotification and CalendarEventNotification; the notification centre,share-notification-store.ts; calendar-event-notification-store.ts; notifications/notification-center.tsx,missing,,G-045 (GAPS P1-10),3,M
-G-046,mail-transfer,Mail export of a folder to mbox or eml,mail-transfer/,missing,,G-046 (GAPS P1-11),2,M
-G-047,mail-transfer,winmail.dat (TNEF) decoding,lib/tnef.ts,missing,,G-047 (GAPS P1-11),2,M
-G-048,mail-transfer,"Email/copy: copy a message to another account (Email/copy inside one login, Email/import across logins)","n/a (JMAP Email/copy, Email/import); stores/email-store.ts:5601-5648, lib/jmap/client.ts:12242/:12290",missing,,G-048 (GAPS P1-11),2,M
+G-046,mail-transfer,Mail export of a folder to mbox or eml,mail-transfer/,partial,"src/mailexport.rs (mbox, .eml folder); no whole-account export, .eml as folder not .zip",G-046 (GAPS P1-11),2,M
+G-047,mail-transfer,winmail.dat (TNEF) decoding,lib/tnef.ts,partial,src/tnef.rs (attachments); TNEF body not displayed,G-047 (GAPS P1-11),2,M
+G-048,mail-transfer,"Email/copy: copy a message to another account (Email/copy inside one login, Email/import across logins)","n/a (JMAP Email/copy, Email/import); stores/email-store.ts:5601-5648, lib/jmap/client.ts:12242/:12290",partial,"src/copymsg.rs, src/ctxmenu.rs (copy_to_account); no cross-account move UI",G-048 (GAPS P1-11),2,M
 G-049,reader-safety,Turn links off in a reported phishing message,lib/phishing-links.ts; phishing-mark-banner.tsx,missing,,G-049 (GAPS P1-12),2,M
 G-050,reader-safety,Phishing report,phishing-mark-banner.tsx; phishing-report*,missing,,G-050 (GAPS P1-12),2,M
-G-051,reader-safety,External sender chip,external-sender-chip.tsx,missing,,G-051 (GAPS P1-12),2,S/M
+G-051,reader-safety,External sender chip,external-sender-chip.tsx,done,"src/trust.rs (message_external), src/msgload.rs, src/reader.rs",G-051 (GAPS P1-12),2,S/M
 G-052,reader-safety,BIMI verified badge,brand-verified-badge.tsx; lib/bimi,missing,,G-052 (GAPS P1-12),2,S/M
-G-053,reader-safety,"Per-sender trust for remote content (trustedSenders, externalContentPolicy)",trusted-senders-modal.tsx,missing,,G-053 (GAPS P1-12),2,M
-G-054,composer,Confirm before sending to external recipients,external-recipient-confirm.tsx,missing,,G-054 (GAPS P1-12),2,S
+G-053,reader-safety,"Per-sender trust for remote content (trustedSenders, externalContentPolicy)",trusted-senders-modal.tsx,partial,"src/trust.rs, src/main.rs (allow_remote); no server Trusted Senders address book",G-053 (GAPS P1-12),2,M
+G-054,composer,Confirm before sending to external recipients,external-recipient-confirm.tsx,done,"src/compose.rs (Stage::External, external_warning), src/trust.rs",G-054 (GAPS P1-12),2,S
 G-055,popout,Pop-out windows: message and composer in their own windows,popout/,missing,,G-055 (GAPS P1-13),6,M
 G-056,jmap,"Truncated bodies: a notice shows, but the full body is never fetched",lib/email (isTruncated),done,src/reader.rs; src/bodycache.rs (full-body refetch),G-056 (GAPS P1-14),1,S
 G-057,jmap,Quota is fetched but not shown (storage usage on the Account page),Account page,done,src/quota.rs; src/server_settings.rs,G-057 (GAPS P1-14),1,S
@@ -239,12 +239,12 @@ S-pushRelayUrl,settings-notifications,Push relay,stores/settings-store.ts: pushR
 S-unreadBadgeAllAccounts,settings-notifications,Count unread mail in all accounts,stores/settings-store.ts: unreadBadgeAllAccounts,done,src/mail.rs:189,S-unreadBadgeAllAccounts,0,S
 S-nestedTags,settings-organize,Nested tags,stores/settings-store.ts: nestedTags,done,src/main.rs:1025,S-nestedTags,0,S
 S-avatars.refresh,settings-privacy,Refresh sender icons,stores/settings-store.ts: avatars.refresh,done,src/main.rs:1100,S-avatars.refresh,0,S
-S-externalContentPolicy,settings-privacy,External content,stores/settings-store.ts: externalContentPolicy,missing,,S-externalContentPolicy,2,S
+S-externalContentPolicy,settings-privacy,External content,stores/settings-store.ts: externalContentPolicy,done,"src/trust.rs (policy), src/settings.rs",S-externalContentPolicy,2,S
 S-gravatarAvatars,settings-privacy,Gravatar photos,stores/settings-store.ts: gravatarAvatars,done,src/avatars.rs:33,S-gravatarAvatars,0,S
 S-senderFavicons,settings-privacy,Sender pictures from the web,stores/settings-store.ts: senderFavicons,done,src/avatars.rs:33,S-senderFavicons,0,S
 S-showAvatarsInJunk,settings-privacy,Show avatars in the Junk folder,stores/settings-store.ts: showAvatarsInJunk,done,src/avatars.rs:33,S-showAvatarsInJunk,0,S
-S-externalSenderLabel,settings-privacy,Label external senders,stores/settings-store.ts: externalSenderLabel,missing,,S-externalSenderLabel,2,S
-S-trustedSenders,settings-privacy,Trusted senders,stores/settings-store.ts: trustedSenders,missing,,S-trustedSenders,2,S
+S-externalSenderLabel,settings-privacy,Label external senders,stores/settings-store.ts: externalSenderLabel,done,"src/settings.rs, src/msgload.rs",S-externalSenderLabel,2,S
+S-trustedSenders,settings-privacy,Trusted senders,stores/settings-store.ts: trustedSenders,done,"src/trust.rs, src/settings.rs (forget_trusted_senders)",S-trustedSenders,2,S
 S-attachmentImagePreviewsEnabled,settings-reading,Show image previews in attachments,stores/settings-store.ts: attachmentImagePreviewsEnabled,done,src/attachments.rs:60,S-attachmentImagePreviewsEnabled,0,S
 S-emailAlwaysLightMode,settings-reading,Always show emails in light mode,stores/settings-store.ts: emailAlwaysLightMode,done,src/main.rs:233,S-emailAlwaysLightMode,0,S
 S-hideInlineImageAttachments,settings-reading,Hide inline images from attachments,stores/settings-store.ts: hideInlineImageAttachments,done,src/mail.rs:73,S-hideInlineImageAttachments,0,S

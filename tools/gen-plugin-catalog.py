@@ -6,9 +6,11 @@
 
 The committed CSVs are the source of truth (tools/extract-plugin-catalogue.py refreshes hooks.csv and slots.csv
 from a Bulwark checkout). The generated file holds const tables for hooks (name, group, kind, permission, budget_ms,
-fail_closed), slots (name, area, kind, permissions) and host-API method names, plus the alias table that maps
+fail_closed, support), slots (name, area, kind, permissions, support) and host-API methods (name, permission, support),
+plus the alias table that maps
 Barbican's own native-plugin hook names to Bulwark's. The Rust tests in src/plugin_catalog_check.rs compares the tables with
-the CSVs, so a stale file fails `cargo test` as well.
+the CSVs, so a stale file fails `cargo test` as well. `support` is the B1 decision in the `barbican_status` column
+(adopt, adapt or skip; every row must have one, so a row the extractor adds fails here until someone decides it).
 """
 import csv
 import sys
@@ -38,6 +40,15 @@ def lit(s):
     return f'"{s}"'
 
 
+SUPPORT = ("adopt", "adapt", "skip")
+
+
+def support(r, key):
+    assert r.get("barbican_status") in SUPPORT, f"{r[key]}: barbican_status must be one of {SUPPORT}"
+    assert r.get("barbican_note"), f"{r[key]}: barbican_note is empty"
+    return "Support::" + r["barbican_status"].capitalize()
+
+
 def render():
     hooks, slots, api = rows("hooks.csv"), rows("slots.csv"), rows("host-api.csv")
     names = {h["name"] for h in hooks}
@@ -56,6 +67,11 @@ def render():
         "#[derive(Clone, Copy, Debug, PartialEq, Eq)]",
         "pub enum HookKind { Observer, Intercept, Transform, Takeover }",
         "",
+        "/// Barbican's B1 decision for a catalogued row (`barbican_status`): use it as Bulwark has it, change it",
+        "/// (see `barbican_note`), or leave it out. A manifest may not name a skipped hook, slot or method.",
+        "#[derive(Clone, Copy, Debug, PartialEq, Eq)]",
+        "pub enum Support { Adopt, Adapt, Skip }",
+        "",
         "/// One catalogued hook (spec/plugins/hooks.csv). `permission` is the plugin permission a handler needs.",
         "#[derive(Clone, Copy, Debug)]",
         "pub struct Hook {",
@@ -65,6 +81,7 @@ def render():
         "    pub permission: &'static str,",
         "    pub budget_ms: u32,",
         "    pub fail_closed: bool,",
+        "    pub support: Support,",
         "}",
         "",
         "/// Where a slot is drawn.",
@@ -78,6 +95,16 @@ def render():
         "    pub area: &'static str,",
         "    pub kind: SlotKind,",
         "    pub permissions: &'static str,",
+        "    pub support: Support,",
+        "}",
+        "",
+        "/// One catalogued `api.*` host method (spec/plugins/host-api.csv). `permission` is `NO_STATIC_GATE` when the",
+        "/// dispatcher decides per call.",
+        "#[derive(Clone, Copy, Debug)]",
+        "pub struct HostMethod {",
+        "    pub name: &'static str,",
+        "    pub permission: &'static str,",
+        "    pub support: Support,",
         "}",
         "",
         f"pub const HOOKS: [Hook; {len(hooks)}] = [",
@@ -86,16 +113,18 @@ def render():
         assert h["kind"] in ("observer", "intercept", "transform", "takeover"), h
         assert h["fail_closed"] in ("true", "false"), h
         o.append(f'    Hook {{ name: {lit(h["name"])}, group: {lit(h["group"])}, kind: HookKind::{cap(h["kind"])}, '
-                 f'permission: {lit(h["permission"])}, budget_ms: {int(h["budget_ms"])}, fail_closed: {h["fail_closed"]} }},')
+                 f'permission: {lit(h["permission"])}, budget_ms: {int(h["budget_ms"])}, fail_closed: {h["fail_closed"]}, '
+                 f'support: {support(h, "name")} }},')
     o += ["];", "", f"pub const SLOTS: [Slot; {len(slots)}] = ["]
     for s in slots:
         assert s["kind"] in ("frame", "action", "data"), s
         o.append(f'    Slot {{ name: {lit(s["name"])}, area: {lit(s["area"])}, kind: SlotKind::{cap(s["kind"])}, '
-                 f'permissions: {lit(s["permissions"])} }},')
-    o += ["];", "", "/// Every `api.*` host method name, in catalogue order (spec/plugins/host-api.csv).",
-          f"pub const HOST_API: [&str; {len(api)}] = ["]
+                 f'permissions: {lit(s["permissions"])}, support: {support(s, "name")} }},')
+    o += ["];", "", "/// Every `api.*` host method, in catalogue order (spec/plugins/host-api.csv).",
+          f"pub const HOST_API: [HostMethod; {len(api)}] = ["]
     for a in api:
-        o.append(f'    {lit(a["method"])},')
+        o.append(f'    HostMethod {{ name: {lit(a["method"])}, permission: {lit(a["base_permission"])}, '
+                 f'support: {support(a, "method")} }},')
     o += ["];", "",
           "/// Barbican's own native-plugin hook names and the Bulwark hook each stands for.",
           "pub const HOOK_ALIASES: [(&str, &str); %d] = [" % len(ALIASES)]
@@ -107,6 +136,11 @@ def render():
           "pub fn lookup_hook(name: &str) -> Option<&'static Hook> {",
           "    let name = resolve_alias(name);",
           "    HOOKS.iter().find(|h| h.name == name)",
+          "}",
+          "",
+          "/// The catalogued host method of that name.",
+          "pub fn lookup_host_method(name: &str) -> Option<&'static HostMethod> {",
+          "    HOST_API.iter().find(|m| m.name == name)",
           "}",
           "",
           "/// Bulwark's name for one of our old hook names; other names come back unchanged.",

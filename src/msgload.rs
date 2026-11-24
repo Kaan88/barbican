@@ -229,6 +229,8 @@ fn present(u: &AppWindow, c: &Arc<jmap::Client>, id: &str, m: Arc<Value>, thread
     let f = &m["from"][0];
     let from = mail::sender(&m);
     let email = f["email"].as_str().unwrap_or("").to_string();
+    // "External" chip (Bulwark external-sender-chip.tsx)
+    let external = message_external(&m);
     let names = |k: &str| m[k].as_array().map(|a| a.iter().map(|x| {
         let e = x["email"].as_str().unwrap_or("");
         if e.eq_ignore_ascii_case(&c.username) || MY_ADDRS.with(|a| a.borrow().iter().any(|x| x.eq_ignore_ascii_case(e))) { "me".to_string() } else { x["name"].as_str().filter(|n| !n.is_empty()).unwrap_or(e).to_string() }
@@ -266,7 +268,7 @@ fn present(u: &AppWindow, c: &Arc<jmap::Client>, id: &str, m: Arc<Value>, thread
         let is_html = m["htmlBody"].as_array().map(|a| a.iter().any(|p| p["type"] == "text/html")).unwrap_or(false);
         let html = (is_html && !html.is_empty()).then_some(html);
         let remote = html.as_deref().is_some_and(has_remote_images);
-        let allow = u.get_auto_images();
+        let allow = crate::allow_remote(u, &m);
         CUR.with(|c| *c.borrow_mut() = Some(Current { html, text, remote, allow, links_off: kw[phish::KEYWORD].as_bool() == Some(true) || phish::marked(&m) }));
     }
     let atts2 = atts.clone();
@@ -295,9 +297,11 @@ fn present(u: &AppWindow, c: &Arc<jmap::Client>, id: &str, m: Arc<Value>, thread
         u.set_r_to(to.into());
         u.set_attachments(ModelRc::new(VecModel::from(att_rows)));
         attachments::show(&u, c2.clone(), &id2, &atts2);
+        crate::tnef::expand(&u, c2.clone(), &id2, &atts2);
         u.set_thread_msgs(ModelRc::new(VecModel::from(trows)));
         u.set_r_subject(subject.into());
         u.set_r_from(from.into());
+        u.set_r_external(external);
         u.set_r_date(date.into());
         u.set_ai_result("".into());
         u.set_plugin_rows(ModelRc::new(VecModel::from(prow)));

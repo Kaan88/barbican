@@ -970,6 +970,11 @@ fn remove_local(ids: &[String]) {
 
 /// A message reported as phishing was filed in Junk by the server (phish::report): the list drops
 /// it, the folder counts follow, and the reader goes back to the list, as "Report spam" does.
+/// The reported message is marked `$phishing` in the list copy (it stays where it is).
+pub fn mark_phishing_local(id: &str) {
+    patch_local(&[id.to_string()], |m| m["keywords"][crate::phish::KEYWORD] = json!(true));
+}
+
 pub fn phishing_filed(u: &AppWindow, c: Arc<Client>, id: &str) {
     let ids = vec![id.to_string()];
     remove_local(&ids);

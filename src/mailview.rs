@@ -422,10 +422,14 @@ pub fn sanitize_mail_html_opts(html: &str, links_off: bool) -> String {
 }
 
 /// One pass: `Ok(None)` when nothing needs removing, `Err` when the work budget ran out.
+const LINK_OFF_ATTRS: &str = "title=\"Link disabled: this message was reported as phishing\" aria-disabled=\"true\" ";
+
 fn sanitize_pass(s: &str, links_off: bool) -> Result<Option<String>, ()> {
     let b = s.as_bytes();
     let mut budget: usize = b.len().saturating_mul(24).saturating_add(1 << 20);
     let mut dels: Vec<(usize, usize)> = Vec::new();
+    // text that takes the place of the attribute deleted at that start (a turned-off link says so)
+    let mut rep: std::collections::HashMap<usize, &'static str> = std::collections::HashMap::new();
     let mut i = 0;
     while i < b.len() {
         let Some(off) = b[i..].iter().position(|&c| c == b'<') else { break };
@@ -471,9 +475,14 @@ fn sanitize_pass(s: &str, links_off: bool) -> Result<Option<String>, ()> {
         if name == "base" || name == "form" || (name == "meta" && has("http-equiv")) {
             dels.push((i, end));
         } else if links_off && (name == "a" || name == "area") {
+            let dead = |n: &str| matches!(n, "href" | "xlink:href" | "target" | "rel" | "ping" | "download" | "tabindex");
+            let first = attrs.iter().find(|a| dead(&a.0)).map(|a| a.1);
             for (n, a, e) in &attrs {
-                if matches!(n.as_str(), "href" | "xlink:href" | "target" | "rel" | "ping" | "download" | "tabindex") { dels.push((*a, *e)); }
+                // an earlier title would win over ours: it goes too
+                if dead(n) || (first.is_some() && matches!(n.as_str(), "title" | "aria-disabled")) { dels.push((*a, *e)); }
             }
+            // Bulwark phishing-links.ts: the link stays as text, says it is off and is marked disabled
+            if let Some(a) = first { rep.insert(a, LINK_OFF_ATTRS); }
         } else if NAMED_ACCESS_TAGS.contains(&name.as_str()) {
             let id_too = NAMED_ACCESS_ID_TAGS.contains(&name.as_str());
             for (n, a, e) in &attrs {
@@ -487,11 +496,12 @@ fn sanitize_pass(s: &str, links_off: bool) -> Result<Option<String>, ()> {
     dels.sort_unstable();
     let mut out = String::with_capacity(s.len());
     let mut at = 0;
-    for (a, e) in dels {
+    for (a0, e) in dels {
         if e <= at { continue; }
-        let a = a.max(at);
+        let a = a0.max(at);
         if !s.is_char_boundary(a) || !s.is_char_boundary(e) { continue; }
         out.push_str(&s[at..a]);
+        if let Some(r) = rep.get(&a0) { out.push_str(r); }
         at = e;
     }
     out.push_str(&s[at..]);
@@ -694,6 +704,11 @@ mod tests {
         }
         // a start tag split by a tag that is removed does not join into a link
         assert!(no_address("<a hr<base>ef=\"https://evil.example/x\">t</a>"), "{}", off("<a hr<base>ef=\"https://evil.example/x\">t</a>"));
+        // a turned-off link says so, once, and does not keep an earlier title
+        let o = off("<a title=\"x\" href=\"https://evil.example/x\" aria-disabled=\"false\">t</a>");
+        assert_eq!(o.matches("title=").count(), 1, "{o}");
+        assert!(o.contains("aria-disabled=\"true\"") && !o.contains("title=\"x\"") && !o.contains("aria-disabled=\"false\""), "{o}");
+        assert_eq!(off(&o), o, "turning links off again changes nothing");
         // the rest of the page is left alone
         let o = off("<p id=\"a\">Hi <img src=\"x.png\" alt=\"n\"> <b>bold</b></p>");
         assert!(o.contains("<img src=\"x.png\"") && o.contains("<b>bold</b>"), "{o}");

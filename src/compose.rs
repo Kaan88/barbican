@@ -738,6 +738,18 @@ fn attach_files(u: &AppWindow, c: Arc<Client>, files: Vec<std::path::PathBuf>) {
     });
 }
 
+/// The name of composer attachment `i`.
+pub fn attachment_name(i: usize) -> Option<String> {
+    ST.with(|s| s.borrow().attachments.get(i).map(|a| a.name.clone()))
+}
+
+/// Rename composer attachment `i` (Bulwark renameAttachment): the new name goes out with the
+/// message and into the draft; the content and its type stay as they are.
+pub fn rename_attachment(u: &AppWindow, i: usize, name: &str) {
+    ST.with(|s| { if let Some(a) = s.borrow_mut().attachments.get_mut(i) { a.name = name.to_string(); } });
+    refresh_attachments(u);
+}
+
 pub fn remove_attachment(u: &AppWindow, i: i32) {
     ST.with(|s| { let mut s = s.borrow_mut(); if (i as usize) < s.attachments.len() { s.attachments.remove(i as usize); } });
     refresh_attachments(u);
@@ -861,6 +873,13 @@ fn pre_send_warning(o: &Outgoing, prefs: &crate::settings::Settings, intent: Int
     None
 }
 
+/// Bulwark external-recipient-confirm.tsx: its own stage after the composer's own checks (ORDER 40),
+/// so another warning confirmed first never hides the list of outside recipients. Off unless the
+/// setting is on (decisions.md D-262). `mine`: the user's own addresses.
+fn external_warning(o: &Outgoing, prefs: &crate::settings::Settings, intent: Intent, mine: &[String]) -> Option<String> {
+    crate::trust::recipient_warning(prefs.bool(crate::trust::RECIPIENT_CONFIRM_KEY, false), &o.to, &o.cc, &o.bcc, &crate::trust::own_domains(mine), retry_advice(intent))
+}
+
 pub fn send(u: &AppWindow, c: Arc<Client>, prefs: &crate::settings::Settings) {
     send_at(u, c, prefs, None);
 }
@@ -871,8 +890,9 @@ pub fn send_scheduled(u: &AppWindow, c: Arc<Client>, prefs: &crate::settings::Se
 }
 
 /// Which check raised the warning the user has just seen.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Stage { Builtin, Plugin }
+/// In the order they run: a confirmed stage also covers the ones before it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum Stage { Builtin, External, Plugin }
 
 thread_local! {
     /// The last pre-send warning, the draft (fingerprint) and the action it was raised for. Pressing Send
@@ -892,12 +912,16 @@ fn draft_fingerprint(o: &Outgoing) -> u64 {
 /// The staged send gate: built-in warnings first, then the plugin check. A stage the user already
 /// confirmed for this exact draft is skipped, later stages still run (a confirmed empty-subject warning
 /// does not skip the plugin check).
-fn gate(held: Option<(u64, Intent, Stage)>, fp: u64, intent: Intent, builtin: impl FnOnce() -> Option<String>, plugin: impl FnOnce() -> Option<String>) -> Result<(), (Stage, String)> {
+fn gate(held: Option<(u64, Intent, Stage)>, fp: u64, intent: Intent, builtin: impl FnOnce() -> Option<String>, external: impl FnOnce() -> Option<String>, plugin: impl FnOnce() -> Option<String>) -> Result<(), (Stage, String)> {
     let acked = held.filter(|(f, a, _)| *f == fp && *a == intent).map(|(_, _, s)| s);
-    if acked.is_none() {
+    let pending = |s: Stage| acked.is_none_or(|a| a < s);
+    if pending(Stage::Builtin) {
         if let Some(w) = builtin() { return Err((Stage::Builtin, w)); }
     }
-    if acked != Some(Stage::Plugin) {
+    if pending(Stage::External) {
+        if let Some(w) = external() { return Err((Stage::External, w)); }
+    }
+    if pending(Stage::Plugin) {
         if let Some(w) = plugin() { return Err((Stage::Plugin, w)); }
     }
     Ok(())
@@ -942,7 +966,7 @@ fn send_at(u: &AppWindow, c: Arc<Client>, prefs: &crate::settings::Settings, at:
     o.read_receipt = o.read_receipt || prefs.bool("requestReadReceiptDefault", false);
     let draft = serde_json::json!({"to": o.to, "cc": o.cc, "bcc": o.bcc, "subject": o.subject, "text": o.text,
         "attachments": o.attachments.iter().map(|a| a.name.clone()).collect::<Vec<_>>()});
-    let verdict = gate(HELD.with(|h| h.get()), fp, intent, || pre_send_warning(&o, prefs, intent), || {
+    let verdict = gate(HELD.with(|h| h.get()), fp, intent, || pre_send_warning(&o, prefs, intent), || external_warning(&o, prefs, intent, &crate::own_addresses()), || {
         let w = crate::plugin_compose_check(&draft);
         crate::plugin_notices(u);
         w.map(|w| format!("{w} {}", retry_advice(intent)))
@@ -1456,6 +1480,41 @@ mod tests {
     }
 
     #[test]
+    fn external_recipients_are_confirmed_through_the_same_gate() {
+        let on = crate::settings::Settings::with_prefs(serde_json::json!({"externalRecipientConfirm": true, "attachmentReminderEnabled": false}).as_object().unwrap().clone());
+        let off = crate::settings::Settings::with_prefs(serde_json::json!({"attachmentReminderEnabled": false}).as_object().unwrap().clone());
+        let mine = vec!["me@example.test".to_string()];
+        let mut o = Outgoing::default();
+        o.to = "ann@example.test, Bob <bob@other.test>".into();
+        o.subject = "Hi".into();
+        o.text = "Hello".into();
+        assert!(external_warning(&o, &off, Intent::Send, &mine).is_none(), "off by default");
+        let sending = external_warning(&o, &on, Intent::Send, &mine).unwrap();
+        assert!(sending.contains("bob@other.test (To)") && !sending.contains("ann@example.test") && sending.contains("Press Send again"), "{sending}");
+        let scheduled = external_warning(&o, &on, Intent::Schedule(5), &mine).unwrap();
+        assert!(!scheduled.contains("Press Send") && scheduled.contains("Schedule send again"), "{scheduled}");
+        let fp = draft_fingerprint(&o);
+        let w = |t: &str| Some(t.to_string());
+        // an empty subject plus an outside recipient: the subject warning first, then the list, then the plugin
+        o.subject = String::new();
+        let fp = draft_fingerprint(&o);
+        let run = |held: Option<(u64, Intent, Stage)>, plugin: Option<String>| gate(held, fp, Intent::Send,
+            || pre_send_warning(&o, &off, Intent::Send), || external_warning(&o, &on, Intent::Send, &mine), || plugin);
+        assert_eq!(run(None, None).unwrap_err().0, Stage::Builtin);
+        let e = run(Some((fp, Intent::Send, Stage::Builtin)), None).unwrap_err();
+        assert_eq!(e.0, Stage::External, "confirming the empty subject must not skip the outside list");
+        assert!(e.1.contains("bob@other.test"), "{}", e.1);
+        assert_eq!(run(Some((fp, Intent::Send, Stage::External)), w("plugin says no")), Err((Stage::Plugin, "plugin says no".into())));
+        assert_eq!(run(Some((fp, Intent::Send, Stage::External)), None), Ok(()));
+        // with the empty subject allowed, the list is the first and only stop
+        assert_eq!(gate(None, fp, Intent::Send, || None, || external_warning(&o, &on, Intent::Send, &mine), || None).unwrap_err().0, Stage::External);
+        // a different recipient list is a different draft: asked again
+        let mut o2 = Outgoing::default();
+        o2.to = "carol@third.test".into();
+        assert_ne!(draft_fingerprint(&o2), fp);
+    }
+
+    #[test]
     fn delivered_to_headers() {
         let m = json!({"headers": [
             {"name": "X-Original-To", "value": " a@b.c"},
@@ -1470,6 +1529,10 @@ mod tests {
 mod gate_tests {
     use super::*;
     fn w(s: &str) -> Option<String> { Some(s.to_string()) }
+    /// The two-stage form: no external-recipient stage.
+    fn gate(held: Option<(u64, Intent, Stage)>, fp: u64, intent: Intent, builtin: impl FnOnce() -> Option<String>, plugin: impl FnOnce() -> Option<String>) -> Result<(), (Stage, String)> {
+        super::gate(held, fp, intent, builtin, || None, plugin)
+    }
 
     #[test]
     fn builtin_warning_does_not_skip_the_plugin_check() {

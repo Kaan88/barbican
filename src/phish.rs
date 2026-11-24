@@ -321,11 +321,24 @@ fn send(c: &crate::jmap::Client, m: &Value, setup: &Setup) -> Result<(), String>
     };
     let r = c.call(calls)?;
     if let Some(e) = set_failure(&r[0][1], "r") { return Err(format!("The report could not be drafted: {e}")); }
-    match r.get(1) {
-        Some(s) if s[0] == "EmailSubmission/set" && s[1]["created"]["s"].is_object() => Ok(()),
-        Some(s) => Err(set_failure(&s[1], "s").unwrap_or_else(|| "The server did not take the report.".into())),
-        None => Err("The server did not take the report.".into()),
-    }
+    let err = match r.get(1) {
+        Some(s) if s[0] == "EmailSubmission/set" && s[1]["created"]["s"].is_object() => return Ok(()),
+        Some(s) => set_failure(&s[1], "s").unwrap_or_else(|| "The server did not take the report.".into()),
+        None => "The server did not take the report.".into(),
+    };
+    // not sent: do not leave the drafted report behind in Drafts
+    if let Some(id) = created_draft(&r[0][1]) { let _ = c.call(destroy_call(&c.account, &id)); }
+    Err(err)
+}
+
+/// The id of the draft the first call created (`create` key "r"), when it did.
+pub fn created_draft(set_response: &Value) -> Option<String> {
+    set_response["created"]["r"]["id"].as_str().map(str::to_string)
+}
+
+/// Destroy a draft (the report that could not be submitted).
+pub fn destroy_call(account: &str, id: &str) -> Value {
+    json!([["Email/set", {"accountId": account, "destroy": [id]}, "x"]])
 }
 
 #[cfg(test)]
@@ -470,6 +483,13 @@ mod tests {
             "create": {"s": {"emailId": "#r", "identityId": "I1", "envelope": {"mailFrom": {"email": "ann@example.test"}, "rcptTo": [{"email": "report@security.example"}]}}},
             "onSuccessDestroyEmail": ["#s"]
         }, "s"]), "no copy is kept in Sent: the draft is destroyed once submitted");
+    }
+
+    #[test]
+    fn a_report_that_was_not_submitted_is_destroyed() {
+        assert_eq!(created_draft(&json!({"created": {"r": {"id": "E9"}}})).as_deref(), Some("E9"));
+        assert_eq!(created_draft(&json!({"notCreated": {"r": {"type": "x"}}})), None);
+        assert_eq!(destroy_call("A1", "E9"), json!([["Email/set", {"accountId": "A1", "destroy": ["E9"]}, "x"]]));
     }
 
     #[test]
