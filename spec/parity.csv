@@ -1,5 +1,5 @@
 id,area,feature,bulwark_ref,rust_status,rust_call_site,csharp_spec,phase,size
-G-001,calendar,Invitations: applying a counter-proposal,components/calendar invitation banner (ical counter),partial,"src/invite.rs (counter_target, proposal_patch)",G-001 (GAPS P0-1 (remaining)),1,S
+G-001,calendar,Invitations: applying a counter-proposal,components/calendar invitation banner (ical counter),done,"src/invite.rs (counter_target, proposal, series occurrence override)",G-001 (GAPS P0-1 (remaining)),1,S
 G-002,calendar,Invitations: remove cancelled event from the banner,calendar invitation banner,done,src/invite.rs (plan_cancellation),G-002 (GAPS P0-1 (remaining)),1,S
 G-003,calendar,Event editor: all-day strip in day and week header has no height cap,calendar day/week header,done,src/allday.rs,G-003 (GAPS P0-2),1,S
 G-004,calendar,Import: .ics alerts kept from the file without asking first (D-M4-09: the prompt defaults to keep as Bulwark),ical-import-modal.tsx,done,src/cal_extra.rs (ics import alerts),G-004 (GAPS P0-2),1,S
