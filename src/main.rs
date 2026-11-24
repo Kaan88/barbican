@@ -2335,6 +2335,8 @@ fn finish_login(w: slint::Weak<AppWindow>, st: Shared, res: Result<jmap::Client,
             let c = Arc::new(c);
             *RESTORE_PENDING.lock().unwrap() = None;
             *st.lock().unwrap() = Some(c.clone());
+            // the new session starts now: a "Trust sender" click from here on is this account's
+            trustbook::begin(&c);
             unified::set_active(&user, c.clone());
             if unified::enabled() { unified::warm_up(Some(w.clone())); }
             let p = config_path();
@@ -2379,7 +2381,6 @@ fn finish_login(w: slint::Weak<AppWindow>, st: Shared, res: Result<jmap::Client,
                 let _ = w2.upgrade_in_event_loop(move |u| reminders::start(&u, c4));
             }
             // the trusted senders address book (reads it; files this computer's list into it)
-            trustbook::begin(&c);
             trustbook::refresh(w2.clone(), c.clone(), true);
             start_push(w2, c);
         }

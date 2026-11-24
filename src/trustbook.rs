@@ -160,21 +160,19 @@ pub fn account_tag(state_key: &str) -> String {
     Sha256::digest(state_key.as_bytes()).iter().take(16).map(|b| format!("{b:02x}")).collect()
 }
 
-fn same_name(a: &str, b: &str) -> bool {
-    let local = |s: &str| s.split('@').next().unwrap_or("").to_lowercase();
-    !a.is_empty() && !b.is_empty() && (a.eq_ignore_ascii_case(b) || local(a) == local(b))
-}
-
 /// Whether the device's untagged list may be filed into this account's book: the one account
-/// remembered on this computer is this one (same server, and a name that matches the typed or the
-/// reported one: `ann` and `ann@example.test` are the same login), and no other session is signed
-/// in. A session that is not remembered counts through `others`.
+/// remembered on this computer is this one, and no other session is signed in. "This one" is an
+/// exact (case-insensitive) match of the remembered `user` with one of `names` (what finish_login
+/// stored is what `login_of` returns) on the same server; an entry that names no server is not
+/// taken for the same server, and `ann` is not `ann@example.test`, nor `ann@a.test` `ann@b.test`.
+/// A session that is not remembered counts through `others`.
 pub fn sole_remembered(entries: &[Value], names: &[&str], server: &str, others: usize) -> bool {
     if others != 0 || entries.len() != 1 { return false; }
     let e = &entries[0];
     let s = e["server"].as_str().unwrap_or("");
-    let same_server = s.is_empty() || crate::jmap::normalize_base(s).eq_ignore_ascii_case(&crate::jmap::normalize_base(server));
-    same_server && names.iter().any(|n| same_name(n, e["user"].as_str().unwrap_or("")))
+    let user = e["user"].as_str().unwrap_or("");
+    let same_server = !s.is_empty() && crate::jmap::normalize_base(s).eq_ignore_ascii_case(&crate::jmap::normalize_base(server));
+    same_server && !user.is_empty() && names.iter().any(|n| n.eq_ignore_ascii_case(user))
 }
 
 /// Bulwark's v14 migration (settings-store.ts:2645-2649) for a settings file that is not
@@ -311,6 +309,8 @@ struct Cache {
     /// No contacts capability, or the book could not be read or created: the device's list is used.
     unavailable: bool,
     at: Option<std::time::Instant>,
+    /// The last read that failed (account key, when): counts like `at` for the ten-second check.
+    tried: Option<(String, std::time::Instant)>,
 }
 
 /// The key of the session this run is in (set at sign-in, emptied at sign-out). Anything that
@@ -320,7 +320,7 @@ static SESSION: Mutex<String> = Mutex::new(String::new());
 fn session() -> String { SESSION.lock().unwrap_or_else(|e| e.into_inner()).clone() }
 fn session_is(key: &str) -> bool { !key.is_empty() && session() == key }
 
-static CACHE: Mutex<Cache> = Mutex::new(Cache { key: String::new(), book_ids: Vec::new(), emails: Vec::new(), loaded: false, unavailable: false, at: None });
+static CACHE: Mutex<Cache> = Mutex::new(Cache { key: String::new(), book_ids: Vec::new(), emails: Vec::new(), loaded: false, unavailable: false, at: None, tried: None });
 /// Bumped by sign-out and account change. The UI thread reads it before it starts a worker and the
 /// worker is handed that value: a worker from before the bump writes nothing (no card, no cache,
 /// no preference) afterwards.
@@ -330,11 +330,21 @@ static FLIGHT: Mutex<()> = Mutex::new(());
 /// A load is running; a burst of pushes starts one. A forced refresh asked for meanwhile runs once
 /// more afterwards, with what it was asked with.
 static LOADING: AtomicBool = AtomicBool::new(false);
-type Again = (u64, bool, Arc<Client>);
+type Again = (u64, Arc<Client>);
 static AGAIN: Mutex<Option<Again>> = Mutex::new(None);
 /// (account key, address) that could not be filed this session: not tried (or told about) again
 /// on every push. Forgotten at sign-out and when the user turns the setting off and on.
 static FAILED: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
+/// Error texts already shown this session: the same one is not shown again.
+static TOASTED: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+/// True the first time `text` is seen this session.
+fn first_time(text: &str) -> bool {
+    let mut t = TOASTED.lock().unwrap_or_else(|e| e.into_inner());
+    if t.iter().any(|x| x == text) { return false; }
+    t.push(text.to_string());
+    true
+}
 
 const STALE: &str = "stale";
 
@@ -346,6 +356,21 @@ fn live(gen: u64) -> bool { GEN.load(Ordering::SeqCst) == gen }
 /// Whether the cache was read for this account.
 fn mine(k: &Cache, c: &Client) -> bool { mine_key(k, &c.state_key()) }
 fn mine_key(k: &Cache, key: &str) -> bool { !k.key.is_empty() && k.key == key }
+/// The tag of the session this run is in, when there is one.
+fn session_tag() -> Option<String> { let s = session(); (!s.is_empty()).then(|| account_tag(&s)) }
+
+/// Put an address on the device's list, tagged with the current session's account: "untagged" then
+/// only means what was there before tags existed.
+fn local_add_tagged(addr: &str) {
+    let tag = session_tag();
+    crate::settings::trusted_state_update(|l, tags| {
+        if !l.iter().any(|x| x == addr) {
+            l.push(addr.to_string());
+            if let Some(t) = &tag { tags.insert(addr.to_string(), json!(t)); }
+        }
+    });
+}
+
 /// The client belongs to the session this run is in.
 fn current(c: &Client) -> bool { session_is(&c.state_key()) }
 
@@ -356,6 +381,7 @@ pub fn clear() {
     SESSION.lock().unwrap_or_else(|e| e.into_inner()).clear();
     *cache() = Cache::default();
     failed().clear();
+    TOASTED.lock().unwrap_or_else(|e| e.into_inner()).clear();
     *stage() = Stage::default();
 }
 
@@ -458,7 +484,7 @@ fn resolve(c: &Client, create: bool, gen: u64) -> Result<Option<String>, String>
     for id in &ids { cards.extend(cards_of(c, &acc, id)?); }
     let emails = card_addresses(&cards);
     if live(gen) {
-        *cache() = Cache { key: c.state_key(), book_ids: ids.clone(), emails, loaded: true, unavailable: false, at: Some(std::time::Instant::now()) };
+        *cache() = Cache { key: c.state_key(), book_ids: ids.clone(), emails, loaded: true, unavailable: false, at: Some(std::time::Instant::now()), tried: None };
     }
     Ok(ids.first().cloned())
 }
@@ -469,7 +495,7 @@ fn resolve(c: &Client, create: bool, gen: u64) -> Result<Option<String>, String>
 fn mark_unavailable(c: &Client, gen: u64) {
     if !live(gen) { return; }
     let mut k = cache();
-    *k = Cache { key: c.state_key(), book_ids: vec![], emails: vec![], loaded: true, unavailable: true, at: Some(std::time::Instant::now()) };
+    *k = Cache { key: c.state_key(), book_ids: vec![], emails: vec![], loaded: true, unavailable: true, at: Some(std::time::Instant::now()), tried: None };
 }
 
 /// Read the book; with `file_local`, file the device's list into it (Bulwark's migration, limited
@@ -495,7 +521,10 @@ pub fn load(c: &Client, file_local: bool, gen: u64, single: bool) -> Result<(), 
     let book = match resolve(c, need_book, gen) {
         Ok(b) => b,
         Err(e) if e == STALE => return Ok(()),
-        Err(e) => return Err(e),
+        Err(e) => {
+            if live(gen) { cache().tried = Some((key.clone(), std::time::Instant::now())); }
+            return Err(e);
+        }
     };
     if !file_local { return Ok(()); }
     let book_emails = cache().emails.clone();
@@ -539,7 +568,7 @@ pub enum Added { Already, Filed, Local, LocalAfter(String) }
 pub fn add(c: &Client, entry: &str, gen: u64) -> Result<Added, String> {
     let addr = sender_key(entry);
     if !is_address(&addr) { return Err("That is not an email address.".into()); }
-    let local_add = |addr: &str| if live(gen) { crate::settings::trusted_local_update(|l| { if !l.contains(&addr.to_string()) { l.push(addr.to_string()); } }); };
+    let local_add = |addr: &str| if live(gen) { local_add_tagged(addr); };
     let _f = FLIGHT.lock().unwrap_or_else(|e| e.into_inner());
     if !live(gen) || !current(c) { return Err(STALE.into()); }
     let (known, unavailable, have) = {
@@ -630,9 +659,11 @@ pub fn refresh(w: slint::Weak<AppWindow>, c: Arc<Client>, force: bool) {
     if force { failed().clear(); }
     {
         let k = cache();
-        if !force && mine(&k, &c) && k.at.is_some_and(|t| t.elapsed() < std::time::Duration::from_secs(10)) { return; }
+        let recent = |t: &std::time::Instant| t.elapsed() < std::time::Duration::from_secs(10);
+        let tried = k.tried.as_ref().is_some_and(|(key, t)| *key == c.state_key() && recent(t));
+        if !force && (tried || (mine(&k, &c) && k.at.as_ref().is_some_and(recent))) { return; }
     }
-    let ask = (generation(), single_account(&c), c);
+    let ask = (generation(), c);
     if LOADING.swap(true, Ordering::SeqCst) {
         if force { *AGAIN.lock().unwrap_or_else(|e| e.into_inner()) = Some(ask); }
         return;
@@ -641,11 +672,13 @@ pub fn refresh(w: slint::Weak<AppWindow>, c: Arc<Client>, force: bool) {
         let mut guard = Some(Running);
         let mut ask = Some(ask);
         loop {
-            while let Some((gen, single, c)) = ask.take() {
-                let res = load(&c, true, gen, single);
+            while let Some((gen, c)) = ask.take() {
+                // the secret store and the session pool are read here, not on the UI thread
+                let single = single_account(&c);
+                let res = load(&c, true, gen, single).err().filter(|e| first_time(e));
                 let w2 = w.clone();
                 let _ = w2.upgrade_in_event_loop(move |u| {
-                    if let Err(e) = res { crate::mail::show_toast(&u, &format!("Trusted senders address book: {e}"), false); }
+                    if let Some(e) = res { crate::mail::show_toast(&u, &format!("Trusted senders address book: {e}"), false); }
                     finished(&u);
                 });
                 ask = AGAIN.lock().unwrap_or_else(|e| e.into_inner()).take();
@@ -679,7 +712,7 @@ pub fn trust_sender(w: slint::Weak<AppWindow>, c: Option<Arc<Client>>, entry: St
         let res = match (&c, settings_on) {
             (Some(c), true) => add(c, &entry, gen),
             _ => {
-                if live(gen) { crate::settings::trusted_local_update(|l| { if !l.contains(&addr) { l.push(addr.clone()); } }); }
+                if live(gen) { local_add_tagged(&addr); }
                 Ok(Added::Local)
             }
         };
@@ -726,7 +759,7 @@ pub fn apply_pending(w: slint::Weak<AppWindow>, c: Option<Arc<Client>>) {
             let r = match (&c, on) {
                 (Some(c), true) => add(c, a, gen),
                 _ => {
-                    if live(gen) { crate::settings::trusted_local_update(|l| { if !l.contains(a) { l.push(a.clone()); } }); }
+                    if live(gen) { local_add_tagged(a); }
                     Ok(Added::Local)
                 }
             };
@@ -1056,8 +1089,8 @@ b@example.test".into());
 
     #[test]
     fn the_untagged_list_is_filed_only_for_the_one_account_there_is() {
-        let a = json!({"user": "ann", "server": "https://mail.example.test/"});
-        let names = ["ann@example.test", "ann@example.test"];
+        let a = json!({"user": "ann@example.test", "server": "https://mail.example.test/"});
+        let names = ["ANN@example.test", "ann@example.test"];
         // A is the only remembered account and the session is A's
         assert!(sole_remembered(std::slice::from_ref(&a), &names, "https://mail.example.test", 0));
         // an extra session that is not remembered (B added without "remember", OAuth without a refresh token)
@@ -1066,9 +1099,34 @@ b@example.test".into());
         assert!(!sole_remembered(std::slice::from_ref(&a), &["bob@example.test"], "https://mail.example.test", 0));
         // same name on another server is another account
         assert!(!sole_remembered(std::slice::from_ref(&a), &names, "https://other.example.test", 0));
+        // the same local part on another domain is another account (ann@a.test remembered, ann@b.test signed in)
+        let a2 = json!({"user": "ann@a.test", "server": "https://mail.example.test"});
+        assert!(!sole_remembered(std::slice::from_ref(&a2), &["ann@b.test"], "https://mail.example.test", 0));
+        assert!(sole_remembered(std::slice::from_ref(&a2), &["ann@A.test"], "https://mail.example.test", 0));
+        // a bare name is not a longer one
+        assert!(!sole_remembered(&[json!({"user": "ann", "server": "https://mail.example.test"})], &["ann@example.test"], "https://mail.example.test", 0));
+        // an entry that names no server is not the same server
+        assert!(!sole_remembered(&[json!({"user": "ann@example.test", "server": ""})], &names, "https://mail.example.test", 0));
+        assert!(!sole_remembered(&[json!({"user": "ann@example.test"})], &names, "https://mail.example.test", 0));
         // two remembered, or none
         assert!(!sole_remembered(&[a.clone(), json!({"user": "bob", "server": "https://mail.example.test"})], &names, "https://mail.example.test", 0));
         assert!(!sole_remembered(&[], &names, "https://mail.example.test", 0));
+    }
+
+    #[test]
+    fn an_error_is_shown_once_a_session_and_a_failed_read_counts_for_the_ten_seconds() {
+        let _g = GLOBALS.lock().unwrap_or_else(|e| e.into_inner());
+        clear();
+        assert!(first_time("The server is not reachable."));
+        assert!(!first_time("The server is not reachable."));
+        assert!(first_time("Another error."));
+        clear();
+        assert!(first_time("The server is not reachable."), "a new session shows it again");
+        // a local addition is tagged with the session that made it, and with nothing before one
+        begin_key("acct-A");
+        assert_eq!(session_tag(), Some(account_tag("acct-A")));
+        clear();
+        assert_eq!(session_tag(), None);
     }
 
     #[test]
