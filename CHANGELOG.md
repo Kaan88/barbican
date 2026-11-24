@@ -7,8 +7,8 @@ example "## 0.1.0 — 2026-12-01", and start a new "Unreleased" above it.
 
 ## Unreleased
 
-- Calendar invitations: a counter proposal an attendee sends for an event you organise now shows what it changes (time, place, title, description) in the invitation banner, and "Apply proposed changes" updates the event and sends the update to the attendees, asking those who had answered to answer again when the time moves (as Bulwark does). It is offered only for a proposal from one of the event's participants.
-- Calendar invitations: a cancellation of an event is now offered as "Remove from calendar" in the banner when the message is verified as the organiser's and the stored event is theirs (a whole series is deleted, one cancelled occurrence is excluded from its series); one older than your copy, or from someone other than the organiser, says so and removes nothing.
+- Calendar invitations: a counter proposal an attendee sends for an event you organise now shows what it changes (time, place, title, description) in the invitation banner, and "Apply proposed changes" updates the event and sends the update to the attendees, asking those who had answered to answer again when the time moves (as Bulwark does). It is offered only for a proposal from one of the event's participants. There is no button to decline a proposal, as in Bulwark: the server has no way to send a decline, so ignoring the message declines it. A proposal for a single occurrence of a recurring meeting is not applied yet (the banner lists no changes); only a proposal for the whole event or for an occurrence stored on its own is.
+- Calendar invitations: a cancellation of an event is now offered as "Remove from calendar" in the banner when the message is verified as the organiser's and the stored event is theirs (a whole series is deleted, one cancelled occurrence is excluded from its series); one older than your copy, or from someone other than the organiser, says so and removes nothing. If the event is deleted elsewhere after you opened the message, the Remove button goes away.
 
 ## 0.1.1 — 2026-11-24
 

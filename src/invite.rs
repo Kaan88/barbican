@@ -376,12 +376,22 @@ pub fn cancel_notice(p: &CancelPlan, trusted: bool, sender: &str) -> Option<Stri
     })
 }
 
+/// The properties read for the stored copies of an invitation's event: everything the calendar
+/// loads, plus the two the parsed message can carry and the calendar does not load, so a
+/// comparison against the stored event (Bulwark compares against the whole event) does not see
+/// them as always changed.
+pub fn stored_props() -> Vec<&'static str> {
+    let mut v = crate::calendar::EVENT_PROPS.to_vec();
+    for k in ["descriptionContentType", "recurrenceIdTimeZone"] { if !v.contains(&k) { v.push(k); } }
+    v
+}
+
 /// All events stored with this uid (the series and any occurrence stored on its own).
 pub fn stored_all(c: &crate::jmap::Client, uid: &str) -> Result<Vec<Value>, String> {
     let acc = c.account_for(CAP);
     let r = c.call(json!([
         ["CalendarEvent/query", {"accountId": acc, "filter": {"uid": uid}, "limit": 50}, "q"],
-        ["CalendarEvent/get", {"accountId": acc, "#ids": {"resultOf": "q", "name": "CalendarEvent/query", "path": "/ids"}, "properties": &crate::calendar::EVENT_PROPS[..]}, "g"]
+        ["CalendarEvent/get", {"accountId": acc, "#ids": {"resultOf": "q", "name": "CalendarEvent/query", "path": "/ids"}, "properties": stored_props()}, "g"]
     ]))?;
     if r[0][0] == "error" { return Err(crate::jmap::method_error(&r[0][1])); }
     if r[1][0] == "error" { return Err(crate::jmap::method_error(&r[1][1])); }
@@ -407,14 +417,23 @@ fn set_failure(r: &[Value]) -> Option<String> {
     None
 }
 
+pub const ERR_OUTDATED: &str = "Your calendar has a newer version of this event than this cancellation.";
+pub const ERR_GONE: &str = "The event is no longer in your calendar.";
+
+/// What a failed removal says about the plan the banner holds: when the event is gone or newer
+/// the removal is no longer offered (Bulwark setCancelRemoval).
+pub fn removal_after_error(e: &str) -> Option<Removal> {
+    match e { ERR_OUTDATED => Some(Removal::Outdated), ERR_GONE => Some(Removal::Nothing), _ => None }
+}
+
 /// Remove the cancelled event from the calendar. Planned again on the events as they are now:
 /// the calendar may have changed since the mail was opened.
 pub fn remove_cancelled(c: &crate::jmap::Client, cancel: &Value, sender: Option<&str>) -> Result<String, String> {
     let uid = cancel["uid"].as_str().ok_or("This cancellation names no event.")?;
     let plan = cancel_plan(&stored_all(c, uid)?, cancel, sender);
     match &plan.removal {
-        Removal::Outdated => return Err("Your calendar has a newer version of this event than this cancellation.".into()),
-        Removal::Nothing => return Err("The event is no longer in your calendar.".into()),
+        Removal::Outdated => return Err(ERR_OUTDATED.into()),
+        Removal::Nothing => return Err(ERR_GONE.into()),
         _ => {}
     }
     if !plan.from_organizer { return Err("This cancellation did not come from the event's organizer.".into()); }
@@ -790,6 +809,31 @@ mod tests {
         assert!(proposal_patch(&cur, &place).contains_key("locations"));
         let labels: Vec<String> = proposal_changes(&cur, &place, "Europe/Berlin").into_iter().map(|c| c.0).collect();
         assert_eq!(labels, ["Title", "Location"]);
+    }
+
+    #[test]
+    fn stored_copies_are_read_with_what_the_parsed_message_carries() {
+        let props = stored_props();
+        for k in ["descriptionContentType", "recurrenceIdTimeZone", "title", "sequence"] { assert!(props.contains(&k), "{k}"); }
+        let mut seen = std::collections::HashSet::new();
+        assert!(props.iter().all(|k| seen.insert(*k)), "no property twice");
+        // a counter that repeats the stored event, content type included, changes nothing
+        let mut cur = ev();
+        cur["description"] = json!("Agenda");
+        cur["descriptionContentType"] = json!("text/plain");
+        let prop = cur.clone();
+        assert!(proposal_patch(&cur, &prop).is_empty());
+        // and read without the property (the bug) it would have looked like a change
+        let mut unread = cur.clone();
+        unread.as_object_mut().unwrap().remove("descriptionContentType");
+        assert!(proposal_patch(&unread, &prop).contains_key("descriptionContentType"));
+    }
+
+    #[test]
+    fn a_failed_removal_stops_being_offered_when_the_event_is_gone_or_newer() {
+        assert_eq!(removal_after_error(ERR_GONE), Some(Removal::Nothing));
+        assert_eq!(removal_after_error(ERR_OUTDATED), Some(Removal::Outdated));
+        assert_eq!(removal_after_error("Server unavailable"), None);
     }
 
     #[test]

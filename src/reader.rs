@@ -514,7 +514,7 @@ fn invite_banner(inv: &Invite) -> RxBannerData {
     let mut detail = when;
     match &inv.step {
         Step::Done(t) => detail = format!("{detail}  ·  {t}"),
-        Step::Failed(e) => detail = format!("{detail}  ·  Not sent: {e}"),
+        Step::Failed(e) => detail = format!("{detail}  ·  {}{e}", if matches!(inv.method, Method::Cancel | Method::Counter) { "Not done: " } else { "Not sent: " }),
         _ => {}
     }
     if inv.method == Method::Reply {
@@ -641,7 +641,11 @@ fn banner_action(u: &AppWindow, st: &Shared, b: &str, a: &str) {
                     set_step(&u, |s| if let Some(i) = s.invite.as_mut() {
                         match res {
                             Ok(t) => { i.cancel = None; i.proposal = None; i.step = Step::Done(t); }
-                            Err(e) => i.step = Step::Failed(e),
+                            Err(e) => {
+                                // the event went away or got newer since the mail was opened: stop offering the removal
+                                if removing { if let (Some(r), Some(p)) = (invite::removal_after_error(&e), i.cancel.as_mut()) { p.removal = r; } }
+                                i.step = Step::Failed(e);
+                            }
                         }
                     });
                     if u.get_app() == 1 { u.invoke_cal_nav("".into()); }
