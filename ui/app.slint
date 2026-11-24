@@ -1746,6 +1746,9 @@ export component AppWindow inherits Window {
 
     callback login(string, string, string, string, bool);
     callback sso-login(string, string, bool);
+    // a start-up sign-in that could not reach the server: the form offers to run it again
+    in-out property <bool> retry-available;
+    callback retry-restore();
     callback sign-out();
     in-out property <string> client-id: "barbican";
     in-out property <bool> remember: true;
@@ -2333,6 +2336,10 @@ export component AppWindow inherits Window {
                             LineEdit { text <=> root.client-id; }
                         }
                         Text { text: root.status; color: Theme.accent; wrap: word-wrap; }
+                        if root.retry-available: ActionButton {
+                            label: "Try again";
+                            clicked => { if !root.busy { root.retry-restore(); } }
+                        }
                     }
                 }
             }

@@ -232,12 +232,18 @@ pub fn sign_in(base: &str, account: &str, fallback_client: &str) -> Result<Token
     parse_tokens(r, &meta.token, &client, None)
 }
 
-fn parse_tokens(r: reqwest::blocking::Response, endpoint: &str, client: &str, old_refresh: Option<&str>) -> Result<Tokens, String> {
+/// The JSON of a token response, or the error text for a refused one.
+fn token_json(r: reqwest::blocking::Response) -> Result<Value, String> {
     let status = r.status();
     let v: Value = r.json().unwrap_or(json!({}));
     if !status.is_success() || v["access_token"].as_str().is_none() {
         return Err(format!("Token request failed ({status}): {} {}", v["error"].as_str().unwrap_or(""), v["error_description"].as_str().unwrap_or("")));
     }
+    Ok(v)
+}
+
+fn parse_tokens(r: reqwest::blocking::Response, endpoint: &str, client: &str, old_refresh: Option<&str>) -> Result<Tokens, String> {
+    let v = token_json(r)?;
     Ok(Tokens {
         access: v["access_token"].as_str().unwrap().to_string(),
         refresh: v["refresh_token"].as_str().map(String::from).or(old_refresh.map(String::from)),
@@ -315,11 +321,18 @@ fn find_refresh(all: &[Value], user: &str, endpoint: &str) -> Option<String> {
     all.iter().find(|a| is_session_account(a, user, endpoint)).and_then(|a| a["refresh"].as_str().map(String::from))
 }
 
-/// Put a rotated refresh token into every entry of that account; whether anything changed.
-fn rotate_in(all: &mut [Value], user: &str, endpoint: &str, refresh: &str) -> bool {
+/// Put a rotated refresh token into every entry of that account; whether anything changed. An
+/// entry is the account's when it has the same user (not for an empty `user`) and endpoint, or,
+/// whatever its user, when its endpoint is ours and its refresh token is the one just `used`: a
+/// 0.1.0 session of an SSO sign-in has no user, and a stale duplicate of the account is healed
+/// the same way.
+fn rotate_in(all: &mut [Value], user: &str, endpoint: &str, used: &str, refresh: &str) -> bool {
     let mut changed = false;
     for a in all.iter_mut() {
-        if is_session_account(a, user, endpoint) && a["refresh"].as_str() != Some(refresh) {
+        let by_user = !user.is_empty() && is_session_account(a, user, endpoint);
+        let by_token = a["kind"] == "oauth" && !used.is_empty() && !endpoint.is_empty()
+            && a["endpoint"].as_str() == Some(endpoint) && a["refresh"].as_str() == Some(used);
+        if (by_user || by_token) && a["refresh"].as_str() != Some(refresh) {
             a["refresh"] = json!(refresh);
             changed = true;
         }
@@ -328,35 +341,79 @@ fn rotate_in(all: &mut [Value], user: &str, endpoint: &str, refresh: &str) -> bo
 }
 
 /// The refresh token currently stored for this session's account.
-fn stored_refresh(t: &Tokens) -> Option<String> {
-    find_refresh(&accounts(), &t.user, &t.token_endpoint)
+fn stored_refresh_in(b: &dyn crate::secrets::Backend, profile: &str, t: &Tokens) -> Option<String> {
+    find_refresh(&accounts_in(b, profile), &t.user, &t.token_endpoint)
 }
 
 /// Store a secret; a failed write (the keyring was busy) is tried once more, because the old
 /// refresh token is already dead and the rotated one must not get lost.
-fn put(name: &str, value: &str) -> bool {
-    crate::secrets::set(name, value) || crate::secrets::set(name, value)
+fn put_in(b: &dyn crate::secrets::Backend, profile: &str, name: &str, value: &str) -> bool {
+    crate::secrets::save(b, profile, name, value) || crate::secrets::save(b, profile, name, value)
 }
 
-/// Write a rotated refresh token back so other instances see it.
-fn store_rotated(user: &str, endpoint: &str, refresh: &str) {
-    if user.is_empty() { return; }
-    let mut all = accounts();
-    if rotate_in(&mut all, user, endpoint, refresh) { put("accounts", &Value::Array(all).to_string()); }
-    if let Some(mut v) = remembered() {
-        if rotate_in(std::slice::from_mut(&mut v), user, endpoint, refresh) { put("session", &v.to_string()); }
+/// Write a rotated refresh token (`new`, issued for `used`) back so other instances see it. The
+/// caller holds the [`RefreshLock`].
+fn store_rotated_in(b: &dyn crate::secrets::Backend, profile: &str, user: &str, endpoint: &str, used: &str, new: &str) {
+    let mut all = accounts_in(b, profile);
+    if rotate_in(&mut all, user, endpoint, used, new) { put_in(b, profile, "accounts", &Value::Array(all).to_string()); }
+    if let Some(mut v) = remembered_in(b, profile) {
+        if rotate_in(std::slice::from_mut(&mut v), user, endpoint, used, new) { put_in(b, profile, "session", &v.to_string()); }
     }
 }
 
-fn refresh_with(t: &Tokens, rt: &str) -> Result<Tokens, String> {
-    let r = http().post(&t.token_endpoint).form(&[
-        ("grant_type", "refresh_token"),
-        ("refresh_token", rt),
-        ("client_id", &t.client_id),
-    ]).send().map_err(|e| e.to_string())?;
-    let mut n = parse_tokens(r, &t.token_endpoint, &t.client_id, Some(rt))?;
-    n.user = t.user.clone();
-    Ok(n)
+/// The token endpoint, as far as the refresh grant is concerned (a fake in the tests).
+pub trait TokenServer {
+    /// Exchange a refresh token: (access token, the new refresh token when the server rotates
+    /// it, seconds the access token lives, 0 when not said).
+    fn refresh(&self, endpoint: &str, client: &str, refresh_token: &str) -> Result<(String, Option<String>, u64), String>;
+}
+
+/// The real token endpoint over HTTP.
+struct HttpServer;
+impl TokenServer for HttpServer {
+    fn refresh(&self, endpoint: &str, client: &str, rt: &str) -> Result<(String, Option<String>, u64), String> {
+        let r = http().post(endpoint).form(&[
+            ("grant_type", "refresh_token"),
+            ("refresh_token", rt),
+            ("client_id", client),
+        ]).send().map_err(|e| e.to_string())?;
+        let v = token_json(r)?;
+        Ok((v["access_token"].as_str().unwrap_or("").to_string(), v["refresh_token"].as_str().map(String::from), v["expires_in"].as_u64().unwrap_or(0)))
+    }
+}
+
+fn refresh_with(srv: &dyn TokenServer, t: &Tokens, rt: &str) -> Result<Tokens, String> {
+    let (access, new, expires_in) = srv.refresh(&t.token_endpoint, &t.client_id, rt)?;
+    Ok(Tokens {
+        access,
+        refresh: new.or(Some(rt.to_string())),
+        expires: (expires_in > 0).then(|| Instant::now() + Duration::from_secs(expires_in.saturating_sub(30))),
+        token_endpoint: t.token_endpoint.clone(),
+        client_id: t.client_id.clone(),
+        user: t.user.clone(),
+    })
+}
+
+/// The refresh loop of [`refresh`] against one secret store and token endpoint; the caller holds
+/// the [`RefreshLock`].
+fn refresh_in(b: &dyn crate::secrets::Backend, profile: &str, srv: &dyn TokenServer, t: &Tokens) -> Result<Tokens, String> {
+    let mine = t.refresh.as_deref().ok_or(format!("{NEEDS_SIGN_IN}; sign in again."))?;
+    let mut used = stored_refresh_in(b, profile, t).filter(|s| !s.is_empty()).unwrap_or_else(|| mine.to_string());
+    let mut tried: Vec<String> = vec![];
+    loop {
+        tried.push(used.clone());
+        match refresh_with(srv, t, &used) {
+            Ok(n) => {
+                if let Some(r) = n.refresh.as_deref() { store_rotated_in(b, profile, &t.user, &t.token_endpoint, &used, r); }
+                return Ok(n);
+            }
+            Err(e) => match next_token(&tried, mine, stored_refresh_in(b, profile, t).as_deref(), is_rejection(&e)) {
+                Next::Retry(s) => used = s,
+                Next::NeedsSignIn => return Err(format!("{NEEDS_SIGN_IN}; sign in again. ({e})")),
+                Next::Transient => return Err(e),
+            },
+        }
+    }
 }
 
 /// Refresh under a cross-process lock. Stalwart rotates refresh tokens, so another instance may
@@ -365,24 +422,9 @@ fn refresh_with(t: &Tokens, rt: &str) -> Result<Tokens, String> {
 /// "Session expired" and the caller must not try again until the user signs in. Never deletes
 /// anything.
 pub fn refresh(t: &Tokens) -> Result<Tokens, String> {
-    let mine = t.refresh.as_deref().ok_or(format!("{NEEDS_SIGN_IN}; sign in again."))?;
+    if t.refresh.is_none() { return Err(format!("{NEEDS_SIGN_IN}; sign in again.")); }
     let _lock = RefreshLock::acquire();
-    let mut used = stored_refresh(t).filter(|s| !s.is_empty()).unwrap_or_else(|| mine.to_string());
-    let mut tried: Vec<String> = vec![];
-    loop {
-        tried.push(used.clone());
-        match refresh_with(t, &used) {
-            Ok(n) => {
-                if let Some(r) = n.refresh.as_deref() { store_rotated(&t.user, &t.token_endpoint, r); }
-                return Ok(n);
-            }
-            Err(e) => match next_token(&tried, mine, stored_refresh(t).as_deref(), is_rejection(&e)) {
-                Next::Retry(s) => used = s,
-                Next::NeedsSignIn => return Err(format!("{NEEDS_SIGN_IN}; sign in again. ({e})")),
-                Next::Transient => return Err(e),
-            },
-        }
-    }
+    refresh_in(crate::secrets::store(), crate::profile::current(), &HttpServer, t)
 }
 
 /// Best-effort token revocation on sign-out (RFC 7009).
@@ -398,35 +440,70 @@ pub fn revoke(base: &str, t: &Tokens) {
 
 // ---- remembered sessions (secrets.rs: Credential Manager / Secret Service, one set per profile) ----
 
-/// The remembered-account list after remembering `v`: the entry of the same user and server is
-/// replaced and moved first; every other entry stays exactly as `all` (read under the lock just
-/// now) has it, so a refresh token another instance rotated meanwhile survives. With `fresh`
-/// false (a restored session, not a new sign-in) the stored refresh token of that entry wins
-/// over this instance's copy, which may be a rotation behind.
-fn merge_account(mut all: Vec<Value>, v: &Value, fresh: bool) -> (Vec<Value>, Value) {
+/// Where a session handed to [`remember`] comes from.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Origin {
+    /// A new sign-in: its tokens replace the stored ones.
+    SignIn,
+    /// A session restored from the store. `read` is the refresh token that was read from the
+    /// session entry at the start of the restore. The restored session always refreshed, so its
+    /// token is newer than anything stored, unless another instance stored one meanwhile.
+    Restore { read: Option<String> },
+}
+
+/// The refresh token another instance stored in the session entry since this restore read it:
+/// the stored session is oauth, of this endpoint and this account (or of none yet), and holds a
+/// token that is neither the one read nor ours.
+fn newer_session_token(session: &Value, ours: &Value, read: Option<&str>, names: &[&str], server: &str) -> Option<String> {
+    let ep = ours["endpoint"].as_str().unwrap_or("");
+    if session["kind"] != "oauth" || ep.is_empty() || session["endpoint"].as_str() != Some(ep) { return None; }
+    if !session["user"].as_str().unwrap_or("").is_empty() && !is_account(session, names, server) { return None; }
+    let r = session["refresh"].as_str().filter(|r| !r.is_empty())?;
+    (Some(r) != read && Some(r) != ours["refresh"].as_str()).then(|| r.to_string())
+}
+
+/// The remembered-account list after remembering `v`, and `v` as it is to be stored. Every
+/// entry of the same account (the user as `v` names it or as any of `names`, case-insensitive,
+/// on the same server as the address it resolves to) is replaced by `v` and moved first, so a
+/// 0.1.0 entry (typed address) and a newer one (the server's own) become one. Every other entry
+/// stays exactly as `all` (read under the lock just now) has it, so a refresh token another
+/// instance rotated meanwhile survives.
+///
+/// The session entry is the source of truth: the token of a restored session (`Restore`) is
+/// this instance's own (never older than the one it just used), unless `session` (the stored
+/// entry, read under the same lock) holds one another instance wrote since. The list never
+/// gives a token to a restored session, because an entry of it can be a rotation behind.
+fn merge_account(mut all: Vec<Value>, v: &Value, origin: &Origin, session: Option<&Value>, names: &[&str]) -> (Vec<Value>, Value) {
     let mut v = v.clone();
     let user = v["user"].as_str().unwrap_or("").to_string();
-    if !fresh && v["kind"] == "oauth" {
-        let ep = v["endpoint"].as_str().unwrap_or("").to_string();
-        if let Some(r) = find_refresh(&all, &user, &ep).filter(|r| !r.is_empty()) { v["refresh"] = json!(r); }
+    let server = v["server"].as_str().unwrap_or("").to_string();
+    let mut names: Vec<&str> = names.to_vec();
+    names.push(&user);
+    if let (Origin::Restore { read }, true) = (origin, v["kind"] == "oauth") {
+        if let Some(r) = session.and_then(|s| newer_session_token(s, &v, read.as_deref(), &names, &server)) { v["refresh"] = json!(r); }
     }
     if !user.is_empty() {
-        all.retain(|a| a["user"].as_str() != Some(user.as_str()) || a["server"] != v["server"]);
+        all.retain(|a| !is_account(a, &names, &server));
         all.insert(0, v.clone());
     }
     (all, v)
 }
 
-/// kind: "oauth" (secret = refresh token, plus endpoint/client) or "password". `fresh`: a new
-/// sign-in (its tokens replace the stored ones); false for a session restored from the store.
-/// The read-modify-write runs under the refresh lock, so it cannot overwrite a token another
-/// instance rotated and stored in between.
-pub fn remember(v: &Value, fresh: bool) {
-    let _lock = RefreshLock::acquire();
-    let (all, v) = merge_account(accounts(), v, fresh);
-    put("session", &v.to_string());
+/// [`remember`] against one secret store; the caller holds the [`RefreshLock`].
+fn remember_in(b: &dyn crate::secrets::Backend, profile: &str, v: &Value, origin: &Origin) {
+    let session = remembered_in(b, profile);
+    let (all, v) = merge_account(accounts_in(b, profile), v, origin, session.as_ref(), &[]);
+    put_in(b, profile, "session", &v.to_string());
     // keep every signed-in account for the account switcher
-    if v["user"].as_str().is_some_and(|u| !u.is_empty()) { put("accounts", &Value::Array(all).to_string()); }
+    if v["user"].as_str().is_some_and(|u| !u.is_empty()) { put_in(b, profile, "accounts", &Value::Array(all).to_string()); }
+}
+
+/// kind: "oauth" (secret = refresh token, plus endpoint/client) or "password". The
+/// read-modify-write runs under the refresh lock, so it cannot overwrite a token another
+/// instance rotated and stored in between.
+pub fn remember(v: &Value, origin: Origin) {
+    let _lock = RefreshLock::acquire();
+    remember_in(crate::secrets::store(), crate::profile::current(), v, &origin);
 }
 
 /// All remembered accounts (most recently used first).
@@ -497,8 +574,37 @@ pub fn forget_account(names: &[&str], server: &str) -> bool {
     forget_account_in(crate::secrets::store(), crate::profile::current(), names, server)
 }
 
+/// The stored session, told apart: nothing stored, something stored that cannot be read, or the
+/// session.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Remembered {
+    Missing,
+    Unreadable,
+    Some(Value),
+}
+
+fn remembered_status_in(b: &dyn crate::secrets::Backend, profile: &str) -> (Remembered, crate::secrets::Source) {
+    let (text, source) = crate::secrets::load_with_source(b, profile, "session");
+    let status = match text {
+        None => Remembered::Missing,
+        Some(t) => match serde_json::from_str::<Value>(&t) {
+            Ok(v) if v.is_object() => Remembered::Some(v),
+            _ => Remembered::Unreadable,
+        },
+    };
+    (status, source)
+}
+
+/// The stored session of this profile, "missing" told apart from "unreadable".
+pub fn remembered_status() -> Remembered { remembered_status_with_source().0 }
+
+/// [`remembered_status`], and where the entry came from (for the start-up diagnostic line).
+pub fn remembered_status_with_source() -> (Remembered, crate::secrets::Source) {
+    remembered_status_in(crate::secrets::store(), crate::profile::current())
+}
+
 pub fn remembered() -> Option<Value> {
-    crate::secrets::get("session").and_then(|s| serde_json::from_str(&s).ok())
+    match remembered_status() { Remembered::Some(v) => Some(v), _ => None }
 }
 
 #[cfg(test)]
@@ -571,13 +677,13 @@ mod tests {
     fn a_rotation_only_touches_its_own_account() {
         let mut all = vec![acct("a@example.test", "https://one.example.test/token", "r1"), acct("a@example.test", "https://two.example.test/token", "r2"),
             acct("b@example.test", "https://one.example.test/token", "r3")];
-        assert!(rotate_in(&mut all, "a@example.test", "https://two.example.test/token", "r2b"));
+        assert!(rotate_in(&mut all, "a@example.test", "https://two.example.test/token", "r2", "r2b"));
         assert_eq!(all[0]["refresh"], "r1");
         assert_eq!(all[1]["refresh"], "r2b");
         assert_eq!(all[2]["refresh"], "r3");
         // nothing changes when it is stored already
-        assert!(!rotate_in(&mut all, "a@example.test", "https://two.example.test/token", "r2b"));
-        assert!(!rotate_in(&mut all, "c@example.test", "https://two.example.test/token", "x"));
+        assert!(!rotate_in(&mut all, "a@example.test", "https://two.example.test/token", "r2", "r2b"));
+        assert!(!rotate_in(&mut all, "c@example.test", "https://two.example.test/token", "r1", "x"));
     }
 
     #[test]
@@ -585,9 +691,9 @@ mod tests {
         // A refreshes r1 -> r2 and stores it; B (still holding r1) then adopts r2 and gets r3
         let mut stored = vec![acct("a@example.test", "https://one.example.test/token", "r1")];
         let ep = "https://one.example.test/token";
-        assert!(rotate_in(&mut stored, "a@example.test", ep, "r2"));
+        assert!(rotate_in(&mut stored, "a@example.test", ep, "r1", "r2"));
         assert_eq!(find_refresh(&stored, "a@example.test", ep).as_deref(), Some("r2"));
-        assert!(rotate_in(&mut stored, "a@example.test", ep, "r3"));
+        assert!(rotate_in(&mut stored, "a@example.test", ep, "r2", "r3"));
         assert_eq!(find_refresh(&stored, "a@example.test", ep).as_deref(), Some("r3"));
     }
 
@@ -597,50 +703,58 @@ mod tests {
         let ep = "https://one.example.test/token";
         let all = vec![acct("x@example.test", ep, "r2")];
         let y = acct("y@example.test", ep, "y1");
-        let (out, _) = merge_account(all, &y, true);
+        let (out, _) = merge_account(all, &y, &Origin::SignIn, None, &[]);
         assert_eq!(out.len(), 2);
         assert_eq!(out[0]["user"], "y@example.test");
         assert_eq!(out[1]["refresh"], "r2");
     }
 
+    const EP: &str = "https://one.example.test/token";
+
     #[test]
-    fn a_restored_session_adopts_the_stored_token_but_a_new_sign_in_replaces_it() {
-        let ep = "https://one.example.test/token";
-        let stored = vec![acct("x@example.test", ep, "r2")];
-        let mine = acct("x@example.test", ep, "r1");
-        let (out, v) = merge_account(stored.clone(), &mine, false);
-        assert_eq!(v["refresh"], "r2");
+    fn a_restored_session_keeps_its_own_token_and_never_takes_the_lists() {
+        // the 0.1.0 shape: the list holds the token of the first sign-in, long dead; the restored
+        // session just refreshed r_cur into r_new
+        let stale = vec![acct("x@example.test", EP, "stale")];
+        let mine = acct("x@example.test", EP, "r_new");
+        let session = acct("", EP, "r_cur");
+        let (out, v) = merge_account(stale, &mine, &Origin::Restore { read: Some("r_cur".into()) }, Some(&session), &[]);
+        assert_eq!(v["refresh"], "r_new");
         assert_eq!(out.len(), 1);
-        assert_eq!(out[0]["refresh"], "r2");
-        let (out, v) = merge_account(stored, &mine, true);
-        assert_eq!(v["refresh"], "r1");
-        assert_eq!(out[0]["refresh"], "r1");
+        assert_eq!(out[0]["refresh"], "r_new");
+    }
+
+    #[test]
+    fn a_restored_session_adopts_only_what_another_instance_stored_since_it_read() {
+        let stale = vec![acct("x@example.test", EP, "stale")];
+        let mine = acct("x@example.test", EP, "r1");
+        let restore = Origin::Restore { read: Some("r1".into()) };
+        // the session entry still holds what was read: ours stays
+        let same = acct("x@example.test", EP, "r1");
+        assert_eq!(merge_account(stale.clone(), &mine, &restore, Some(&same), &[]).1["refresh"], "r1");
+        // another instance stored r2 meanwhile: adopt it, in the session and in the list
+        let newer = acct("x@example.test", EP, "r2");
+        let (out, v) = merge_account(stale.clone(), &mine, &restore, Some(&newer), &[]);
+        assert_eq!((v["refresh"].as_str(), out[0]["refresh"].as_str()), (Some("r2"), Some("r2")));
+        // a session of another endpoint, another account, or a password session is none of ours
+        assert_eq!(merge_account(stale.clone(), &mine, &restore, Some(&acct("x@example.test", "https://two.example.test/token", "r9")), &[]).1["refresh"], "r1");
+        assert_eq!(merge_account(stale.clone(), &mine, &restore, Some(&acct("y@example.test", EP, "r9")), &[]).1["refresh"], "r1");
+        assert_eq!(merge_account(stale.clone(), &mine, &restore, Some(&json!({"kind": "password", "user": "x@example.test", "pass": "p"})), &[]).1["refresh"], "r1");
+        // a session without a user yet (0.1.0) is the account's
+        assert_eq!(merge_account(stale.clone(), &mine, &restore, Some(&acct("", EP, "r2")), &[]).1["refresh"], "r2");
+        // a new sign-in always replaces what is stored
+        let (out, v) = merge_account(stale, &mine, &Origin::SignIn, Some(&newer), &[]);
+        assert_eq!((v["refresh"].as_str(), out[0]["refresh"].as_str()), (Some("r1"), Some("r1")));
     }
 
     #[test]
     fn an_empty_user_is_not_added_to_the_account_list() {
-        let (out, v) = merge_account(vec![], &acct("", "https://one.example.test/token", "r1"), true);
+        let (out, v) = merge_account(vec![], &acct("", "https://one.example.test/token", "r1"), &Origin::SignIn, None, &[]);
         assert!(out.is_empty());
         assert_eq!(v["refresh"], "r1");
     }
 
-    use crate::secrets::Backend;
-    use std::cell::{Cell, RefCell};
-    use std::collections::HashMap;
-
-    #[derive(Default)]
-    struct Fake { m: RefCell<HashMap<String, String>>, fail_writes: Cell<bool> }
-    impl Backend for Fake {
-        fn read(&self, t: &str) -> Option<String> { self.m.borrow().get(t).cloned() }
-        fn write(&self, t: &str, v: &str) -> bool {
-            if self.fail_writes.get() { return false; }
-            self.m.borrow_mut().insert(t.into(), v.into());
-            true
-        }
-        fn remove(&self, t: &str) { self.m.borrow_mut().remove(t); }
-        fn read_legacy(&self, _: &str) -> Option<String> { None }
-        fn remove_legacy(&self, _: &str) {}
-    }
+    use crate::secrets::testkit::Fake;
 
     fn signed_in(b: &Fake, session_user: &str) {
         let (ann, bob) = (acct("ann@example.test", "https://e.example.test/t", "r1"), acct("bob@example.test", "https://e.example.test/t", "r2"));
@@ -672,7 +786,7 @@ mod tests {
         // the last account takes both entries
         assert!(forget_account_in(&b, "p", &["bob@example.test"], SERVER));
         assert!(remembered_in(&b, "p").is_none() && accounts_in(&b, "p").is_empty());
-        assert!(b.m.borrow().is_empty());
+        assert!(b.new.borrow().is_empty());
     }
 
     #[test]
@@ -683,7 +797,7 @@ mod tests {
         signed_in(&b, "ann@example.test");
         assert!(forget_account_in(&b, "p", ANN, SERVER));
         let mut all = accounts_in(&b, "p");
-        assert!(!rotate_in(&mut all, "ann@example.test", "https://e.example.test/t", "r9"));
+        assert!(!rotate_in(&mut all, "ann@example.test", "https://e.example.test/t", "r1", "r9"));
         assert!(remembered_in(&b, "p").is_none());
         assert!(accounts_in(&b, "p").iter().all(|a| a["user"] != "ann@example.test"));
     }
@@ -720,5 +834,279 @@ mod tests {
         a.unlock().unwrap();
         assert!(b.try_lock().is_ok());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // ---- the 0.1.0 -> 0.1.1 upgrade, against a fake secret store and a fake token endpoint ----
+
+    use std::cell::{Cell, RefCell};
+    use std::collections::HashSet;
+
+    /// A token endpoint: a refresh token in `dead` is refused with invalid_grant; a rotating one
+    /// kills the token it was given and issues a new one, a stateless one issues none.
+    struct FakeServer { dead: RefCell<HashSet<String>>, rotate: bool, issued: Cell<u32> }
+    impl FakeServer {
+        fn new(rotate: bool, dead: &[&str]) -> FakeServer {
+            FakeServer { dead: RefCell::new(dead.iter().map(|s| s.to_string()).collect()), rotate, issued: Cell::new(0) }
+        }
+    }
+    impl TokenServer for FakeServer {
+        fn refresh(&self, _: &str, _: &str, rt: &str) -> Result<(String, Option<String>, u64), String> {
+            if self.dead.borrow().contains(rt) { return Err("Token request failed (400 Bad Request): invalid_grant ".into()); }
+            if !self.rotate { return Ok(("access".into(), None, 3600)); }
+            self.issued.set(self.issued.get() + 1);
+            self.dead.borrow_mut().insert(rt.to_string());
+            Ok(("access".into(), Some(format!("r_new{}", self.issued.get())), 3600))
+        }
+    }
+
+    const P: &str = "default";
+    const HOST: &str = "https://mail.example.test";
+    const U: &str = "x@example.test";
+
+    fn legacy_entry(user: &str, server: &str, refresh: &str) -> Value {
+        json!({"kind": "oauth", "server": server, "user": user, "refresh": refresh, "endpoint": EP, "client": "c"})
+    }
+
+    /// What 0.1.0 left after an SSO sign-in and a quit: the session has a blank user and the
+    /// newest token, the list the typed login and raw address with the first token. Everything
+    /// is under the names of 0.1.0.
+    fn legacy_store(typed: Option<&str>) -> Fake {
+        let b = Fake::default();
+        {
+            let mut old = b.old.borrow_mut();
+            old.insert("session".into(), legacy_entry("", HOST, "r_cur").to_string());
+            if let Some(t) = typed { old.insert("accounts".into(), json!([legacy_entry(t, "mail.example.test", "r_orig")]).to_string()); }
+            old.insert("stalwart-admin-key".into(), "admin-secret".into());
+            old.insert("ai-api-key".into(), "ai-secret".into());
+        }
+        b
+    }
+
+    /// One start of the app on a stored session, up to the moment the window shows (restore_session
+    /// and finish_login): refresh, then remember. The process ends there, before any renew.
+    /// Returns the refresh token the process holds.
+    fn start(b: &Fake, srv: &FakeServer, username: &str) -> Result<String, String> {
+        let session = match remembered_status_in(b, P).0 { Remembered::Some(v) => v, other => panic!("no session: {other:?}") };
+        let read = session["refresh"].as_str().map(String::from);
+        let t = Tokens {
+            access: String::new(), refresh: read.clone(), expires: None,
+            token_endpoint: session["endpoint"].as_str().unwrap().into(), client_id: session["client"].as_str().unwrap().into(),
+            user: session["user"].as_str().unwrap().into(),
+        };
+        let mut n = refresh_in(b, P, srv, &t)?;
+        // finish_login: a blank user becomes the server's own name for the login
+        let user = if t.user.is_empty() { username.to_string() } else { t.user.clone() };
+        n.user = user.clone();
+        let mut v = json!({"kind": "oauth", "server": session["server"], "user": user});
+        v["refresh"] = json!(n.refresh);
+        v["endpoint"] = json!(n.token_endpoint);
+        v["client"] = json!(n.client_id);
+        remember_in(b, P, &v, &Origin::Restore { read });
+        Ok(n.refresh.unwrap())
+    }
+
+    fn assert_upgraded(b: &Fake, srv: &FakeServer, held: &str) {
+        let session = remembered_in(b, P).unwrap();
+        assert_eq!(session["user"], U);
+        assert_eq!(session["refresh"], held, "the session holds the token the process holds");
+        assert!(!srv.dead.borrow().contains(held), "and the server still accepts it");
+        let all = accounts_in(b, P);
+        let mine: Vec<_> = all.iter().filter(|a| is_account(a, &[U], HOST)).collect();
+        assert_eq!(all.len(), 1, "one entry for one login: {all:?}");
+        assert_eq!(mine.len(), 1);
+        assert_eq!(mine[0]["refresh"], held, "carrying the live token");
+        assert!(b.old.borrow().get("session").is_none() && b.old.borrow().get("accounts").is_none(), "0.1.0 entries are gone");
+    }
+
+    fn upgrade_survives_restarts(rotate: bool, typed: Option<&str>) {
+        let b = legacy_store(typed);
+        // r_orig is long dead; r_cur is the live token
+        let srv = FakeServer::new(rotate, &["r_orig"]);
+        let mut held = String::new();
+        for run in 1..=4 {
+            held = start(&b, &srv, U).unwrap_or_else(|e| panic!("start {run} (rotate {rotate}, typed {typed:?}): {e}"));
+            assert_upgraded(&b, &srv, &held);
+        }
+        // the other secrets came across untouched
+        assert_eq!(crate::secrets::load(&b, P, "stalwart-admin-key").as_deref(), Some("admin-secret"));
+        assert_eq!(crate::secrets::load(&b, P, "ai-api-key").as_deref(), Some("ai-secret"));
+        assert!(b.old.borrow().is_empty(), "nothing is left under the 0.1.0 names: {:?}", b.old.borrow().keys().collect::<Vec<_>>());
+        if rotate { assert_eq!(held, "r_new4"); } else { assert_eq!(held, "r_cur"); }
+    }
+
+    #[test]
+    fn a_0_1_0_sso_session_survives_any_number_of_restarts() {
+        for rotate in [true, false] {
+            upgrade_survives_restarts(rotate, Some(U));
+        }
+    }
+
+    #[test]
+    fn the_same_when_the_typed_login_differs_in_case() {
+        for rotate in [true, false] {
+            upgrade_survives_restarts(rotate, Some("X@Example.test"));
+        }
+    }
+
+    #[test]
+    fn the_same_when_no_login_was_typed() {
+        for rotate in [true, false] {
+            upgrade_survives_restarts(rotate, None);
+        }
+    }
+
+    #[test]
+    fn a_restore_never_takes_the_stale_token_of_the_list() {
+        // what 0.1.1 did: the list's token replaced the one that had just worked
+        let stale = vec![legacy_entry(U, "mail.example.test", "r_orig")];
+        let mine = json!({"kind": "oauth", "server": HOST, "user": U, "refresh": "r_new1", "endpoint": EP, "client": "c"});
+        let (out, v) = merge_account(stale, &mine, &Origin::Restore { read: Some("r_cur".into()) }, None, &[]);
+        assert_eq!(v["refresh"], "r_new1");
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0]["refresh"], "r_new1");
+    }
+
+    #[test]
+    fn a_rotation_while_restoring_a_blank_user_session_is_stored_at_once() {
+        let b = Fake::default();
+        assert!(crate::secrets::save(&b, P, "session", &legacy_entry("", HOST, "r_cur").to_string()));
+        // a stale duplicate carrying the same token under another user is healed too; another
+        // account of the same endpoint is not touched
+        assert!(crate::secrets::save(&b, P, "accounts", &json!([legacy_entry("typed", HOST, "r_cur"), legacy_entry("other@example.test", HOST, "r_other")]).to_string()));
+        store_rotated_in(&b, P, "", EP, "r_cur", "r_new");
+        assert_eq!(remembered_in(&b, P).unwrap()["refresh"], "r_new");
+        let all = accounts_in(&b, P);
+        assert_eq!(all[0]["refresh"], "r_new");
+        assert_eq!(all[1]["refresh"], "r_other");
+        // a token that is not the one just used is left alone
+        store_rotated_in(&b, P, "", EP, "something_else", "r_x");
+        assert_eq!(remembered_in(&b, P).unwrap()["refresh"], "r_new");
+    }
+
+    #[test]
+    fn a_refresh_of_a_blank_user_session_keeps_the_store_current() {
+        let b = Fake::default();
+        assert!(crate::secrets::save(&b, P, "session", &legacy_entry("", HOST, "r_cur").to_string()));
+        let srv = FakeServer::new(true, &[]);
+        let t = Tokens { access: String::new(), refresh: Some("r_cur".into()), expires: None, token_endpoint: EP.into(), client_id: "c".into(), user: String::new() };
+        let n = refresh_in(&b, P, &srv, &t).unwrap();
+        assert_eq!(n.refresh.as_deref(), Some("r_new1"));
+        assert_eq!(remembered_in(&b, P).unwrap()["refresh"], "r_new1");
+    }
+
+    #[test]
+    fn two_instances_one_rotation_chain_on_restore() {
+        let b = Fake::default();
+        let s = legacy_entry(U, HOST, "r1");
+        assert!(crate::secrets::save(&b, P, "session", &s.to_string()));
+        assert!(crate::secrets::save(&b, P, "accounts", &json!([s]).to_string()));
+        // A read r1 at start; B rotated r1 into r2 and stored it
+        store_rotated_in(&b, P, U, EP, "r1", "r2");
+        // A (which still holds r1) remembers its restore
+        let mine = legacy_entry(U, HOST, "r1");
+        remember_in(&b, P, &mine, &Origin::Restore { read: Some("r1".into()) });
+        assert_eq!(remembered_in(&b, P).unwrap()["refresh"], "r2", "A adopts what B stored, not its own copy");
+        assert_eq!(accounts_in(&b, P)[0]["refresh"], "r2");
+        // nothing stored meanwhile: A's own token is written, and the list follows the session
+        let mine = legacy_entry(U, HOST, "r3");
+        remember_in(&b, P, &mine, &Origin::Restore { read: Some("r2".into()) });
+        assert_eq!(remembered_in(&b, P).unwrap()["refresh"], "r3");
+        assert_eq!(accounts_in(&b, P)[0]["refresh"], "r3");
+    }
+
+    #[test]
+    fn a_0_1_0_password_session_restores_unchanged() {
+        let b = Fake::default();
+        let pw = json!({"kind": "password", "server": HOST, "user": "ann@example.test", "pass": "pw"});
+        b.old.borrow_mut().insert("session".into(), pw.to_string());
+        b.old.borrow_mut().insert("accounts".into(), json!([pw]).to_string());
+        let Remembered::Some(v) = remembered_status_in(&b, P).0 else { panic!() };
+        assert_eq!(v, pw);
+        // merge never touches it: no token appears, no matter what the session entry holds
+        let (all, out) = merge_account(accounts_in(&b, P), &v, &Origin::Restore { read: None }, Some(&legacy_entry("ann@example.test", HOST, "r1")), &[]);
+        assert_eq!(out, pw);
+        assert_eq!(all, vec![pw.clone()]);
+        remember_in(&b, P, &v, &Origin::Restore { read: None });
+        assert_eq!(remembered_in(&b, P).unwrap(), pw);
+        assert_eq!(accounts_in(&b, P), vec![pw]);
+    }
+
+    #[test]
+    fn the_typed_and_the_servers_name_for_one_login_leave_one_entry() {
+        // the 0.1.0 list has the typed address; the restore brings the normalized one
+        let all = vec![legacy_entry(U, "mail.example.test", "r_orig"), legacy_entry("other@example.test", "mail.example.test", "r_o")];
+        let v = legacy_entry(U, "https://mail.example.test", "r_new");
+        let (out, _) = merge_account(all.clone(), &v, &Origin::Restore { read: Some("r_cur".into()) }, None, &[]);
+        assert_eq!(out.len(), 2);
+        assert_eq!((out[0]["user"].as_str(), out[0]["refresh"].as_str()), (Some(U), Some("r_new")));
+        assert_eq!(out[1]["user"], "other@example.test");
+        // the same user on another server stays
+        let other = legacy_entry(U, "https://other.example.test", "r_x");
+        let (out, _) = merge_account(vec![other], &v, &Origin::SignIn, None, &[]);
+        assert_eq!(out.len(), 2);
+        // a name the form had besides the server's own collapses too
+        let (out, _) = merge_account(vec![legacy_entry("typed", "mail.example.test", "old")], &v, &Origin::SignIn, None, &["typed"]);
+        assert_eq!(out.len(), 1);
+    }
+
+    #[test]
+    fn a_saved_session_that_cannot_be_read_is_told_from_none() {
+        let b = Fake::default();
+        assert_eq!(remembered_status_in(&b, P).0, Remembered::Missing);
+        assert!(crate::secrets::save(&b, P, "session", "{not json"));
+        assert_eq!(remembered_status_in(&b, P).0, Remembered::Unreadable);
+        assert!(crate::secrets::save(&b, P, "session", "[1]"));
+        assert_eq!(remembered_status_in(&b, P).0, Remembered::Unreadable);
+        assert!(crate::secrets::save(&b, P, "session", "{\"kind\":\"password\"}"));
+        assert_eq!(remembered_status_in(&b, P), (Remembered::Some(json!({"kind": "password"})), crate::secrets::Source::New));
+        // an entry of 0.1.0 is adopted, and says so
+        let b = legacy_store(None);
+        assert_eq!(remembered_status_in(&b, P).1, crate::secrets::Source::Legacy);
+        assert_eq!(remembered_status_in(&b, P).1, crate::secrets::Source::New);
+    }
+
+    #[test]
+    fn a_rejection_keeps_everything_stored() {
+        let b = legacy_store(Some(U));
+        let srv = FakeServer::new(true, &["r_orig", "r_cur"]);
+        let err = start(&b, &srv, U).unwrap_err();
+        assert!(crate::jmap::auth_rejected(&err), "{err}");
+        // nothing was deleted or rewritten: the form shows, the entries wait for a sign-in
+        assert_eq!(remembered_in(&b, P).unwrap()["refresh"], "r_cur");
+        assert_eq!(accounts_in(&b, P).len(), 1);
+    }
+
+    /// The start-up retry loop of restore_session, one attempt after the other against a store
+    /// and a server: the first attempt refreshes (the server rotates, the store keeps the new
+    /// token) and then fails after the refresh (session discovery timed out); `retry_from_store`
+    /// says whether the next attempt starts from the store (the fix) or from the value read first.
+    fn attempts(b: &Fake, srv: &FakeServer, retry_from_store: bool) -> Result<(), String> {
+        let first = match remembered_status_in(b, P).0 { Remembered::Some(v) => v, other => panic!("{other:?}") };
+        let tokens = |v: &Value| Tokens {
+            access: String::new(), refresh: v["refresh"].as_str().map(String::from), expires: None,
+            token_endpoint: v["endpoint"].as_str().unwrap().into(), client_id: "c".into(), user: v["user"].as_str().unwrap().into(),
+        };
+        // attempt 0: refreshed fine, then the connection failed
+        refresh_in(b, P, srv, &tokens(&first)).expect("the first refresh works");
+        // attempt 1
+        let v = if retry_from_store { crate::restore::retry_value(&first, &remembered_status_in(b, P).0) } else { first.clone() };
+        refresh_in(b, P, srv, &tokens(&v)).map(|_| ())
+    }
+
+    #[test]
+    fn a_retry_after_a_refresh_that_rotated_uses_the_rotated_token() {
+        // a 0.1.0 SSO store (blank user) on a server that rotates its refresh tokens
+        let b = legacy_store(Some(U));
+        let srv = FakeServer::new(true, &["r_orig"]);
+        attempts(&b, &srv, true).expect("the retry presents the token the first refresh stored");
+        // the session and the list hold the token of the second refresh
+        assert_eq!(remembered_in(&b, P).unwrap()["refresh"], "r_new2");
+        // the next start still works
+        start(&b, &srv, U).unwrap();
+        // the value read first is dead after the first refresh: the old loop ended in the form
+        let b = legacy_store(Some(U));
+        let srv = FakeServer::new(true, &["r_orig"]);
+        let err = attempts(&b, &srv, false).unwrap_err();
+        assert!(crate::jmap::auth_rejected(&err), "{err}");
     }
 }

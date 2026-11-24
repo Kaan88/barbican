@@ -26,19 +26,41 @@ pub trait Backend {
     fn remove_legacy(&self, name: &str);
 }
 
+/// Where a secret read came from (for the one diagnostic line per start; never a value).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Source {
+    /// The profile's own entry (`Barbican/<profile>/<name>`).
+    New,
+    /// A 0.1.0 entry, adopted just now.
+    Legacy,
+    /// Nothing stored.
+    None,
+}
+
+impl Source {
+    pub fn label(self) -> &'static str {
+        match self { Source::New => "new", Source::Legacy => "legacy", Source::None => "none" }
+    }
+}
+
 /// A secret of `profile`; the default profile adopts a 0.1.0 entry when it has none of its own.
 pub fn load(b: &dyn Backend, profile: &str, name: &str) -> Option<String> {
+    load_with_source(b, profile, name).0
+}
+
+/// [`load`], and where the value came from.
+pub fn load_with_source(b: &dyn Backend, profile: &str, name: &str) -> (Option<String>, Source) {
     let t = target(profile, name);
-    if let Some(v) = b.read(&t) { return Some(v); }
-    if !profile::is_default(profile) { return None; }
+    if let Some(v) = b.read(&t) { return (Some(v), Source::New); }
+    if !profile::is_default(profile) { return (None, Source::None); }
     let Some(old) = b.read_legacy(name) else {
         // another instance may have migrated between the two reads
-        return b.read(&t);
+        return match b.read(&t) { Some(v) => (Some(v), Source::New), None => (None, Source::None) };
     };
     if b.write(&t, &old) && b.read(&t).as_deref() == Some(old.as_str()) {
         b.remove_legacy(name);
     }
-    Some(old)
+    (Some(old), Source::Legacy)
 }
 
 /// Store a secret; the default profile also drops a stale 0.1.0 copy. False when it could not
@@ -166,19 +188,21 @@ mod os {
     pub fn remove(target: &str) { if let Some(e) = entry(target) { let _ = e.delete_credential(); } }
 }
 
+/// An in-memory [`Backend`] for tests (never the Credential Manager): the profile's entries, the
+/// 0.1.0 ones, and a switch that makes every write fail.
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::cell::RefCell;
+pub(crate) mod testkit {
+    use super::Backend;
+    use std::cell::{Cell, RefCell};
     use std::collections::HashMap;
 
     #[derive(Default)]
-    struct Fake { new: RefCell<HashMap<String, String>>, old: RefCell<HashMap<String, String>>, fail_writes: bool }
+    pub struct Fake { pub new: RefCell<HashMap<String, String>>, pub old: RefCell<HashMap<String, String>>, pub fail_writes: Cell<bool> }
 
     impl Backend for Fake {
         fn read(&self, t: &str) -> Option<String> { self.new.borrow().get(t).cloned() }
         fn write(&self, t: &str, v: &str) -> bool {
-            if self.fail_writes { return false; }
+            if self.fail_writes.get() { return false; }
             self.new.borrow_mut().insert(t.into(), v.into());
             true
         }
@@ -186,6 +210,12 @@ mod tests {
         fn read_legacy(&self, n: &str) -> Option<String> { self.old.borrow().get(n).cloned() }
         fn remove_legacy(&self, n: &str) { self.old.borrow_mut().remove(n); }
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use super::testkit::Fake;
 
     #[test]
     fn entries_are_named_per_profile() {
@@ -222,7 +252,8 @@ mod tests {
 
     #[test]
     fn failed_copy_keeps_the_old_entry() {
-        let b = Fake { fail_writes: true, ..Default::default() };
+        let b = Fake::default();
+        b.fail_writes.set(true);
         b.old.borrow_mut().insert("accounts".into(), "[1]".into());
         // still readable, and still there for the next try
         assert_eq!(load(&b, "default", "accounts").as_deref(), Some("[1]"));
