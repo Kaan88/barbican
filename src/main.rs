@@ -388,19 +388,19 @@ fn config_path() -> std::path::PathBuf {
 
 pub fn html_to_text(h: &str) -> String {
     let mut out = String::new();
-    let lower = h.to_lowercase();
     let mut i = 0;
     let b = h.as_bytes();
+    // ASCII case-insensitive on the bytes of `h` itself: lower-casing the text first can change its
+    // length (`İ`), which made the positions point into the middle of a character
+    let starts = |i: usize, pat: &str| b.get(i..i + pat.len()).is_some_and(|s| s.eq_ignore_ascii_case(pat.as_bytes()));
     while i < b.len() {
         if b[i] == b'<' {
-            let rest = &lower[i..];
             for (open, close) in [("<style", "</style>"), ("<script", "</script>"), ("<head", "</head>")] {
-                if rest.starts_with(open) {
-                    if let Some(e) = rest.find(close) { i += e; }
+                if starts(i, open) {
+                    if let Some(e) = (i..b.len()).find(|&j| starts(j, close)) { i = e; }
                 }
             }
-            let rest = &lower[i..];
-            if ["<br", "</p", "</div", "</tr", "<li", "</h"].iter().any(|t| rest.starts_with(t)) { out.push('\n'); }
+            if ["<br", "</p", "</div", "</tr", "<li", "</h"].iter().any(|t| starts(i, t)) { out.push('\n'); }
             match h[i..].find('>') { Some(e) => i += e + 1, None => break }
         } else {
             let next = h[i..].find('<').map(|e| i + e).unwrap_or(h.len());
@@ -408,7 +408,7 @@ pub fn html_to_text(h: &str) -> String {
             i = next;
         }
     }
-    let out = out.replace("&nbsp;", " ").replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"").replace("&#39;", "'");
+    let out = out.replace("&nbsp;", " ").replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"").replace("&#39;", "'").replace("&amp;", "&");
     let mut res = String::new();
     let mut blank = 0;
     for l in out.lines().map(str::trim) {
@@ -1230,7 +1230,7 @@ fn main() -> Result<(), slint::PlatformError> {
                 let (w, c) = (w.clone(), c.clone());
                 std::thread::spawn(move || {
                     if let Err(e) = job(&c) {
-                        let _ = w.upgrade_in_event_loop(move |u| mail::show_toast(&u, &format!("Not saved: {e}"), false));
+                        let _ = w.upgrade_in_event_loop(move |u| { mail::show_toast(&u, &format!("Not saved: {e}"), false); u.invoke_settings_search(u.get_settings_query()); });
                     }
                 });
             }));

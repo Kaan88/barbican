@@ -29,7 +29,9 @@ pub fn parse(script: &str) -> Parsed {
             return Parsed { metadata: json!({"version": 1, "rules": [], "vacation": v}), external: String::new(), locked: false };
         }
         let ext = script.trim();
-        return Parsed { metadata: json!({"version": 1, "rules": []}), external: strip_requires(ext), locked: false };
+        let metadata = json!({"version": 1, "rules": []});
+        let external = external_blocks(ext, &metadata);
+        return Parsed { metadata, external, locked: false };
     };
     let e = script[b..].find(END).map(|i| b + i).unwrap_or(script.len());
     let json_txt = script[b + BEGIN.len()..e].replace("*\\/", "*/");

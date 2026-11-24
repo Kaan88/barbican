@@ -181,7 +181,7 @@ pub fn plan_sync(req: &SyncRequest, scripts: &[Value], target_text: Option<&str>
     }
     if (req.enabled && !can_include) || opaque { return Ok(Plan::Nothing); }
 
-    let has_rules = meta["rules"].as_array().is_some_and(|r| !r.is_empty());
+    let has_rules = meta["rules"].as_array().is_some_and(|r| !r.is_empty()) || readable.is_some_and(|p| !p.external.trim().is_empty());
     let forwarding = next_forward.as_ref().is_some_and(|f| f["enabled"] == true);
     let target_active = target.is_some_and(|t| t["isActive"] == true);
     if req.enabled {
@@ -282,7 +282,7 @@ pub fn text_to_paragraph_html(text: &str) -> String {
 }
 
 /// Whether HTML holds any text a recipient would read.
-pub fn has_readable_text(html: &str) -> bool { !crate::html_to_text(html).trim().is_empty() }
+pub fn has_readable_text(html: &str) -> bool { !html_to_plain(&sanitize_html(html)).trim().is_empty() }
 
 /// The parts a save of the plain-text message sends: `(textBody, htmlBody)`.
 pub fn parts_from_text(text: &str) -> (String, Option<String>) {
@@ -293,31 +293,224 @@ pub fn parts_from_text(text: &str) -> (String, Option<String>) {
 
 /// The parts a save of the HTML message sends: the sanitised HTML and the plain text derived from it.
 pub fn parts_from_html(html: &str) -> (String, Option<String>) {
-    if !has_readable_text(html) { return (String::new(), None); }
-    let clean = strip_active(&crate::mailview::sanitize_mail_html_opts(html, false));
-    (crate::html_to_text(&clean).trim().to_string(), Some(clean))
+    let clean = sanitize_html(html);
+    let text = html_to_plain(&clean);
+    if text.trim().is_empty() { return (String::new(), None); }
+    (text.trim().to_string(), Some(clean))
 }
 
-/// A stored reply is shown by other people's mail clients: no scripts, frames, plugins, styles,
-/// event handlers or `javascript:` links, whatever the editor field held. Repeats until stable so
-/// removing one piece cannot join the rest into a new tag.
-fn strip_active(html: &str) -> String {
-    use regex::Regex;
-    static RES: std::sync::OnceLock<Vec<(Regex, &'static str)>> = std::sync::OnceLock::new();
-    let res = RES.get_or_init(|| vec![
-        (Regex::new(r"(?is)<\s*(script|style|iframe|object|embed|applet|noscript)\b.*?<\s*/\s*(script|style|iframe|object|embed|applet|noscript)\s*>").unwrap(), ""),
-        (Regex::new(r"(?is)<\s*/?\s*(script|style|iframe|object|embed|applet|noscript|link|meta|base|form)\b[^>]*>").unwrap(), ""),
-        (Regex::new(r#"(?is)\s+on[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)"#).unwrap(), ""),
-        (Regex::new(r#"(?is)(href|src|xlink:href|action)\s*=\s*("\s*(javascript|vbscript|data):[^"]*"|'\s*(javascript|vbscript|data):[^']*')"#).unwrap(), "$1=\"\""),
-    ]);
-    let mut cur = html.to_string();
-    for _ in 0..16 {
-        let mut next = cur.clone();
-        for (re, rep) in res { next = re.replace_all(&next, *rep).into_owned(); }
-        if next == cur { break; }
-        cur = next;
+// ---------------------------------------------------------------------------------------------
+// the HTML body: an allowlist sanitiser. The stored body is shown by other people's mail clients
+// and by Bulwark's preview (innerHTML), so the output is rebuilt from scratch: only these tags,
+// only href (http, https, mailto) and title on a link, text left as text.
+// ---------------------------------------------------------------------------------------------
+
+/// What Bulwark's short editor toolbar produces, and the usual block tags.
+const ALLOWED_TAGS: &[&str] = &[
+    "a", "b", "strong", "i", "em", "u", "s", "strike", "del", "p", "br", "div", "span", "ul", "ol", "li",
+    "blockquote", "h1", "h2", "h3", "h4", "h5", "h6", "hr", "sub", "sup", "code", "pre",
+];
+/// Elements dropped together with what is inside them.
+const DROP_WITH_CONTENT: &[&str] = &[
+    "script", "style", "iframe", "object", "embed", "applet", "noscript", "template", "textarea", "title", "svg", "math",
+    "head", "select", "xmp", "noembed", "noframes", "frameset", "frame", "audio", "video", "canvas", "button", "form",
+];
+
+struct Tag { name: String, closing: bool, attrs: Vec<(String, String)>, end: usize }
+
+/// The tag starting at `at` (a `<`): `Ok(None)` when it is not one, `Err` when it never ends.
+fn parse_tag(s: &str, at: usize) -> Result<Option<Tag>, ()> {
+    let b = s.as_bytes();
+    let mut i = at + 1;
+    let closing = b.get(i) == Some(&b'/');
+    if closing { i += 1; }
+    let ns = i;
+    if !b.get(i).is_some_and(u8::is_ascii_alphabetic) { return Ok(None); }
+    while b.get(i).is_some_and(|c| c.is_ascii_alphanumeric()) { i += 1; }
+    let name = s[ns..i].to_ascii_lowercase();
+    let mut attrs = vec![];
+    loop {
+        while b.get(i).is_some_and(|c| c.is_ascii_whitespace() || *c == b'/') { i += 1; }
+        match b.get(i) {
+            None => return Err(()),
+            Some(b'>') => { i += 1; break; }
+            _ => {}
+        }
+        let ks = i;
+        while b.get(i).is_some_and(|c| !c.is_ascii_whitespace() && !matches!(c, b'=' | b'>' | b'/')) { i += 1; }
+        if i == ks { i += 1; continue; }
+        let key = s[ks..i].to_ascii_lowercase();
+        while b.get(i).is_some_and(u8::is_ascii_whitespace) { i += 1; }
+        let mut val = String::new();
+        if b.get(i) == Some(&b'=') {
+            i += 1;
+            while b.get(i).is_some_and(u8::is_ascii_whitespace) { i += 1; }
+            match b.get(i) {
+                Some(&q) if q == b'"' || q == b'\'' => {
+                    let vs = i + 1;
+                    let end = s[vs..].find(q as char).ok_or(())? + vs;
+                    val = s[vs..end].to_string();
+                    i = end + 1;
+                }
+                _ => {
+                    let vs = i;
+                    while b.get(i).is_some_and(|c| !c.is_ascii_whitespace() && *c != b'>') { i += 1; }
+                    val = s[vs..i].to_string();
+                }
+            }
+        }
+        attrs.push((key, val));
     }
-    cur
+    Ok(Some(Tag { name, closing, attrs, end: i }))
+}
+
+/// The index after the end tag of `name` that closes the element opened before `from`; the end of
+/// the text when it never closes.
+fn skip_element(s: &str, from: usize, name: &str) -> usize {
+    let b = s.as_bytes();
+    let mut i = from;
+    while let Some(e) = s[i..].find('<') {
+        let at = i + e;
+        let close = format!("</{name}");
+        if b.get(at..at + close.len()).is_some_and(|x| x.eq_ignore_ascii_case(close.as_bytes()))
+            && !b.get(at + close.len()).is_some_and(u8::is_ascii_alphanumeric) {
+            return s[at..].find('>').map_or(s.len(), |g| at + g + 1);
+        }
+        i = at + 1;
+    }
+    s.len()
+}
+
+/// Entities decoded once: the usual named ones and numeric ones (`&#106;`, `&#x6A;`, with or
+/// without the semicolon, as browsers read them). Anything else stays as written.
+fn decode_entities(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut rest = s;
+    while let Some(p) = rest.find('&') {
+        out.push_str(&rest[..p]);
+        rest = &rest[p..];
+        let body = &rest[1..];
+        let named = [("amp;", '&'), ("lt;", '<'), ("gt;", '>'), ("quot;", '"'), ("apos;", '\''), ("nbsp;", '\u{a0}'),
+            ("colon;", ':'), ("tab;", '\t'), ("newline;", '\n'), ("lpar;", '('), ("rpar;", ')'), ("sol;", '/')];
+        if let Some((n, ch)) = named.iter().find(|(n, _)| body.len() >= n.len() && body[..n.len()].eq_ignore_ascii_case(n)) {
+            out.push(*ch);
+            rest = &rest[1 + n.len()..];
+            continue;
+        }
+        if let Some(num) = body.strip_prefix('#') {
+            let (hex, digits) = match num.strip_prefix(['x', 'X']) { Some(h) => (true, h), None => (false, num) };
+            let len = digits.chars().take_while(|c| if hex { c.is_ascii_hexdigit() } else { c.is_ascii_digit() }).count().min(8);
+            if len > 0 {
+                let code = u32::from_str_radix(&digits[..len], if hex { 16 } else { 10 }).ok().and_then(char::from_u32).unwrap_or('\u{fffd}');
+                out.push(code);
+                let used = 1 + 1 + usize::from(hex) + len;
+                rest = &rest[used..];
+                if rest.starts_with(';') { rest = &rest[1..]; }
+                continue;
+            }
+        }
+        out.push('&');
+        rest = &rest[1..];
+    }
+    out.push_str(rest);
+    out
+}
+
+fn esc_attr(s: &str) -> String {
+    s.replace('&', "&amp;").replace('"', "&quot;").replace('<', "&lt;").replace('>', "&gt;")
+}
+
+/// A link target the reply may carry: http, https or mailto, no control characters anywhere.
+fn safe_href(raw: &str) -> Option<String> {
+    let v = decode_entities(raw);
+    let v = v.trim_matches(|c: char| c.is_ascii_control() || c == ' ');
+    if v.is_empty() || v.chars().any(|c| c.is_control()) { return None; }
+    let l = v.to_ascii_lowercase();
+    ["http://", "https://", "mailto:"].iter().any(|p| l.starts_with(p)).then(|| v.to_string())
+}
+
+/// The HTML body rebuilt from the allowlist: scripts, frames, forms, styles, event handlers, ids,
+/// classes and every URL scheme but http, https and mailto are gone; unknown tags lose their tag
+/// and keep their text.
+pub fn sanitize_html(html: &str) -> String {
+    let mut out = String::new();
+    let mut i = 0;
+    while i < html.len() {
+        let next = html[i..].find('<').map_or(html.len(), |e| i + e);
+        out.push_str(&html[i..next]);
+        i = next;
+        if i >= html.len() { break; }
+        if html[i..].starts_with("<!--") {
+            match html[i + 4..].find("-->") { Some(e) => { i += 4 + e + 3; continue; } None => break }
+        }
+        if matches!(html.as_bytes().get(i + 1), Some(b'!' | b'?')) {
+            match html[i..].find('>') { Some(e) => { i += e + 1; continue; } None => break }
+        }
+        match parse_tag(html, i) {
+            Err(()) => break,
+            Ok(None) => { out.push_str("&lt;"); i += 1; }
+            Ok(Some(t)) => {
+                i = t.end;
+                if t.name == "plaintext" { break; }
+                if !t.closing && DROP_WITH_CONTENT.contains(&t.name.as_str()) { i = skip_element(html, i, &t.name); continue; }
+                if !ALLOWED_TAGS.contains(&t.name.as_str()) { continue; }
+                if t.closing {
+                    if !matches!(t.name.as_str(), "br" | "hr") { out.push_str(&format!("</{}>", t.name)); }
+                    continue;
+                }
+                out.push('<');
+                out.push_str(&t.name);
+                if t.name == "a" {
+                    let href = t.attrs.iter().find(|(k, _)| k == "href").and_then(|(_, v)| safe_href(v));
+                    if let Some(h) = &href { out.push_str(&format!(" href=\"{}\" rel=\"noopener noreferrer\"", esc_attr(h))); }
+                    if let Some((_, v)) = t.attrs.iter().find(|(k, _)| k == "title") { out.push_str(&format!(" title=\"{}\"", esc_attr(&decode_entities(v)))); }
+                }
+                out.push('>');
+            }
+        }
+    }
+    out
+}
+
+/// The plain-text part of (sanitised) HTML: a blank line between paragraphs, a line break per
+/// `<br>`, list items on their own lines, entities decoded once.
+pub fn html_to_plain(html: &str) -> String {
+    let mut out = String::new();
+    let mut i = 0;
+    while i < html.len() {
+        let next = html[i..].find('<').map_or(html.len(), |e| i + e);
+        for ch in decode_entities(&html[i..next]).chars() {
+            if ch == '\u{a0}' { out.push(' '); }
+            else if ch.is_whitespace() { if !out.is_empty() && !out.ends_with([' ', '\n']) { out.push(' '); } }
+            else { out.push(ch); }
+        }
+        i = next;
+        if i >= html.len() { break; }
+        match parse_tag(html, i) {
+            Ok(Some(t)) => {
+                i = t.end;
+                let n = t.name.as_str();
+                if n == "br" { out.push('\n'); }
+                else if n == "li" && !t.closing { if !out.is_empty() && !out.ends_with('\n') { out.push('\n'); } out.push_str("- "); }
+                else if n == "li" { if !out.ends_with('\n') { out.push('\n'); } }
+                else if n == "hr" || (t.closing && matches!(n, "ul" | "ol" | "p" | "div" | "blockquote" | "pre" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6")) {
+                    while out.ends_with(' ') { out.pop(); }
+                    if !out.is_empty() { while !out.ends_with("\n\n") { out.push('\n'); } }
+                }
+            }
+            Ok(None) => { out.push('<'); i += 1; }
+            Err(()) => break,
+        }
+    }
+    let lines: Vec<&str> = out.lines().map(str::trim_end).collect();
+    let mut res = String::new();
+    let mut blank = 0;
+    for l in lines {
+        if l.trim().is_empty() { blank += 1; if blank > 1 { continue; } } else { blank = 0; }
+        res.push_str(l.trim_start_matches(' ').trim_end());
+        res.push('\n');
+    }
+    res.trim().to_string()
 }
 
 /// The refusals before a save: an empty message on a reply that is on, a subject or body over
@@ -336,9 +529,11 @@ pub fn check_message(enabled: bool, subject: &str, text: &str, html: Option<&str
 /// The user's time zone (the system's), UTC when unknown.
 pub fn user_tz() -> Tz { crate::agent::local_tz().parse().unwrap_or(chrono_tz::UTC) }
 
-/// What the user typed as a stored moment: `YYYY-MM-DD` (midnight) or `YYYY-MM-DD HH:MM` on the
-/// wall clock of `tz`; `Ok(None)` for empty, `Err` for text that is not a date yet.
-pub fn parse_moment(input: &str, tz: Tz) -> Result<Option<String>, ()> {
+/// What the user typed as an instant: `YYYY-MM-DD` (midnight) or `YYYY-MM-DD HH:MM` on the wall
+/// clock of `tz`; `Ok(None)` for empty, `Err` for text that is not a date yet. A time that does not
+/// exist (the hour skipped when the clocks go forward) is read an hour later, the first valid
+/// moment after the gap; one that exists twice is read as its first.
+pub fn parse_moment_dt(input: &str, tz: Tz) -> Result<Option<DateTime<Utc>>, ()> {
     let t = input.trim().replace('T', " ");
     if t.is_empty() { return Ok(None); }
     let naive = if t.len() == 10 {
@@ -346,9 +541,24 @@ pub fn parse_moment(input: &str, tz: Tz) -> Result<Option<String>, ()> {
     } else {
         NaiveDateTime::parse_from_str(&t, "%Y-%m-%d %H:%M").map_err(|_| ())?
     };
-    let utc = tz.from_local_datetime(&naive).earliest().ok_or(())?.with_timezone(&Utc);
+    let local = tz.from_local_datetime(&naive).earliest()
+        .or_else(|| tz.from_local_datetime(&(naive + Duration::hours(1))).earliest()).ok_or(())?;
+    let utc = local.with_timezone(&Utc);
     if utc.format("%Y").to_string().len() != 4 { return Err(()); }
-    Ok(Some(utc.format("%Y-%m-%dT%H:%M:%S.000Z").to_string()))
+    Ok(Some(utc))
+}
+
+/// [`parse_moment_dt`] as the stored text.
+pub fn parse_moment(input: &str, tz: Tz) -> Result<Option<String>, ()> {
+    Ok(parse_moment_dt(input, tz)?.map(|u| u.format("%Y-%m-%dT%H:%M:%S.000Z").to_string()))
+}
+
+/// A stored moment as an instant (`...Z` and `....000Z` are the same one).
+pub fn moment_instant(s: &str) -> Option<DateTime<Utc>> { DateTime::parse_from_rfc3339(s).ok().map(|d| d.with_timezone(&Utc)) }
+
+/// Whether two optional stored moments are the same instant.
+pub fn same_opt_moment(a: Option<&str>, b: Option<&str>) -> bool {
+    match (a, b) { (None, None) => true, (Some(a), Some(b)) => a == b || matches!((moment_instant(a), moment_instant(b)), (Some(x), Some(y)) if x == y), _ => false }
 }
 
 /// A stored moment as the field shows it: the day alone at midnight, else day and time.
@@ -510,19 +720,56 @@ pub fn new_block_event(account: &str, calendar_id: &str, subject: &str, start: D
 
 fn title_for(subject: &str) -> String { if subject.trim().is_empty() { OUT_OF_OFFICE_TITLE.into() } else { subject.trim().into() } }
 
-fn pref_blocks() -> Value { crate::settings::Settings::load().prefs.get("vacationCalendarBlocks").cloned().filter(Value::is_object).unwrap_or_else(|| json!({})) }
+/// The record of the span last written for `account`, from the `vacationCalendarBlocks` pref.
+pub fn block_record(blocks: Option<&Value>, account: &str) -> Option<(String, String)> {
+    let o = blocks?.get(account)?.as_object()?;
+    Some((o.get("start")?.as_str()?.to_string(), o.get("end")?.as_str()?.to_string()))
+}
 
-fn remember(account: &str, block: Option<(DateTime<Utc>, DateTime<Utc>)>) {
-    let mut m = pref_blocks();
+/// The `vacationCalendarBlocks` pref with `account`'s record set (or removed).
+pub fn with_block(blocks: Option<&Value>, account: &str, block: Option<(DateTime<Utc>, DateTime<Utc>)>) -> Value {
+    let mut m = blocks.cloned().filter(Value::is_object).unwrap_or_else(|| json!({}));
     match block {
         Some((s, e)) => m[account] = json!({"start": s.to_rfc3339_opts(chrono::SecondsFormat::Millis, true), "end": e.to_rfc3339_opts(chrono::SecondsFormat::Millis, true)}),
         None => { m.as_object_mut().map(|o| o.remove(account)); }
     }
-    crate::settings::set_pref("vacationCalendarBlocks", m);
+    m
+}
+
+/// Through the live settings (under their lock), so the settings page's next save keeps it.
+fn remember(account: &str, block: Option<(DateTime<Utc>, DateTime<Utc>)>) {
+    crate::settings::update_pref("vacationCalendarBlocks", |cur| with_block(cur, account, block));
+}
+
+fn last_written(account: &str) -> Option<(String, String)> {
+    let mut r = None;
+    crate::settings::with_live(|s| r = block_record(s.prefs.get("vacationCalendarBlocks"), account));
+    r
 }
 
 /// Whether the block is on: the "Block my calendar" setting, on by default.
-pub fn block_setting() -> bool { crate::settings::Settings::load().bool("vacationBlockCalendar", true) }
+pub fn block_setting() -> bool {
+    let mut on = true;
+    crate::settings::with_live(|s| on = s.bool("vacationBlockCalendar", true));
+    on
+}
+
+/// Runs `f` with the account's out-of-office writes held, so two saves (or a save and the load
+/// sync) never interleave their script and calendar writes. Called again on the same thread it
+/// just runs.
+pub fn serialized<T>(c: &Client, f: impl FnOnce() -> T) -> T {
+    use std::sync::{Arc, Mutex, OnceLock};
+    use std::collections::HashMap;
+    thread_local! { static HELD: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
+    static LOCKS: OnceLock<Mutex<HashMap<String, Arc<Mutex<()>>>>> = OnceLock::new();
+    if HELD.with(|h| h.get()) { return f(); }
+    let lock = LOCKS.get_or_init(Default::default).lock().unwrap().entry(c.account.clone()).or_default().clone();
+    let _g = lock.lock().unwrap_or_else(|e| e.into_inner());
+    HELD.with(|h| h.set(true));
+    let r = f();
+    HELD.with(|h| h.set(false));
+    r
+}
 
 /// Bring the busy event in line with the reply. Never throws into the save: the caller logs.
 pub fn sync_block(c: &Client, reply: &Reply, trigger: Trigger, previous: Option<(Option<String>, Option<String>)>) -> Result<&'static str, String> {
@@ -536,7 +783,7 @@ pub fn sync_block(c: &Client, reply: &Reply, trigger: Trigger, previous: Option<
     ]))?;
     let found = r[1][1]["list"].as_array().and_then(|l| l.first()).cloned();
     let span = found.as_ref().and_then(|f| event_span(f, tz));
-    let last = pref_blocks()[&acc].as_object().and_then(|o| Some((o.get("start")?.as_str()?.to_string(), o.get("end")?.as_str()?.to_string())));
+    let last = last_written(&acc);
     let marked = found.as_ref().is_some_and(|f| f["keywords"][OOO_KEYWORD] == true);
     let block = block_setting();
     let now = Utc::now();
@@ -722,7 +969,8 @@ mod tests {
         assert_eq!(parts_from_text("Away\r\nback soon"), ("Away\nback soon".to_string(), Some("<p>Away<br>back soon</p>".to_string())));
         assert_eq!(parts_from_text(""), (String::new(), None));
         let (text, html) = parts_from_html("<p>Hello</p><script>alert(1)</script><p>there</p>");
-        assert!(!html.as_deref().unwrap().contains("script") && text.contains("Hello") && text.contains("there"), "{html:?} / {text:?}");
+        assert_eq!(html.as_deref(), Some("<p>Hello</p><p>there</p>"));
+        assert_eq!(text, "Hello\n\nthere");
         assert_eq!(parts_from_html("<p> </p>"), (String::new(), None));
         let (_, h) = parts_from_html(r#"<p onclick="x()">Hi <a href="javascript:evil()">a</a><scr<script></script>ipt>bad</scr<script></script>ipt></p>"#);
         let h = h.unwrap();
@@ -837,5 +1085,114 @@ mod tests {
         let mut i = input(&moved, Some((FROM, TO)), None, Trigger::Save, "2026-09-30T00:00:00Z");
         i.previous = Some((Some(FROM.into()), Some(TO.into())));
         assert_eq!(decide_block(&i), Decision::Update(t("2026-10-06T00:00:00Z"), t(TO)));
+    }
+
+    #[test]
+    fn the_html_body_is_rebuilt_from_an_allowlist() {
+        let clean = |h: &str| sanitize_html(h);
+        // slash instead of a space before an attribute, unquoted javascript: links, entity-encoded schemes
+        assert_eq!(clean(r#"<img src="x"/onerror=alert(1)>Hi"#), "Hi");
+        assert_eq!(clean("<a href=javascript:alert(1)>x</a>"), "<a>x</a>");
+        assert_eq!(clean(r#"<a href="&#106;avascript:alert(1)">x</a>"#), "<a>x</a>");
+        assert_eq!(clean(r#"<a href="&#x6A;avascript:alert(1)">x</a>"#), "<a>x</a>");
+        assert_eq!(clean(r#"<a href="&#106avascript:alert(1)">x</a>"#), "<a>x</a>");
+        assert_eq!(clean("<a href=\"java\tscript:alert(1)\">x</a>"), "<a>x</a>");
+        assert_eq!(clean(r#"<a href="  JaVaScRiPt:alert(1)">x</a>"#), "<a>x</a>");
+        assert_eq!(clean(r#"<a href="data:text/html,<script>1</script>">x</a>"#), "<a>x</a>");
+        assert_eq!(clean(r#"<a href="/relative">x</a>"#), "<a>x</a>");
+        // forms, buttons, svg, styles and handlers
+        assert_eq!(clean(r#"<form action="https://evil.test"><button formaction="javascript:1">Go</button></form>"#), "");
+        assert_eq!(clean(r#"<svg onload=alert(1)><circle/></svg>ok"#), "ok");
+        assert_eq!(clean(r#"<p style="x" class="y" id="z" onclick="evil()">Hi</p>"#), "<p>Hi</p>");
+        assert_eq!(clean("<style>p{color:red}</style><iframe src=x></iframe><object data=x></object>text"), "text");
+        // pieces cannot be joined into a tag, and an unfinished tag ends the text
+        assert!(!clean("<scr<script></script>ipt>alert(1)</scr<script></script>ipt>").to_lowercase().contains("<script"));
+        assert_eq!(clean("Hi <b onclick=\"x"), "Hi ");
+        assert_eq!(clean("1 < 2"), "1 &lt; 2");
+        assert_eq!(clean("<!-- <script>x</script> -->Hi"), "Hi");
+        // what the editor produces stays; links keep only safe addresses and get rel
+        assert_eq!(clean("<p><strong>Back</strong> on <em>Monday</em><br>Ann</p><ul><li>a</li></ul>"), "<p><strong>Back</strong> on <em>Monday</em><br>Ann</p><ul><li>a</li></ul>");
+        assert_eq!(clean(r#"<a href="https://example.test/?a=1&amp;b=2" onclick="x" title="T">x</a>"#), r#"<a href="https://example.test/?a=1&amp;b=2" rel="noopener noreferrer" title="T">x</a>"#);
+        assert_eq!(clean(r#"<a href='mailto:ann@example.test'>m</a>"#), r#"<a href="mailto:ann@example.test" rel="noopener noreferrer">m</a>"#);
+        // the output of a sanitise is stable
+        let once = clean(r#"<p>a &amp; b <a href="https://x.test/?q=1&amp;r=2">l</a></p>"#);
+        assert_eq!(clean(&once), once);
+    }
+
+    #[test]
+    fn the_plain_text_part_has_paragraph_spacing_and_decodes_once() {
+        assert_eq!(html_to_plain("<p>Hello</p><p>there</p>"), "Hello\n\nthere");
+        assert_eq!(html_to_plain("<p>a<br>b</p>"), "a\nb");
+        assert_eq!(html_to_plain("<p>Tom &amp; Jerry &amp;lt;b&amp;gt; &#169; &nbsp;x</p>"), "Tom & Jerry &lt;b&gt; \u{a9}  x");
+        assert_eq!(html_to_plain("<ul><li>one</li><li>two</li></ul><p>end</p>"), "- one\n- two\n\nend");
+        assert_eq!(parts_from_html("<p>İzin</p>"), ("İzin".to_string(), Some("<p>İzin</p>".to_string())));
+        assert!(!has_readable_text("<p> &nbsp; </p><script>x</script>"));
+        assert!(has_readable_text("<p>x</p>"));
+    }
+
+    #[test]
+    fn html_to_text_survives_characters_that_change_length_when_lowercased() {
+        // `İ` lower-cases to a longer string; the old byte positions then pointed into a character
+        assert_eq!(crate::html_to_text("<p>İzin</p><STYLE>x</STYLE><P>İ</P>"), "İzin\nİ");
+        assert_eq!(crate::html_to_text("<p>&amp;lt;</p>"), "&lt;");
+    }
+
+    #[test]
+    fn a_script_with_only_external_rules_keeps_running_with_the_reply() {
+        let hand = "require [\"fileinto\"];\nif header :contains \"subject\" \"news\" { fileinto \"News\"; }\n";
+        let scripts = vec![script("1", "vacation", true), script("2", "filters", false)];
+        let on = SyncRequest { enabled: true, forward: None, audience: None, from: None, until: None };
+        let Plan::Write { target, content, activate } = plan_sync(&on, &scripts, Some(hand), &ext()).unwrap() else { panic!("the hand-written rules must be put back in front of the vacation script") };
+        assert_eq!(target.as_deref(), Some("2"));
+        assert!(activate);
+        assert!(content.contains(r#"include :personal :optional "vacation";"#), "{content}");
+        assert!(content.contains(r#"fileinto "News";"#), "{content}");
+        // its require is kept, so the script validates
+        let require = content.lines().find(|l| l.starts_with("require")).unwrap();
+        assert!(require.contains("\"fileinto\"") && require.contains("\"include\""), "{content}");
+        let again = read_filters(&[script("1", "vacation", false), script("2", "filters", true)], Some(&content), &ext(), None);
+        assert!(again.includes_vacation);
+    }
+
+    #[test]
+    fn dates_compare_as_instants_and_a_gap_reads_later() {
+        assert!(same_opt_moment(Some("2026-10-05T06:00:00Z"), Some("2026-10-05T06:00:00.000Z")));
+        assert!(same_opt_moment(Some("2026-10-05T08:00:00+02:00"), Some("2026-10-05T06:00:00.000Z")));
+        assert!(!same_opt_moment(Some("2026-10-05T06:00:00Z"), None));
+        assert!(same_opt_moment(None, None));
+        let berlin: Tz = "Europe/Berlin".parse().unwrap();
+        // 02:30 does not exist on 2026-03-29 in Berlin: it reads as the first valid moment after the gap
+        assert_eq!(parse_moment("2026-03-29 02:30", berlin), Ok(Some("2026-03-29T01:30:00.000Z".into())));
+        assert_eq!(parse_moment("2026-03-29 03:30", berlin), Ok(Some("2026-03-29T01:30:00.000Z".into())));
+        assert_eq!(parse_moment_dt("2026-03-29", berlin), Ok(Some(t("2026-03-28T23:00:00Z"))));
+    }
+
+    #[test]
+    fn the_calendar_records_are_merged_not_replaced() {
+        let one = with_block(None, "a1", Some((t("2026-10-05T00:00:00Z"), t("2026-10-12T00:00:00Z"))));
+        assert_eq!(block_record(Some(&one), "a1"), Some(("2026-10-05T00:00:00.000Z".into(), "2026-10-12T00:00:00.000Z".into())));
+        let two = with_block(Some(&one), "b2", Some((t("2026-11-01T00:00:00Z"), t("2026-11-02T00:00:00Z"))));
+        assert!(block_record(Some(&two), "a1").is_some() && block_record(Some(&two), "b2").is_some());
+        let none = with_block(Some(&two), "a1", None);
+        assert!(block_record(Some(&none), "a1").is_none() && block_record(Some(&none), "b2").is_some());
+        assert_eq!(block_record(None, "a1"), None);
+        // a record that is not an object is replaced by one
+        assert!(block_record(Some(&with_block(Some(&json!("x")), "a1", Some((t("2026-10-05T00:00:00Z"), t("2026-10-06T00:00:00Z"))))), "a1").is_some());
+    }
+
+    #[test]
+    fn calendar_prefs_go_through_the_live_settings() {
+        // update_pref changes the program's one settings object (so the settings page's next save keeps
+        // it); this is the value it hands over and the reader that sees it
+        let live = std::sync::Arc::new(std::sync::Mutex::new(crate::settings::Settings::with_prefs(Default::default())));
+        {
+            let mut s = live.lock().unwrap();
+            let v = with_block(s.prefs.get("vacationCalendarBlocks"), "a1", Some((t("2026-10-05T00:00:00Z"), t("2026-10-06T00:00:00Z"))));
+            s.prefs.insert("vacationCalendarBlocks".into(), v);
+            s.prefs.insert("theme".into(), json!("dark"));
+        }
+        let s = live.lock().unwrap();
+        assert!(block_record(s.prefs.get("vacationCalendarBlocks"), "a1").is_some());
+        assert_eq!(s.prefs["theme"], "dark");
     }
 }
