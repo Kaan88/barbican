@@ -1043,6 +1043,13 @@ fn main() -> Result<(), slint::PlatformError> {
         // what was read from the account's address book; the book itself stays on the server
         trustbook::clear();
         signout::wipe(signout::Who { user: account, owner, last, webview_live: mailview::is_built() || platform::other_of_profile_running() });
+        // the template dialogs are drawn over the sign-in page too; the composer's template list
+        // was this account's
+        tplflow::reset(&u);
+        TEMPLATES.with(|t| *t.borrow_mut() = (String::new(), Vec::new()));
+        u.set_tpl_names(ModelRc::new(VecModel::from(vec![slint::SharedString::from("Insert template…")])));
+        u.set_tpl_index(0);
+        u.set_tpl_note("".into());
         // nobody at this computer finds the last person's password or code in the form
         u.set_login_password("".into());
         u.set_login_otp("".into());
