@@ -809,7 +809,9 @@ fn load_full_body(u: &AppWindow) {
                             // goes through show_message_body (render_current), never around it; an
                             // already granted "Load images" stays granted
                             let allowed = crate::CUR.with(|c| c.borrow().as_ref().is_some_and(|c| c.allow));
-                            show_message_body(&u, &m, false);
+                            // a message marked phishing keeps its links off (the refetched copy may lack $phishing)
+                            let off = crate::CUR.with(|c| c.borrow().as_ref().is_some_and(|c| c.links_off)) || ST.with(|s| s.borrow().phish);
+                            show_message_body(&u, &m, off);
                             if allowed {
                                 crate::CUR.with(|c| if let Some(c) = c.borrow_mut().as_mut() { c.allow = true; });
                                 crate::render_current(&u);

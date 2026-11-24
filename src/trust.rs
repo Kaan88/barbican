@@ -233,8 +233,8 @@ pub fn recipient_warning(on: bool, to: &str, cc: &str, bcc: &str, internal: &[St
 /// nothing to doubt, and trusting stays offered.
 ///
 /// Only results our own server wrote count (`auth::Trust`, R3-06): results the sender wrote or
-/// that were not written on arrival give no verdict, so they never hide "Trust sender" (a sender
-/// could otherwise hide it from the user by sending a failing header) and never allow it either.
+/// that were not written on arrival are unverified: they hide "Trust sender", as Bulwark's
+/// getSenderVerification does, and never vouch for the From.
 pub fn forged(t: &crate::auth::Trust, from: &str) -> bool {
     // results that exist but are not our server's are unverified, like none that vouch for the
     // From: "Trust sender" is hidden (main, Bulwark). With no results at all there is nothing to doubt.
