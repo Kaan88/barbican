@@ -520,6 +520,30 @@ fn update_account_in(b: &dyn crate::secrets::Backend, profile: &str, v: &Value) 
     if remembered_in(b, profile).is_some_and(|s| is_account(&s, &[user], server)) { put_in(b, profile, "session", &v.to_string()); }
 }
 
+/// Put the password `v` back into the account's saved entry, only while that entry still is a
+/// password sign-in whose password was cleared (an account signed in again meanwhile, with SSO
+/// or a password, is never overwritten). Like [`update_account_in`] it keeps the list's order and
+/// changes the session entry only when it is this account, and the same cleared entry. True when
+/// the list entry was written.
+fn repair_account_in(b: &dyn crate::secrets::Backend, profile: &str, v: &Value) -> bool {
+    let user = v["user"].as_str().unwrap_or("");
+    let server = v["server"].as_str().unwrap_or("");
+    let cleared = |a: &Value| a["kind"] == "password" && a["pass"].as_str().unwrap_or("").is_empty() && is_account(a, &[user], server);
+    let mut all = accounts_in(b, profile);
+    let Some(slot) = all.iter_mut().find(|a| is_account(a, &[user], server)) else { return false };
+    if !cleared(slot) { return false; }
+    *slot = v.clone();
+    put_in(b, profile, "accounts", &Value::Array(all).to_string());
+    if remembered_in(b, profile).is_some_and(|s| cleared(&s)) { put_in(b, profile, "session", &v.to_string()); }
+    true
+}
+
+/// [`repair_account_in`] on the real store, under the refresh lock (read and write in one go).
+pub fn repair_account(v: &Value) -> bool {
+    let _lock = RefreshLock::acquire();
+    repair_account_in(crate::secrets::store(), crate::profile::current(), v)
+}
+
 /// [`update_account_in`] on the real store, under the refresh lock.
 pub fn update_account(v: &Value) {
     let _lock = RefreshLock::acquire();
@@ -1052,6 +1076,36 @@ mod tests {
         // an account with no entry writes nothing
         update_account_in(&b, P, &json!({"kind": "password", "server": HOST, "user": "eve@example.test", "pass": "x"}));
         assert_eq!(accounts_in(&b, P).len(), 2);
+    }
+
+    #[test]
+    fn a_repair_writes_only_over_a_cleared_password_entry() {
+        let b = Fake::default();
+        let bob = json!({"kind": "password", "server": HOST, "user": "bob@example.test", "pass": "b"});
+        let cleared = json!({"kind": "password", "server": HOST, "user": "ann@example.test", "pass": ""});
+        let fixed = json!({"kind": "password", "server": HOST, "user": "ann@example.test", "pass": "app-pw"});
+        b.old.borrow_mut().insert("session".into(), cleared.to_string());
+        b.old.borrow_mut().insert("accounts".into(), json!([bob, cleared]).to_string());
+        assert!(repair_account_in(&b, P, &fixed));
+        assert_eq!(accounts_in(&b, P), vec![bob.clone(), fixed.clone()]);
+        assert_eq!(remembered_in(&b, P).unwrap(), fixed);
+        // not cleared any more: a second repair writes nothing
+        assert!(!repair_account_in(&b, P, &json!({"kind": "password", "server": HOST, "user": "ann@example.test", "pass": "other"})));
+        assert_eq!(accounts_in(&b, P)[1], fixed);
+        // signed in again with SSO meanwhile: the oauth entry and session stay
+        let sso = json!({"kind": "oauth", "server": HOST, "user": "ann@example.test", "refresh": "r", "endpoint": "e", "client": "c"});
+        put_in(&b, P, "accounts", &json!([bob, sso]).to_string());
+        put_in(&b, P, "session", &sso.to_string());
+        assert!(!repair_account_in(&b, P, &fixed));
+        assert_eq!(accounts_in(&b, P), vec![bob.clone(), sso.clone()]);
+        assert_eq!(remembered_in(&b, P).unwrap(), sso);
+        // another account's startup session is not replaced
+        put_in(&b, P, "accounts", &json!([bob, cleared]).to_string());
+        put_in(&b, P, "session", &bob.to_string());
+        assert!(repair_account_in(&b, P, &fixed));
+        assert_eq!(remembered_in(&b, P).unwrap(), bob);
+        // no entry: nothing
+        assert!(!repair_account_in(&b, P, &json!({"kind": "password", "server": HOST, "user": "eve@example.test", "pass": "x"})));
     }
 
     #[test]

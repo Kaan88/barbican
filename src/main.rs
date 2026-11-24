@@ -943,7 +943,7 @@ fn main() -> Result<(), slint::PlatformError> {
             // sign-in whose password was cleared gets back one that worked on its own
             let rem = match security::form_sign_in_entry(&oauth::accounts(), &server, &user, &pass, &totp, remember) {
                 security::FormEntry::Remember(v) => Some(v),
-                security::FormEntry::Repair(v) => { if res.is_ok() { oauth::update_account(&v); } None }
+                security::FormEntry::Repair(v) => { if res.is_ok() { oauth::repair_account(&v); } None }
                 security::FormEntry::Nothing => None,
             };
             finish_login(w, st, res, server, user, rem, oauth::Origin::SignIn);
@@ -977,23 +977,32 @@ fn main() -> Result<(), slint::PlatformError> {
     let srv_out = server_cache.clone();
     // a password change that ended the session signs out through the same flow, then says why
     let w_hook = ui.as_weak();
-    let st_hook = state.clone();
     security::set_sign_out_hook(Box::new(move |key, msg| {
-        let st_hook = st_hook.clone();
         let _ = w_hook.upgrade_in_event_loop(move |u| {
-            // only the account whose session ended: after a switch meanwhile, the account now in
-            // use (its session, its saved sign-in) is left alone
-            let current = st_hook.lock().unwrap_or_else(|e| e.into_inner()).as_ref().map(|c| c.state_key());
-            if !security::sign_out_applies(current.as_deref(), &key) { return; }
+            // only the account whose session ended: the sign-out checks it under the same lock it
+            // takes the session with, so after a switch meanwhile the account now in use (its
+            // session, its saved sign-in) is left alone
+            *SIGN_OUT_ONLY.lock().unwrap_or_else(|e| e.into_inner()) = Some(key);
             // the saved sign-in stays unless the password change cleared it (security.rs decided)
             KEEP_SAVED_SIGN_IN.store(true, std::sync::atomic::Ordering::SeqCst);
             u.invoke_sign_out();
             KEEP_SAVED_SIGN_IN.store(false, std::sync::atomic::Ordering::SeqCst);
+            // still set: the sign-out did not apply, and there is nothing to say
+            if SIGN_OUT_ONLY.lock().unwrap_or_else(|e| e.into_inner()).take().is_some() { return; }
             // after the sign-out's own line, so a keychain warning is not hidden
             u.set_status(security::append_status(u.get_status().as_str(), &msg).into());
         });
     }));
     ui.on_sign_out(move || {
+        // the check and the take under one lock: a switch that finishes on its worker thread
+        // cannot put another account in between
+        let taken = {
+            let mut g = st.lock().unwrap_or_else(|e| e.into_inner());
+            let mut only = SIGN_OUT_ONLY.lock().unwrap_or_else(|e| e.into_inner());
+            if !security::sign_out_applies(g.as_ref().map(|c| c.state_key()).as_deref(), only.as_deref()) { return; }
+            *only = None;
+            g.take()
+        };
         server_settings::reset(&srv_out);
         let u = w.unwrap();
         SESSION_GEN.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
@@ -1001,7 +1010,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let account = u.get_account().to_string();
         let mut owner = None;
         let mut server = String::new();
-        if let Some(c) = st.lock().unwrap().take() {
+        if let Some(c) = taken {
             server = c.base.clone();
             owner = Some(reminders::owner_key(&c.base, &c.username));
             if let Some(t) = c.tokens() { std::thread::spawn(move || oauth::revoke(&c.base, &t)); }
@@ -2283,6 +2292,11 @@ use jmap::auth_rejected;
 /// Set while the account security page ends a session: the sign-out then keeps the saved sign-in
 /// (an app password still works), and the form is shown.
 static KEEP_SAVED_SIGN_IN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Set while the account security page ends a session: the `state_key` of that account. The
+/// sign-out applies only while it is the session in use (checked and taken under the session's
+/// lock), and clears this when it does.
+static SIGN_OUT_ONLY: Mutex<Option<String>> = Mutex::new(None);
 
 /// The stored session a start-up restore could not use for lack of a network: "Try again" runs it again.
 static RESTORE_PENDING: Mutex<Option<Value>> = Mutex::new(None);

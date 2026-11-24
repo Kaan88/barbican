@@ -385,13 +385,21 @@ pub enum FormEntry {
 /// two-step sign-in turned off since): the account stays in the switcher and could otherwise never
 /// sign in from there again. A sign-in with a code leaves it as it is (there is no password that
 /// works on its own to store).
+///
+/// A password typed with a code after it (Stalwart's `password$123456`) is not stored either: the
+/// code is single-use, so the stored value would fail and count as a bad login at every start.
 pub fn form_sign_in_entry(accounts: &[Value], server: &str, user: &str, pass: &str, totp: &str, remember: bool) -> FormEntry {
-    if !totp.trim().is_empty() || pass.is_empty() { return FormEntry::Nothing; }
+    if !totp.trim().is_empty() || pass.is_empty() || ends_with_code(pass) { return FormEntry::Nothing; }
     if remember { return FormEntry::Remember(json!({"kind": "password", "server": server, "user": user, "pass": pass})); }
     match remembered_password_entry(accounts, user, server) {
         Some(a) if a["pass"].as_str().unwrap_or("").is_empty() => FormEntry::Repair(json!({"kind": "password", "server": a["server"], "user": a["user"], "pass": pass})),
         _ => FormEntry::Nothing,
     }
+}
+
+/// Whether `pass` ends in `$` and a 6 to 8 digit code (how a code is sent with the password).
+pub fn ends_with_code(pass: &str) -> bool {
+    pass.rsplit_once('$').is_some_and(|(_, code)| (6..=8).contains(&code.len()) && code.bytes().all(|b| b.is_ascii_digit()))
 }
 
 /// What the authenticator app lists the entry under (Bulwark totp-issuer.ts: a stock install names
@@ -666,10 +674,14 @@ pub fn sign_out(key: &str, msg: &str) -> bool {
     match SIGN_OUT.lock().unwrap_or_else(|e| e.into_inner()).as_ref() { Some(f) => { f(key.to_string(), msg.to_string()); true } None => false }
 }
 
-/// Whether the hook's sign-out applies: only while the account whose session ended (`key`) is
-/// still the one in use (`current`, its `state_key`). After a switch to another account in the
-/// meantime nothing is signed out, so that account's session and saved sign-in stay as they are.
-pub fn sign_out_applies(current: Option<&str>, key: &str) -> bool { !key.is_empty() && current == Some(key) }
+/// Whether a sign-out may take the session in use (`current`, its `state_key`). `only`: the
+/// account the hook signs out (whose session ended); `None` for the user's own Sign out, which
+/// always applies. After a switch to another account in the meantime the hook's sign-out does
+/// nothing, so that account's session and saved sign-in stay as they are. Main checks this and
+/// takes the session under one lock of the session state.
+pub fn sign_out_applies(current: Option<&str>, only: Option<&str>) -> bool {
+    match only { None => true, Some(key) => !key.is_empty() && current == Some(key) }
+}
 
 /// Clears `busy` when a job ends in any way, a panic included (only for the page session it started in).
 struct BusyGuard<'a> { cache: &'a Shared, epoch: u64 }
@@ -1200,16 +1212,30 @@ mod tests {
         assert_eq!(form_sign_in_entry(&accounts, base, "bob@example.test", "new", "", false), FormEntry::Nothing);
         assert_eq!(form_sign_in_entry(&accounts, "https://other.example.test", "ann@example.test", "pw", "", false), FormEntry::Nothing);
         assert_eq!(form_sign_in_entry(&[bob], base, "ann@example.test", "pw", "", false), FormEntry::Nothing);
+        // a code typed after the password is never stored, ticked or not
+        for p in ["pw$123456", "pw$1234567", "pw$12345678"] {
+            assert_eq!(form_sign_in_entry(&accounts, base, "ann@example.test", p, "", false), FormEntry::Nothing, "{p}");
+            assert_eq!(form_sign_in_entry(&accounts, base, "ann@example.test", p, "", true), FormEntry::Nothing, "{p}");
+        }
+    }
+
+    #[test]
+    fn a_code_after_the_password_is_recognised() {
+        for p in ["pw$123456", "a$b$12345678", "$1234567"] { assert!(ends_with_code(p), "{p}"); }
+        for p in ["pw", "pw$12345", "pw$123456789", "pw$12a456", "pw$", "pw123456", "pw$123456 "] { assert!(!ends_with_code(p), "{p}"); }
     }
 
     #[test]
     fn the_sign_out_applies_only_to_the_account_still_in_use() {
-        assert!(sign_out_applies(Some("ann-key"), "ann-key"));
+        assert!(sign_out_applies(Some("ann-key"), Some("ann-key")));
         // switched to another account meanwhile: that one is not signed out
-        assert!(!sign_out_applies(Some("bob-key"), "ann-key"));
+        assert!(!sign_out_applies(Some("bob-key"), Some("ann-key")));
         // already signed out, or no account named
-        assert!(!sign_out_applies(None, "ann-key"));
-        assert!(!sign_out_applies(Some(""), ""));
+        assert!(!sign_out_applies(None, Some("ann-key")));
+        assert!(!sign_out_applies(Some(""), Some("")));
+        // the user's own Sign out always applies
+        assert!(sign_out_applies(Some("bob-key"), None));
+        assert!(sign_out_applies(None, None));
     }
 
     #[test]

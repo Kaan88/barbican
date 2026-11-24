@@ -152,8 +152,10 @@ pub fn cleared_password_rejection(v: &Value) -> Option<String> {
 }
 
 /// The text of [`cleared_password_rejection`]: it starts like the server's own rejection (so
-/// `auth_rejected` treats it as one), then says the server was not asked and what to do.
-pub const CLEARED_PASSWORD: &str = "Wrong username, password or 2FA code: the saved password for this account was cleared when two-step sign-in was turned on, so it was not sent to the server. Sign in with your password and a verification code, or with an app password.";
+/// `auth_rejected` treats it as one), then says the server was not asked and what to do. It does
+/// not name a cause: turning two-step sign-in on and a password change that ended the session
+/// both clear the saved password.
+pub const CLEARED_PASSWORD: &str = "Wrong username, password or 2FA code: the saved password for this account was cleared because it can no longer sign in on its own, so it was not sent to the server. Sign in with your password (and a verification code if two-step sign-in is on), or with an app password.";
 
 /// A 401 for a request sent with `sent` is worth one more try when the session's header has changed
 /// since (a password change switched it while the request was in flight).
@@ -1832,7 +1834,8 @@ mod tests {
         let e = cleared_password_rejection(&json!({"kind": "password", "user": "a", "pass": ""})).unwrap();
         assert!(auth_rejected(&e));
         assert!(e.starts_with("Wrong username, password or 2FA code"), "{e}");
-        assert!(e.contains("two-step sign-in") && e.contains("app password"), "{e}");
+        assert!(e.contains("can no longer sign in on its own") && e.contains("app password"), "{e}");
+        assert!(!e.contains("when two-step sign-in was turned on"), "the cause is not named: {e}");
         assert!(cleared_password_rejection(&json!({"kind": "password", "pass": "x"})).is_none());
         assert!(cleared_password_rejection(&json!({"kind": "oauth", "refresh": "r"})).is_none());
     }
