@@ -11,8 +11,8 @@ export { Theme, Icons, Prefs, Motion }
 // composer extras (p2-composer): recipient chips + autocomplete, palette
 import { CTheme } from "ctheme.slint";
 // productivity (p2-productivity): palette, shortcuts sheet, search suggestions, drag and drop, pane widths
-import { Pd, PTok, KeyRow, PaletteRow, SuggestRow, SearchChip, CommandPalette, ShortcutsSheet, SearchSuggest, SearchChips, DragGhost, ResizeHandle } from "productivity.slint";
-export { Pd, KeyRow, PaletteRow, SuggestRow, SearchChip }
+import { Pd, PTok, KeyRow, PaletteRow, SuggestRow, SearchChip, DndAcct, CommandPalette, ShortcutsSheet, SearchSuggest, SearchChips, DragGhost, ResizeHandle } from "productivity.slint";
+export { Pd, KeyRow, PaletteRow, SuggestRow, SearchChip, DndAcct }
 // reader extras (p2-reader): banners, view source, receipts, invitations
 import { RxBanners, RX, RxTheme, RxBannerData, RxAction } from "reader.slint";
 export { RX, RxTheme, RxBannerData, RxAction }
@@ -737,6 +737,30 @@ component TagRow inherits Rectangle {
         VerticalLayout { alignment: center; Rectangle { width: 10px; height: 10px; border-radius: 4px; background: t.color; } }
         Text { text: t.name; color: selected ? Theme.sel-text : Theme.body; font-size: 14px * Prefs.fs; font-weight: selected ? 700 : 400; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
         Text { text: t.count; color: Theme.faint; font-size: 12px * Prefs.fs; vertical-alignment: center; }
+    }
+}
+
+/// A row of another account's folders, shown while a message is dragged: an account name, a
+/// folder that takes the drop (src/dnd.rs "acct:"), or a note.
+component DndAcctRow inherits Rectangle {
+    in property <DndAcct> a;
+    height: a.kind == 0 ? 26px : 32px * Prefs.fs;
+    border-radius: Theme.nordic ? self.height / 2 : Theme.r-nav;
+    property <bool> dnd-over: a.kind == 1 && Pd.dnd-active && Pd.dnd-kind == "mail" && Pd.dnd-x >= self.absolute-position.x && Pd.dnd-x < self.absolute-position.x + self.width && Pd.dnd-y >= self.absolute-position.y && Pd.dnd-y < self.absolute-position.y + self.height;
+    changed dnd-over => { if dnd-over { Pd.dnd-target = "acct:" + a.id; } else if Pd.dnd-target == "acct:" + a.id { Pd.dnd-target = ""; } }
+    if dnd-over: Rectangle { border-width: 1.5px; border-color: Theme.accent; border-radius: root.border-radius; background: Theme.accent.with-alpha(0.12); }
+    HorizontalLayout {
+        padding-left: (a.kind == 0 ? 12px : 16px) + a.depth * 14px;
+        padding-right: 12px;
+        Text {
+            text: a.label;
+            color: a.kind == 1 ? Theme.body : Theme.dim;
+            font-size: (a.kind == 0 ? 12px : 14px) * Prefs.fs;
+            font-weight: a.kind == 0 ? 700 : 400;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+            overflow: elide;
+        }
     }
 }
 
@@ -1795,6 +1819,7 @@ export component AppWindow inherits Window {
     in-out property <string> current-tag;
     in property <bool> has-more;
     in property <int> checked-count;
+    in property <bool> phish-ok;
     in property <string> r-email;
     in property <string> r-to;
     in property <string> r-initials;
@@ -2511,6 +2536,16 @@ export component AppWindow inherits Window {
                     }
                 }
             }
+            // while a message is dragged: the other connected accounts' folders take the drop (a move
+            // between accounts, src/copymsg.rs)
+            if Pd.dnd-active && Pd.dnd-kind == "mail" && Pd.dnd-accts.length > 0: Tile {
+                flat: Theme.nordic;
+                VerticalLayout {
+                    padding: Theme.nordic ? 0px : 10px;
+                    spacing: 2px;
+                    for a in Pd.dnd-accts: DndAcctRow { a: a; }
+                }
+            }
             // tags: tint tiles in a 2-column grid (Bento) or coloured squircle rows (Nordic)
             if root.tags.length > 0: Tile {
                 flat: Theme.nordic;
@@ -2770,6 +2805,7 @@ export component AppWindow inherits Window {
                         VerticalLayout { alignment: center; HoverAction { icon: Icons.mail; clicked => { root.bulk("unread"); } } }
                         VerticalLayout { alignment: center; HoverAction { icon: Icons.star; clicked => { root.bulk("star"); } } }
                         VerticalLayout { alignment: center; HoverAction { icon: Icons.alert; clicked => { root.bulk("spam"); } } }
+                        if root.phish-ok: VerticalLayout { alignment: center; HoverAction { glyph: "\u{E7BA}"; clicked => { root.ctx("phish-bar", "", self.absolute-position.x, self.absolute-position.y + self.height); } } }
                         VerticalLayout { alignment: center; HoverAction { icon: Icons.close; clicked => { root.bulk("clear"); } } }
                     }
                 }

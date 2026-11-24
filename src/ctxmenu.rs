@@ -52,6 +52,7 @@ const G_STAR: &str = "\u{E734}";
 const G_STARRED: &str = "\u{E735}";
 const G_TAG: &str = "\u{E8EC}";
 const G_SPAM: &str = "\u{E8F8}";
+const G_PHISH: &str = "\u{E7BA}";
 const G_MORE: &str = "\u{E712}";
 const G_OPEN: &str = "\u{E8A7}";
 const G_PRINT: &str = "\u{E749}";
@@ -173,6 +174,8 @@ pub fn request(u: &AppWindow, kind: &str, id: &str) {
                 danger(G_DELETE, "Delete", "Del", "delete"),
             ]
         }
+        // the selection bar's "Report phishing": the same question as the list menu, under the button
+        "phish-bar" => { t.ids = mail::checked_ids(); phish_confirm(u, &t.ids) }
         "addr" | "addr-to" => {
             let a = first_addr(id);
             if a.is_empty() { vec![] } else {
@@ -519,6 +522,21 @@ fn file_row(u: &AppWindow, id: &str) -> Option<crate::FileRow> {
     (0..m.row_count()).filter_map(|i| m.row_data(i)).find(|f| f.id == id)
 }
 
+/// "Report to {address}?" with the report and Cancel (Bulwark phishing-report-host.tsx); nothing
+/// (and a toast saying why) when there is nothing to report.
+fn phish_confirm(u: &AppWindow, ids: &[String]) -> Vec<CtxItem> {
+    match crate::phishflow::prepare(ids) {
+        crate::phishflow::Ask::Say(text) => { mail::show_toast(u, &text, false); vec![] }
+        crate::phishflow::Ask::Confirm { address, count, left_out } => {
+            let mut v = vec![header(&format!("Report to {address}?"))];
+            if !left_out.is_empty() { v.push(header(&left_out)); }
+            v.push(danger(G_PHISH, &if count == 1 { "Report and move to Junk".to_string() } else { format!("Report {count} messages and move to Junk") }, "", "do:phish-go"));
+            v.push(it("\u{E711}", "Cancel", "Esc", ""));
+            v
+        }
+    }
+}
+
 fn mail_items(u: &AppWindow, t: &Target) -> Vec<CtxItem> {
     let n = t.ids.len();
     let first = mail::email(&t.ids[0]);
@@ -548,6 +566,9 @@ fn mail_items(u: &AppWindow, t: &Target) -> Vec<CtxItem> {
         sub(G_TAG, "Tag", "sub:tag"),
         sep(),
         if junk { it(G_SPAM, "Not spam", "", "notspam") } else { it(G_SPAM, "Report spam", "!", "spam") },
+        // Bulwark message-actions.ts: "Report phishing…" next to the spam entry, for the whole selection
+        if crate::phish::setup_cached().is_some() { it(G_PHISH, "Report phishing\u{2026}", "", "phish") }
+        else { off(it(G_PHISH, "Report phishing\u{2026}", "Set an address in Settings", ""), false) },
         sep(),
         sub(G_MORE, "More actions", "sub:more"),
     ]);
@@ -561,41 +582,55 @@ fn mail_items(u: &AppWindow, t: &Target) -> Vec<CtxItem> {
 
 // ---- copy to another account (Bulwark useCopyToAccount) ----
 
-/// Folders of the other signed-in accounts, loaded in the background when a message menu opens:
-/// login -> (id, name, depth).
-type Folders = std::collections::HashMap<String, Vec<(String, String, usize)>>;
-static ACCT_FOLDERS: std::sync::Mutex<Option<Folders>> = std::sync::Mutex::new(None);
+/// Folders of the other signed-in accounts, loaded in the background when a message menu opens
+/// (or a message drag starts): one load per login at a time, a failed load is shown as failed.
+static ACCT_FOLDERS: std::sync::Mutex<Option<crate::copymsg::FolderCache>> = std::sync::Mutex::new(None);
+
+fn with_cache<R>(f: impl FnOnce(&mut crate::copymsg::FolderCache) -> R) -> R {
+    f(ACCT_FOLDERS.lock().unwrap().get_or_insert_with(Default::default))
+}
+
+/// A login's folders changed (its folder list was re-read, a push said so, a copy or move filed
+/// into it): forget what was loaded, the next menu loads it again.
+pub fn folders_changed(login: &str) { with_cache(|c| c.invalidate(login)); }
 
 /// The login a list row belongs to.
 fn row_login(id: &str) -> String { mail::owner(id).unwrap_or_else(crate::unified::active_user) }
 
-/// The signed-in logins a message of `from` can be copied to.
+/// The connected logins a message of `from` can be copied to (Bulwark lists the accounts it has
+/// a client for; one that is not connected has nothing to copy into).
 fn other_logins(from: &str) -> Vec<String> {
-    crate::oauth::accounts().iter().filter_map(|a| a["user"].as_str().map(String::from)).filter(|l| l != from).collect()
+    crate::oauth::accounts().iter().filter_map(|a| a["user"].as_str().map(String::from))
+        .filter(|l| l != from && crate::unified::cached(l).is_some()).collect()
 }
 
 /// Same, for the reader's menu (the open message's row id).
 pub fn prefetch_for(u: &AppWindow, id: &str) { prefetch_copy_targets(u, &[id.to_string()]); }
 
-fn prefetch_copy_targets(u: &AppWindow, ids: &[String]) {
+pub fn prefetch_copy_targets(u: &AppWindow, ids: &[String]) {
     let from = ids.first().map(|i| row_login(i)).unwrap_or_default();
-    let todo: Vec<String> = other_logins(&from).into_iter()
-        .filter(|l| !ACCT_FOLDERS.lock().unwrap().as_ref().is_some_and(|m| m.contains_key(l))).collect();
-    for login in todo {
-        let w = u.as_weak();
-        std::thread::spawn(move || {
-            let Some(c) = crate::unified::client(&login) else { return };
-            let Ok(list) = crate::unified::mailboxes_of(&c, &c.account) else { return };
-            ACCT_FOLDERS.lock().unwrap().get_or_insert_with(Default::default).insert(login, crate::copymsg::folder_choices(&list));
-            // a flyout opened meanwhile shows "Loading folders…": fill it in
-            let _ = w.upgrade_in_event_loop(|u| {
-                if u.get_ctx_open() && u.get_ctx_sub_action().as_str() == "sub:copy-acct" {
-                    u.set_ctx_sub_action("".into());
-                    hover(&u, "sub:copy-acct", -1);
-                }
-            });
+    for login in other_logins(&from) { start_load(u.as_weak(), login); }
+}
+
+/// Load `login`'s folders unless that is running or done. When the account's folders changed
+/// while it ran, its answer is dropped and a new load starts at once.
+fn start_load(w: slint::Weak<AppWindow>, login: String) {
+    let Some(gen) = with_cache(|c| c.begin(&login)) else { return };
+    std::thread::spawn(move || {
+        let res = crate::unified::cached(&login).ok_or_else(|| "The account is not connected.".to_string())
+            .and_then(|c| crate::unified::mailboxes_of(&c, &c.account))
+            .map(|list| crate::copymsg::folder_choices(&list));
+        let taken = with_cache(|c| c.finish(&login, gen, res));
+        if !taken { start_load(w, login); return; }
+        // a flyout opened meanwhile shows "Loading folders…": fill it in (and a drag's targets)
+        let _ = w.upgrade_in_event_loop(|u| {
+            if u.get_ctx_open() && u.get_ctx_sub_action().as_str() == "sub:copy-acct" {
+                u.set_ctx_sub_action("".into());
+                hover(&u, "sub:copy-acct", -1);
+            }
+            if u.global::<crate::Pd>().get_dnd_active() { show_drag_targets(&u); }
         });
-    }
+    });
 }
 
 /// The messages a menu acts on (the reader's menu acts on the open one).
@@ -603,30 +638,81 @@ fn target_ids(u: &AppWindow, t: &Target) -> Vec<String> {
     if t.kind == "reader" { vec![u.get_current_mail().to_string()] } else { t.ids.clone() }
 }
 
-/// The flyout: every other account with its folders.
+/// The flyout: every other connected account with its folders.
 fn copy_items(from: &str) -> Vec<CtxItem> {
+    use crate::copymsg::Slot;
     let mut v = vec![];
-    let cache = ACCT_FOLDERS.lock().unwrap();
     for login in other_logins(from) {
         if !v.is_empty() { v.push(sep()); }
         v.push(header(&login));
-        match cache.as_ref().and_then(|m| m.get(&login)) {
-            Some(list) if !list.is_empty() => for (id, name, depth) in list {
-                v.push(it(G_FOLDER, &format!("{}{name}", "   ".repeat(*depth)), "", &format!("copyacct:{login}\u{1f}{id}")));
+        match with_cache(|c| c.slot(&login).cloned()) {
+            Some(Slot::Ready(list)) if !list.is_empty() => for (id, name, depth) in list {
+                v.push(it(G_FOLDER, &format!("{}{name}", "   ".repeat(depth)), "", &format!("copyacct:{login}\u{1f}{id}")));
             },
-            Some(_) => v.push(off(it("", "No folders", "", ""), false)),
-            None => v.push(off(it("", "Loading folders…", "", ""), false)),
+            Some(Slot::Ready(_)) => v.push(off(it("", "No folders", "", ""), false)),
+            Some(Slot::Failed(_)) => v.push(off(it("", "Could not load folders", "Reopen to retry", ""), false)),
+            Some(Slot::Loading) | None => v.push(off(it("", "Loading folders…", "", ""), false)),
         }
     }
     if v.is_empty() { v.push(off(it("", "No other accounts", "", ""), false)); }
     v
 }
 
+/// Targets of a message drag: the other connected accounts' folders (Bulwark's sidebar shows every
+/// account's folders; dropping on one of another account moves the message there).
+/// Rows: kind 0 account name, 1 folder (id = login, unit separator, folder id), 2 a note.
+pub fn drag_rows(from: &str) -> Vec<crate::DndAcct> {
+    use crate::copymsg::Slot;
+    let row = |kind: i32, id: String, label: String, depth: i32| crate::DndAcct { kind, id: id.into(), label: label.into(), depth };
+    let mut v = vec![];
+    for login in other_logins(from) {
+        v.push(row(0, String::new(), login.clone(), 0));
+        match with_cache(|c| c.slot(&login).cloned()) {
+            Some(Slot::Ready(list)) if !list.is_empty() => for (id, name, depth) in list {
+                v.push(row(1, format!("{login}\u{1f}{id}"), name, depth as i32));
+            },
+            Some(Slot::Ready(_)) => v.push(row(2, String::new(), "No folders".into(), 0)),
+            Some(Slot::Failed(_)) => v.push(row(2, String::new(), "Could not load folders".into(), 0)),
+            Some(Slot::Loading) | None => v.push(row(2, String::new(), "Loading folders…".into(), 0)),
+        }
+    }
+    v
+}
+
+/// Fill the drag targets of the folder pane for the drag in progress.
+pub fn show_drag_targets(u: &AppWindow) {
+    let id = u.global::<crate::Pd>().get_dnd_id().to_string();
+    let ids = crate::dnd::ids_for_mail(&id);
+    let from = ids.first().map(|i| row_login(i)).unwrap_or_default();
+    let rows = if crate::unified::several_accounts() { drag_rows(&from) } else { vec![] };
+    u.global::<crate::Pd>().set_dnd_accts(ModelRc::new(VecModel::from(rows)));
+}
+
+/// The path of the folder a drop on `spec` ("login", unit separator, folder id) lands in, for the toast.
+pub fn drop_path(spec: &str) -> String {
+    use crate::copymsg::Slot;
+    let (login, mailbox) = spec.split_once('\u{1f}').unwrap_or((spec, ""));
+    let path = match with_cache(|c| c.slot(login).cloned()) {
+        Some(Slot::Ready(list)) => crate::copymsg::path_of(&list, mailbox),
+        _ => None,
+    };
+    // the folders were forgotten meanwhile (a push): name the account rather than nothing
+    path.filter(|p| !p.is_empty()).unwrap_or_else(|| login.to_string())
+}
+
 /// Copy `ids` into folder `spec` ("login", unit separator, mailbox id) of another account. Runs
 /// in the background; one toast reports the whole run, failures included. Nothing is removed.
 fn copy_to_account(u: &AppWindow, st: &Shared, ids: Vec<String>, spec: &str) {
+    transfer(u, st, ids, spec, true);
+}
+
+/// Copy (`keep_original`) or move `ids` into a folder of another account (Bulwark
+/// crossAccountMoveEmails). A move removes each source message only after its copy is confirmed;
+/// the rows that moved leave the list, and both accounts' folders and counts are re-read.
+pub fn transfer(u: &AppWindow, st: &Shared, ids: Vec<String>, spec: &str, keep_original: bool) {
     let Some((dest_login, mailbox)) = spec.split_once('\u{1f}') else { return };
     let (dest_login, mailbox) = (dest_login.to_string(), mailbox.to_string());
+    let path = drop_path(spec);
     let active = crate::unified::active_user();
     let mut clients: std::collections::HashMap<String, Arc<jmap::Client>> = Default::default();
     for id in &ids {
@@ -634,24 +720,66 @@ fn copy_to_account(u: &AppWindow, st: &Shared, ids: Vec<String>, spec: &str) {
         let c = if l == active { client(st) } else { crate::unified::cached(&l) };
         if let Some(c) = c { clients.entry(l).or_insert(c); }
     }
-    let rows: Vec<(String, String, Option<String>)> = ids.iter().map(|i| (row_login(i), crate::unified::real_id(i).to_string(), mail::shared_account(i))).collect();
-    mail::show_toast(u, &format!("Copying {} message{}…", ids.len(), if ids.len() == 1 { "" } else { "s" }), false);
+    let rows: Vec<(String, String, String, Option<String>)> = ids.iter().map(|i| (i.clone(), row_login(i), crate::unified::real_id(i).to_string(), mail::shared_account(i))).collect();
+    let n = ids.len();
+    let verb = if keep_original { "Copying" } else { "Moving" };
+    mail::show_toast(u, &format!("{verb} {n} message{}…", if n == 1 { "" } else { "s" }), false);
     let w = u.as_weak();
     std::thread::spawn(move || {
+        let mut touched: Vec<String> = vec![dest_login.clone()];
+        let mut moved_rows: Vec<String> = vec![];
         let msg = (|| {
-            let dst = crate::unified::client(&dest_login).ok_or("The other account is not connected.")?;
-            let items: Vec<(String, crate::copymsg::Place)> = rows.into_iter().map(|(login, id, shared)| {
-                let account = shared.or_else(|| clients.get(&login).map(|c| c.account.clone())).unwrap_or_default();
-                (id, crate::copymsg::Place { login, account })
+            let dst = crate::unified::cached(&dest_login).ok_or("The other account is not connected.")?;
+            let items: Vec<(String, crate::copymsg::Place)> = rows.iter().map(|(_, login, id, shared)| {
+                let account = shared.clone().or_else(|| clients.get(login).map(|c| c.account.clone())).unwrap_or_default();
+                (id.clone(), crate::copymsg::Place { login: login.clone(), account })
             }).collect();
             let dest = crate::copymsg::Dest { place: crate::copymsg::Place { login: dest_login.clone(), account: dst.account.clone() }, mailbox };
-            let plan = crate::copymsg::plan(&items, &dest.place);
             let side = |l: &str| clients.get(l).map(|c| c.as_ref() as &dyn crate::copymsg::Side);
-            let rep = crate::copymsg::run(&plan, &dest, dst.as_ref(), &side, true);
-            Ok::<String, String>(crate::copymsg::summary(&rep, true))
-        })().unwrap_or_else(|e: String| format!("Could not copy: {e}"));
-        let _ = w.upgrade_in_event_loop(move |u| mail::show_toast(&u, &msg, false));
+            // one run per source place: an id is only unique within its account, so what moved is
+            // matched to its rows within that place
+            let mut places: Vec<crate::copymsg::Place> = vec![];
+            for (_, p) in &items { if !places.contains(p) { places.push(p.clone()); } }
+            let mut rep = crate::copymsg::Report::default();
+            for place in places {
+                let group: Vec<(String, crate::copymsg::Place)> = items.iter().filter(|(_, p)| *p == place).cloned().collect();
+                let plan = crate::copymsg::plan(&group, &dest.place);
+                let r = crate::copymsg::run(&plan, &dest, dst.as_ref(), &side, keep_original);
+                if !keep_original {
+                    let moved: Vec<String> = rows.iter().zip(&items)
+                        .filter(|(row, (id, p))| *p == place && r.copied.contains(id) && !r.failed.iter().any(|f| f.0 == *id) && row.1 == place.login)
+                        .map(|(row, _)| row.0.clone()).collect();
+                    touched.extend(moved.iter().map(|_| place.login.clone()));
+                    moved_rows.extend(moved);
+                }
+                rep.copied.extend(r.copied);
+                rep.failed.extend(r.failed);
+            }
+            Ok::<String, String>(if keep_original { crate::copymsg::summary(&rep, true) } else { crate::copymsg::move_toast(&rep, &path) })
+        })().unwrap_or_else(|e: String| format!("Could not {}: {e}", if keep_original { "copy" } else { "move" }));
+        touched.sort();
+        touched.dedup();
+        let _ = w.upgrade_in_event_loop(move |u| {
+            mail::show_toast(&u, &msg, false);
+            if !moved_rows.is_empty() { mail::moved_away(&u, &moved_rows); }
+            refresh_accounts(&u, &touched);
+        });
     });
+}
+
+/// Re-read the folders and counts of the accounts a copy or move touched (Bulwark refreshes the
+/// folder lists of every account involved): the open account's tree, the others' cached pickers
+/// and inbox counts.
+pub fn refresh_accounts(u: &AppWindow, logins: &[String]) {
+    let active = crate::unified::active_user();
+    let mut others = false;
+    for l in logins {
+        folders_changed(l);
+        if *l == active {
+            if let Some(c) = crate::unified::cached(l) { mail::load_mailboxes(u.as_weak(), c, false); }
+        } else { others = true; }
+    }
+    if others { crate::unified::refresh_other_logins(u.as_weak(), true); }
 }
 
 fn folder_items(u: &AppWindow, id: &str) -> Vec<CtxItem> {
@@ -978,6 +1106,16 @@ pub fn pick(u: &AppWindow, st: &Shared, action: &str) {
         reopen(u, confirm(label, &format!("do:{a}")));
         return;
     }
+    if action == "phish" && matches!(t.kind.as_str(), "mail" | "thread") {
+        // "Report phishing?" with the address, for the whole selection (Bulwark phishing-report-host.tsx)
+        let v = phish_confirm(u, &target_ids(u, &t));
+        if !v.is_empty() {
+            u.global::<crate::CtxHl>().set_id(HL.with(|h| h.borrow().clone()).into());
+            reopen(u, v);
+        }
+        return;
+    }
+    if action == "do:phish-go" { crate::phishflow::run(u, st, target_ids(u, &t)); return; }
     if let Some(spec) = action.strip_prefix("copyacct:") { copy_to_account(u, st, target_ids(u, &t), spec); return; }
     let action = action.strip_prefix("do:").unwrap_or(action);
     let id = t.id.as_str();

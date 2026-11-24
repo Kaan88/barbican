@@ -7,6 +7,7 @@ mod attachments;
 mod avatars;
 mod bimi;
 mod phish;
+mod phishflow;
 mod quota;
 mod crashguard;
 mod tags;
@@ -1605,6 +1606,8 @@ fn main() -> Result<(), slint::PlatformError> {
 
     let (w, st) = (ui.as_weak(), state.clone());
     ui.on_undo_toast(move || {
+        // the toast of a phishing report has its own Undo; otherwise it is the send's
+        if phishflow::undo(&w.unwrap()) { return; }
         let Some(c) = compose_client(&st) else { return };
         compose::undo_send(&w.unwrap(), c);
     });

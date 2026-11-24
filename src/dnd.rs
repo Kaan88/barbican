@@ -35,7 +35,13 @@ pub fn start(u: &AppWindow, kind: &str, id: &str) {
     pd.set_dnd_id(id.into());
     pd.set_dnd_label(label.into());
     pd.set_dnd_target("".into());
+    pd.set_dnd_accts(slint::ModelRc::default());
     pd.set_dnd_active(true);
+    // another account's folders become drop targets (Bulwark moves across accounts by drag and drop)
+    if kind == "mail" && crate::unified::several_accounts() {
+        crate::ctxmenu::prefetch_copy_targets(u, &ids_for_mail(id));
+        crate::ctxmenu::show_drag_targets(u);
+    }
 }
 
 /// Whether a message's only folder is already `f` (a move there would change nothing).
@@ -44,7 +50,7 @@ pub fn already_in(m: &Value, f: &str) -> bool {
 }
 
 /// The messages a dragged row stands for: the selection when the row is in it, else the row.
-fn ids_for_mail(id: &str) -> Vec<String> {
+pub(crate) fn ids_for_mail(id: &str) -> Vec<String> {
     let checked = crate::mail::checked_ids();
     if checked.iter().any(|c| c == id) { checked } else { vec![id.to_string()] }
 }
@@ -54,11 +60,16 @@ pub fn drop(u: &AppWindow, st: &Shared) {
     let (kind, id, target) = (pd.get_dnd_kind().to_string(), pd.get_dnd_id().to_string(), pd.get_dnd_target().to_string());
     pd.set_dnd_active(false);
     pd.set_dnd_target("".into());
+    pd.set_dnd_accts(slint::ModelRc::default());
     if target.is_empty() || id.is_empty() { return; }
     match kind.as_str() {
         "mail" => {
             let ids = ids_for_mail(&id);
-            if let Some(f) = target.strip_prefix("folder:inside:") {
+            if let Some(spec) = target.strip_prefix("acct:") {
+                // a folder of another connected account: a move there (copy first, the source goes
+                // only once the copy is confirmed; src/copymsg.rs)
+                crate::ctxmenu::transfer(u, st, ids, spec, false);
+            } else if let Some(f) = target.strip_prefix("folder:inside:") {
                 if f == "__scheduled" || f == crate::unified::FOLDER_ID { return; }
                 // nothing to do for messages already there
                 let ids: Vec<String> = ids.into_iter().filter(|i| !crate::mail::email(i).is_some_and(|m| already_in(&m, f))).collect();
@@ -277,7 +288,7 @@ pub fn wire(u: &AppWindow, st: Shared) {
     let (w, s) = (u.as_weak(), st.clone());
     pd.on_dnd_drop(move || { if let Some(u) = w.upgrade() { drop(&u, &s); } });
     let w = u.as_weak();
-    pd.on_dnd_cancel(move || { if let Some(u) = w.upgrade() { u.global::<Pd>().set_dnd_active(false); u.global::<Pd>().set_dnd_target("".into()); } });
+    pd.on_dnd_cancel(move || { if let Some(u) = w.upgrade() { u.global::<Pd>().set_dnd_active(false); u.global::<Pd>().set_dnd_target("".into()); u.global::<Pd>().set_dnd_accts(slint::ModelRc::default()); } });
     let (w, s) = (u.as_weak(), st.clone());
     pd.on_event_dropped(move |id, days, minutes, resize| { if let Some(u) = w.upgrade() { event_dropped(&u, &s, &id, days, minutes, resize); } });
     let w = u.as_weak();

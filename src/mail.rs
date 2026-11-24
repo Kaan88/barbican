@@ -306,6 +306,8 @@ pub fn load_mailboxes(w: slint::Weak<AppWindow>, c: Arc<Client>, select_inbox: b
             let stale = base.is_some() && BOXES.with(|b| b.borrow().state != base);
             if stale { return; }
             BOXES.with(|b| { let mut b = b.borrow_mut(); b.list = list; b.state = state.map(|s| (c.state_key(), s)); });
+            // the copy and move pickers hold this login's folders from before
+            crate::ctxmenu::folders_changed(&crate::unified::login_of(&c));
             rebuild_folders(&u);
             set_tags(&u, &counts);
             if select_inbox {
@@ -618,6 +620,8 @@ pub fn rebuild_list(u: &AppWindow) {
         crate::listsync::sync_into(&u.get_mails(), build_rows(&l), |m| m.id.clone(), same_row, |m| u.set_mails(m));
         u.set_has_more(l.emails.len() < l.total);
         u.set_checked_count(l.checked.len() as i32);
+        // the selection bar offers "Report phishing" only once an address is set (Bulwark: while one is)
+        if !l.checked.is_empty() { u.set_phish_ok(crate::phish::setup_cached().is_some()); }
         // the first list built after sign-in is what a bad sender-picture setting crashed in:
         // the start was a good one (an empty mailbox falls back to crashguard::UP_FOR)
         if u.get_logged_in() && !l.emails.is_empty() { crate::crashguard::done(&crate::config_dir()); }
@@ -976,15 +980,35 @@ pub fn mark_phishing_local(id: &str) {
 }
 
 pub fn phishing_filed(u: &AppWindow, c: Arc<Client>, id: &str) {
-    let ids = vec![id.to_string()];
+    phishing_filed_all(u, &[(c, id.to_string())]);
+}
+
+/// The same for several reported messages (one list rebuild, one refresh per login).
+pub fn phishing_filed_all(u: &AppWindow, filed: &[(Arc<Client>, String)]) {
+    let ids: Vec<String> = filed.iter().map(|f| f.1.clone()).collect();
     remove_local(&ids);
-    if u.get_current_mail().as_str() == id { u.set_current_mail("".into()); }
+    if ids.iter().any(|i| u.get_current_mail().as_str() == i) { u.set_current_mail("".into()); }
     rebuild_list(u);
-    let w = u.as_weak();
-    std::thread::spawn(move || {
-        if crate::unified::is_active(&c) { load_mailboxes(w.clone(), c.clone(), false); }
-        let _ = w.clone().upgrade_in_event_loop(move |_| sync(w, c));
-    });
+    refresh_after(u, filed.iter().map(|f| f.0.clone()).collect());
+}
+
+/// Re-read the folder counts and the list after messages were moved by id (reported, moved back).
+pub fn refresh_after(u: &AppWindow, clients: Vec<Arc<Client>>) {
+    // on the UI thread, once per client (load_mailboxes and sync both start their own threads)
+    let mut seen: Vec<Arc<Client>> = vec![];
+    for c in clients {
+        if seen.iter().any(|s| Arc::ptr_eq(s, &c)) { continue; }
+        seen.push(c.clone());
+        if crate::unified::is_active(&c) { load_mailboxes(u.as_weak(), c.clone(), false); }
+        sync(u.as_weak(), c);
+    }
+}
+
+/// Messages a drag moved to another account: their rows leave the list and the reader goes back to it.
+pub fn moved_away(u: &AppWindow, ids: &[String]) {
+    remove_local(ids);
+    if ids.iter().any(|i| u.get_current_mail().as_str() == i) { u.set_current_mail("".into()); }
+    rebuild_list(u);
 }
 
 /// Apply an action to messages: delete, archive, spam, notspam, star, unstar, read, unread,
@@ -1174,6 +1198,8 @@ fn archive_dated(c: &Client, received: &[(String, String)], mode: &str) -> Resul
 }
 
 pub fn show_toast(u: &AppWindow, text: &str, undo: bool) {
+    // a new toast takes the Undo of a phishing report away (it offers its own after this call)
+    crate::phishflow::clear_undo();
     u.set_toast(text.into());
     u.set_toast_undo(undo);
     let w = u.as_weak();

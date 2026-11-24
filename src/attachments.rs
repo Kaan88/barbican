@@ -43,11 +43,16 @@ pub fn split_stem_ext(name: &str) -> (String, String) {
 
 /// Longest name Bulwark takes for a copy (characters; every server refuses more than 255 bytes).
 const MAX_NAME: usize = 255;
+/// Longest a saved name may be in UTF-8 bytes (what NTFS, ext4 and APFS take per name component).
+const MAX_NAME_BYTES: usize = 255;
+/// Longest extension (dot included, in bytes) a cut name keeps; anything longer is cut too.
+const MAX_EXT_BYTES: usize = 16;
 
 /// Why a typed name can't be used (Bulwark plainFileNameProblem), in the user's words.
 pub fn name_problem(name: &str) -> Option<&'static str> {
     if name.chars().count() > MAX_NAME { return Some("This name is too long"); }
     if name.chars().any(|c| c == '/' || c == '\\' || c.is_control()) { return Some("File names can't contain / or \\ or control characters"); }
+    if name.chars().any(is_bidi_control) { return Some("File names can't contain text direction characters"); }
     None
 }
 
@@ -62,8 +67,29 @@ pub fn renamed(old: &str, typed_stem: &str) -> Result<Option<String>, &'static s
     Ok((new != old).then_some(new))
 }
 
-fn is_bidi_control(c: char) -> bool {
-    matches!(c, '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
+/// Characters that change the direction text is drawn in (LRM, RLM, ALM, the embeddings and
+/// overrides, the isolates).
+pub fn is_bidi_control(c: char) -> bool {
+    matches!(c, '\u{061c}' | '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
+}
+
+/// Whether Windows treats `stem` (the part before the first dot) as a device, not a file:
+/// CON, PRN, AUX, NUL, CONIN$, CONOUT$ and COM / LPT with 1-9 or a superscript 1, 2, 3.
+fn is_device_name(stem: &str) -> bool {
+    let up = stem.trim_end().to_uppercase();
+    if matches!(up.as_str(), "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$") { return true; }
+    let mut ch = up.chars();
+    let head: String = ch.by_ref().take(3).collect();
+    (head == "COM" || head == "LPT")
+        && matches!((ch.next(), ch.next()), (Some('1'..='9' | '\u{b9}' | '\u{b2}' | '\u{b3}'), None))
+}
+
+/// `s` cut to at most `max` bytes on a character boundary.
+fn cut_bytes(s: &str, max: usize) -> &str {
+    if s.len() <= max { return s; }
+    let mut n = max;
+    while !s.is_char_boundary(n) { n -= 1; }
+    &s[..n]
 }
 
 /// A name a file system takes: directional controls (they reorder what the user sees, so
@@ -77,14 +103,15 @@ pub fn safe_file_name(name: &str) -> String {
     let s = s.trim().trim_matches('.').trim().to_string();
     if s.is_empty() { return "attachment".into(); }
     let (stem, ext) = split_stem_ext(&s);
-    let device_stem = stem.split('.').next().unwrap_or("").to_uppercase();
-    let reserved = matches!(device_stem.as_str(), "CON" | "PRN" | "AUX" | "NUL")
-        || ((device_stem.starts_with("COM") || device_stem.starts_with("LPT")) && device_stem.len() == 4 && device_stem.ends_with(|c: char| ('1'..='9').contains(&c)));
-    let s = if reserved { format!("_{s}") } else { s };
-    if s.chars().count() <= MAX_NAME { return s; }
-    let (stem, ext) = if reserved { split_stem_ext(&s) } else { (stem, ext) };
-    let keep = MAX_NAME.saturating_sub(ext.chars().count()).max(1);
-    format!("{}{ext}", stem.chars().take(keep).collect::<String>())
+    let reserved = is_device_name(s.split('.').next().unwrap_or(""));
+    let (stem, s) = if reserved { (format!("_{stem}"), format!("_{s}")) } else { (stem, s) };
+    if s.len() <= MAX_NAME_BYTES { return s; }
+    // too long: keep a sane extension (an absurd one is cut too), shorten the stem to fit
+    let ext = cut_bytes(&ext, MAX_EXT_BYTES).trim_end_matches(['.', ' ']);
+    let ext = if ext == "." { "" } else { ext };
+    let stem = cut_bytes(&stem, MAX_NAME_BYTES - ext.len()).trim_end_matches(['.', ' ']);
+    if stem.is_empty() { return format!("attachment{ext}"); }
+    format!("{stem}{ext}")
 }
 
 /// The name a saved copy of an attachment gets: a renamed one as the user typed it, cleaned up.
@@ -222,6 +249,10 @@ mod tests {
         assert!(renamed("report.pdf", "a/b").is_err());
         assert!(renamed("report.pdf", "a\\b").is_err());
         assert!(renamed("report.pdf", "a\u{7}b").is_err());
+        for c in ['\u{202e}', '\u{202a}', '\u{2066}', '\u{200f}', '\u{61c}'] {
+            assert!(renamed("report.pdf", &format!("a{c}b")).is_err(), "U+{:04X}", c as u32);
+        }
+        assert!(is_bidi_control('\u{61c}') && !is_bidi_control('a'));
         assert!(renamed("report.pdf", &"x".repeat(256)).is_err());
         assert!(renamed("report.pdf", &"x".repeat(251)).is_ok());
     }
@@ -240,11 +271,39 @@ mod tests {
         assert_eq!(safe_file_name("com1.tar.gz"), "_com1.tar.gz");
         assert_eq!(safe_file_name("com10.txt"), "com10.txt");
         assert_eq!(safe_file_name("console.txt"), "console.txt");
+        assert_eq!(safe_file_name("CONIN$"), "_CONIN$");
+        assert_eq!(safe_file_name("conout$.log"), "_conout$.log");
+        assert_eq!(safe_file_name("COM\u{b9}.txt"), "_COM\u{b9}.txt");
+        assert_eq!(safe_file_name("lpt\u{b3}"), "_lpt\u{b3}");
+        assert_eq!(safe_file_name("COM0.txt"), "COM0.txt");
+        assert_eq!(safe_file_name("COM\u{2074}.txt"), "COM\u{2074}.txt");
+        // the Arabic letter mark is a direction control too
+        assert_eq!(safe_file_name("a\u{61c}b.txt"), "ab.txt");
         let long = format!("{}.pdf", "x".repeat(300));
         let cut = safe_file_name(&long);
-        assert_eq!(cut.chars().count(), 255);
+        assert_eq!(cut.len(), 255);
         assert!(cut.ends_with(".pdf"));
         assert_eq!(save_name(&json!({"name": "a/b.txt"})), "a_b.txt");
+        // the cap counts UTF-8 bytes, never splits a character, keeps a sane extension
+        let cut = safe_file_name(&format!("{}.pdf", "\u{e9}".repeat(200)));
+        assert!(cut.len() <= 255 && cut.ends_with(".pdf") && cut.starts_with('\u{e9}'));
+        let cut = safe_file_name(&format!("{}.docx", "\u{6f22}".repeat(100)));
+        assert!(cut.len() <= 255 && cut.ends_with(".docx"));
+        // an absurd extension is cut as well
+        let cut = safe_file_name(&format!("{}.{}", "n".repeat(300), "e".repeat(400)));
+        assert!(cut.len() <= 255 && cut.starts_with("nnn") && cut.rsplit_once('.').unwrap().1.len() < 16);
+        let cut = safe_file_name(&format!("a.{}", "e".repeat(400)));
+        assert!(cut.len() <= 255 && cut.starts_with("a.e"));
+        // a cut extension does not end in a dot or space either
+        let cut = safe_file_name(&format!("n.{}. .{}", "e".repeat(13), "x".repeat(300)));
+        assert!(cut.len() <= 255 && !cut.ends_with('.') && !cut.ends_with(' '));
+        let cut = safe_file_name(&format!("{}.{}.", "n".repeat(300), "e".repeat(300)));
+        assert!(!cut.ends_with('.'));
+        // a cut never leaves a trailing dot or space
+        let cut = safe_file_name(&format!("{} .pdf", "d".repeat(253)));
+        assert!(cut.len() <= 255 && !cut.contains(" ."));
+        // a device name that also needs the cap keeps its prefix
+        assert!(safe_file_name(&format!("con.{}", "x".repeat(300))).starts_with("_con."));
         assert_eq!(save_name(&json!({})), "attachment");
     }
 

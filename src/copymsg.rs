@@ -217,6 +217,69 @@ pub fn folder_choices(list: &[Value]) -> Vec<(String, String, usize)> {
     out
 }
 
+/// The folders of one account as a picker shows them: id, name, depth (`folder_choices`).
+pub type Choices = Vec<(String, String, usize)>;
+
+/// What is known about the folders of one other account.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Slot { Loading, Ready(Choices), Failed(String) }
+
+/// The other accounts' folders, loaded in the background (Bulwark keeps `accountMailboxes` per
+/// account and refreshes them when a move or copy touched the account). One load per account at
+/// a time; a failed load shows as failed and is tried again the next time a menu opens; a change
+/// of the account's folders drops what was loaded, and a load that was running then is ignored
+/// when it ends (its answer is older than the change).
+#[derive(Debug, Default)]
+pub struct FolderCache { slots: std::collections::HashMap<String, (u64, Slot)>, gen: u64 }
+
+impl FolderCache {
+    /// Whether a load of `login` should start now; if so it is marked as loading and the
+    /// returned number goes back with the answer. None while one is running or the folders are
+    /// known.
+    pub fn begin(&mut self, login: &str) -> Option<u64> {
+        if matches!(self.slots.get(login), Some((_, Slot::Loading | Slot::Ready(_)))) { return None; }
+        self.gen += 1;
+        self.slots.insert(login.to_string(), (self.gen, Slot::Loading));
+        Some(self.gen)
+    }
+    /// The answer of the load `gen` began; ignored when the slot changed since. Returns whether it was taken.
+    pub fn finish(&mut self, login: &str, gen: u64, res: Result<Choices, String>) -> bool {
+        match self.slots.get_mut(login) {
+            Some((g, slot)) if *g == gen => { *slot = match res { Ok(c) => Slot::Ready(c), Err(e) => Slot::Failed(e) }; true }
+            _ => false,
+        }
+    }
+    /// The account's folders changed: forget them (the next menu loads them again).
+    pub fn invalidate(&mut self, login: &str) { self.slots.remove(login); }
+    pub fn slot(&self, login: &str) -> Option<&Slot> { self.slots.get(login).map(|(_, s)| s) }
+}
+
+/// `Parent › Child` of the folder `id` in a picker list (Bulwark getMailboxPath).
+pub fn path_of(list: &[(String, String, usize)], id: &str) -> Option<String> {
+    let at = list.iter().position(|(i, _, _)| i == id)?;
+    let mut names = vec![list[at].1.as_str()];
+    let mut depth = list[at].2;
+    for (_, name, d) in list[..at].iter().rev() {
+        if depth == 0 { break; }
+        if *d < depth { names.push(name); depth = *d; }
+    }
+    names.reverse();
+    Some(names.join(" \u{203a} "))
+}
+
+/// The toast of a finished drag-and-drop move to another account (Bulwark use-mailbox-drop.ts:
+/// "Moved to {path}" / "{count} emails moved to {path}"; the store's error text when any message
+/// failed: "Failed to move email: ..." / "Failed to move N email(s); first error: ...").
+pub fn move_toast(rep: &Report, path: &str) -> String {
+    match (rep.copied.len(), rep.failed.first()) {
+        (0, None) => "Nothing to move.".to_string(),
+        (n, None) if n > 1 => format!("{n} emails moved to {path}"),
+        (_, None) => format!("Moved to {path}"),
+        (_, Some(first)) if rep.failed.len() == 1 => format!("Failed to move email: {}", first.1),
+        (_, Some(first)) => format!("Failed to move {} email(s); first error: {}", rep.failed.len(), first.1),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -378,5 +441,59 @@ mod tests {
         ];
         let got: Vec<(String, usize)> = folder_choices(&l).into_iter().map(|(id, _, d)| (id, d)).collect();
         assert_eq!(got, vec![("i".to_string(), 0), ("t".to_string(), 0), ("o".to_string(), 0), ("z".to_string(), 0), ("c".to_string(), 1)]);
+    }
+    #[test]
+    fn folder_cache_loads_once_fails_visibly_and_forgets_on_change() {
+        let mut c = FolderCache::default();
+        let g1 = c.begin("a@x").unwrap();
+        // a second menu opening meanwhile does not start another load
+        assert!(c.begin("a@x").is_none());
+        assert_eq!(c.slot("a@x"), Some(&Slot::Loading));
+        // another account is independent
+        assert!(c.begin("b@y").is_some());
+        assert!(c.finish("a@x", g1, Err("offline".into())));
+        assert_eq!(c.slot("a@x"), Some(&Slot::Failed("offline".into())));
+        // a failed load is tried again the next time
+        let g2 = c.begin("a@x").unwrap();
+        assert_ne!(g1, g2);
+        assert!(c.finish("a@x", g2, Ok(vec![("i".into(), "Inbox".into(), 0)])));
+        assert!(matches!(c.slot("a@x"), Some(Slot::Ready(l)) if l.len() == 1));
+        assert!(c.begin("a@x").is_none());
+        // the account's folders changed: forgotten, and a load that was running is ignored
+        let g3 = c.begin("b@y");
+        assert!(g3.is_none(), "b@y is still loading");
+        c.invalidate("b@y");
+        assert!(c.slot("b@y").is_none());
+        let g4 = c.begin("b@y").unwrap();
+        assert!(!c.finish("b@y", 1 + g1 + 100, Ok(vec![])));
+        c.invalidate("a@x");
+        assert!(c.slot("a@x").is_none());
+        assert!(!c.finish("a@x", g2, Ok(vec![])), "an answer from before the change is dropped");
+        assert!(c.slot("a@x").is_none());
+        assert!(c.finish("b@y", g4, Ok(vec![])));
+    }
+
+    #[test]
+    fn folder_paths_follow_depth() {
+        let l: Choices = vec![("i".into(), "Inbox".into(), 0), ("z".into(), "Zeta".into(), 0), ("c".into(), "Child".into(), 1),
+            ("g".into(), "Grand".into(), 2), ("c2".into(), "Other".into(), 1), ("t".into(), "Trash".into(), 0)];
+        assert_eq!(path_of(&l, "i").as_deref(), Some("Inbox"));
+        assert_eq!(path_of(&l, "g").as_deref(), Some("Zeta \u{203a} Child \u{203a} Grand"));
+        assert_eq!(path_of(&l, "c2").as_deref(), Some("Zeta \u{203a} Other"));
+        assert_eq!(path_of(&l, "t").as_deref(), Some("Trash"));
+        assert_eq!(path_of(&l, "nope"), None);
+    }
+
+    #[test]
+    fn move_toasts_follow_bulwark() {
+        let ok = |n: usize| Report { copied: (0..n).map(|i| i.to_string()).collect(), failed: vec![] };
+        assert_eq!(move_toast(&ok(1), "Inbox"), "Moved to Inbox");
+        assert_eq!(move_toast(&ok(3), "Work \u{203a} Inbox"), "3 emails moved to Work \u{203a} Inbox");
+        assert_eq!(move_toast(&Report::default(), "Inbox"), "Nothing to move.");
+        let one = Report { copied: vec![], failed: vec![("a".into(), "Over quota".into())] };
+        assert_eq!(move_toast(&one, "Inbox"), "Failed to move email: Over quota");
+        // some moved, some not: the failure is what is said
+        let some = Report { copied: vec!["a".into()], failed: vec![("b".into(), "Gone".into()), ("c".into(), "x".into())] };
+        assert_eq!(move_toast(&some, "Inbox"), "Failed to move 2 email(s); first error: Gone");
     }
 }
