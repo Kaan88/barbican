@@ -7,6 +7,8 @@ example "## 0.1.0 — 2026-12-01", and start a new "Unreleased" above it.
 
 ## Unreleased
 
+## 0.2.0 — 2026-11-24
+
 - Plugins: API v2 decisions recorded in PLUGINS.md (for plugin authors, nothing changes in the app yet): web access to a private, loopback or LAN host needs that exact host named in the manifest and the user's separate consent (https only, never a wildcard); API 1 plugins keep loading until 1.0; a slow pre-send check shows a pending state and can be cancelled without skipping it; Barbican's own host calls, `crypto:full` and the package layout are kept, phone-layout hooks and WebAuthn stay out.
 - Settings > Message list > Deleting & archiving has "Trash retention (days)" and "Junk retention (days)" (0 or empty hides the note, at most 3650). They set the line shown under the title of Trash and Junk, which updates at once when you change a value; your server's retention policy still decides what is really deleted.
 - Mail: a winmail.dat's own message text now shows in the reader when the message has no real HTML body (Outlook's empty Word boilerplate counts as none): the HTML goes through the same sanitiser and remote-content rules as any message, plain text is shown as text, and a message that has a real body keeps it.
