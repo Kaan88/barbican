@@ -417,8 +417,11 @@ finish.
   entries that are private, loopback or LAN hosts are listed apart, under their own heading, because they let the
   plugin reach machines inside the user's network.
   Accepting records `{ id, path, sha256, granted, origins, at }` in a `pluginGrants` pref, which replaces API 1's
-  `pluginBindings`. **A file with another hash is always off until the user says yes again**; only the permission set
-  carries over. The dialog for an update then says "Updated to version X, no new permissions", or lists just the
+  `pluginBindings`. For an installed package `sha256` covers the whole package (every file's path, size and bytes, in
+  path order), not only its library. **A package with another hash is always off until the user says yes again**; only
+  the permission set carries over. An install never replaces anything but a package with the same id, asks first when
+  the new package's author differs from the installed one, and ids that end in `.dll`, `.so`, `.dylib` or `.json` are
+  refused. The dialog for an update then says "Updated to version X, no new permissions", or lists just the
   permissions and origins it adds.
 - **Optional permissions** are asked for at run time with `permissions.request([...])` (a consent dialog; the answer
   is remembered; a Barbican addition). Every grant can be revoked under Settings -> Add-ons, which restarts the plugin

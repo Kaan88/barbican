@@ -298,6 +298,8 @@ fn parse_manifest(v: &Value) -> Result<Meta, String> {
 pub const MANIFEST_API: u64 = 2;
 /// Largest `manifest.json` read (Bulwark `MAX_MANIFEST_BYTES`, `lib/extension-package.ts:34`).
 pub const MAX_MANIFEST_BYTES: u64 = 512 * 1024;
+/// Most `httpOrigins` a manifest may list (each is resolved when the consent dialog is built).
+pub const MAX_HTTP_ORIGINS: usize = 32;
 
 /// One permission as the consent dialog shows it. The wording follows Bulwark's `plugins.permissions.*` texts
 /// (`locales/en/common.json`, keyed as `lib/plugin-sandbox/permission-text.ts` says), changed where Barbican differs.
@@ -458,6 +460,8 @@ pub fn valid_id(id: &str) -> bool {
         && id.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '.' | '_' | '-'))
         && !id.ends_with('.')
         && !is_reserved_windows_name(id)
+        // the id is a folder name next to dropped-in libraries and their sidecars: it must never look like one
+        && !["dll", "so", "dylib", "json"].iter().any(|e| id.ends_with(&format!(".{e}")))
 }
 
 /// Semantic version (semver.org 2.0.0), at most 64 characters.
@@ -543,6 +547,26 @@ pub fn resolves_private(host: &str, budget: Duration) -> bool {
     });
     if spawned.is_err() { return false; }
     rx.recv_timeout(budget).map(|ips| ips.into_iter().any(|ip| !ip_is_public(ip))).unwrap_or(false)
+}
+
+/// Which of these hosts are private ([`resolves_private`]), all looked up at the same time under one shared deadline.
+pub fn resolve_private_many(hosts: &[String], budget: Duration) -> std::collections::HashSet<String> {
+    std::thread::scope(|sc| {
+        let jobs: Vec<_> = hosts.iter().map(|h| (h, sc.spawn(move || resolves_private(h, budget)))).collect();
+        jobs.into_iter().filter_map(|(h, j)| j.join().unwrap_or(false).then(|| h.clone())).collect()
+    })
+}
+
+/// `(id, name, author)` as written in an installed package's `manifest.json`, read without validating it; `None`
+/// when `dir` is not a real folder (a link or a file) or has no readable manifest.
+pub fn installed_identity(dir: &std::path::Path) -> Option<(String, String, String)> {
+    let md = std::fs::symlink_metadata(dir).ok()?;
+    if md.file_type().is_symlink() || !md.is_dir() { return None; }
+    let mf = dir.join("manifest.json");
+    if std::fs::metadata(&mf).ok()?.len() > MAX_MANIFEST_BYTES { return None; }
+    let v: Value = serde_json::from_str(&std::fs::read_to_string(&mf).ok()?).ok()?;
+    let f = |k: &str| v[k].as_str().unwrap_or("").to_string();
+    Some((f("id"), f("name"), f("author")))
 }
 
 /// Check one `httpOrigins` entry: `https://host[:port]` or `https://*.host[:port]`; no path, no `http:`, no IP
@@ -740,7 +764,9 @@ pub fn validate_manifest(v: &Value) -> Result<Manifest, String> {
     }
 
     let mut http_origins = vec![];
-    for o in string_list(v, "httpOrigins", &mut errors) {
+    let listed = string_list(v, "httpOrigins", &mut errors);
+    if listed.len() > MAX_HTTP_ORIGINS { errors.push(format!("\"httpOrigins\" lists {} entries; at most {MAX_HTTP_ORIGINS} are allowed", listed.len())); }
+    for o in listed.into_iter().take(MAX_HTTP_ORIGINS) {
         match check_origin(&o) {
             Ok(o) => if !http_origins.contains(&o) { http_origins.push(o) },
             Err(e) => errors.push(e),
@@ -941,7 +967,8 @@ pub fn discover_in(folder: &std::path::Path) -> (Vec<Plugin>, Vec<String>) {
         let Some(lib) = m.library_here() else { errors.push(format!("{dir_name}: no library for {}", platform_key())); continue };
         let lib = d.join(lib);
         let hash = match std::fs::symlink_metadata(&lib) {
-            Ok(md) if md.is_file() => fingerprint(&lib),
+            // a package is pinned as a whole (every file), not only its library
+            Ok(md) if md.is_file() => package_fingerprint(d),
             _ => Err(format!("its library {} is missing", lib.display())),
         };
         let hash = match hash { Ok(h) => h, Err(e) => { errors.push(format!("{dir_name}: {e}")); continue; } };
@@ -1016,9 +1043,52 @@ fn fingerprint(p: &std::path::Path) -> Result<String, String> {
     Ok(hash)
 }
 
+/// SHA-256 over a whole package folder: every file's relative path, length and bytes, in path order. Links are not
+/// followed (a link or an unreadable file is an error). The result is reused while no file's size or time changed.
+pub fn package_fingerprint(dir: &std::path::Path) -> Result<String, String> {
+    fn walk(dir: &std::path::Path, rel: &str, depth: usize, out: &mut Vec<(String, std::path::PathBuf, u64, Option<std::time::SystemTime>)>) -> Result<(), String> {
+        if depth > 16 || out.len() > 1000 { return Err("the package folder is too large or too deep".into()); }
+        for e in std::fs::read_dir(dir).map_err(|e| format!("cannot read {}: {e}", dir.display()))?.flatten() {
+            let name = e.file_name().to_string_lossy().to_string();
+            let r = if rel.is_empty() { name } else { format!("{rel}/{name}") };
+            let md = std::fs::symlink_metadata(e.path()).map_err(|e| format!("{r}: {e}"))?;
+            if md.file_type().is_symlink() { return Err(format!("{r}: a link inside a package")); }
+            if md.is_dir() { walk(&e.path(), &r, depth + 1, out)?; }
+            else if md.is_file() { out.push((r, e.path(), md.len(), md.modified().ok())); }
+        }
+        Ok(())
+    }
+    let mut files = vec![];
+    walk(dir, "", 0, &mut files)?;
+    files.sort_by(|a, b| a.0.cmp(&b.0));
+    let stamp = format!("{:?}", files.iter().map(|f| (&f.0, f.2, f.3)).collect::<Vec<_>>());
+    if !files.iter().any(|f| f.3.is_none()) {
+        let hit = hash_cache().lock().unwrap_or_else(|e| e.into_inner()).get(dir).filter(|(_, h)| h.starts_with(&stamp)).map(|(_, h)| h[stamp.len()..].to_string());
+        if let Some(h) = hit { return Ok(h); }
+    }
+    let mut sha = Sha256::new();
+    for (rel, path, len, _) in &files {
+        let bytes = std::fs::read(path).map_err(|e| format!("{rel}: cannot read the file: {e}"))?;
+        if bytes.len() as u64 != *len { return Err(format!("{rel}: changed while it was read")); }
+        sha.update((rel.len() as u64).to_le_bytes());
+        sha.update(rel.as_bytes());
+        sha.update(len.to_le_bytes());
+        sha.update(&bytes);
+    }
+    let hash: String = sha.finalize().iter().map(|x| format!("{x:02x}")).collect();
+    if !files.iter().any(|f| f.3.is_none()) {
+        hash_cache().lock().unwrap_or_else(|e| e.into_inner()).insert(dir.to_path_buf(), ((0, std::time::UNIX_EPOCH), format!("{stamp}{hash}")));
+    }
+    Ok(hash)
+}
+
 /// Keep the state (loaded library, failure count) of entries that are unchanged; take new or replaced files as found.
 fn merge_discovered(mut old: Vec<Plugin>, new: Vec<Plugin>) -> Vec<Plugin> {
-    new.into_iter().map(|n| match old.iter().position(|o| o.key == n.key && o.path == n.path && o.fingerprint == n.fingerprint) {
+    // the manifest counts too: a package whose manifest changed (new permissions) is a new entry even when its
+    // library is the same file
+    let same = |o: &Plugin, n: &Plugin| o.key == n.key && o.path == n.path && o.fingerprint == n.fingerprint
+        && o.decl == n.decl && o.version == n.version && o.name == n.name && o.hooks == n.hooks && o.description == n.description;
+    new.into_iter().map(|n| match old.iter().position(|o| same(o, &n)) {
         Some(i) => old.swap_remove(i),
         None => n,
     }).collect()
@@ -1097,7 +1167,10 @@ fn sync_with(plugins: &mut [Plugin], enabled: &[String], loader: &Loader, budget
             Ok(x) => x,
             Err(e) => { plugins[i].load_failed = true; errors.push(format!("{path}: {e}")); continue; }
         };
-        if plugins[i].verified && m.id != plugins[i].id {
+        if m.decl.api >= 2 && plugins[i].decl.package.is_none() {
+            plugins[i].load_failed = true;
+            errors.push(format!("{path}: an API 2 plugin must be installed as a package (Settings > Add-ons > Install plugin)"));
+        } else if plugins[i].verified && m.id != plugins[i].id {
             plugins[i].load_failed = true;
             errors.push(format!("{path}: manifest.json says id {} but the library says {}", plugins[i].id, m.id));
         } else if plugins.iter().enumerate().any(|(j, o)| j != i && o.id == m.id) {

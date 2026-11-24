@@ -5,7 +5,8 @@
 //! Checks, before anything is written: the archive size, the number of entries, each entry's size and the total
 //! unpacked size ([`Limits`]); every path (no absolute path, no `..`, no drive letter or `:`, no Windows device name,
 //! no trailing dot or space, no two names that differ only in case, no file that is also a folder); no symbolic link
-//! or reparse point (the ZIP's file attributes, or the folder's own entries); no encrypted, ZIP64 or multi-disk
+//! or junction (a Unix symlink in the ZIP's file attributes, or a link among the folder's own entries; other reparse
+//! points, such as OneDrive placeholders, are ordinary files); no encrypted, ZIP64 or multi-disk
 //! archive; only stored and deflated entries, whose CRC must match. The manifest is validated with
 //! [`crate::plugins::validate_manifest`] and must name a library for this platform that the package contains.
 //! Bulwark's own package checks are `lib/extension-package.ts:31-90` (200 entries, 20 MB per entry).
@@ -106,8 +107,6 @@ fn u32_at(b: &[u8], i: usize) -> Result<u32, String> {
 /// Unix file type bits in a ZIP entry's external attributes (made on a Unix host): a symbolic link.
 const S_IFMT: u32 = 0o170000;
 const S_IFLNK: u32 = 0o120000;
-/// Windows `FILE_ATTRIBUTE_REPARSE_POINT` in the low byte of the external attributes.
-const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
 
 /// Read and check a ZIP package in memory. Returns its files (folders are checked, not returned).
 pub fn read_zip(bytes: &[u8], limits: Limits) -> Result<Vec<PackageFile>, String> {
@@ -145,8 +144,9 @@ pub fn read_zip(bytes: &[u8], limits: Limits) -> Result<Vec<PackageFile>, String
         let parts = check_path(&name)?;
         if flags & 1 != 0 { return Err(format!("\"{name}\": encrypted entries are not supported")); }
         let unix = made_by >> 8 == 3;
-        if (unix && (ext_attr >> 16) & S_IFMT == S_IFLNK) || ext_attr & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
-            return Err(format!("\"{name}\": symbolic links and reparse points are not allowed"));
+        // the unpacker never creates links, so only a Unix symlink entry needs refusing
+        if unix && (ext_attr >> 16) & S_IFMT == S_IFLNK {
+            return Err(format!("\"{name}\": symbolic links are not allowed"));
         }
         if clen == 0xFFFF_FFFF || ulen == 0xFFFF_FFFF { return Err("ZIP64 archives are not supported".into()); }
         let is_dir = name.ends_with('/') || name.ends_with('\\');
@@ -183,13 +183,9 @@ pub fn read_zip(bytes: &[u8], limits: Limits) -> Result<Vec<PackageFile>, String
     Ok(out)
 }
 
-/// Is this entry a symbolic link, junction or other reparse point (never followed)?
+/// Is this entry a symbolic link or junction (never followed)? Rust reports both on Windows; other reparse points
+/// (OneDrive placeholders, compressed files) are plain files.
 fn is_link(md: &std::fs::Metadata) -> bool {
-    #[cfg(windows)]
-    {
-        use std::os::windows::fs::MetadataExt;
-        if md.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 { return true; }
-    }
     md.file_type().is_symlink()
 }
 
@@ -209,7 +205,7 @@ pub fn read_folder(root: &Path, limits: Limits) -> Result<Vec<PackageFile>, Stri
             let path = if rel.is_empty() { name.clone() } else { format!("{rel}/{name}") };
             let parts = check_path(&path)?;
             let md = std::fs::symlink_metadata(e.path()).map_err(|err| format!("\"{path}\": {err}"))?;
-            if is_link(&md) { return Err(format!("\"{path}\": symbolic links and reparse points are not allowed")); }
+            if is_link(&md) { return Err(format!("\"{path}\": symbolic links and junctions are not allowed")); }
             if names.len() >= limits.max_entries { return Err(format!("the package has more than {} entries", limits.max_entries)); }
             if md.is_dir() {
                 names.push((parts, true));
@@ -250,12 +246,33 @@ fn random_tag() -> String {
     b.iter().map(|x| format!("{x:02x}")).collect()
 }
 
+/// A checked package, ready to be written: nothing is on disk yet.
+pub struct Prepared {
+    files: Vec<PackageFile>,
+    pub id: String,
+    pub name: String,
+    pub version: String,
+    pub author: String,
+}
+
+impl Prepared {
+    /// The installed package this one would replace, as `(name, author)`; `None` for a first install.
+    pub fn replaces(&self, plugins_dir: &Path) -> Option<(String, String)> {
+        plugins::installed_identity(&plugins_dir.join(&self.id)).filter(|(id, _, _)| *id == self.id).map(|(_, n, a)| (n, a))
+    }
+}
+
 /// Install a package (a `.zip` file or a folder) into `plugins_dir\<id>\`. A package with the same id is replaced.
 pub fn install(src: &Path, plugins_dir: &Path) -> Result<Installed, String> {
     install_with(src, plugins_dir, LIMITS)
 }
 
 pub fn install_with(src: &Path, plugins_dir: &Path, limits: Limits) -> Result<Installed, String> {
+    commit(prepare(src, limits)?, plugins_dir)
+}
+
+/// Read and check a package (a `.zip` file or a folder) and its manifest; writes nothing.
+pub fn prepare(src: &Path, limits: Limits) -> Result<Prepared, String> {
     let files = if src.is_dir() {
         read_folder(src, limits)?
     } else {
@@ -263,11 +280,10 @@ pub fn install_with(src: &Path, plugins_dir: &Path, limits: Limits) -> Result<In
         if len > limits.max_archive_bytes { return Err(format!("the package file is larger than {} MB", limits.max_archive_bytes >> 20)); }
         read_zip(&std::fs::read(src).map_err(|e| format!("cannot read the file: {e}"))?, limits)?
     };
-    install_files(files, plugins_dir)
+    prepare_files(files)
 }
 
-/// Validate the manifest and unpack: first into a hidden staging folder, then moved into place in one rename.
-pub fn install_files(files: Vec<PackageFile>, plugins_dir: &Path) -> Result<Installed, String> {
+pub fn prepare_files(files: Vec<PackageFile>) -> Result<Prepared, String> {
     let files = rooted(files)?;
     let mf = files.iter().find(|f| f.path == "manifest.json").ok_or("the package has no manifest.json")?;
     if mf.data.len() as u64 > plugins::MAX_MANIFEST_BYTES { return Err("manifest.json is too large".into()); }
@@ -275,9 +291,38 @@ pub fn install_files(files: Vec<PackageFile>, plugins_dir: &Path) -> Result<Inst
     let m = plugins::validate_manifest(&v)?;
     let lib = m.library_here().ok_or_else(|| format!("this plugin has no library for {}", plugins::platform_key()))?;
     if !files.iter().any(|f| f.path == lib) { return Err(format!("the package does not contain its library {lib}")); }
+    Ok(Prepared { files, id: m.id, name: m.name, version: m.version, author: m.author })
+}
 
+pub fn install_files(files: Vec<PackageFile>, plugins_dir: &Path) -> Result<Installed, String> {
+    commit(prepare_files(files)?, plugins_dir)
+}
+
+/// Remove staging and backup folders a crashed or interrupted install left in the plugins folder.
+pub fn sweep_leftovers(plugins_dir: &Path) {
+    let Ok(rd) = std::fs::read_dir(plugins_dir) else { return };
+    for e in rd.flatten() {
+        let name = e.file_name().to_string_lossy().to_string();
+        if !(name.starts_with(".install-") || name.starts_with(".old-")) { continue; }
+        let Ok(md) = std::fs::symlink_metadata(e.path()) else { continue };
+        if is_link(&md) { let _ = std::fs::remove_dir(e.path()).or_else(|_| std::fs::remove_file(e.path())); }
+        else if md.is_dir() { let _ = std::fs::remove_dir_all(e.path()); }
+    }
+}
+
+/// Unpack a checked package: first into a hidden staging folder, then moved into place in one rename. An existing
+/// `plugins_dir\<id>\` is replaced only when it is a real folder holding a package with the same id; anything else
+/// of that name (a dropped-in file, a link, another plugin's folder) is left alone and the install is refused.
+pub fn commit(pkg: Prepared, plugins_dir: &Path) -> Result<Installed, String> {
+    let Prepared { files, id, name, version, .. } = pkg;
     std::fs::create_dir_all(plugins_dir).map_err(|e| format!("cannot create the plugins folder: {e}"))?;
-    let staging = plugins_dir.join(format!(".install-{}-{}", m.id, random_tag()));
+    sweep_leftovers(plugins_dir);
+    let target = plugins_dir.join(&id);
+    let updated = std::fs::symlink_metadata(&target).is_ok();
+    if updated && !plugins::installed_identity(&target).is_some_and(|(old, _, _)| old == id) {
+        return Err(format!("\"{id}\" in the plugins folder is not an installed package with this id, so it is not replaced"));
+    }
+    let staging = plugins_dir.join(format!(".install-{id}-{}", random_tag()));
     let written = (|| -> Result<(), String> {
         std::fs::create_dir(&staging).map_err(|e| e.to_string())?;
         for f in &files {
@@ -293,14 +338,12 @@ pub fn install_files(files: Vec<PackageFile>, plugins_dir: &Path) -> Result<Inst
         let _ = std::fs::remove_dir_all(&staging);
         return Err(format!("could not unpack the plugin: {e}"));
     }
-    let target = plugins_dir.join(&m.id);
-    let updated = std::fs::symlink_metadata(&target).is_ok();
     if updated {
         if plugins::loaded_under(&target) {
             let _ = std::fs::remove_dir_all(&staging);
             return Err("the installed version is loaded: restart Barbican, then install the update".into());
         }
-        let old = plugins_dir.join(format!(".old-{}-{}", m.id, random_tag()));
+        let old = plugins_dir.join(format!(".old-{id}-{}", random_tag()));
         if let Err(e) = std::fs::rename(&target, &old) {
             let _ = std::fs::remove_dir_all(&staging);
             return Err(format!("could not replace the installed version ({e}); restart Barbican and try again"));
@@ -315,7 +358,7 @@ pub fn install_files(files: Vec<PackageFile>, plugins_dir: &Path) -> Result<Inst
         let _ = std::fs::remove_dir_all(&staging);
         return Err(format!("could not install the plugin: {e}"));
     }
-    Ok(Installed { id: m.id, name: m.name, version: m.version, updated })
+    Ok(Installed { id, name, version, updated })
 }
 
 /// Remove an installed package and everything it stored: `plugins_dir\<id>\` and `data_dir\<id>\`.
@@ -454,8 +497,9 @@ mod tests {
     fn symlinks_and_reparse_points_are_refused() {
         let link = E { made_by: 3 << 8, attr: (0o120777u32) << 16, ..f("link.dll", b"/etc/passwd") };
         assert!(zip_err(&[link], LIMITS).contains("symbolic links"));
-        let reparse = E { attr: 0x400, ..f("junction", b"") };
-        assert!(zip_err(&[reparse], LIMITS).contains("reparse points"));
+        // a Windows reparse attribute alone is not a link (OneDrive placeholders carry it)
+        let reparse = E { attr: 0x400, ..f("placeholder", b"x") };
+        assert!(read_zip(&mkzip(&[reparse]), LIMITS).is_ok());
         // a plain Unix file is fine
         assert!(read_zip(&mkzip(&[E { made_by: 3 << 8, attr: 0o100644 << 16, ..f("ok", b"x") }]), LIMITS).is_ok());
     }
@@ -609,15 +653,22 @@ mod tests {
         let at = "2026-01-01T00:00:00Z";
         let g = list[0].grant(vec![], at);
         use sha2::{Digest, Sha256};
-        let want: String = Sha256::digest(b"library bytes").iter().map(|b| format!("{b:02x}")).collect();
-        assert_eq!(g.sha256, want, "the pinned hash is the library's SHA-256");
+        assert_eq!(g.sha256, plugins::package_fingerprint(&plugins_dir.join("dev.example.rec")).unwrap());
+        assert_ne!(g.sha256, Sha256::digest(b"library bytes").iter().map(|b| format!("{b:02x}")).collect::<String>(), "the pin covers the whole package, not only the library");
         assert!(g.path.contains("dev.example.rec"), "{}", g.path);
         assert!(g.granted.contains(&"email:read".to_string()));
         // off until a grant exists, on with it, off again when the file changes
         assert!(plugins::granted_enabled(&list, &["dev.example.rec".into()], &[]).is_empty());
         std::fs::write(plugins_dir.join("dev.example.rec").join(&lib), b"tampered").unwrap();
         let (list2, _) = plugins::discover_in(&plugins_dir);
-        assert!(plugins::granted_enabled(&list2, &["dev.example.rec".into()], &[g]).is_empty(), "a changed file needs consent again");
+        assert!(plugins::granted_enabled(&list2, &["dev.example.rec".into()], &[g.clone()]).is_empty(), "a changed file needs consent again");
+        // a grant still holds when nothing changed, and any other file of the package counts too
+        std::fs::write(plugins_dir.join("dev.example.rec").join(&lib), b"library bytes").unwrap();
+        let (list3, _) = plugins::discover_in(&plugins_dir);
+        assert_eq!(plugins::granted_enabled(&list3, &["dev.example.rec".into()], &[g.clone()]), ["dev.example.rec"]);
+        std::fs::write(plugins_dir.join("dev.example.rec").join("extra.txt"), b"new").unwrap();
+        let (list4, _) = plugins::discover_in(&plugins_dir);
+        assert!(plugins::granted_enabled(&list4, &["dev.example.rec".into()], &[g]).is_empty(), "an added file changes the package hash");
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -629,5 +680,81 @@ mod tests {
         assert!(uninstall("dev.example.none", &p, &d).is_ok());
         for bad in ["", "..", "a/b", "a\\b", "C:"] { assert!(uninstall(bad, &p, &d).is_err(), "{bad}"); }
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn ids_that_look_like_libraries_or_sidecars_are_refused() {
+        for id in ["spam_score.dll", "tool.so", "tool.dylib", "tool.manifest.json", "x.json"] {
+            assert!(!plugins::valid_id(id), "{id}");
+            let root = temp("badid");
+            let zip = mkzip(&[f("manifest.json", &manifest(id, "1.0.0")), f(&lib_file(), b"x")]);
+            std::fs::write(root.join("p.zip"), &zip).unwrap();
+            assert!(install(&root.join("p.zip"), &root.join("plugins")).unwrap_err().contains("id"), "{id}");
+            let _ = std::fs::remove_dir_all(&root);
+        }
+        assert!(plugins::valid_id("dev.example.spam-score") && plugins::valid_id("jsonlint") && plugins::valid_id("my.dll-tool"));
+    }
+
+    #[test]
+    fn only_a_package_with_the_same_id_is_replaced() {
+        let root = temp("replace");
+        let plugins_dir = root.join("plugins");
+        let lib = lib_file();
+        std::fs::create_dir_all(&plugins_dir).unwrap();
+        let zip = mkzip(&[f("manifest.json", &manifest("dev.example.demo", "1.0.0")), f(&lib, b"new")]);
+        std::fs::write(root.join("p.zip"), &zip).unwrap();
+        // a plain file, a folder of something else and a folder with another id are all left alone
+        let target = plugins_dir.join("dev.example.demo");
+        std::fs::write(&target, b"own file").unwrap();
+        assert!(install(&root.join("p.zip"), &plugins_dir).unwrap_err().contains("not replaced"));
+        assert_eq!(std::fs::read(&target).unwrap(), b"own file");
+        std::fs::remove_file(&target).unwrap();
+        std::fs::create_dir_all(&target).unwrap();
+        std::fs::write(target.join("keep.txt"), b"k").unwrap();
+        assert!(install(&root.join("p.zip"), &plugins_dir).unwrap_err().contains("not replaced"));
+        std::fs::write(target.join("manifest.json"), br#"{"id":"dev.example.other"}"#).unwrap();
+        assert!(install(&root.join("p.zip"), &plugins_dir).unwrap_err().contains("not replaced"));
+        assert!(target.join("keep.txt").exists());
+        // same id: replaced, and the name and author of what is replaced are reported
+        std::fs::write(target.join("manifest.json"), br#"{"id":"dev.example.demo","name":"Old","author":"Someone Else"}"#).unwrap();
+        let pkg = prepare(&root.join("p.zip"), LIMITS).unwrap();
+        assert_eq!(pkg.replaces(&plugins_dir), Some(("Old".to_string(), "Someone Else".to_string())));
+        assert_ne!(pkg.author, "Someone Else");
+        assert!(commit(pkg, &plugins_dir).unwrap().updated);
+        assert!(!target.join("keep.txt").exists());
+        // a first install replaces nothing
+        let pkg = prepare(&root.join("p.zip"), LIMITS).unwrap();
+        assert!(pkg.replaces(&root.join("elsewhere")).is_none());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn leftover_staging_folders_are_swept_before_an_install() {
+        let root = temp("sweep");
+        let plugins_dir = root.join("plugins");
+        for n in [".install-a-1", ".old-b-2"] {
+            std::fs::create_dir_all(plugins_dir.join(n)).unwrap();
+            std::fs::write(plugins_dir.join(n).join("x"), b"x").unwrap();
+        }
+        std::fs::create_dir_all(plugins_dir.join("keepme")).unwrap();
+        let zip = mkzip(&[f("manifest.json", &manifest("dev.example.demo", "1.0.0")), f(&lib_file(), b"x")]);
+        std::fs::write(root.join("p.zip"), &zip).unwrap();
+        install(&root.join("p.zip"), &plugins_dir).unwrap();
+        let mut names: Vec<String> = std::fs::read_dir(&plugins_dir).unwrap().flatten().map(|e| e.file_name().to_string_lossy().to_string()).collect();
+        names.sort();
+        assert_eq!(names, ["dev.example.demo", "keepme"]);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn too_many_http_origins_are_refused() {
+        let mut v: serde_json::Value = serde_json::from_slice(&manifest("dev.example.demo", "1.0.0")).unwrap();
+        v["permissions"] = json!(["http:fetch"]);
+        v["hooks"] = json!([]);
+        v["slots"] = json!([]);
+        v["httpOrigins"] = json!((0..plugins::MAX_HTTP_ORIGINS + 1).map(|i| format!("https://h{i}.example.com")).collect::<Vec<_>>());
+        assert!(plugins::validate_manifest(&v).unwrap_err().contains("at most"));
+        v["httpOrigins"] = json!((0..plugins::MAX_HTTP_ORIGINS).map(|i| format!("https://h{i}.example.com")).collect::<Vec<_>>());
+        assert!(plugins::validate_manifest(&v).is_ok());
     }
 }

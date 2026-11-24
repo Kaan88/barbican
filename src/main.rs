@@ -577,6 +577,10 @@ thread_local! {
 /// Returns whether the user said yes; the grant to record is then waiting in [`take_plugin_grant`].
 pub fn plugin_consent(key: &str) -> bool {
     let grants = plugins::grants_from_prefs(&settings::Settings::load().prefs);
+    // every host is looked up at the same time under one 2 s deadline, with PLUGINS released meanwhile
+    let hosts: Vec<String> = PLUGINS.with(|p| p.borrow().iter().find(|x| x.key == key)
+        .map(|x| x.requested().1.iter().map(|o| plugins::origin_host(o).to_string()).filter(|h| !h.starts_with("*.")).collect()).unwrap_or_default());
+    let private_hosts = plugins::resolve_private_many(&hosts, std::time::Duration::from_secs(2));
     // the dialog text is built first and PLUGINS released: the dialog runs a nested event loop
     let ask = PLUGINS.with(|p| {
         let list = p.borrow();
@@ -585,7 +589,7 @@ pub fn plugin_consent(key: &str) -> bool {
         Some(match x.consent(&grants) {
             plugins::Consent::Granted => (None, grants.iter().find(|g| g.id == key).cloned().unwrap_or_else(|| x.grant(vec![], &at))),
             c => {
-                let (title, body, private) = x.consent_dialog(&c, &grants, &|h: &str| plugins::resolves_private(h, std::time::Duration::from_secs(2)));
+                let (title, body, private) = x.consent_dialog(&c, &grants, &|h: &str| private_hosts.contains(h) || plugins::is_private_name(h));
                 (Some((title, body)), x.grant(private, &at))
             }
         })
@@ -605,17 +609,52 @@ pub fn take_plugin_grant(key: &str) -> Option<serde_json::Value> {
     PENDING_GRANT.with(|g| g.borrow_mut().take()).filter(|g| g.id == key).map(|g| g.to_json())
 }
 
-/// Settings > Add-ons > Install plugin: pick a ZIP (or a folder), check it and unpack it into the plugins folder.
+/// Settings > Add-ons > Install plugin: pick a ZIP (or a folder); it is read, checked and unpacked on a worker thread
+/// (a package can be 32 MB), then the Add-ons page is refreshed on the UI thread.
 fn plugin_install(u: &AppWindow, folder: bool) {
     let picked = if folder { rfd::FileDialog::new().pick_folder() } else { rfd::FileDialog::new().add_filter("Plugin package", &["zip"]).pick_file() };
     let Some(src) = picked else { return };
-    let msg = match plugin_package::install(&src, &plugins::dir()) {
-        Ok(r) if r.updated => format!("Updated {} to {}. Switch it on again to review its permissions.", r.name, r.version),
-        Ok(r) => format!("Installed {} {}. It stays off until you switch it on.", r.name, r.version),
-        Err(e) => format!("Could not install the plugin: {e}"),
-    };
-    mail::show_toast(u, &msg, false);
-    refresh_plugins();
+    mail::show_toast(u, "Checking the plugin package...", false);
+    let weak = u.as_weak();
+    let spawned = std::thread::Builder::new().name("barbican-plugin-install".into()).spawn(move || {
+        let dir = plugins::dir();
+        let outcome = plugin_package::prepare(&src, plugin_package::LIMITS).and_then(|pkg| {
+            // replacing a package by someone else's: say so first
+            if let Some((old_name, old_author)) = pkg.replaces(&dir) {
+                if old_author != pkg.author {
+                    let who = |a: &str| if a.is_empty() { "an unknown author".to_string() } else { a.to_string() };
+                    let yes = rfd::MessageDialog::new().set_level(rfd::MessageLevel::Warning).set_title("Replace an installed plugin?")
+                        .set_description(format!("This replaces {old_name} by {} with {} {} by {}. The new plugin is switched off until you accept what it asks for.",
+                            who(&old_author), pkg.name, pkg.version, who(&pkg.author)).as_str())
+                        .set_buttons(rfd::MessageButtons::YesNo).show();
+                    if yes != rfd::MessageDialogResult::Yes { return Err("cancelled".to_string()); }
+                }
+            }
+            plugin_package::commit(pkg, &dir)
+        });
+        let _ = weak.upgrade_in_event_loop(move |u| {
+            refresh_plugins();
+            let msg = match outcome {
+                Err(e) if e == "cancelled" => "Nothing was installed.".to_string(),
+                Err(e) => format!("Could not install the plugin: {e}"),
+                Ok(r) if !r.updated => format!("Installed {} {}. It stays off until you switch it on.", r.name, r.version),
+                Ok(r) => {
+                    // the wording follows what the consent check now says about the new files
+                    let grants = plugins::grants_from_prefs(&settings::Settings::load().prefs);
+                    let c = PLUGINS.with(|p| p.borrow().iter().find(|x| x.key == r.id).map(|x| x.consent(&grants)));
+                    match c {
+                        Some(plugins::Consent::Granted) => format!("Updated {} to {}. It is the package you already accepted.", r.name, r.version),
+                        Some(plugins::Consent::Ask { permissions, origins, .. }) if permissions.is_empty() && origins.is_empty() =>
+                            format!("Updated {} to {}. It asks for nothing new, but its files changed: switch it on again to accept the update.", r.name, r.version),
+                        _ => format!("Updated {} to {}. It asks for more than before: switch it on again to review what it adds.", r.name, r.version),
+                    }
+                }
+            };
+            mail::show_toast(&u, &msg, false);
+            u.invoke_settings_search(u.get_settings_query());
+        });
+    });
+    if let Err(e) = spawned { mail::show_toast(u, &format!("Could not start the install: {e}"), false); }
 }
 
 /// Settings > Add-ons > Uninstall: after a confirm, remove `plugins\<id>\` and `plugin-data\<id>\`.
@@ -954,6 +993,7 @@ fn main() -> Result<(), slint::PlatformError> {
     chips::wire(&ui);
     {
         // listed, not loaded: a plugin runs only after the user switches it on
+        plugin_package::sweep_leftovers(&plugins::dir());
         let (found, errors) = plugins::discover();
         PLUGINS.with(|p| *p.borrow_mut() = found);
         PLUGIN_ERRORS.with(|e| *e.borrow_mut() = errors);
@@ -1415,7 +1455,6 @@ fn main() -> Result<(), slint::PlatformError> {
         if key == "plugins.folder" { oauth::open_browser(&plugins::dir().to_string_lossy()); }
         if key == "plugins.install" || key == "plugins.installFolder" {
             plugin_install(&u, key == "plugins.installFolder");
-            u.invoke_settings_search(u.get_settings_query());
             return;
         }
         if let Some(id) = key.strip_prefix("plugin-uninstall:") {
