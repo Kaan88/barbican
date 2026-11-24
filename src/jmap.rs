@@ -298,15 +298,24 @@ impl Client {
     }
 
     /// Re-fetch the session resource (RFC 8620 §3.4: when `sessionState` changes).
-    pub fn refresh_session(&self) -> R<()> {
+    pub fn refresh_session(&self) -> R<()> { self.refresh_session_as(true) }
+
+    /// `latch`: a 401 ends the session. The refresh a request answer triggers (`post`) does not
+    /// latch: the answer may be that of a password change, whose new header is not set yet, and a
+    /// real expiry is found by the next request anyway.
+    fn refresh_session_as(&self, latch: bool) -> R<()> {
         self.guard()?;
         self.renew_if_due()?;
-        let (mut status, mut s) = fetch_session(&self.http, &self.base, &self.auth_header())?;
+        let sent = self.auth_header();
+        let (mut status, mut s) = fetch_session(&self.http, &self.base, &sent)?;
         if status == 401 && self.oauth.is_some() {
             self.renew()?;
             (status, s) = fetch_session(&self.http, &self.base, &self.auth_header())?;
+        } else if status == 401 && retry_after_401(&sent, &self.auth_header()) {
+            // a password change swapped the header while this ran
+            (status, s) = fetch_session(&self.http, &self.base, &self.auth_header())?;
         }
-        if status == 401 { return Err(self.reject()); }
+        if status == 401 { return Err(if latch { self.reject() } else { SESSION_EXPIRED.into() }); }
         if s["apiUrl"].is_string() { *self.live.write().unwrap() = s; }
         Ok(())
     }
@@ -359,7 +368,7 @@ impl Client {
         trace(calls, &v);
         let known = self.live.read().unwrap()["state"].as_str().map(String::from);
         if let (Some(now), Some(known)) = (v["sessionState"].as_str(), known) {
-            if now != known { let _ = self.refresh_session(); }
+            if now != known { let _ = self.refresh_session_as(false); }
         }
         v["methodResponses"].as_array().cloned().ok_or_else(|| "Bad JMAP response".into())
     }
@@ -900,11 +909,14 @@ impl Client {
         // no per-request timeout: in reqwest it is a total deadline that also covers reading the
         // body, which a big attachment on a slow link overruns. The client's blocking timeout
         // bounds each wait (headers, every body read) with no overall cap.
-        let get = || crate::redirect::send(&url, true, |u| self.http.get(u).header("Authorization", self.auth_header()));
-        let mut resp = get()?;
+        let get = |auth: String| crate::redirect::send(&url, true, |u| self.http.get(u).header("Authorization", auth.clone()));
+        let sent = self.auth_header();
+        let mut resp = get(sent.clone())?;
         if resp.status() == 401 && self.oauth.is_some() {
             self.renew()?;
-            resp = get()?;
+            resp = get(self.auth_header())?;
+        } else if resp.status() == 401 && retry_after_401(&sent, &self.auth_header()) {
+            resp = get(self.auth_header())?;
         }
         if resp.status() == 401 { return Err(self.reject()); }
         if !resp.status().is_success() { return Err(format!("Download failed ({})", resp.status())); }
@@ -931,12 +943,15 @@ impl Client {
         // a request timeout is a total deadline covering the body; scale it with the size
         // (at least 5 min, allowing ~32 KB/s) so slow links can still upload big files
         let limit = std::time::Duration::from_secs(300u64.max(len as u64 / 32_000));
-        let send = |data: Vec<u8>| crate::redirect::send(&url, false, |u| self.http.post(u).header("Authorization", self.auth_header())
+        let send = |data: Vec<u8>, auth: String| crate::redirect::send(&url, false, |u| self.http.post(u).header("Authorization", auth.clone())
             .header("Content-Type", mime).timeout(limit).body(data.clone()));
-        let mut resp = send(data.clone())?;
+        let sent = self.auth_header();
+        let mut resp = send(data.clone(), sent.clone())?;
         if resp.status() == 401 && self.oauth.is_some() {
             self.renew()?;
-            resp = send(data)?;
+            resp = send(data, self.auth_header())?;
+        } else if resp.status() == 401 && retry_after_401(&sent, &self.auth_header()) {
+            resp = send(data, self.auth_header())?;
         }
         if resp.status() == 401 { return Err(self.reject()); }
         if !resp.status().is_success() {
@@ -1196,12 +1211,15 @@ impl Client {
             .redirect(reqwest::redirect::Policy::none())
             .tcp_keepalive(std::time::Duration::from_secs(30)).build().map_err(e)?;
         self.renew_if_due()?;
-        let open = || crate::redirect::send(&url, true, |u| client.get(u).header("Authorization", self.auth_header())
+        let open = |auth: String| crate::redirect::send(&url, true, |u| client.get(u).header("Authorization", auth.clone())
             .header("Accept", "text/event-stream").header("Cache-Control", "no-cache"));
-        let mut resp = open()?;
+        let sent = self.auth_header();
+        let mut resp = open(sent.clone())?;
         if resp.status() == 401 && self.oauth.is_some() {
             self.renew()?;
-            resp = open()?;
+            resp = open(self.auth_header())?;
+        } else if resp.status() == 401 && retry_after_401(&sent, &self.auth_header()) {
+            resp = open(self.auth_header())?;
         }
         if resp.status() == 401 { return Err(self.reject()); }
         if !resp.status().is_success() { return Err(format!("Push failed ({})", resp.status())); }

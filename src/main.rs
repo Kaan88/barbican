@@ -970,6 +970,11 @@ fn main() -> Result<(), slint::PlatformError> {
     let w = ui.as_weak();
     let st = state.clone();
     let srv_out = server_cache.clone();
+    // a password change that ended the session signs out through the same flow, then says why
+    let w_hook = ui.as_weak();
+    security::set_sign_out_hook(Box::new(move |msg| {
+        let _ = w_hook.upgrade_in_event_loop(move |u| { u.invoke_sign_out(); u.set_status(msg.into()); });
+    }));
     ui.on_sign_out(move || {
         server_settings::reset(&srv_out);
         let u = w.unwrap();
@@ -2286,6 +2291,9 @@ fn restore_session(w: slint::Weak<AppWindow>, st: Shared, v: Value, switching: b
                     user: user.clone(),
                 };
                 jmap::Client::connect_oauth(&server, t)
+            } else if v["pass"].as_str().unwrap_or("").is_empty() {
+                // a password that was cleared (two-step sign-in was turned on): nothing to try
+                Err("Wrong username, password or 2FA code".to_string())
             } else {
                 jmap::Client::connect(&server, &user, v["pass"].as_str().unwrap_or(""), "")
             };

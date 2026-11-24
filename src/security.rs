@@ -64,7 +64,6 @@ impl Encryption {
 pub enum Kind { AppPassword, ApiKey }
 
 impl Kind {
-    pub fn object(self) -> &'static str { match self { Kind::AppPassword => "x:AppPassword", Kind::ApiKey => "x:ApiKey" } }
     pub fn set_method(self) -> &'static str { match self { Kind::AppPassword => "x:AppPassword/set", Kind::ApiKey => "x:ApiKey/set" } }
     fn noun(self) -> &'static str { match self { Kind::AppPassword => "app password", Kind::ApiKey => "API key" } }
 }
@@ -363,6 +362,13 @@ pub fn remembered_with_password(accounts: &[Value], user: &str, base: &str, old_
     (a["pass"] == old_password).then(|| json!({"kind": "password", "server": a["server"], "user": a["user"], "pass": new_password}))
 }
 
+/// The remembered entry with its password emptied, when that password is exactly `typed` (a
+/// remembered app password is not the secret two-step sign-in makes useless, so it stays).
+pub fn cleared_password_entry(accounts: &[Value], user: &str, base: &str, typed: &str) -> Option<Value> {
+    let a = remembered_password_entry(accounts, user, base)?;
+    (a["pass"] == typed && !typed.is_empty()).then(|| json!({"kind": "password", "server": a["server"], "user": a["user"], "pass": ""}))
+}
+
 /// What the authenticator app lists the entry under (Bulwark totp-issuer.ts: a stock install names
 /// the account's server).
 pub const TOTP_ISSUER: &str = "Stalwart";
@@ -410,8 +416,6 @@ pub struct State {
 }
 
 impl State {
-    pub fn available(&self) -> bool { self.cap.is_some() }
-
     /// Drop everything typed or shown: passwords, codes, the new secret, the TOTP secret.
     /// Everything of this page session goes: the account it was for, what was typed, the secrets and
     /// the lists. The epoch moves on, so a job or load still running for the old page cannot write
@@ -613,15 +617,35 @@ fn run(st: &mut State, work: impl FnOnce(&Client) -> Result<Update, String> + Se
     st.busy = true;
     let (epoch, owner) = (st.epoch, st.owner.clone());
     Some(Box::new(move |c: &Client, k: &Shared| {
+        let _busy = BusyGuard { cache: k, epoch };
         if !owns(&k.lock().unwrap().sec, epoch, &owner, &c.state_key()) {
             return Err("The account changed. Open the page again.".into());
         }
         let r = work(c);
         let mut g = k.lock().unwrap();
         if g.sec.epoch != epoch { return r.map(|_| ()); }
-        g.sec.busy = false;
         match r { Ok(update) => { update(&mut g.sec); Ok(()) } Err(e) => Err(e) }
     }))
+}
+
+/// How the app signs out on the event loop (set by main): the password change ended this session,
+/// and the user is asked to sign in again with the message shown on the sign-in page.
+static SIGN_OUT: std::sync::Mutex<Option<Box<dyn Fn(String) + Send>>> = std::sync::Mutex::new(None);
+
+pub fn set_sign_out_hook(f: Box<dyn Fn(String) + Send>) { *SIGN_OUT.lock().unwrap_or_else(|e| e.into_inner()) = Some(f); }
+
+/// Run the app's sign-out with `msg`; false when no hook is set.
+pub fn sign_out(msg: &str) -> bool {
+    match SIGN_OUT.lock().unwrap_or_else(|e| e.into_inner()).as_ref() { Some(f) => { f(msg.to_string()); true } None => false }
+}
+
+/// Clears `busy` when a job ends in any way, a panic included (only for the page session it started in).
+struct BusyGuard<'a> { cache: &'a Shared, epoch: u64 }
+impl Drop for BusyGuard<'_> {
+    fn drop(&mut self) {
+        let mut g = self.cache.lock().unwrap_or_else(|e| e.into_inner());
+        if g.sec.epoch == self.epoch { g.sec.busy = false; }
+    }
 }
 
 /// Whether the page state still belongs to the page session and account a job started on.
@@ -680,7 +704,14 @@ fn button_at(st: &mut State, what: &str, now: std::time::Instant) -> Option<Job>
                         }
                         "Password changed.".to_string()
                     }
-                    Followup::EndSession => { c.end_session(); "Password changed. Sign in again with your new password.".to_string() }
+                    Followup::EndSession => {
+                        // the session cannot follow the new password: sign out (the app's own flow,
+                        // which also forgets the remembered sign-in) and ask for the new password
+                        let msg = "Password changed. Sign in again with your new password.".to_string();
+                        c.end_session();
+                        sign_out(&msg);
+                        msg
+                    }
                     Followup::Keep => "Password changed. This session signs in with something else (an app password), which still works.".to_string(),
                 };
                 Ok(Box::new(move |s: &mut State| {
@@ -716,10 +747,10 @@ fn button_at(st: &mut State, what: &str, now: std::time::Instant) -> Option<Job>
                 let r = send(c, enable_totp_calls(&c.account, &pw, &url, &code))?;
                 check_singleton_set(&r, "x:AccountPassword/set", "Failed to enable 2FA")?;
                 // a remembered password has no code: every start would fail and count as a bad login
-                let forgot = forget_remembered_password(c);
+                let forgot = clear_remembered_password(c, &pw);
                 Ok(Box::new(move |s: &mut State| {
                     s.totp = None; s.totp_pw.clear(); s.totp_code.clear(); s.otp_enabled = true;
-                    s.status = if forgot { "Two-step sign-in is on. Barbican forgot your remembered password: sign in with your password and a code from now on.".into() }
+                    s.status = if forgot { "Two-step sign-in is on. Your remembered password was cleared: next time, sign in with your password and a code.".into() }
                         else { "Two-step sign-in is on.".into() };
                 }) as Update)
             })
@@ -823,11 +854,12 @@ fn button_at(st: &mut State, what: &str, now: std::time::Instant) -> Option<Job>
     }
 }
 
-/// Forget the remembered password sign-in of this account (see [`remembered_password_entry`]).
-fn forget_remembered_password(c: &Client) -> bool {
+/// Clear the remembered password of this account when it is the one typed in the two-step form
+/// (the account stays in the switcher; only the stale secret goes).
+fn clear_remembered_password(c: &Client, typed: &str) -> bool {
     let Some(user) = c.basic_user() else { return false };
-    let Some(e) = remembered_password_entry(&crate::oauth::accounts(), &user, &c.base) else { return false };
-    crate::oauth::forget_account(&[e["user"].as_str().unwrap_or("")], e["server"].as_str().unwrap_or(""));
+    let Some(v) = cleared_password_entry(&crate::oauth::accounts(), &user, &c.base, typed) else { return false };
+    crate::oauth::remember(&v, crate::oauth::Origin::SignIn);
     true
 }
 
@@ -1066,7 +1098,10 @@ mod tests {
         assert!(remembered_with_password(&accounts, "bob@example.test", base, "old", "x").is_none());
         assert!(remembered_with_password(&accounts, "ann@example.test", "https://other.example.test", "old", "x").is_none());
         assert!(remembered_with_password(&[], "ann@example.test", base, "old", "x").is_none());
-        // the entry the TOTP switch-on forgets
+        // the entry the TOTP switch-on clears: only a password equal to the one typed, and it stays listed
+        assert_eq!(cleared_password_entry(&accounts, "ann@example.test", base, "old").unwrap(), json!({"kind": "password", "server": "mail.example.test", "user": "Ann@example.test", "pass": ""}));
+        assert!(cleared_password_entry(&accounts, "ann@example.test", base, "app-secret").is_none());
+        assert!(cleared_password_entry(&accounts, "ann@example.test", base, "").is_none());
         assert_eq!(remembered_password_entry(&accounts, "ann@example.test", base).unwrap()["user"], "Ann@example.test");
         assert!(remembered_password_entry(&accounts[..1], "ann@example.test", base).is_none(), "an oauth entry has no password");
     }
@@ -1081,6 +1116,28 @@ mod tests {
         // an app password session keeps its own secret
         assert_eq!(classify_session("app-secret", "old-pass", false), Followup::Keep);
         assert_eq!(classify_session("old-passX", "old-pass", false), Followup::Keep);
+    }
+
+    #[test]
+    fn a_panicking_job_does_not_leave_the_page_busy() {
+        let k: Shared = Default::default();
+        { let mut g = k.lock().unwrap(); g.sec.busy = true; g.sec.epoch = 3; }
+        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| { let _b = BusyGuard { cache: &k, epoch: 3 }; panic!("job failed"); }));
+        assert!(r.is_err());
+        assert!(!k.lock().unwrap().sec.busy);
+        // a job of an earlier page session leaves the new page's flag alone
+        { let mut g = k.lock().unwrap(); g.sec.busy = true; g.sec.epoch = 4; }
+        drop(BusyGuard { cache: &k, epoch: 3 });
+        assert!(k.lock().unwrap().sec.busy);
+    }
+
+    #[test]
+    fn ending_the_session_signs_the_app_out_with_the_message() {
+        let seen: std::sync::Arc<std::sync::Mutex<Vec<String>>> = Default::default();
+        let s2 = seen.clone();
+        set_sign_out_hook(Box::new(move |m| s2.lock().unwrap().push(m)));
+        assert!(sign_out("Password changed. Sign in again with your new password."));
+        assert_eq!(seen.lock().unwrap().as_slice(), ["Password changed. Sign in again with your new password."]);
     }
 
     #[test]

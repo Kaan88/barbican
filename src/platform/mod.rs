@@ -208,6 +208,9 @@ pub fn copy_secret(text: &str) -> bool {
             fn EmptyClipboard() -> i32;
             fn SetClipboardData(format: u32, mem: *mut c_void) -> *mut c_void;
             fn RegisterClipboardFormatW(name: *const u16) -> u32;
+            fn CreateWindowExW(ex: u32, class: *const u16, title: *const u16, style: u32, x: i32, y: i32, w: i32, h: i32,
+                parent: *mut c_void, menu: *mut c_void, inst: *mut c_void, param: *mut c_void) -> *mut c_void;
+            fn DestroyWindow(hwnd: *mut c_void) -> i32;
         }
         #[link(name = "kernel32")]
         extern "system" {
@@ -229,12 +232,17 @@ pub fn copy_secret(text: &str) -> bool {
             Some(h)
         }
         unsafe {
+            // EmptyClipboard with no owner window makes SetClipboardData fail: the clipboard is
+            // opened for a message-only window (parent HWND_MESSAGE, -3) of this thread
+            let class = utf16z("STATIC");
+            let owner = CreateWindowExW(0, class.as_ptr(), class.as_ptr(), 0, 0, 0, 0, 0, -3isize as *mut c_void,
+                std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut());
             let mut opened = false;
             for _ in 0..10 {
-                if OpenClipboard(std::ptr::null_mut()) != 0 { opened = true; break; }
+                if OpenClipboard(owner) != 0 { opened = true; break; }
                 std::thread::sleep(std::time::Duration::from_millis(30));
             }
-            if !opened { return false; }
+            if !opened { if !owner.is_null() { DestroyWindow(owner); } return false; }
             EmptyClipboard();
             let wide: Vec<u8> = utf16z(text).iter().flat_map(|u| u.to_le_bytes()).collect();
             let mut ok = false;
@@ -253,6 +261,7 @@ pub fn copy_secret(text: &str) -> bool {
                 }
             }
             CloseClipboard();
+            if !owner.is_null() { DestroyWindow(owner); }
             ok
         }
     }
