@@ -232,7 +232,9 @@ pub fn plan_hop(url: &Url, resolve: Resolver) -> Result<Hop, Refusal> {
             // one blocked answer among the others refuses the name: the client could pick it
             if ips.iter().any(|ip| is_blocked_ip(*ip)) { return Err(Refusal::ResolvesLocal(name)); }
             let pin = ips.into_iter().map(|ip| SocketAddr::new(ip, port)).collect();
-            Ok(Hop { url: clean, host: name, pin: Some(pin), auth })
+            // pinned under the URL's own spelling: reqwest looks the override up by the exact host the
+            // URL carries, so `example.org.` (trailing dot) must not be pinned as `example.org`
+            Ok(Hop { url: clean, host: host_str.to_string(), pin: Some(pin), auth })
         }
     }
 }
@@ -396,6 +398,13 @@ mod tests {
         let hop = plan_hop(&u("https://cal.example.org:8443/a.ics"), &r).unwrap();
         assert_eq!(calls.get(), 1);
         assert_eq!(hop.host, "cal.example.org");
+        // a trailing dot stays in the pinned host name (the lookup still uses the dotless name)
+        let dotted_url = u("http://x.example.org./");
+        let seen = std::cell::RefCell::new(String::new());
+        let dotted = plan_hop(&dotted_url, &|h, _| { *seen.borrow_mut() = h.to_string(); Ok(vec!["93.184.216.34".parse().unwrap()]) }).unwrap();
+        assert_eq!(dotted.host, dotted_url.host_str().unwrap());
+        assert_eq!(dotted.host, "x.example.org.");
+        assert_eq!(*seen.borrow(), "x.example.org");
         assert_eq!(hop.pin.as_deref(), Some(&["93.184.216.34:8443".parse().unwrap(), "[2606:2800::1]:8443".parse().unwrap()][..]));
         // a name that resolves to a local address is refused, one bad answer among good ones too
         for bad in ["127.0.0.1", "10.1.1.1", "192.168.1.9", "169.254.169.254", "::1", "fd00::5", "::ffff:127.0.0.1", "0.0.0.0", "fe80::1"] {

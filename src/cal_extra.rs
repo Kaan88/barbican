@@ -433,8 +433,11 @@ pub fn sanitize_import(src: &Value, cal: &str) -> Value { import_event(src, cal,
 /// of one occurrence.
 pub fn has_alerts(e: &Value) -> bool {
     e["alerts"].as_object().is_some_and(|a| !a.is_empty())
-        || e["recurrenceOverrides"].as_object().is_some_and(|o| o.values().any(|p| p.as_object().is_some_and(|p| p.keys().any(|k| is_alert_key(k)))))
+        || e["recurrenceOverrides"].as_object().is_some_and(|o| o.values().any(|p| p.as_object().is_some_and(|p| p.iter().any(|(k, v)| is_alert_key(k) && !is_removal(v)))))
 }
+
+/// A null (or empty) alerts value in an override takes reminders away: not a reminder of its own.
+fn is_removal(v: &Value) -> bool { v.is_null() || v.as_object().is_some_and(|o| o.is_empty()) }
 
 fn is_alert_key(k: &str) -> bool { k == "alerts" || k.starts_with("alerts/") }
 
@@ -445,6 +448,7 @@ fn drop_alerts(d: &mut Map<String, Value>) {
     if let Some(o) = d.get_mut("recurrenceOverrides").and_then(Value::as_object_mut) {
         for p in o.values_mut() { if let Some(p) = p.as_object_mut() { p.retain(|k, _| !is_alert_key(k)); } }
     }
+    d.insert("useDefaultAlerts".into(), json!(false));
 }
 
 /// `sanitize_import`, keeping the file's alerts or not (the choice of the import dialog; Bulwark
@@ -1056,6 +1060,11 @@ mod tests {
             "recurrenceOverrides": {"2026-11-27T10:00:00": {"title": "Moved", "alerts/x/trigger/offset": "-PT1H"}}});
         assert!(has_alerts(&with) && has_alerts(&in_override));
         assert!(!has_alerts(&none) && !has_alerts(&empty));
+        // overrides that only remove reminders do not count as having some
+        let removal = json!({"@type": "Event", "uid": "r", "title": "T", "start": "2026-11-20T10:00:00",
+            "recurrenceOverrides": {"2026-11-27T10:00:00": {"alerts": null, "alerts/x": null}, "2026-12-04T10:00:00": {"alerts": {}}}});
+        assert!(!has_alerts(&removal));
+        assert_eq!(alerts_note(&[removal]), "");
         assert_eq!(alerts_note(&[none.clone(), empty.clone()]), "");
         assert_eq!(alerts_note(&[with.clone(), none.clone()]), "1 event in this file has its own reminders.");
         assert_eq!(alerts_note(&[with.clone(), in_override.clone(), none]), "2 events in this file have their own reminders.");
@@ -1074,6 +1083,8 @@ mod tests {
         let d = import_event(&src, "cal", false);
         assert!(d.get("alerts").is_none());
         assert_eq!(d["recurrenceOverrides"]["2026-11-27T10:00:00"], json!({"title": "Moved"}));
+        assert_eq!(d["useDefaultAlerts"], false);
+        assert!(import_event(&src, "cal", true).get("useDefaultAlerts").is_none());
         assert_eq!(d["title"], "T");
         assert_eq!(d["recurrenceRules"], src["recurrenceRules"]);
         assert_eq!(d["calendarIds"], json!({"cal": true}));
