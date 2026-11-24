@@ -61,6 +61,7 @@ mod server_settings;
 mod settings;
 mod sieve;
 mod templates;
+mod tplflow;
 mod spam;
 // composer extras (p2-composer)
 mod autosave;
@@ -420,7 +421,7 @@ pub fn html_to_text(h: &str) -> String {
 thread_local! { pub(crate) static WV_UNAVAILABLE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
 thread_local! { static RESET_ARMED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
 thread_local! { static SERVER_DEBOUNCE: slint::Timer = slint::Timer::default(); }
-thread_local! { static TEMPLATES: std::cell::RefCell<Vec<Value>> = const { std::cell::RefCell::new(Vec::new()) }; }
+thread_local! { static TEMPLATES: std::cell::RefCell<(String, Vec<Value>)> = const { std::cell::RefCell::new((String::new(), Vec::new())) }; }
 thread_local! { static THREAD_ID: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) }; }
 
 /// Load the open message's conversation (unless threading is turned off, like Bulwark's disableThreading).
@@ -1900,12 +1901,23 @@ fn main() -> Result<(), slint::PlatformError> {
     // templates in the composer
     let (w, st) = (ui.as_weak(), state.clone());
     ui.on_tpl_refresh(move || {
-        let Some(c) = st.lock().unwrap().clone() else { return };
+        let Some(c) = compose_client(&st) else { return };
         let w = w.clone();
+        // the list on show belongs to another account (or none yet): empty it until this one's arrives
+        let key = format!("{}|{}", c.username, c.account);
+        if TEMPLATES.with(|t| t.borrow().0 != key) {
+            TEMPLATES.with(|t| *t.borrow_mut() = (String::new(), Vec::new()));
+            if let Some(u) = w.upgrade() { u.set_tpl_names(ModelRc::new(VecModel::from(vec![slint::SharedString::from("Insert template…")]))); u.set_tpl_index(0); }
+        }
+        if let Some(u) = w.upgrade() { if TEMPLATES.with(|t| t.borrow().0 != key) { u.set_tpl_note("Loading…".into()); } }
+        let st = st.clone();
         std::thread::spawn(move || {
-            let list = templates::list(&c).unwrap_or_default();
+            let list = match templates::list(&c) { Ok(l) => l, Err(e) => { let _ = w.upgrade_in_event_loop(move |u| u.set_tpl_note(format!("Could not load templates: {e}").into())); return; } };
             let _ = w.upgrade_in_event_loop(move |u| {
-                TEMPLATES.with(|t| *t.borrow_mut() = list.clone());
+                // results can arrive out of order: only the composing account's list is kept
+                if compose_client(&st).map(|c| format!("{}|{}", c.username, c.account)).as_deref() != Some(key.as_str()) { return; }
+                u.set_tpl_note("".into());
+                TEMPLATES.with(|t| *t.borrow_mut() = (key, list.clone()));
                 let mut names: Vec<slint::SharedString> = vec!["Insert template…".into()];
                 names.extend(list.iter().map(|t| t["name"].as_str().unwrap_or("(unnamed)").into()));
                 u.set_tpl_names(ModelRc::new(VecModel::from(names)));
@@ -1913,17 +1925,17 @@ fn main() -> Result<(), slint::PlatformError> {
             });
         });
     });
-    let w = ui.as_weak();
+    let (w, st) = (ui.as_weak(), state.clone());
     ui.on_tpl_insert(move |i| {
         let u = w.unwrap();
         if i <= 0 { return; }
-        let Some(t) = TEMPLATES.with(|x| x.borrow().get(i as usize - 1).cloned()) else { return };
-        if u.get_c_subject().trim().is_empty() { u.set_c_subject(t["subject"].as_str().unwrap_or("").into()); }
-        let body = t["body"].as_str().unwrap_or("");
-        let blocks = if t["isHTML"] == true { rte::html::import(body) } else { rte::html::import_text(body) };
-        rte::insert_blocks(&u, blocks);
+        // only a list loaded for the account the draft is written in
+        let key = compose_client(&st).map(|c| format!("{}|{}", c.username, c.account)).unwrap_or_default();
+        let Some(t) = TEMPLATES.with(|x| { let x = x.borrow(); if x.0 == key { x.1.get(i as usize - 1).cloned() } else { None } }) else { u.set_tpl_index(0); return };
         u.set_tpl_index(0);
+        tplflow::insert(&u, t);
     });
+    tplflow::wire(&ui, state.clone());
 
     // ---------------- mail actions ----------------
     let w = ui.as_weak();
