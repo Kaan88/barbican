@@ -4,8 +4,125 @@
 //! export writes vCard 4.0 with folded CRLF lines.
 use serde_json::{json, Map, Value};
 
-fn unfold(v: &str) -> String {
-    v.replace("\r\n", "\n").replace('\r', "\n").replace("\n ", "").replace("\n\t", "")
+/// Limits for hostile input (D-M5-03, D-M5-A03). A .vcf from a stranger is untrusted: none of
+/// these can make the reader allocate without bound. Bulwark's lib/vcard.ts has none.
+/// Longest file the reader takes, in characters.
+pub const MAX_FILE_CHARS: usize = 16_000_000;
+/// Cards read from one file; the rest are left out.
+pub const MAX_CARDS: usize = 10_000;
+/// Longest unfolded property line, in characters (a photo line has its own limit).
+pub const MAX_LINE_CHARS: usize = 1_000_000;
+/// Property lines kept per card.
+pub const MAX_PROPS_PER_CARD: usize = 5_000;
+/// Entries kept per kind (emails, phones, ...) on one card.
+pub const MAX_ENTRIES: usize = 500;
+/// A photo or a picked image above this many bytes (decoded) is refused before decoding.
+pub const MAX_IMAGE_BYTES: usize = 8 * 1024 * 1024;
+/// A picture above this many pixels is refused from its header, before any pixel is allocated.
+pub const MAX_IMAGE_PIXELS: u64 = 40_000_000;
+/// A PHOTO / LOGO line may be as long as its base64 text for `MAX_IMAGE_BYTES` plus its header.
+const MAX_PHOTO_LINE_CHARS: usize = MAX_IMAGE_BYTES / 3 * 4 + 8192;
+
+/// What the reader left out of a file, for the import summary.
+#[derive(Default, Debug, Clone, PartialEq, Eq)]
+pub struct ParseReport {
+    /// The file is above `MAX_FILE_CHARS`: nothing was read.
+    pub file_too_large: bool,
+    /// More than `MAX_CARDS` cards: the first ones were kept.
+    pub cards_truncated: bool,
+    /// Property lines above the line limit, dropped.
+    pub lines_dropped: usize,
+    /// Photos or logos dropped (too big, or not base64); their cards are kept.
+    pub photos_dropped: usize,
+}
+
+impl ParseReport {
+    /// Text for the import summary; empty when nothing was left out.
+    pub fn note(&self) -> String {
+        let mut v = vec![];
+        if self.file_too_large { v.push(format!("The file is larger than {} million characters and was not read.", MAX_FILE_CHARS / 1_000_000)); }
+        if self.cards_truncated { v.push(format!("Only the first {MAX_CARDS} contacts were read.")); }
+        if self.photos_dropped > 0 { v.push(format!("{} photo{} too large or not valid and left out.", self.photos_dropped, if self.photos_dropped == 1 { " was" } else { "s were" })); }
+        if self.lines_dropped > 0 { v.push(format!("{} line{} too long and skipped.", self.lines_dropped, if self.lines_dropped == 1 { " was" } else { "s were" })); }
+        v.join(" ")
+    }
+}
+
+/// Physical lines split at CRLF, LF or a lone CR, without collecting them.
+struct RawLines<'a> { text: &'a str, pos: usize }
+
+impl<'a> Iterator for RawLines<'a> {
+    type Item = &'a str;
+    fn next(&mut self) -> Option<&'a str> {
+        let b = self.text.as_bytes();
+        if self.pos >= b.len() { return None; }
+        let start = self.pos;
+        let mut i = start;
+        while i < b.len() && b[i] != b'\n' && b[i] != b'\r' { i += 1; }
+        let line = &self.text[start..i];
+        self.pos = if i < b.len() && b[i] == b'\r' && b.get(i + 1) == Some(&b'\n') { i + 2 } else { (i + 1).min(b.len()) };
+        Some(line)
+    }
+}
+
+/// Unfolded lines (RFC 6350 section 3.2: a line break followed by one space or tab goes), with
+/// vCard 2.1 quoted-printable soft breaks joined, one at a time so a big file is never copied.
+/// Blank lines are skipped.
+struct Logical<'a> { raw: std::iter::Peekable<RawLines<'a>> }
+
+impl<'a> Logical<'a> {
+    fn new(text: &'a str) -> Self { Logical { raw: RawLines { text, pos: 0 }.peekable() } }
+
+    fn unfolded(&mut self) -> Option<String> {
+        let mut l = self.raw.next()?.to_string();
+        while let Some(n) = self.raw.peek() {
+            if n.starts_with(' ') || n.starts_with('\t') { l.push_str(&n[1..]); self.raw.next(); } else { break; }
+        }
+        Some(l)
+    }
+}
+
+impl Iterator for Logical<'_> {
+    type Item = String;
+    fn next(&mut self) -> Option<String> {
+        loop {
+            let mut l = self.unfolded()?;
+            if l.ends_with('=') && l.to_ascii_uppercase().contains(";ENCODING=QUOTED-PRINTABLE") {
+                while l.ends_with('=') {
+                    let Some(n) = self.unfolded() else { break };
+                    l.pop();
+                    l.push_str(&n);
+                }
+            }
+            if !l.trim().is_empty() { return Some(l); }
+        }
+    }
+}
+
+/// Whether a property line is within the line limit (a PHOTO or LOGO line has its own).
+fn line_allowed(line: &str) -> bool {
+    if line.len() <= MAX_LINE_CHARS { return true; }
+    let chars = line.chars().count();
+    if chars <= MAX_LINE_CHARS { return true; }
+    let head = line.split([';', ':']).next().unwrap_or("");
+    let name = head.rsplit('.').next().unwrap_or(head);
+    (name.eq_ignore_ascii_case("PHOTO") || name.eq_ignore_ascii_case("LOGO")) && chars <= MAX_PHOTO_LINE_CHARS
+}
+
+/// Whether base64 text is plausible and decodes to at most `MAX_IMAGE_BYTES`, judged from its
+/// length alone (nothing is decoded here).
+pub fn base64_ok(data: &str) -> bool {
+    let body = data.trim_end_matches('=');
+    !body.is_empty() && data.len() - body.len() <= 2
+        && body.len() * 3 / 4 <= MAX_IMAGE_BYTES
+        && body.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'+' || c == b'/')
+}
+
+/// A media type that is safe to write into a data: URI or a parameter, or None.
+fn safe_mime(m: &str) -> Option<&str> {
+    let ok = !m.is_empty() && m.len() <= 100 && m.matches('/').count() == 1
+        && m.bytes().all(|c| c.is_ascii_alphanumeric() || b"/+.-_".contains(&c));
+    ok.then_some(m)
 }
 
 /// RFC 6868 caret decoding of a parameter value.
@@ -247,7 +364,20 @@ fn next_key(m: &Map<String, Value>, prefix: &str) -> String {
 
 fn push(card: &mut Map<String, Value>, map: &str, prefix: &str, v: Value) {
     let m = card.entry(map.to_string()).or_insert_with(|| json!({}));
-    if let Some(o) = m.as_object_mut() { let k = next_key(o, prefix); o.insert(k, v); }
+    if let Some(o) = m.as_object_mut() {
+        if o.len() >= MAX_ENTRIES { return; }
+        let k = next_key(o, prefix);
+        o.insert(k, v);
+    }
+}
+
+/// Set `map[key]`, unless the map already has `MAX_ENTRIES` entries and the key is new.
+fn put_keyed(card: &mut Map<String, Value>, map: &str, key: &str, v: Value) {
+    let m = card.entry(map.to_string()).or_insert_with(|| json!({}));
+    if let Some(o) = m.as_object_mut() {
+        if o.len() >= MAX_ENTRIES && !o.contains_key(key) { return; }
+        o.insert(key.to_string(), v);
+    }
 }
 
 fn clean(v: Value) -> Value {
@@ -258,41 +388,42 @@ fn clean(v: Value) -> Value {
 }
 
 /// Every card in a .vcf file. Cards with no name, email or organisation are skipped (not
-/// groups). Ids are left out; `uid` is kept when the file has one.
-pub fn parse(vcf: &str) -> Vec<Value> {
-    let text = unfold(vcf);
-    // vCard 2.1 quoted-printable soft breaks
-    let mut lines: Vec<String> = vec![];
-    let raw: Vec<&str> = text.split('\n').collect();
-    let mut i = 0;
-    while i < raw.len() {
-        let mut l = raw[i].to_string();
-        if l.to_uppercase().contains(";ENCODING=QUOTED-PRINTABLE") {
-            while l.ends_with('=') && i + 1 < raw.len() { i += 1; l.pop(); l.push_str(raw[i]); }
-        }
-        lines.push(l);
-        i += 1;
-    }
+/// groups). Ids are left out; `uid` is kept when the file has one. Hostile input is bounded
+/// (see the `MAX_*` limits); use `parse_report` to learn what was left out.
+#[allow(dead_code)]
+pub fn parse(vcf: &str) -> Vec<Value> { parse_report(vcf).0 }
+
+/// `parse`, with what the limits left out. A BEGIN inside a card starts the card over (no
+/// nesting); a card keeps at most `MAX_PROPS_PER_CARD` property lines.
+pub fn parse_report(vcf: &str) -> (Vec<Value>, ParseReport) {
+    let mut rep = ParseReport::default();
     let mut out = vec![];
+    if vcf.len() > MAX_FILE_CHARS && vcf.chars().count() > MAX_FILE_CHARS { rep.file_too_large = true; return (out, rep); }
     let mut cur: Option<Vec<(String, String, String)>> = None;
-    for line in lines {
+    for line in Logical::new(vcf) {
+        if !line_allowed(&line) { rep.lines_dropped += 1; continue; }
         let t = line.trim();
-        if t.is_empty() { continue; }
         if t.eq_ignore_ascii_case("BEGIN:VCARD") { cur = Some(vec![]); continue; }
         if t.eq_ignore_ascii_case("END:VCARD") {
-            if let Some(props) = cur.take() { if let Some(c) = build(props) { out.push(c); } }
+            if let Some(props) = cur.take() {
+                if let Some(c) = build(props, &mut rep) {
+                    if out.len() >= MAX_CARDS { rep.cards_truncated = true; break; }
+                    out.push(c);
+                }
+            }
             continue;
         }
         if let Some(props) = cur.as_mut() {
+            if props.len() >= MAX_PROPS_PER_CARD { continue; }
             let Some(ci) = value_colon(t).filter(|c| *c >= 1) else { continue };
             let (group, key) = split_group(&t[..ci]);
             props.push((group, key, t[ci + 1..].to_string()));
         }
     }
-    out
+    (out, rep)
 }
 
-fn build(props: Vec<(String, String, String)>) -> Option<Value> {
+fn build(props: Vec<(String, String, String)>, rep: &mut ParseReport) -> Option<Value> {
     // Apple grouped labels: item1.TEL + item1.X-ABLABEL
     let mut labels: std::collections::HashMap<String, String> = Default::default();
     for (g, k, v) in &props {
@@ -373,8 +504,7 @@ fn build(props: Vec<(String, String, String)>) -> Option<Value> {
                 if ["group", "individual", "org", "location", "device", "application"].contains(&k.as_str()) { card.insert("kind".into(), json!(k)); }
             }
             "MEMBER" | "X-ADDRESSBOOKSERVER-MEMBER" => {
-                let m = card.entry("members").or_insert_with(|| json!({}));
-                m[val.strip_prefix("urn:uuid:").unwrap_or(&val).to_string()] = json!(true);
+                put_keyed(&mut card, "members", val.strip_prefix("urn:uuid:").unwrap_or(&val), json!(true));
             }
             "PHOTO" | "LOGO" => {
                 let kind = if prop == "LOGO" { "logo" } else { "photo" };
@@ -384,11 +514,22 @@ fn build(props: Vec<(String, String, String)>) -> Option<Value> {
                     if t.contains('/') { t.to_string() } else if ["JPEG", "JPG", "PNG", "GIF", "WEBP", "HEIC", "BMP", "SVG"].contains(&t.to_uppercase().as_str()) { t.to_string() } else { String::new() }
                 });
                 if enc.as_deref() == Some("B") || enc.as_deref() == Some("BASE64") {
-                    let mime = if mt.contains('/') { mt } else if !mt.is_empty() { format!("image/{}", mt.to_lowercase().replace("jpg", "jpeg")) } else { "image/jpeg".into() };
+                    // the text must be base64 and within the size limit; a bad photo is dropped, its card kept
                     let data: String = raw_val.chars().filter(|c| !c.is_whitespace()).collect();
+                    if !base64_ok(&data) { rep.photos_dropped += 1; continue; }
+                    let mime = if mt.contains('/') { safe_mime(&mt).unwrap_or("image/jpeg").to_string() }
+                        else if !mt.is_empty() { format!("image/{}", mt.to_lowercase().replace("jpg", "jpeg")) } else { "image/jpeg".into() };
+                    let mime = safe_mime(&mime).unwrap_or("image/jpeg").to_string();
                     push(&mut card, "media", "m", json!({"@type": "Media", "kind": kind, "uri": format!("data:{mime};base64,{data}"), "mediaType": mime}));
-                } else if val.starts_with("data:") || val.starts_with("http://") || val.starts_with("https://") {
-                    push(&mut card, "media", "m", clean(json!({"@type": "Media", "kind": kind, "uri": val, "mediaType": if mt.contains('/') { Some(mt) } else { None }})));
+                } else if val.starts_with("data:") {
+                    // only a base64 data: URI within the size limit
+                    match parse_data_uri(&val) {
+                        Some((_, data)) if base64_ok(&data) => push(&mut card, "media", "m", clean(json!({"@type": "Media", "kind": kind, "uri": val, "mediaType": if mt.contains('/') { safe_mime(&mt).map(String::from) } else { None }}))),
+                        _ => rep.photos_dropped += 1,
+                    }
+                } else if val.starts_with("http://") || val.starts_with("https://") {
+                    // a web link is kept as it is and never fetched (D-M5-A08)
+                    push(&mut card, "media", "m", clean(json!({"@type": "Media", "kind": kind, "uri": val, "mediaType": if mt.contains('/') { safe_mime(&mt).map(String::from) } else { None }})));
                 }
             }
             "TITLE" => push(&mut card, "titles", "t", json!({"@type": "Title", "name": val, "kind": "title"})),
@@ -419,20 +560,17 @@ fn build(props: Vec<(String, String, String)>) -> Option<Value> {
             "BIRTHPLACE" => birth_place = Some(val),
             "DEATHPLACE" => death_place = Some(val),
             "CATEGORIES" => for c in val.split(',').map(str::trim).filter(|x| !x.is_empty()) {
-                let k = card.entry("keywords").or_insert_with(|| json!({}));
-                k[c] = json!(true);
+                put_keyed(&mut card, "keywords", c, json!(true));
             },
             "RELATED" => {
                 let mut rel = Map::new();
                 if let Some(t) = &ty { for x in t.split(',') { let n = x.trim().to_lowercase(); if !n.is_empty() { rel.insert(n, json!(true)); } } }
-                let r = card.entry("relatedTo").or_insert_with(|| json!({}));
-                r[val.clone()] = if rel.is_empty() { json!({"@type": "Relation"}) } else { json!({"@type": "Relation", "relation": rel}) };
+                put_keyed(&mut card, "relatedTo", &val, if rel.is_empty() { json!({"@type": "Relation"}) } else { json!({"@type": "Relation", "relation": rel}) });
             }
             "X-ABRELATEDNAMES" | "X-SPOUSE" | "X-MANAGER" | "X-ASSISTANT" => {
                 let lab = match prop.as_str() { "X-SPOUSE" => "spouse".to_string(), "X-MANAGER" => "manager".into(), "X-ASSISTANT" => "assistant".into(), _ => label.clone().unwrap_or_default() };
                 if !val.is_empty() {
-                    let r = card.entry("relatedTo").or_insert_with(|| json!({}));
-                    r[val.clone()] = match relation_from_label(&lab) { Some(x) => json!({"@type": "Relation", "relation": { x: true }}), None => json!({"@type": "Relation"}) };
+                    put_keyed(&mut card, "relatedTo", &val, match relation_from_label(&lab) { Some(x) => json!({"@type": "Relation", "relation": { x: true }}), None => json!({"@type": "Relation"}) });
                 }
             }
             "X-MAIDENNAME" | "X-BIRTHNAME" => maiden = Some(val),
@@ -633,10 +771,13 @@ fn one(c: &Value) -> String {
         let Some(uri) = m["uri"].as_str() else { continue };
         let prop = match m["kind"].as_str() { Some("logo") => "LOGO", Some("sound") => "SOUND", _ => "PHOTO" };
         if let Some((ty, data)) = parse_data_uri(uri) {
+            // a picture that would not be read back (too big, not base64) is not written either
+            if !base64_ok(&data) { continue; }
             let ty = if ty.is_empty() { m["mediaType"].as_str().unwrap_or("").to_string() } else { ty };
+            let ty = safe_mime(&ty).unwrap_or("");
             l.push(format!("{prop}:data:{ty};base64,{data}"));
         } else if !uri.starts_with("data:") {
-            let mt = m["mediaType"].as_str().map(|x| format!(";MEDIATYPE={x}")).unwrap_or_default();
+            let mt = m["mediaType"].as_str().and_then(safe_mime).map(|x| format!(";MEDIATYPE={x}")).unwrap_or_default();
             l.push(format!("{prop};VALUE=URI{mt}:{uri}"));
         }
     }
@@ -646,7 +787,9 @@ fn one(c: &Value) -> String {
     }
     if let Some(cr) = c["created"].as_str() { l.push(format!("CREATED:{}", vcard_ts(cr))); }
     l.push("END:VCARD".into());
-    l.iter().map(|x| format!("{}\r\n", fold(x))).collect()
+    // D-M5-A04: no CR or LF may survive in a property line, so a value with a line break cannot
+    // end its property and forge another (addresses, numbers and URIs are written unescaped)
+    l.iter().map(|x| format!("{}\r\n", fold(&x.replace(['\r', '\n'], "")))).collect()
 }
 
 /// (media type, base64 data) of a base64 data: URI. Stalwart writes `data:;base64,` and
@@ -765,6 +908,191 @@ PHOTO;ENCODING=b;TYPE=JPEG:/9j/4AAQ\r\n SkZJRg==\r\nEND:VCARD\r\n";
         assert_eq!(c.len(), 1);
         assert_eq!(c[0]["name"]["components"][0]["value"], "Jürgen");
         assert_eq!(c[0]["name"]["components"][1]["value"], "Müller");
+    }
+
+    fn one_card(body: &str) -> String { format!("BEGIN:VCARD\r\nVERSION:4.0\r\n{body}\r\nEND:VCARD\r\n") }
+
+    #[test]
+    fn a_file_above_16_million_characters_is_not_read() {
+        let big = format!("{}{}", one_card("FN:Ann Example"), " ".repeat(MAX_FILE_CHARS));
+        let (cards, rep) = parse_report(&big);
+        assert!(cards.is_empty() && rep.file_too_large);
+        assert!(rep.note().contains("16 million"));
+        // exactly at the limit is read
+        let at = format!("{}{}", one_card("FN:Ann Example"), "\n".repeat(MAX_FILE_CHARS - one_card("FN:Ann Example").chars().count()));
+        assert_eq!(at.chars().count(), MAX_FILE_CHARS);
+        let (cards, rep) = parse_report(&at);
+        assert_eq!((cards.len(), rep.file_too_large), (1, false));
+        // the limit counts characters, not bytes
+        let wide = format!("{}{}", one_card("FN:Ann"), "\u{e9}".repeat(MAX_FILE_CHARS - 100));
+        assert!(wide.len() > MAX_FILE_CHARS && !parse_report(&wide).1.file_too_large);
+    }
+
+    #[test]
+    fn at_most_10000_cards_are_read() {
+        let one = "BEGIN:VCARD\nFN:A B\nEND:VCARD\n";
+        let (cards, rep) = parse_report(&one.repeat(MAX_CARDS));
+        assert_eq!((cards.len(), rep.cards_truncated), (MAX_CARDS, false));
+        let (cards, rep) = parse_report(&one.repeat(MAX_CARDS + 5));
+        assert_eq!((cards.len(), rep.cards_truncated), (MAX_CARDS, true));
+        assert!(rep.note().contains("10000"));
+    }
+
+    #[test]
+    fn a_line_above_1_million_characters_is_skipped_and_its_card_kept() {
+        let at = format!("NOTE:{}", "x".repeat(MAX_LINE_CHARS - 5));
+        let over = format!("NOTE:{}", "x".repeat(MAX_LINE_CHARS - 4));
+        assert_eq!(at.chars().count(), MAX_LINE_CHARS);
+        let (cards, rep) = parse_report(&one_card(&format!("FN:Ann Example\r\n{at}\r\nEMAIL:ann@example.test")));
+        assert_eq!((cards.len(), rep.lines_dropped), (1, 0));
+        assert_eq!(cards[0]["notes"].as_object().unwrap().len(), 1);
+        let (cards, rep) = parse_report(&one_card(&format!("FN:Ann Example\r\n{over}\r\nEMAIL:ann@example.test")));
+        assert_eq!((cards.len(), rep.lines_dropped), (1, 1));
+        assert!(cards[0]["notes"].is_null());
+        assert_eq!(cards[0]["emails"]["e0"]["address"], "ann@example.test");
+        // folding does not get around it: 20 000 folds of 75 characters make one long line
+        let folded = format!("NOTE:{}", "y".repeat(75 * 20_000)).as_bytes().chunks(74).map(|c| String::from_utf8_lossy(c).to_string()).collect::<Vec<_>>().join("\r\n ");
+        let (cards, rep) = parse_report(&one_card(&format!("FN:Ann Example\r\n{folded}")));
+        assert_eq!((cards.len(), rep.lines_dropped), (1, 1));
+        assert!(cards[0]["notes"].is_null());
+    }
+
+    #[test]
+    fn a_card_keeps_5000_property_lines_and_500_entries_a_kind() {
+        let junk = |n: usize| "X-JUNK:1\r\n".repeat(n);
+        // VERSION is line 1, FN line 2, the email line 5000: kept; one line later: dropped
+        let (cards, _) = parse_report(&one_card(&format!("FN:Ann Example\r\n{}EMAIL:a@example.test", junk(MAX_PROPS_PER_CARD - 3))));
+        assert_eq!(cards[0]["emails"]["e0"]["address"], "a@example.test");
+        let (cards, _) = parse_report(&one_card(&format!("FN:Ann Example\r\n{}EMAIL:a@example.test", junk(MAX_PROPS_PER_CARD - 2))));
+        assert!(cards[0]["emails"].is_null());
+        // 600 of each kind: 500 kept
+        let many = |f: &dyn Fn(usize) -> String| (0..600).map(f).collect::<Vec<_>>().join("\r\n");
+        let body = format!("FN:Ann Example\r\n{}\r\n{}\r\n{}\r\n{}\r\n{}", many(&|i| format!("EMAIL:e{i}@example.test")), many(&|i| format!("TEL:{i}")),
+            many(&|i| format!("CATEGORIES:k{i}")), many(&|i| format!("RELATED;VALUE=text:p{i}")), many(&|i| format!("NICKNAME:n{i}")));
+        let (cards, _) = parse_report(&one_card(&body));
+        for k in ["emails", "phones", "keywords", "relatedTo", "nicknames"] {
+            assert_eq!(cards[0][k].as_object().unwrap().len(), MAX_ENTRIES, "{k}");
+        }
+        assert_eq!(cards[0]["emails"]["e0"]["address"], "e0@example.test");
+        // 500 exactly are all kept
+        let (cards, _) = parse_report(&one_card(&format!("FN:A B\r\n{}", (0..MAX_ENTRIES).map(|i| format!("EMAIL:e{i}@example.test")).collect::<Vec<_>>().join("\r\n"))));
+        assert_eq!(cards[0]["emails"].as_object().unwrap().len(), MAX_ENTRIES);
+    }
+
+    #[test]
+    fn a_begin_inside_a_card_starts_the_card_over_and_nesting_is_bounded() {
+        let (cards, _) = parse_report("BEGIN:VCARD\nFN:Outer One\nBEGIN:VCARD\nFN:Inner One\nEND:VCARD\nEND:VCARD\n");
+        assert_eq!(cards.len(), 1);
+        assert_eq!(cards[0]["name"]["full"], "Inner One");
+        // a hundred thousand BEGINs and one END: one card at most, no recursion, no panic
+        let deep = format!("{}FN:Deep Card\nEND:VCARD\n", "BEGIN:VCARD\n".repeat(100_000));
+        let (cards, _) = parse_report(&deep);
+        assert_eq!(cards.len(), 1);
+        // END without BEGIN, BEGIN without END
+        assert!(parse("END:VCARD\nFN:A B\n").is_empty());
+        assert!(parse("BEGIN:VCARD\nFN:A B\n").is_empty());
+    }
+
+    #[test]
+    fn photos_above_8_mib_or_not_base64_are_dropped_with_the_card_kept() {
+        let photo = |head: &str, body: &str| format!("FN:Ann Example\r\nEMAIL:ann@example.test\r\n{head}:{body}");
+        // just under 8 MiB decoded: kept (the line is far above the 1 M line limit; photo lines have their own)
+        let ok_len = MAX_IMAGE_BYTES / 3 * 4 - 8;
+        let (cards, rep) = parse_report(&one_card(&photo("PHOTO;ENCODING=b;TYPE=JPEG", &"A".repeat(ok_len))));
+        assert_eq!((cards.len(), rep.photos_dropped, rep.lines_dropped), (1, 0, 0));
+        assert_eq!(cards[0]["media"].as_object().unwrap().len(), 1);
+        // a little over 8 MiB: the photo goes, the card stays
+        let (cards, rep) = parse_report(&one_card(&photo("PHOTO;ENCODING=b;TYPE=JPEG", &"A".repeat(MAX_IMAGE_BYTES / 3 * 4 + 16))));
+        assert_eq!((cards.len(), rep.photos_dropped), (1, 1));
+        assert!(cards[0]["media"].is_null());
+        assert_eq!(cards[0]["emails"]["e0"]["address"], "ann@example.test");
+        assert!(rep.note().contains("1 photo was"));
+        // the same through a data: URI
+        let (cards, rep) = parse_report(&one_card(&photo("PHOTO", &format!("data:image/jpeg;base64,{}", "A".repeat(MAX_IMAGE_BYTES / 3 * 4 + 16)))));
+        assert_eq!((cards.len(), rep.photos_dropped), (1, 1));
+        assert!(cards[0]["media"].is_null());
+        // a photo line past even the photo limit is a dropped line
+        let (cards, rep) = parse_report(&one_card(&photo("PHOTO;ENCODING=b", &"A".repeat(MAX_IMAGE_BYTES / 3 * 4 + 20_000))));
+        assert_eq!((cards.len(), rep.lines_dropped, rep.photos_dropped), (1, 1, 0));
+        // not base64: embedded text, a data: URI that is not base64, junk in the base64
+        for (head, body) in [("PHOTO;ENCODING=b", "not base64 at all!"), ("PHOTO", "data:image/png,rawtext"), ("PHOTO", "data:image/png;base64,@@@@"),
+            ("PHOTO;ENCODING=b", "AAAA=AAA"), ("PHOTO;ENCODING=b", "")] {
+            let (cards, rep) = parse_report(&one_card(&photo(head, body)));
+            assert_eq!((cards.len(), rep.photos_dropped), (1, 1), "{head}:{body}");
+            assert!(cards[0]["media"].is_null());
+        }
+        // good ones: embedded with folded text, a data: URI, a web link (kept, never fetched)
+        let (cards, rep) = parse_report(&one_card("FN:Ann Example\r\nPHOTO;ENCODING=b;TYPE=PNG:iVBORw0K\r\n Ggo=\r\nLOGO:data:image/png;base64,iVBORw0KGgo=\r\nPHOTO;VALUE=URI:https://example.test/a.jpg"));
+        assert_eq!(rep.photos_dropped, 0);
+        let m: Vec<&Value> = cards[0]["media"].as_object().unwrap().values().collect();
+        assert_eq!(m.len(), 3);
+        assert_eq!(m[0]["uri"], "data:image/png;base64,iVBORw0KGgo=");
+        assert_eq!(m[1]["kind"], "logo");
+        assert_eq!(m[2]["uri"], "https://example.test/a.jpg");
+        // a hostile media type is not carried into the data: URI
+        let (cards, _) = parse_report(&one_card("FN:A B\r\nPHOTO;ENCODING=b;MEDIATYPE=\"x/y,z;w\":AAAA"));
+        assert_eq!(cards[0]["media"]["m0"]["uri"], "data:image/jpeg;base64,AAAA");
+    }
+
+    #[test]
+    fn base64_limit_is_judged_from_the_length() {
+        assert!(base64_ok("iVBORw0KGgo="));
+        assert!(base64_ok(&"A".repeat(MAX_IMAGE_BYTES / 3 * 4 - 16)));
+        assert!(!base64_ok(&"A".repeat(MAX_IMAGE_BYTES / 3 * 4 + 16)));
+        assert!(!base64_ok("") && !base64_ok("====") && !base64_ok("AA==="));
+        assert!(!base64_ok("AA AA") && !base64_ok("AA-_") && !base64_ok("AA\nAA"));
+    }
+
+    #[test]
+    fn line_endings_folding_and_soft_breaks_still_unfold() {
+        // CRLF, LF and a lone CR; a tab continues a line too; blank lines are skipped
+        let v = "BEGIN:VCARD\rFN:Ann\r\n\t Example\n\nNOTE:one\r\n  two\nEND:VCARD";
+        let c = parse(v);
+        assert_eq!(c.len(), 1);
+        assert_eq!(c[0]["name"]["full"], "Ann Example");
+        assert_eq!(c[0]["notes"]["n0"]["note"], "one two");
+    }
+
+    #[test]
+    fn written_values_cannot_carry_a_line_break() {
+        let evil = "1 Main St\r\nEND:VCARD\r\nBEGIN:VCARD\r\nFN:Forged\nEMAIL:forged@example.test";
+        let card = json!({"name": {"full": "Ann Example"},
+            "emails": {"e0": {"address": "ann@example.test\r\nTEL:555"}},
+            "phones": {"p0": {"number": "555\nURL:https://evil.example.test"}},
+            "addresses": {"a0": {"components": [{"kind": "name", "value": evil}, {"kind": "locality", "value": "Town\rEND:VCARD"}]}},
+            "links": {"l0": {"uri": "https://example.test/\r\nNOTE:forged"}},
+            "onlineServices": {"s0": {"service": "X\nY", "uri": "xmpp:ann@example.test\nNOTE:forged"}},
+            "notes": {"n0": {"note": "a\r\nb\rc"}}, "relatedTo": {"Bob\r\nNOTE:forged": {"relation": {"friend": true}}},
+            "media": {"m0": {"uri": "https://example.test/p.jpg\r\nNOTE:forged", "mediaType": "image/jpeg\r\nNOTE:forged"}}});
+        let out = generate(&[card]);
+        // exactly one card, and every physical line is a property of it or a fold of one
+        assert_eq!(out.matches("BEGIN:VCARD\r\n").count(), 1);
+        assert_eq!(out.matches("END:VCARD\r\n").count(), 1);
+        assert!(out.ends_with("END:VCARD\r\n"));
+        for l in out.split("\r\n").filter(|l| !l.is_empty() && !l.starts_with(' ')) {
+            let name = l.split([';', ':']).next().unwrap();
+            assert!(["BEGIN", "VERSION", "PRODID", "N", "FN", "EMAIL", "TEL", "ADR", "URL", "IMPP", "NOTE", "RELATED", "PHOTO", "END"].contains(&name), "{l}");
+        }
+        assert_eq!(out.matches('\r').count(), out.matches("\r\n").count());
+        assert_eq!(out.matches('\n').count(), out.matches("\r\n").count());
+        assert!(!out.contains("\nNOTE:forged") && !out.contains("\nFN:Forged") && !out.contains("\nTEL:555\r"));
+        // read back, it is still one contact without a forged email or a second card
+        let back = parse(&out);
+        assert_eq!(back.len(), 1);
+        assert_eq!(back[0]["name"]["full"], "Ann Example");
+        assert!(!back[0]["emails"].as_object().unwrap().values().any(|e| e["address"] == "forged@example.test"));
+    }
+
+    #[test]
+    fn export_skips_pictures_the_reader_would_refuse_and_checks_media_types() {
+        let big = "A".repeat(MAX_IMAGE_BYTES / 3 * 4 + 16);
+        let card = json!({"name": {"full": "Ann Example"}, "media": {"m0": {"kind": "photo", "uri": format!("data:image/jpeg;base64,{big}")},
+            "m1": {"kind": "logo", "uri": "data:image/x y;z,base64,AAAA".replace(",base64", ";base64"), "mediaType": "image/png"},
+            "m2": {"kind": "photo", "uri": "data:image/png;base64,iVBORw0KGgo="}}});
+        let out = generate(&[card]);
+        assert!(!out.contains(&big[..100]));
+        assert!(out.contains("PHOTO:data:image/png;base64,iVBORw0KGgo="));
+        assert!(out.contains("LOGO:data:;base64,AAAA"));
     }
 
     #[test]

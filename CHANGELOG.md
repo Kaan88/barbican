@@ -7,6 +7,12 @@ example "## 0.1.0 — 2026-12-01", and start a new "Unreleased" above it.
 
 ## Unreleased
 
+- Contacts: saving a contact no longer loses the other units of its organisation. Editing the Department field changes only the first unit of the first organisation; its other units, the other organisations and properties Barbican does not show are kept, and emptying the field removes only that first unit.
+- Contacts: a birthday on 29 February now counts down to 1 March in years that have no 29 February (it used to point at a date in the past), and a date typed in the contact form must be a real calendar day (31 April and 29 February 2023 are refused; 29 February without a year is fine).
+- Contacts: importing a vCard file from someone else is bounded. A file over 16 million characters is refused (it is not read into memory), at most 10 000 contacts are read per import, a line over 1 million characters is skipped, a card keeps at most 5 000 property lines and 500 entries of each kind, a card begun inside another card starts the card over, and a photo above 8 MiB or whose text is not base64 is left out while its contact is kept. The import summary says what was left out.
+- Contacts: a picked or stored picture above 8 MiB, or above 40 million pixels by the size in its header, is refused before it is decoded, so a small file that claims a giant picture cannot make Barbican use gigabytes of memory.
+- Contacts: an exported vCard can no longer carry a line break inside a value (addresses, numbers and links were written as they were), so a contact cannot forge extra properties or end its own card in an export. Media types in exports are checked, and the file name offered for one exported contact never ends in a dot, is never a Windows device name and is at most 80 characters.
+
 ## 0.1.1 — 2026-11-24
 
 - The window reopens where you left it: its size, position and whether it was maximised are remembered on this computer (not synced with your settings). When the monitor it was on is gone or the screen changed so the window would be off screen, Barbican opens at the default size and place instead.

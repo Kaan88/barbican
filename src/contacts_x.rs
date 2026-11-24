@@ -108,7 +108,24 @@ pub fn parse_date_text(t: &str) -> Result<Value, String> {
     let t = t.trim();
     let mut p = Map::new();
     p.insert("VALUE".into(), json!("date"));
-    crate::vcard::parse_date(t, &p).ok_or_else(|| format!("\"{t}\" is not a date (use YYYY-MM-DD or --MM-DD)"))
+    let bad = || format!("\"{t}\" is not a date (use YYYY-MM-DD or --MM-DD)");
+    let d = crate::vcard::parse_date(t, &p).ok_or_else(bad)?;
+    // a day the month has: 31 April and 29 February of a common year are refused; 29 February
+    // with no year is fine (it is a birthday every year, D-M5-A07)
+    if let (Some(m), Some(day)) = (d["month"].as_u64(), d["day"].as_u64()) {
+        let max = days_in_month(d["year"].as_i64().map(|y| y as i32), m as u32);
+        if day as u32 > max { return Err(bad()); }
+    }
+    Ok(d)
+}
+
+/// Days in a month; a month with no year counts February as 29 (a leap year is possible).
+fn days_in_month(year: Option<i32>, month: u32) -> u32 {
+    match month {
+        2 => if year.is_none_or(|y| (y % 4 == 0 && y % 100 != 0) || y % 400 == 0) { 29 } else { 28 },
+        4 | 6 | 9 | 11 => 30,
+        _ => 31,
+    }
 }
 
 fn phone_kind(p: &Value) -> i32 {
@@ -226,11 +243,7 @@ pub fn build_card(orig: Option<&Value>, f: &Form, fields: &[Field]) -> Result<Ma
     let nn = f.nickname.trim();
     out.insert("nicknames".into(), first_edit("nicknames", "k", (!nn.is_empty()).then(|| json!({"@type": "Nickname", "name": nn}))));
     let (org, dept) = (f.org.trim(), f.dept.trim());
-    out.insert("organizations".into(), first_edit("organizations", "o", (!org.is_empty() || !dept.is_empty()).then(|| {
-        let mut x = json!({"@type": "Organization", "name": org});
-        x["units"] = if dept.is_empty() { Value::Null } else { json!([{"@type": "OrgUnit", "name": dept}]) };
-        clean_nulls(x)
-    })));
+    out.insert("organizations".into(), edit_organizations(o["organizations"].as_object().cloned().unwrap_or_default(), org, dept));
     // titles: one title and one role (Bulwark t0 / t1), others kept
     let mut titles = o["titles"].as_object().cloned().unwrap_or_default();
     for (kind, v) in [("title", f.job_title.trim()), ("role", f.role.trim())] {
@@ -320,7 +333,9 @@ pub fn build_card(orig: Option<&Value>, f: &Form, fields: &[Field]) -> Result<Ma
         if a.is_empty() { return Ok(None); }
         e.insert("@type".into(), json!("Anniversary"));
         e.insert("kind".into(), json!(DATE_KINDS.get(fl.kind as usize).map(|x| x.0).unwrap_or("other")));
-        e.insert("date".into(), parse_date_text(a)?);
+        // a date the user did not touch is kept as the server has it, even when it is not a calendar day
+        let unchanged = e.get("date").is_some_and(|d| date_text(d) == a);
+        if !unchanged { e.insert("date".into(), parse_date_text(a)?); }
         Ok(Some(e))
     })?);
     // related: keyed by the person's name or URI
@@ -339,8 +354,40 @@ pub fn build_card(orig: Option<&Value>, f: &Form, fields: &[Field]) -> Result<Ma
     Ok(out)
 }
 
-fn clean_nulls(v: Value) -> Value {
-    match v { Value::Object(o) => Value::Object(o.into_iter().filter(|(_, x)| !x.is_null()).collect()), x => x }
+/// The organisations after the form's organisation and department fields: the first
+/// organisation's name and its first unit are edited in place; its other units, the other
+/// organisations and properties the form does not show are kept, and emptying the department
+/// removes only the first unit (D-M5-A06; Bulwark's contact-form.tsx:729 keeps the units only
+/// while the department is untouched and otherwise replaces them all).
+pub fn edit_organizations(mut orgs: Map<String, Value>, name: &str, dept: &str) -> Value {
+    let first = orgs.keys().next().cloned();
+    let Some(k) = first else {
+        if name.is_empty() && dept.is_empty() { return Value::Null; }
+        let mut e = Map::new();
+        e.insert("@type".into(), json!("Organization"));
+        if !name.is_empty() { e.insert("name".into(), json!(name)); }
+        if !dept.is_empty() { e.insert("units".into(), json!([{"@type": "OrgUnit", "name": dept}])); }
+        orgs.insert("o0".into(), Value::Object(e));
+        return Value::Object(orgs);
+    };
+    let mut e = orgs[&k].as_object().cloned().unwrap_or_default();
+    let mut units = e.get("units").and_then(|u| u.as_array()).cloned().unwrap_or_default();
+    let shown = units.first().and_then(|u| u["name"].as_str()).unwrap_or("");
+    if dept.is_empty() {
+        // only a unit the form showed (it had a name) is removed by emptying the field
+        if !shown.is_empty() { units.remove(0); }
+    } else if let Some(u) = units.first_mut().and_then(|u| u.as_object_mut()) {
+        u.insert("name".into(), json!(dept));
+        u.entry("@type").or_insert_with(|| json!("OrgUnit"));
+    } else {
+        units.insert(0, json!({"@type": "OrgUnit", "name": dept}));
+    }
+    if units.is_empty() { e.remove("units"); } else { e.insert("units".into(), Value::Array(units)); }
+    if name.is_empty() { e.remove("name"); } else { e.insert("name".into(), json!(name)); }
+    e.entry("@type").or_insert_with(|| json!("Organization"));
+    // nothing left of it: the entry goes
+    if !e.contains_key("name") && !e.contains_key("units") { orgs.remove(&k); } else { orgs.insert(k, Value::Object(e)); }
+    if orgs.is_empty() { Value::Null } else { Value::Object(orgs) }
 }
 
 // ---------------- detail ----------------
@@ -360,15 +407,19 @@ pub fn pretty_date(d: &Value, today: chrono::NaiveDate) -> (String, Option<i64>)
         (Some(y), Some(m), None) if (1..=12).contains(&m) => format!("{} {y}", MONTHS[m as usize - 1]),
         _ => t.clone(),
     };
-    use chrono::Datelike;
-    let next = match (m, dd) {
-        (Some(m), Some(d)) => {
-            let this = chrono::NaiveDate::from_ymd_opt(today.year(), m, d).or_else(|| chrono::NaiveDate::from_ymd_opt(today.year(), 3, 1));
-            this.map(|x| if x < today { chrono::NaiveDate::from_ymd_opt(today.year() + 1, m, d).unwrap_or(x) } else { x }).map(|x| (x - today).num_days())
-        }
-        _ => None,
-    };
+    let next = match (m, dd) { (Some(m), Some(d)) => next_occurrence(m, d, today).map(|x| (x - today).num_days()), _ => None };
     (text, next)
+}
+
+/// The next time a month and day comes round, today included. 29 February in a common year is
+/// 1 March (D-M5-A07; the days until it are never negative). None for a day no year has.
+pub fn next_occurrence(month: u32, day: u32, today: chrono::NaiveDate) -> Option<chrono::NaiveDate> {
+    use chrono::Datelike;
+    // a leap day is at most 8 years away (1896 to 1904 has none in between)
+    (today.year()..=today.year() + 8).find_map(|y| {
+        let d = chrono::NaiveDate::from_ymd_opt(y, month, day).or_else(|| (month == 2 && day == 29).then(|| chrono::NaiveDate::from_ymd_opt(y, 3, 1)).flatten())?;
+        (d >= today).then_some(d)
+    })
 }
 
 fn line(section: &str, label: &str, value: &str, act: &str, tint: &str) -> CtLine {
@@ -434,8 +485,29 @@ fn subtitle(c: &Value) -> String {
 
 fn to_model<T: Clone + 'static>(v: Vec<T>) -> ModelRc<T> { ModelRc::new(VecModel::from(v)) }
 
+/// Whether bytes are a picture this app will decode: at most `MAX_IMAGE_BYTES`, and at most
+/// `MAX_IMAGE_PIXELS` by the size in its header, which is read before any pixel is allocated
+/// (D-M5-03, D-M5-A03: a 100 000 x 100 000 PNG is a few hundred bytes).
+pub fn check_image(bytes: &[u8]) -> Result<(), String> {
+    if bytes.len() > crate::vcard::MAX_IMAGE_BYTES { return Err("That picture is larger than 8 MiB.".into()); }
+    let reader = image::ImageReader::new(std::io::Cursor::new(bytes)).with_guessed_format().map_err(|e| format!("Not an image: {e}"))?;
+    let (w, h) = reader.into_dimensions().map_err(|e| format!("Not an image: {e}"))?;
+    if u64::from(w) * u64::from(h) > crate::vcard::MAX_IMAGE_PIXELS { return Err("That picture has too many pixels (more than 40 million).".into()); }
+    Ok(())
+}
+
+/// Decode a picture after `check_image`, with the decoder's own allocation limit as well.
+fn load_checked(bytes: &[u8]) -> Result<image::DynamicImage, String> {
+    check_image(bytes)?;
+    let mut reader = image::ImageReader::new(std::io::Cursor::new(bytes)).with_guessed_format().map_err(|e| format!("Not an image: {e}"))?;
+    let mut limits = image::Limits::default();
+    limits.max_alloc = Some(512 * 1024 * 1024);
+    reader.limits(limits);
+    reader.decode().map_err(|e| format!("Not an image: {e}"))
+}
+
 fn decode_image(bytes: &[u8]) -> Option<SharedPixelBuffer<Rgba8Pixel>> {
-    let img = image::load_from_memory(bytes).ok()?;
+    let img = load_checked(bytes).ok()?;
     let img = if img.width() > 256 || img.height() > 256 { img.thumbnail(256, 256) } else { img };
     let rgba = img.to_rgba8();
     Some(SharedPixelBuffer::clone_from_slice(rgba.as_raw(), rgba.width(), rgba.height()))
@@ -450,11 +522,13 @@ fn photo_bytes(c: Option<&Client>, card: &Value) -> Option<Vec<u8>> {
     use base64::Engine;
     let p = photo_entry(card)?;
     if let Some((_, data)) = p["uri"].as_str().and_then(crate::vcard::parse_data_uri) {
+        // refused on the text's length, before decoding it (a base64 bomb in a card from a server or a file)
+        if !crate::vcard::base64_ok(data.trim()) { return None; }
         return base64::engine::general_purpose::STANDARD.decode(data.trim()).ok();
     }
     let blob = p["blobId"].as_str()?;
     let c = c?;
-    c.download_from(&c.account_for(CAP), blob, "photo", p["mediaType"].as_str().unwrap_or("image/jpeg")).ok()
+    c.download_from(&c.account_for(CAP), blob, "photo", p["mediaType"].as_str().unwrap_or("image/jpeg")).ok().filter(|b| b.len() <= crate::vcard::MAX_IMAGE_BYTES)
 }
 
 /// Show a card (or a directory entry) in the detail card; photos load in the background.
@@ -563,7 +637,7 @@ fn form(u: &AppWindow) -> Form {
 
 /// Shrink a picked image to at most 512 px and encode it as JPEG (Bulwark image-shrink).
 pub fn shrink_photo(bytes: &[u8]) -> Result<(String, Vec<u8>), String> {
-    let img = image::load_from_memory(bytes).map_err(|e| format!("Not an image: {e}"))?;
+    let img = load_checked(bytes)?;
     let img = if img.width() > 512 || img.height() > 512 { img.thumbnail(512, 512) } else { img };
     let mut out = std::io::Cursor::new(Vec::new());
     image::DynamicImage::ImageRgb8(img.to_rgb8()).write_to(&mut out, image::ImageFormat::Jpeg).map_err(|e| e.to_string())?;
@@ -724,23 +798,69 @@ fn merge(u: &AppWindow, c: Arc<Client>, group: i32) {
 
 // ---------------- import / export ----------------
 
+/// A file's bytes, read only when it is at most `cap` bytes (by its size on disk, and again on
+/// what was read): Ok(None) for a file that cannot be opened, Err for one above the cap.
+fn read_capped(path: &std::path::Path, cap: usize) -> Result<Option<Vec<u8>>, String> {
+    use std::io::Read;
+    let too_big = || format!("\"{}\" is larger than the limit ({} MiB).", path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(), cap / (1024 * 1024));
+    let Ok(f) = std::fs::File::open(path) else { return Ok(None) };
+    if f.metadata().is_ok_and(|m| m.len() > cap as u64) { return Err(too_big()); }
+    let mut buf = vec![];
+    // never read past the cap + 1, whatever the file grows to
+    if f.take(cap as u64 + 1).read_to_end(&mut buf).is_err() { return Ok(None); }
+    if buf.len() > cap { return Err(too_big()); }
+    Ok(Some(buf))
+}
+
+/// The file name offered by the save picker for one exported contact (D-M5-18): letters, digits,
+/// spaces and hyphens only, no leading or trailing dot, space or underscore, no Windows device
+/// name, at most 80 characters; the picker still decides the folder.
+pub fn export_file_name(display_name: &str) -> String {
+    let cleaned: String = display_name.chars().map(|c| if c.is_alphanumeric() || c == ' ' || c == '-' { c } else { '_' }).take(80).collect();
+    let mut stem = cleaned.trim_matches(|c: char| c == ' ' || c == '.' || c == '_').to_string();
+    if stem.is_empty() { stem = "contact".into(); }
+    // "CON.vcf", "nul.vcf", "COM1.vcf" name devices on Windows
+    let up = stem.to_ascii_uppercase();
+    let reserved = ["CON", "PRN", "AUX", "NUL"].contains(&up.as_str())
+        || ((up.starts_with("COM") || up.starts_with("LPT")) && up.len() == 4 && up.as_bytes()[3].is_ascii_digit());
+    if reserved { stem.insert(0, '_'); }
+    format!("{stem}.vcf")
+}
+
 fn start_import(u: &AppWindow) {
     let Some(files) = crate::automation::pick_files() else { return };
     let mut cards = vec![];
     let mut names = vec![];
+    let mut notes: Vec<String> = vec![];
     for f in &files {
-        let Ok(bytes) = std::fs::read(f) else { continue };
+        // at most 4 bytes a character: a bigger file is above the limit whatever it holds
+        let bytes = match read_capped(f, crate::vcard::MAX_FILE_CHARS * 4) {
+            Ok(Some(b)) => b,
+            Ok(None) => continue,
+            Err(_) => { notes.push(crate::vcard::ParseReport { file_too_large: true, ..Default::default() }.note()); continue }
+        };
         let text = String::from_utf8_lossy(&bytes);
-        cards.extend(crate::vcard::parse(&text));
+        let (got, rep) = crate::vcard::parse_report(&text);
+        cards.extend(got);
+        let note = rep.note();
+        if !note.is_empty() { notes.push(note); }
         names.push(f.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default());
     }
     let g = u.global::<CtX>();
-    if cards.is_empty() { crate::mail::show_toast(u, "No contacts found in that file. Pick a .vcf (vCard) file.", false); return; }
+    notes.dedup();
+    if cards.is_empty() {
+        let msg = if notes.is_empty() { "No contacts found in that file. Pick a .vcf (vCard) file.".to_string() } else { notes.join(" ") };
+        crate::mail::show_toast(u, &msg, false);
+        return;
+    }
+    // all the files together stay within the card limit too
+    if cards.len() > crate::vcard::MAX_CARDS { cards.truncate(crate::vcard::MAX_CARDS); notes.push(format!("Only the first {} contacts were read.", crate::vcard::MAX_CARDS)); }
     let dupes = crate::vcard::detect_duplicates(&crate::contacts::cards(), &cards);
     let n = cards.len();
     books_model(u);
     g.set_import_title("Import contacts".into());
-    g.set_import_summary(format!("{n} contact{} in {}.", if n == 1 { "" } else { "s" }, names.join(", ")).into());
+    let note = if notes.is_empty() { String::new() } else { format!(" {}", notes.join(" ")) };
+    g.set_import_summary(format!("{n} contact{} in {}.{note}", if n == 1 { "" } else { "s" }, names.join(", ")).into());
     g.set_import_dupes(dupes.len() as i32);
     g.set_import_skip_dupes(true);
     S.with(|s| { let mut s = s.borrow_mut(); s.import = cards; s.import_dupes = dupes; });
@@ -812,6 +932,7 @@ fn inline_media(c: &Client, cards: &mut [Value]) {
             let Some(b) = e["blobId"].as_str() else { continue };
             let mt = e["mediaType"].as_str().unwrap_or("image/jpeg").to_string();
             match c.download_from(&acc, b, "photo", &mt) {
+                Ok(bytes) if bytes.len() > crate::vcard::MAX_IMAGE_BYTES => { m.remove(&k); }
                 Ok(bytes) => { m[&k] = json!({"kind": e["kind"], "mediaType": mt, "uri": format!("data:{mt};base64,{}", base64::engine::general_purpose::STANDARD.encode(bytes))}); }
                 Err(_) => { m.remove(&k); }
             }
@@ -991,7 +1112,9 @@ pub fn wire(ui: &AppWindow, st: ClientSlot) {
     g.on_pick_photo(move || {
         let u = w.unwrap();
         let Some(files) = crate::automation::pick_files() else { return };
-        let Some(bytes) = files.first().and_then(|f| std::fs::read(f).ok()) else { return };
+        // a file above the limit is refused on its size, before it is read
+        let Some(bytes) = files.first().and_then(|f| read_capped(f, crate::vcard::MAX_IMAGE_BYTES).transpose()) else { return };
+        let bytes = match bytes { Ok(b) => b, Err(e) => { u.global::<CtX>().set_status(e.into()); return } };
         match shrink_photo(&bytes) {
             Ok((mime, jpeg)) => {
                 if let Some(buf) = decode_image(&jpeg) { u.global::<CtX>().set_edit_photo(Image::from_rgba8(buf)); u.global::<CtX>().set_edit_has_photo(true); }
@@ -1021,8 +1144,8 @@ pub fn wire(ui: &AppWindow, st: ClientSlot) {
         let u = w.unwrap();
         let id = u.get_ct_id().to_string();
         let Some(card) = crate::contacts::cards().into_iter().chain(crate::contacts::groups()).find(|c| c["id"] == id.as_str()) else { return };
-        let name = crate::contacts::display_name(&card).chars().map(|c| if c.is_alphanumeric() || c == ' ' || c == '-' { c } else { '_' }).collect::<String>();
-        export(&u, client(&s), vec![card], &format!("{}.vcf", if name.trim().is_empty() { "contact" } else { name.trim() }));
+        let name = export_file_name(&crate::contacts::display_name(&card));
+        export(&u, client(&s), vec![card], &name);
     });
     let (w, s) = (ui.as_weak(), st.clone());
     g.on_add_from_directory(move || { if let Some(c) = client(&s) { add_from_directory(&w.unwrap(), c); } });
@@ -1147,6 +1270,199 @@ mod tests {
         let p = principal_card(&json!({"id": "x", "type": "group", "name": "Sales", "email": "sales@x.org", "description": "Team"}));
         assert_eq!(p["kind"], "group");
         assert_eq!(p["emails"]["e0"]["address"], "sales@x.org");
+    }
+
+    fn units(v: &Value) -> Vec<String> { v.as_array().map(|a| a.iter().filter_map(|u| u["name"].as_str().map(String::from)).collect()).unwrap_or_default() }
+
+    fn two_unit_card() -> Value {
+        json!({"id": "c2", "name": {"full": "Bea Lee"}, "organizations": {
+            "o0": {"@type": "Organization", "name": "Acme", "sortAs": "acme", "units": [{"@type": "OrgUnit", "name": "R&D", "sortAs": "rd"}, {"@type": "OrgUnit", "name": "Legal"}, {"@type": "OrgUnit", "name": "Tax"}]},
+            "o1": {"@type": "Organization", "name": "Other Ltd", "units": [{"@type": "OrgUnit", "name": "Sales"}]}}})
+    }
+
+    fn form_of(c: &Value) -> Form {
+        let first = c["organizations"].as_object().and_then(|o| o.values().next()).cloned().unwrap_or(Value::Null);
+        Form { given: "Bea".into(), surname: "Lee".into(), org: first["name"].as_str().unwrap_or("").into(), dept: first["units"][0]["name"].as_str().unwrap_or("").into(), ..Default::default() }
+    }
+
+    #[test]
+    fn saving_keeps_the_other_organisation_units() {
+        let c = two_unit_card();
+        let fields = fields_of(&c);
+        // untouched form: everything as it was
+        let out = build_card(Some(&c), &form_of(&c), &fields).unwrap();
+        assert_eq!(out["organizations"], c["organizations"]);
+        // department edited: only the first unit changes (its own unknown properties stay)
+        let mut f = form_of(&c);
+        f.dept = "Research".into();
+        let out = build_card(Some(&c), &f, &fields).unwrap();
+        assert_eq!(units(&out["organizations"]["o0"]["units"]), ["Research", "Legal", "Tax"]);
+        assert_eq!(out["organizations"]["o0"]["units"][0]["sortAs"], "rd");
+        assert_eq!(out["organizations"]["o0"]["sortAs"], "acme");
+        assert_eq!(out["organizations"]["o1"], c["organizations"]["o1"]);
+        // department emptied: only the first unit goes
+        f.dept = "".into();
+        let out = build_card(Some(&c), &f, &fields).unwrap();
+        assert_eq!(units(&out["organizations"]["o0"]["units"]), ["Legal", "Tax"]);
+        assert_eq!(out["organizations"]["o0"]["name"], "Acme");
+        assert_eq!(units(&out["organizations"]["o1"]["units"]), ["Sales"]);
+        // organisation renamed, department untouched
+        let mut f = form_of(&c);
+        f.org = "Acme Corp".into();
+        let out = build_card(Some(&c), &f, &fields).unwrap();
+        assert_eq!(out["organizations"]["o0"]["name"], "Acme Corp");
+        assert_eq!(units(&out["organizations"]["o0"]["units"]), ["R&D", "Legal", "Tax"]);
+    }
+
+    #[test]
+    fn organisation_edits_on_small_cards() {
+        let one = |v: Value| v.as_object().cloned().unwrap();
+        // one unit, emptied: no units left, name kept
+        let o = edit_organizations(one(json!({"o0": {"@type": "Organization", "name": "Acme", "units": [{"name": "R&D"}]}})), "Acme", "");
+        assert_eq!(o["o0"]["name"], "Acme");
+        assert!(o["o0"].get("units").is_none());
+        // a new department on an organisation with none
+        let o = edit_organizations(one(json!({"o0": {"name": "Acme"}})), "Acme", "Ops");
+        assert_eq!(units(&o["o0"]["units"]), ["Ops"]);
+        // no organisation yet
+        let o = edit_organizations(Map::new(), "New Co", "HR");
+        assert_eq!((o["o0"]["name"].as_str(), units(&o["o0"]["units"])), (Some("New Co"), vec!["HR".to_string()]));
+        assert!(edit_organizations(Map::new(), "", "").is_null());
+        // everything emptied: the first organisation goes, the second stays
+        let o = edit_organizations(one(json!({"o0": {"name": "A", "units": [{"name": "B"}]}, "o1": {"name": "C"}})), "", "");
+        assert!(o.get("o0").is_none() && o["o1"]["name"] == "C");
+        // a first unit with no name is not the one the form shows: an empty field leaves it alone
+        let o = edit_organizations(one(json!({"o0": {"name": "A", "units": [{"@type": "OrgUnit", "sortAs": "x"}, {"name": "Z"}]}})), "A", "");
+        assert_eq!(o["o0"]["units"].as_array().unwrap().len(), 2);
+        // a department on a card whose only organisation has a nameless first unit fills that unit
+        let o = edit_organizations(one(json!({"o0": {"name": "A", "units": [{"sortAs": "x"}]}})), "A", "Ops");
+        assert_eq!(o["o0"]["units"][0]["name"], "Ops");
+        assert_eq!(o["o0"]["units"][0]["sortAs"], "x");
+        // only the department filled in, no organisation name
+        let o = edit_organizations(Map::new(), "", "HR");
+        assert!(o["o0"].get("name").is_none() || o["o0"]["name"] == "");
+    }
+
+    #[test]
+    fn a_29_february_birthday_counts_down_to_1_march_in_a_common_year() {
+        use chrono::NaiveDate;
+        let d = |y, m, dd| NaiveDate::from_ymd_opt(y, m, dd).unwrap();
+        assert_eq!(next_occurrence(2, 29, d(2027, 2, 10)), Some(d(2027, 3, 1)));
+        assert_eq!(next_occurrence(2, 29, d(2027, 3, 1)), Some(d(2027, 3, 1)));
+        assert_eq!(next_occurrence(2, 29, d(2027, 3, 2)), Some(d(2028, 2, 29)));
+        assert_eq!(next_occurrence(2, 29, d(2028, 2, 29)), Some(d(2028, 2, 29)));
+        assert_eq!(next_occurrence(2, 29, d(2028, 3, 1)), Some(d(2029, 3, 1)));
+        assert_eq!(next_occurrence(2, 29, d(2096, 3, 1)), Some(d(2097, 3, 1)));
+        assert_eq!(next_occurrence(12, 31, d(2026, 12, 31)), Some(d(2026, 12, 31)));
+        assert_eq!(next_occurrence(2, 30, d(2026, 1, 1)), None);
+        assert_eq!(next_occurrence(4, 31, d(2026, 1, 1)), None);
+        // through the detail text: never negative, whatever the day
+        let (_, n) = pretty_date(&json!({"month": 2, "day": 29}), d(2026, 11, 16));
+        assert_eq!(n, Some(105));
+        let (t, n) = pretty_date(&json!({"year": 2000, "month": 2, "day": 29}), d(2027, 2, 27));
+        assert_eq!((t.as_str(), n), ("29 February 2000", Some(2)));
+        let mut day = d(2026, 1, 1);
+        while day < d(2034, 1, 1) {
+            let (_, n) = pretty_date(&json!({"month": 2, "day": 29}), day);
+            assert!(n.is_some_and(|n| (0..=4 * 366).contains(&n)), "{day}: {n:?}");
+            day = day.succ_opt().unwrap();
+        }
+    }
+
+    #[test]
+    fn typed_dates_must_be_real_days() {
+        assert_eq!(parse_date_text("--02-29").unwrap()["day"], 29);
+        assert_eq!(parse_date_text("2024-02-29").unwrap()["year"], 2024);
+        assert_eq!(parse_date_text("2000-02-29").unwrap()["day"], 29);
+        for bad in ["2023-02-29", "1900-02-29", "--02-30", "--04-31", "2024-06-31", "2023-11-31"] { assert!(parse_date_text(bad).is_err(), "{bad}"); }
+        assert!(parse_date_text("2023-02").is_ok() && parse_date_text("1985").is_ok());
+        // a stored date the user did not touch is not revalidated (the card can still be saved)
+        let c = json!({"id": "c3", "name": {"full": "Cy Doe"}, "anniversaries": {"a0": {"kind": "birth", "date": "2023-02-29"}}});
+        let out = build_card(Some(&c), &Form { given: "Cy".into(), surname: "Doe".into(), ..Default::default() }, &fields_of(&c)).unwrap();
+        assert_eq!(out["anniversaries"]["a0"]["date"], "2023-02-29");
+        // changed to a bad one: refused
+        let mut fields = fields_of(&c);
+        fields[0].a = "2023-02-30".into();
+        assert!(build_card(Some(&c), &Form { given: "Cy".into(), ..Default::default() }, &fields).is_err());
+    }
+
+    fn png_claiming(w: u32, h: u32) -> Vec<u8> {
+        // a real 1x1 PNG with the size in its IHDR changed (and the chunk's CRC redone): what a bomb is
+        let mut png = std::io::Cursor::new(vec![]);
+        image::DynamicImage::ImageRgba8(image::RgbaImage::new(1, 1)).write_to(&mut png, image::ImageFormat::Png).unwrap();
+        let mut b = png.into_inner();
+        b[16..20].copy_from_slice(&w.to_be_bytes());
+        b[20..24].copy_from_slice(&h.to_be_bytes());
+        let mut crc = 0xffff_ffffu32;
+        for &x in &b[12..29] { crc ^= u32::from(x); for _ in 0..8 { crc = if crc & 1 != 0 { (crc >> 1) ^ 0xedb8_8320 } else { crc >> 1 }; } }
+        b[29..33].copy_from_slice(&(!crc).to_be_bytes());
+        b
+    }
+
+    #[test]
+    fn pictures_above_the_limits_are_refused_before_decoding() {
+        // 100 000 x 100 000: a few dozen bytes that would be 40 GB of pixels
+        let bomb = png_claiming(100_000, 100_000);
+        assert!(bomb.len() < 200);
+        assert!(check_image(&bomb).unwrap_err().contains("too many pixels"));
+        assert!(shrink_photo(&bomb).is_err());
+        assert!(decode_image(&bomb).is_none());
+        // 40 million pixels exactly passes the header check, one more does not
+        assert!(check_image(&png_claiming(8000, 5000)).is_ok());
+        assert!(check_image(&png_claiming(8000, 5001)).is_err());
+        assert!(check_image(&png_claiming(u32::MAX, u32::MAX)).is_err());
+        // bytes above 8 MiB are refused whatever they are
+        assert!(check_image(&vec![0u8; crate::vcard::MAX_IMAGE_BYTES + 1]).unwrap_err().contains("8 MiB"));
+        assert!(check_image(b"nope").is_err());
+        // a normal picture passes and shrinks
+        let img = image::RgbaImage::from_pixel(64, 48, image::Rgba([1, 2, 3, 255]));
+        let mut png = std::io::Cursor::new(vec![]);
+        image::DynamicImage::ImageRgba8(img).write_to(&mut png, image::ImageFormat::Png).unwrap();
+        assert!(check_image(png.get_ref()).is_ok());
+        assert!(decode_image(png.get_ref()).is_some());
+    }
+
+    #[test]
+    fn a_data_uri_photo_above_8_mib_is_not_decoded() {
+        let big = format!("data:image/jpeg;base64,{}", "A".repeat(crate::vcard::MAX_IMAGE_BYTES / 3 * 4 + 16));
+        let c = json!({"media": {"m0": {"kind": "photo", "uri": big}}});
+        assert!(photo_bytes(None, &c).is_none());
+        let ok = json!({"media": {"m0": {"kind": "photo", "uri": "data:image/png;base64,iVBORw0KGgo="}}});
+        assert_eq!(photo_bytes(None, &ok).unwrap().len(), 8);
+        // not base64: refused
+        assert!(photo_bytes(None, &json!({"media": {"m0": {"kind": "photo", "uri": "data:image/png;base64,@@@@"}}})).is_none());
+    }
+
+    #[test]
+    fn files_above_a_cap_are_not_read() {
+        let dir = std::env::temp_dir().join(format!("barbican-contacts-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("a.vcf");
+        std::fs::write(&f, vec![b'x'; 100]).unwrap();
+        assert_eq!(read_capped(&f, 100).unwrap().unwrap().len(), 100);
+        assert!(read_capped(&f, 99).unwrap_err().contains("a.vcf"));
+        assert_eq!(read_capped(&dir.join("missing.vcf"), 100), Ok(None));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn export_file_names_are_safe() {
+        assert_eq!(export_file_name("Ada Lovelace"), "Ada Lovelace.vcf");
+        assert_eq!(export_file_name("Jean-Luc Picard"), "Jean-Luc Picard.vcf");
+        assert_eq!(export_file_name("Ünal Öztürk"), "Ünal Öztürk.vcf");
+        // path parts, wildcards, streams and control characters become underscores
+        assert_eq!(export_file_name("..\\..\\evil/name?*:\"<>|"), "evil_name.vcf");
+        assert_eq!(export_file_name("a\r\nb\u{0}c"), "a__b_c.vcf");
+        assert_eq!(export_file_name("name.vcf.exe"), "name_vcf_exe.vcf");
+        // nothing left, dots and spaces at the ends, device names
+        for n in ["", "   ", "...", "///", "_"] { assert_eq!(export_file_name(n), "contact.vcf", "{n:?}"); }
+        assert_eq!(export_file_name("Ann. "), "Ann.vcf");
+        for n in ["CON", "nul", "Aux", "PRN", "com1", "LPT9"] { assert_eq!(export_file_name(n), format!("_{n}.vcf")); }
+        assert_eq!(export_file_name("Con Smith"), "Con Smith.vcf");
+        assert_eq!(export_file_name("COM10"), "COM10.vcf");
+        // length
+        assert_eq!(export_file_name(&"x".repeat(500)).len(), 80 + 4);
+        for n in ["a/b", "x:y", "q\\r", "tab\tname"] { let r = export_file_name(n); assert!(!r.contains(['/', '\\', ':', '\t', '*', '?']), "{r}"); }
     }
 
     #[test]
