@@ -30,10 +30,10 @@ G-028,security,Account security: TOTP two-factor (x:AccountPassword otpAuth),acc
 G-029,security,Account security: app passwords (x:AppPassword) and API keys (x:ApiKey),account-security-settings.tsx,missing,,G-029 (GAPS P1-7),3,M
 G-030,security,Account security: encryption at rest (x:PublicKey),account-security-settings.tsx,missing,,G-030 (GAPS P1-7),3,M
 G-031,security,"App lock (PIN or Windows Hello, lock after) and session timeout",app-lock/; session/,missing,,G-031 (GAPS P1-7),3,M
-G-032,templates,Templates: edit an existing template,template-manager-modal.tsx; template-form.tsx,partial,,G-032 (GAPS P1-8),3,S/M
-G-033,templates,Templates: rich body,template-form.tsx,partial,,G-033 (GAPS P1-8),3,S/M
-G-034,templates,Templates: placeholder fill on insert,placeholder-fill-modal.tsx; lib/template-merge.ts,partial,,G-034 (GAPS P1-8),3,S/M
-G-035,templates,Templates: save the current draft as a template,quick-save-template-dialog.tsx,partial,,G-035 (GAPS P1-8),3,S/M
+G-032,templates,Templates: edit an existing template,template-manager-modal.tsx; template-form.tsx,done,"src/templates.rs, src/server_settings.rs (refuses stale saves; keeps the stored body when unchanged)",G-032 (GAPS P1-8),3,S/M
+G-033,templates,Templates: rich body,template-form.tsx,done,"src/templates.rs clean_html (HTML source editor, not WYSIWYG)",G-033 (GAPS P1-8),3,S/M
+G-034,templates,Templates: placeholder fill on insert,placeholder-fill-modal.tsx; lib/template-merge.ts,done,"src/templates.rs, src/tplflow.rs (auto-fill dates in English only)",G-034 (GAPS P1-8),3,S/M
+G-035,templates,Templates: save the current draft as a template,quick-save-template-dialog.tsx,done,src/tplflow.rs (inline images are not saved),G-035 (GAPS P1-8),3,S/M
 G-036,folders,Folders: subscribe and unsubscribe,organize-settings.tsx,done,"src/folders.rs, src/ctxmenu.rs (Subscribe; unsubscribed rows dimmed, Barbican's own)",G-036 (GAPS P1-9),3,S/M
 G-037,folders,Folders: assign standard roles,folder-settings.tsx,done,"src/folders.rs, src/jmap.rs set_mailbox_role (confirm before moving inbox/sent/drafts)",G-037 (GAPS P1-9),3,S/M
 G-038,folders,"Folders: icons and count modes (folderIcons, folderCountModes)",icon-picker.tsx,done,"src/folders.rs, src/mail.rs (icons show in the Bento theme only)",G-038 (GAPS P1-9),3,S/M
