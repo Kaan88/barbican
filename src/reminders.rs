@@ -19,9 +19,15 @@ use std::sync::Arc;
 pub const STALE_MS: i64 = 10 * 60 * 1000;
 /// How far back the missed-reminders dialog looks.
 pub const MISSED_WINDOW_MS: i64 = 7 * 24 * 3600 * 1000;
-/// How far ahead events are read: at least 8 days, and as far as the longest calendar default
-/// alert reaches (an event alert longer than that is caught by the start margin in fetch_ahead).
+/// How far ahead events are read every refetch: at least 8 days, and as far as the longest
+/// calendar default alert reaches. An event's own alert can reach further (an event a month out
+/// that reminds 14 days before): those events are found by the far scan, see `needs_far`.
 const FETCH_AHEAD_MS: i64 = 8 * 86_400_000;
+/// How often the far scan (events starting beyond the read-ahead window) runs: one light query a
+/// login every half hour instead of every refetch, and at once when a calendar changes.
+const FAR_REFETCH_SECS: u64 = 1800;
+/// The least time between two far scans, also when calendar changes keep coming.
+const FAR_MIN_GAP_SECS: u64 = 60;
 
 /// The read-ahead window for these calendars: FETCH_AHEAD_MS, or the longest default alert plus a day.
 pub fn fetch_ahead(cals: &[Value]) -> i64 {
@@ -30,6 +36,52 @@ pub fn fetch_ahead(cals: &[Value]) -> i64 {
     FETCH_AHEAD_MS.max(longest + 86_400_000)
 }
 const REFETCH_SECS: u64 = 300;
+
+fn fmt_utc(ms: i64) -> String {
+    chrono::Utc.timestamp_millis_opt(ms).single().map(|t| t.format("%Y-%m-%dT%H:%M:%SZ").to_string()).unwrap_or_default()
+}
+
+/// The query for the events that can fire soon or came due since the last check: those
+/// overlapping [from, now + ahead].
+pub fn window_filter(from_ms: i64, now_ms: i64, ahead_ms: i64) -> Value {
+    json!({"filter": {"after": fmt_utc(from_ms), "before": fmt_utc(now_ms + ahead_ms)}})
+}
+
+/// The far scan's query: every event ending after the read-ahead window, however far out
+/// (JMAP Calendars lets a filter leave `before` out; the scan retries with a horizon when a
+/// server insists on one, see `far_filter_bounded`). There is no server filter on alerts.
+pub fn far_filter(now_ms: i64, ahead_ms: i64) -> Value {
+    json!({"filter": {"after": fmt_utc(now_ms + ahead_ms)}})
+}
+
+/// `far_filter` with an end `years` out, for a server that refuses an open range.
+pub fn far_filter_bounded(now_ms: i64, ahead_ms: i64, years: i64) -> Value {
+    json!({"filter": {"after": fmt_utc(now_ms + ahead_ms), "before": fmt_utc(now_ms + ahead_ms + years * 366 * 86_400_000)}})
+}
+
+/// Whether an event starting beyond the read-ahead window must still be kept for reminders: it
+/// has a display alert that is absolute, or that fires `ahead_ms` (less a day of slack) or more
+/// before its start, so the alert comes due before the refetch window reaches the event.
+/// Events with only short alerts (and the copies of calendar default alerts, which
+/// `fetch_ahead` covers) are found by the normal window when their time comes.
+pub fn needs_far(e: &Value, ahead_ms: i64) -> bool {
+    let Some(alerts) = e["alerts"].as_object() else { return false };
+    alerts.values().any(|a| {
+        if a["action"].as_str().unwrap_or("display") != "display" || a["acknowledged"].is_string() { return false; }
+        let t = &a["trigger"];
+        if t["@type"] == "AbsoluteTrigger" { return t["when"].is_string(); }
+        t["offset"].as_str().and_then(offset_ms).is_some_and(|off| -off >= ahead_ms - 86_400_000)
+    })
+}
+
+/// The window's events with the far ones that are not among them (an event in both is the
+/// window's copy).
+pub fn merge_events(window: Vec<Value>, far: &[Value]) -> Vec<Value> {
+    let have: std::collections::HashSet<String> = window.iter().filter_map(|e| e["id"].as_str().map(String::from)).collect();
+    let mut out = window;
+    out.extend(far.iter().filter(|e| e["id"].as_str().is_none_or(|i| !have.contains(i))).cloned());
+    out
+}
 
 /// One editable reminder: an amount and unit before the start, and how it fires.
 #[derive(Clone, Debug, PartialEq)]
@@ -216,6 +268,12 @@ fn instant(e: &Value, wall: NaiveDateTime) -> i64 {
     recurrence::zone_to_utc_ms(wall, zone)
 }
 
+/// Whether an event repeats (rules or per-occurrence overrides), so its occurrences must be
+/// expanded within a window.
+fn is_series(e: &Value) -> bool {
+    e["recurrenceRules"].as_array().is_some_and(|a| !a.is_empty()) || e["recurrenceOverrides"].as_object().is_some_and(|o| !o.is_empty())
+}
+
 /// Every display alert of `events` (and tasks) that fires in [from_ms, to_ms).
 pub fn due_between(events: &[Value], cals: &[Value], from_ms: i64, to_ms: i64, tasks: bool) -> Vec<Due> {
     let mut out = vec![];
@@ -246,23 +304,44 @@ pub fn due_between(events: &[Value], cals: &[Value], from_ms: i64, to_ms: i64, t
         let Some(alerts) = effective_alerts(e, cal) else { continue };
         let Some(alerts) = alerts.as_object().cloned() else { continue };
         if !alerts.values().any(|a| a["action"].as_str().unwrap_or("display") == "display") { continue; }
-        // occurrences whose start lies within a margin of the window (alerts can be weeks early)
-        let longest = alerts.values().filter_map(|a| a["trigger"]["offset"].as_str().and_then(offset_ms)).map(|x| x.abs()).max().unwrap_or(0);
-        let margin = longest + 2 * 86_400_000;
-        let (wf, wt) = (utc(from_ms - margin), utc(to_ms + margin));
         let zone = if e["showWithoutTime"] == true { None } else { e["timeZone"].as_str().filter(|z| !z.is_empty()) };
-        let (zf, zt) = (recurrence::local_to_zone(Local.from_utc_datetime(&wf).naive_local(), zone), recurrence::local_to_zone(Local.from_utc_datetime(&wt).naive_local(), zone));
-        for o in recurrence::occurrences(e, zf, zt) {
-            let (s, en) = (instant(e, o.start), instant(e, o.end));
-            let occ_title = o.patch.as_ref().and_then(|p| p["title"].as_str()).map(String::from).unwrap_or_else(|| title.clone());
-            for (aid, a) in &alerts {
-                if a["action"].as_str().unwrap_or("display") != "display" || a["acknowledged"].is_string() { continue; }
-                let Some(fire) = trigger_time(&a["trigger"], Some(s), Some(en)) else { continue };
-                if fire >= from_ms && fire < to_ms {
-                    let eid = match &o.rid { Some(r) => format!("{id}|{r}"), None => id.clone() };
-                    out.push(Due { key: alert_key(&eid, aid, fire), event: eid, alert: aid.clone(), fire_ms: fire, start_ms: Some(s), title: occ_title.clone(), calendar: cal_name.clone(), task: false });
+        let wall = |ms: i64| recurrence::local_to_zone(Local.from_utc_datetime(&utc(ms)).naive_local(), zone);
+        let series = is_series(e);
+        let shown = |a: &Value| a["action"].as_str().unwrap_or("display") == "display" && !a["acknowledged"].is_string();
+        // `o` None: an absolute alert whose event has no occurrence left to name
+        let mut push = |o: Option<&recurrence::Occurrence>, aid: &str, fire: i64| {
+            let occ_title = o.and_then(|o| o.patch.as_ref()).and_then(|p| p["title"].as_str()).map(String::from).unwrap_or_else(|| title.clone());
+            let eid = match o.and_then(|o| o.rid.as_ref()) { Some(r) => format!("{id}|{r}"), None => id.clone() };
+            out.push(Due { key: alert_key(&eid, aid, fire), event: eid, alert: aid.to_string(), fire_ms: fire, start_ms: o.map(|o| instant(e, o.start)), title: occ_title, calendar: cal_name.clone(), task: false });
+        };
+        // Relative alerts: the occurrences whose start lies within a margin of the window (an
+        // alert can fire weeks before its start). A single event is not limited to the margin, so
+        // an alert set however far ahead is found.
+        let longest = alerts.values().filter(|a| shown(a)).filter_map(|a| a["trigger"]["offset"].as_str().and_then(offset_ms)).map(|x| x.abs()).max().unwrap_or(0);
+        if alerts.values().any(|a| shown(a) && a["trigger"]["@type"] != "AbsoluteTrigger") {
+            let (zf, zt) = if series {
+                let margin = longest + 2 * 86_400_000;
+                (wall(from_ms - margin), wall(to_ms + margin))
+            } else { (NaiveDateTime::MIN, NaiveDateTime::MAX) };
+            for o in recurrence::occurrences(e, zf, zt) {
+                let (s, en) = (instant(e, o.start), instant(e, o.end));
+                for (aid, a) in &alerts {
+                    if !shown(a) || a["trigger"]["@type"] == "AbsoluteTrigger" { continue; }
+                    let Some(fire) = trigger_time(&a["trigger"], Some(s), Some(en)) else { continue };
+                    if fire >= from_ms && fire < to_ms { push(Some(&o), aid, fire); }
                 }
             }
+        }
+        // Absolute alerts fire once, at their instant: for the first occurrence that has not ended
+        // by then (the event itself when it does not repeat), however far its start is.
+        for (aid, a) in &alerts {
+            if !shown(a) || a["trigger"]["@type"] != "AbsoluteTrigger" { continue; }
+            let Some(fire) = trigger_time(&a["trigger"], None, None) else { continue };
+            if fire < from_ms || fire >= to_ms { continue; }
+            let (zf, zt) = if series { (wall(fire - 2 * 86_400_000), wall(fire + 400 * 86_400_000)) } else { (NaiveDateTime::MIN, NaiveDateTime::MAX) };
+            let mut occ = recurrence::occurrences(e, zf, zt);
+            occ.sort_by_key(|o| o.start);
+            push(occ.iter().find(|o| instant(e, o.end) > fire), aid, fire);
         }
     }
     out.sort_by_key(|d| d.fire_ms);
@@ -345,6 +424,12 @@ struct Run {
     snoozed: HashMap<String, i64>,
     checked_missed: bool,
     gen: u64,
+    /// events starting beyond the read-ahead window that keep an alert for later (`needs_far`),
+    /// from the last far scan; `events` holds them next to the window's
+    far: Vec<Value>,
+    far_at: Option<std::time::Instant>,
+    /// a calendar changed since the far scan was started: scan again at the next fetch
+    far_dirty: bool,
 }
 
 thread_local! {
@@ -377,40 +462,84 @@ pub fn stop() {
     FETCH_TIMER.with(|t| t.stop());
 }
 
-/// Read the events whose reminders can come due soon (or came due since the last check).
-pub fn fetch(w: slint::Weak<AppWindow>, c: Arc<Client>) {
-    let (owner, gen) = RUN.with(|r| { let r = r.borrow(); (r.owner.clone(), r.gen) });
+/// Read the events whose reminders can come due soon (or came due since the last check), and,
+/// every half hour or after a calendar change, the far ones whose own alert reaches back
+/// before the window (the far scan).
+pub fn fetch(w: slint::Weak<AppWindow>, c: Arc<Client>) { fetch_with(w, c, false) }
+
+fn fetch_with(w: slint::Weak<AppWindow>, c: Arc<Client>, force_far: bool) {
+    let (owner, gen, far_due) = RUN.with(|r| {
+        let mut r = r.borrow_mut();
+        let age = r.far_at.map(|t| t.elapsed());
+        // a change asks for a scan, but not more than once a minute (pushes can come in bursts)
+        let asked = (force_far || r.far_dirty) && age.is_none_or(|a| a >= std::time::Duration::from_secs(FAR_MIN_GAP_SECS));
+        let due = asked || age.is_none_or(|a| a >= std::time::Duration::from_secs(FAR_REFETCH_SECS));
+        if due { r.far_dirty = false; } else if force_far { r.far_dirty = true; }
+        (r.owner.clone(), r.gen, due)
+    });
     let now = now_ms();
     let from = last_check(&owner).map(|l| l.max(now - MISSED_WINDOW_MS)).unwrap_or(now - STALE_MS) - 86_400_000;
     std::thread::spawn(move || {
         let primary = c.account_for(CAL);
-        let fmt = |ms: i64| chrono::Utc.timestamp_millis_opt(ms).single().map(|t| t.format("%Y-%m-%dT%H:%M:%SZ").to_string()).unwrap_or_default();
-        let res: Result<(Vec<Value>, Vec<Value>), String> = (|| {
+        // the window's events, the calendars, and (when scanned and all accounts answered) the far events
+        type Fetched = (Vec<Value>, Vec<Value>, Option<Vec<Value>>);
+        let res: Result<Fetched, String> = (|| {
             let props = json!(["id", "@type", "uid", "title", "start", "duration", "timeZone", "showWithoutTime", "calendarIds", "recurrenceRules",
                 "excludedRecurrenceRules", "recurrenceOverrides", "alerts", "useDefaultAlerts", "status", "due", "progress", "locations", "virtualLocations"]);
             let (mut all_cals, mut all_events) = (vec![], vec![]);
+            let (mut all_far, mut far_ok) = (vec![], far_due);
             // every account with calendars: the user's own and the ones shared with them
             for (acc, _, is_primary) in calendar::calendar_accounts(&c) {
                 let one: Result<(), String> = (|| {
                     let r = c.call(json!([["Calendar/get", {"accountId": acc, "ids": null, "properties": ["id", "name", "color", "defaultAlertsWithTime", "defaultAlertsWithoutTime"]}, "c"]]))?;
                     let mut cals = r[0][1]["list"].as_array().cloned().unwrap_or_default();
                     let ahead = fetch_ahead(&cals);
-                    let ids = c.query_all("CalendarEvent/query", &acc, json!({"filter": {"after": fmt(from), "before": fmt(now + ahead)}}))?;
+                    let ids = c.query_all("CalendarEvent/query", &acc, window_filter(from, now, ahead))?;
                     let mut events = c.get_all("CalendarEvent/get", &acc, &ids, Some(&props))?;
                     for k in cals.iter_mut() { let id = calendar::ns(&primary, &acc, k["id"].as_str().unwrap_or("")); k["id"] = json!(id); }
                     for e in events.iter_mut() { calendar::namespace_event(e, &primary, &acc); }
                     all_cals.extend(cals); all_events.extend(events);
+                    if far_due {
+                        // a failed far scan keeps the last one, it never hides the window's reminders
+                        let far: Result<Vec<Value>, String> = (|| {
+                            let ids = c.query_all("CalendarEvent/query", &acc, far_filter(now, ahead))
+                                .or_else(|_| c.query_all("CalendarEvent/query", &acc, far_filter_bounded(now, ahead, 10)))?;
+                            c.get_all("CalendarEvent/get", &acc, &ids, Some(&props))
+                        })();
+                        match far {
+                            Ok(mut far) => {
+                                far.retain(|e| needs_far(e, ahead));
+                                for e in far.iter_mut() { calendar::namespace_event(e, &primary, &acc); }
+                                all_far.extend(far);
+                            }
+                            Err(_) => far_ok = false,
+                        }
+                    }
                     Ok(())
                 })();
                 // a shared account that fails must not hide the user's own reminders
-                if is_primary { one?; }
+                if is_primary { one?; } else if one.is_err() { far_ok = false; }
             }
-            Ok((all_cals, all_events))
+            Ok((all_cals, all_events, far_ok.then_some(all_far)))
         })();
         let _ = w.upgrade_in_event_loop(move |u| {
-            let Ok((cals, events)) = res else { return };
             if RUN.with(|r| r.borrow().gen) != gen { return; }
-            RUN.with(|r| { let mut r = r.borrow_mut(); r.cals = cals; r.events = events; r.fetched = Some(std::time::Instant::now()); });
+            let Ok((cals, events, far)) = res else {
+                // nothing was read: scan again at the next fetch
+                if far_due { RUN.with(|r| r.borrow_mut().far_dirty = true); }
+                return;
+            };
+            RUN.with(|r| {
+                let mut r = r.borrow_mut();
+                match far {
+                    Some(f) => { r.far = f; r.far_at = Some(std::time::Instant::now()); }
+                    None if far_due => r.far_dirty = true,
+                    None => {}
+                }
+                r.events = merge_events(events, &r.far);
+                r.cals = cals;
+                r.fetched = Some(std::time::Instant::now());
+            });
             check(&u);
         });
     });
@@ -540,7 +669,8 @@ pub fn missed_done(u: &AppWindow, open: bool) {
 /// Events changed (push, a save): read them again soon.
 pub fn changed(w: slint::Weak<AppWindow>, c: Arc<Client>) {
     if RUN.with(|r| r.borrow().owner.is_empty()) { return; }
-    fetch(w, c);
+    // the far events may have changed too (a new event with an early alert)
+    fetch_with(w, c, true);
 }
 
 #[cfg(test)]
@@ -650,5 +780,186 @@ mod tests {
         let m = missed(&due, &acked, Some(now - 9 * 86_400_000), now);
         assert_eq!(m.iter().map(|d| d.key.as_str()).collect::<Vec<_>>(), ["a"]);
         assert!(missed(&due, &acked, None, now).is_empty());
+    }
+
+    // ---- far alerts (G-005 / D-M4-07) ----
+
+    const DAY: i64 = 86_400_000;
+    fn ev_with(alerts: Value) -> Value {
+        json!({"id": "e", "title": "Offsite", "start": "2026-12-14T09:00:00", "timeZone": "UTC", "duration": "PT1H", "calendarIds": {"c": true}, "alerts": alerts})
+    }
+    fn off(o: &str) -> Value { json!({"@type": "Alert", "trigger": {"@type": "OffsetTrigger", "offset": o, "relativeTo": "start"}, "action": "display"}) }
+    fn abs(w: &str) -> Value { json!({"@type": "Alert", "trigger": {"@type": "AbsoluteTrigger", "when": w}, "action": "display"}) }
+    const NOW: &str = "2026-11-24T08:00:00";
+
+    #[test]
+    fn query_shapes() {
+        let now = ms(NOW);
+        let w = window_filter(now - DAY, now, 8 * DAY);
+        assert_eq!(w["filter"]["after"], "2026-11-23T08:00:00Z");
+        assert_eq!(w["filter"]["before"], "2026-12-02T08:00:00Z");
+        // the far scan starts where the window ends and has no end of its own
+        let f = far_filter(now, 8 * DAY);
+        assert_eq!(f["filter"]["after"], "2026-12-02T08:00:00Z");
+        assert!(f["filter"].get("before").is_none());
+        let b = far_filter_bounded(now, 8 * DAY, 10);
+        assert_eq!(b["filter"]["after"], "2026-12-02T08:00:00Z");
+        assert!(b["filter"]["before"].as_str().unwrap() > "2036-12-01");
+    }
+
+    #[test]
+    fn far_events_are_the_ones_with_an_early_alert() {
+        let ahead = 8 * DAY;
+        assert!(needs_far(&ev_with(json!({"a": off("-P14D")})), ahead));
+        assert!(needs_far(&ev_with(json!({"a": off("-P1W")})), ahead));
+        // a day of slack: -P7D is kept with an 8-day window, -PT15M and "at time" are not
+        assert!(needs_far(&ev_with(json!({"a": off("-P7D")})), ahead));
+        assert!(!needs_far(&ev_with(json!({"a": off("-PT15M")})), ahead));
+        assert!(!needs_far(&ev_with(json!({"a": off("-P1D")})), ahead));
+        assert!(!needs_far(&ev_with(json!({"a": off("PT0S")})), ahead));
+        // an absolute alert can be anywhere
+        assert!(needs_far(&ev_with(json!({"a": abs("2026-12-01T00:00:00Z")})), ahead));
+        // email-only, acknowledged and alert-less events are not kept
+        let mut email = off("-P14D");
+        email["action"] = json!("email");
+        assert!(!needs_far(&ev_with(json!({"a": email})), ahead));
+        let mut acked = off("-P14D");
+        acked["acknowledged"] = json!("2026-11-01T00:00:00Z");
+        assert!(!needs_far(&ev_with(json!({"a": acked})), ahead));
+        assert!(!needs_far(&json!({"id": "x", "useDefaultAlerts": true}), ahead));
+        // a longer window (a 14-day calendar default) moves the bar
+        assert!(!needs_far(&ev_with(json!({"a": off("-P14D")})), 30 * DAY));
+    }
+
+    #[test]
+    fn merge_keeps_the_window_copy() {
+        let a = json!({"id": "a", "title": "window"});
+        let far = [json!({"id": "a", "title": "far"}), json!({"id": "b"})];
+        let m = merge_events(vec![a], &far);
+        assert_eq!(m.len(), 2);
+        assert_eq!(m[0]["title"], "window");
+        assert_eq!(m[1]["id"], "b");
+    }
+
+    #[test]
+    fn own_alert_weeks_ahead_fires_with_no_calendar_defaults() {
+        // the event is 20 days out, its alert 14 days before: it fires in 6 days, outside any
+        // margin that depends on the calendar's defaults
+        let cals = vec![json!({"id": "c", "name": "Work"})];
+        let e = ev_with(json!({"a": off("-P14D")}));
+        let fire = ms("2026-11-30T09:00:00");
+        let d = due_between(&[e.clone()], &cals, fire - 60_000, fire + 60_000, true);
+        assert_eq!(d.len(), 1);
+        assert_eq!(d[0].fire_ms, fire);
+        assert_eq!(d[0].start_ms, Some(ms("2026-12-14T09:00:00")));
+        assert_eq!(d[0].calendar, "Work");
+        // and nothing before or after
+        assert!(due_between(&[e.clone()], &cals, fire - DAY, fire - 60_000, true).is_empty());
+        assert!(due_between(&[e], &cals, fire + 60_000, fire + DAY, true).is_empty());
+        // 8 weeks ahead as well
+        let mut far = ev_with(json!({"a": off("-P8W")}));
+        far["start"] = json!("2027-03-01T09:00:00");
+        let fire = ms("2027-01-04T09:00:00");
+        assert_eq!(due_between(&[far], &cals, fire, fire + 1, true).len(), 1);
+    }
+
+    #[test]
+    fn far_alert_survives_the_ack_state() {
+        let cals = vec![];
+        let e = ev_with(json!({"a": off("-P14D")}));
+        let fire = ms("2026-11-30T09:00:00");
+        let now = fire + 30_000;
+        let d = due_between(&[e.clone()], &cals, now - STALE_MS, now + 1, true);
+        assert_eq!(d.len(), 1);
+        assert_eq!(d[0].key, alert_key("e", "a", fire));
+        // acknowledged: the missed dialog skips it
+        let acked: std::collections::HashSet<String> = [d[0].key.clone()].into();
+        assert!(missed(&d, &acked, Some(fire - 3_600_000), fire + STALE_MS + 1).is_empty());
+        // not acknowledged and past the stale threshold: listed as missed once
+        assert_eq!(missed(&d, &Default::default(), Some(fire - 3_600_000), fire + STALE_MS + 1).len(), 1);
+        // an alert the server marks acknowledged does not fire
+        let mut done = off("-P14D");
+        done["acknowledged"] = json!("2026-11-30T09:00:10Z");
+        assert!(due_between(&[ev_with(json!({"a": done}))], &cals, now - STALE_MS, now + 1, true).is_empty());
+    }
+
+    #[test]
+    fn absolute_triggers() {
+        let cals = vec![];
+        // an absolute alert 20 days before the event, written with an offset (+02:00 = 07:00Z)
+        let e = ev_with(json!({"a": abs("2026-11-24T09:00:00+02:00")}));
+        let fire = ms("2026-11-24T07:00:00");
+        let d = due_between(&[e.clone()], &cals, fire - 1000, fire + 1000, true);
+        assert_eq!(d.len(), 1);
+        assert_eq!(d[0].fire_ms, fire);
+        assert_eq!(d[0].start_ms, Some(ms("2026-12-14T09:00:00")));
+        assert!(due_between(&[e.clone()], &cals, fire + 1000, fire + 2000, true).is_empty());
+        // an unparsable instant is ignored
+        assert!(due_between(&[ev_with(json!({"a": abs("soon")}))], &cals, 0, i64::MAX / 2, true).is_empty());
+        // an absolute alert fires once for a series, for the first occurrence that has not ended
+        let mut series = e;
+        series["recurrenceRules"] = json!([{"frequency": "weekly"}]);
+        series["start"] = json!("2026-11-02T09:00:00");
+        let d = due_between(&[series], &cals, fire - 1000, fire + 1000, true);
+        assert_eq!(d.len(), 1);
+        assert_eq!(d[0].start_ms, Some(ms("2026-11-30T09:00:00")));
+    }
+
+    #[test]
+    fn recurring_event_with_own_far_alert() {
+        // a monthly series started long ago: only the master is read, the alert reaches 10 days
+        // back from an occurrence that is 3 weeks out
+        let cals = vec![json!({"id": "c", "name": "Home"})];
+        let mut e = ev_with(json!({"a": off("-P10D")}));
+        e["start"] = json!("2025-01-15T18:00:00");
+        e["recurrenceRules"] = json!([{"frequency": "monthly"}]);
+        let fire = ms("2026-12-05T18:00:00");
+        let d = due_between(&[e.clone()], &cals, fire - 1000, fire + 1000, true);
+        assert_eq!(d.len(), 1);
+        assert_eq!(d[0].start_ms, Some(ms("2026-12-15T18:00:00")));
+        assert_eq!(d[0].event, "e|2026-12-15T18:00:00");
+        // a wider window lists each occurrence's alert
+        let d = due_between(&[e], &cals, ms("2026-11-01T00:00:00"), ms("2027-01-10T00:00:00"), true);
+        assert_eq!(d.iter().map(|x| x.fire_ms).collect::<Vec<_>>(), [ms("2026-11-05T18:00:00"), ms("2026-12-05T18:00:00"), ms("2027-01-05T18:00:00")]);
+    }
+
+    #[test]
+    fn time_zones_decide_the_instant() {
+        let cals = vec![];
+        // New York is UTC-5 in December: 09:00 there is 14:00Z, so -P14D is 14:00Z on the 30th
+        let mut e = ev_with(json!({"a": off("-P14D")}));
+        e["timeZone"] = json!("America/New_York");
+        let d = due_between(&[e], &cals, ms("2026-11-30T00:00:00"), ms("2026-12-01T00:00:00"), true);
+        assert_eq!(d[0].fire_ms, ms("2026-11-30T14:00:00"));
+        // Auckland is UTC+13 in December (summer time): 09:00 there is 20:00Z the day before
+        let mut e = ev_with(json!({"a": off("-P14D")}));
+        e["timeZone"] = json!("Pacific/Auckland");
+        let d = due_between(&[e], &cals, ms("2026-11-29T00:00:00"), ms("2026-12-01T00:00:00"), true);
+        assert_eq!(d[0].fire_ms, ms("2026-11-29T20:00:00"));
+        // a day offset is 24 hours: Berlin 09:00 on 2027-03-29 is 07:00Z (summer time began on
+        // the 28th), two days before is 07:00Z on the 27th
+        let mut e = ev_with(json!({"a": off("-P2D")}));
+        e["timeZone"] = json!("Europe/Berlin");
+        e["start"] = json!("2027-03-29T09:00:00");
+        let d = due_between(&[e], &cals, ms("2027-03-27T00:00:00"), ms("2027-03-28T00:00:00"), true);
+        assert_eq!(d[0].fire_ms, ms("2027-03-27T07:00:00"));
+        // end-relative alerts count from the end in that zone
+        let mut e = ev_with(json!({"a": {"@type": "Alert", "trigger": {"@type": "OffsetTrigger", "offset": "PT10M", "relativeTo": "end"}, "action": "display"}}));
+        e["timeZone"] = json!("America/New_York");
+        let d = due_between(&[e], &cals, ms("2026-12-14T00:00:00"), ms("2026-12-15T00:00:00"), true);
+        assert_eq!(d[0].fire_ms, ms("2026-12-14T15:10:00"));
+    }
+
+    #[test]
+    fn short_alerts_still_fire_for_near_events() {
+        // the old path: a 15-minute default on a daily series still works
+        let cals = vec![json!({"id": "c", "name": "W", "defaultAlertsWithTime": {"d": off("-PT15M")}})];
+        let mut e = ev_with(json!({}));
+        e["alerts"] = Value::Null;
+        e["useDefaultAlerts"] = json!(true);
+        e["start"] = json!("2026-11-01T10:00:00");
+        e["recurrenceRules"] = json!([{"frequency": "daily"}]);
+        let fire = ms("2026-11-25T09:45:00");
+        assert_eq!(due_between(&[e], &cals, fire, fire + 1, true).len(), 1);
     }
 }
