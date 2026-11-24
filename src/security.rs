@@ -618,11 +618,11 @@ fn run(st: &mut State, work: impl FnOnce(&Client) -> Result<Update, String> + Se
     let (epoch, owner) = (st.epoch, st.owner.clone());
     Some(Box::new(move |c: &Client, k: &Shared| {
         let _busy = BusyGuard { cache: k, epoch };
-        if !owns(&k.lock().unwrap().sec, epoch, &owner, &c.state_key()) {
+        if !owns(&k.lock().unwrap_or_else(|e| e.into_inner()).sec, epoch, &owner, &c.state_key()) {
             return Err("The account changed. Open the page again.".into());
         }
         let r = work(c);
-        let mut g = k.lock().unwrap();
+        let mut g = k.lock().unwrap_or_else(|e| e.into_inner());
         if g.sec.epoch != epoch { return r.map(|_| ()); }
         match r { Ok(update) => { update(&mut g.sec); Ok(()) } Err(e) => Err(e) }
     }))
@@ -699,7 +699,7 @@ fn button_at(st: &mut State, what: &str, now: std::time::Instant) -> Option<Job>
                         // a remembered sign-in is rewritten only when it holds the password just replaced
                         if let Some(user) = c.basic_user() {
                             if let Some(v) = remembered_with_password(&crate::oauth::accounts(), &user, &c.base, &cur, &new) {
-                                crate::oauth::remember(&v, crate::oauth::Origin::SignIn);
+                                crate::oauth::update_account(&v);
                             }
                         }
                         "Password changed.".to_string()
@@ -708,6 +708,9 @@ fn button_at(st: &mut State, what: &str, now: std::time::Instant) -> Option<Job>
                         // the session cannot follow the new password: sign out (the app's own flow,
                         // which also forgets the remembered sign-in) and ask for the new password
                         let msg = "Password changed. Sign in again with your new password.".to_string();
+                        // a remembered password that is the one just replaced is stale; any other
+                        // (an app password) still works and is kept
+                        clear_remembered_password(c, &cur);
                         c.end_session();
                         sign_out(&msg);
                         msg
@@ -732,7 +735,7 @@ fn button_at(st: &mut State, what: &str, now: std::time::Instant) -> Option<Job>
             let uri = st.totp.as_ref()?.uri.clone();
             Some(Box::new(move |_, k: &Shared| {
                 let ok = crate::platform::copy_secret(&uri);
-                let mut g = k.lock().unwrap();
+                let mut g = k.lock().unwrap_or_else(|e| e.into_inner());
                 if g.sec.epoch == epoch { g.sec.status = if ok { "Link copied.".into() } else { "Could not copy the link.".into() }; }
                 Ok(())
             }))
@@ -789,7 +792,7 @@ fn button_at(st: &mut State, what: &str, now: std::time::Instant) -> Option<Job>
             let secret = st.shown.as_ref()?.secret.clone();
             Some(Box::new(move |_, k: &Shared| {
                 let ok = crate::platform::copy_secret(&secret);
-                let mut g = k.lock().unwrap();
+                let mut g = k.lock().unwrap_or_else(|e| e.into_inner());
                 if g.sec.epoch == epoch { g.sec.status = if ok { "Copied.".into() } else { "Could not copy.".into() }; }
                 Ok(())
             }))
@@ -859,8 +862,14 @@ fn button_at(st: &mut State, what: &str, now: std::time::Instant) -> Option<Job>
 fn clear_remembered_password(c: &Client, typed: &str) -> bool {
     let Some(user) = c.basic_user() else { return false };
     let Some(v) = cleared_password_entry(&crate::oauth::accounts(), &user, &c.base, typed) else { return false };
-    crate::oauth::remember(&v, crate::oauth::Origin::SignIn);
+    crate::oauth::update_account(&v);
     true
+}
+
+/// The sign-out's status line with the reason for it after it (a keychain warning stays in front).
+pub fn append_status(current: &str, msg: &str) -> String {
+    let c = current.trim();
+    if c.is_empty() { msg.to_string() } else { format!("{c} {msg}") }
 }
 
 // ---------------------------------------------------------------- loading
@@ -872,7 +881,7 @@ pub fn load(c: &Client, cache: &Shared) -> Result<(), String> {
     let password_session = c.tokens().is_none();
     let key = c.state_key();
     let epoch = {
-        let mut g = cache.lock().unwrap();
+        let mut g = cache.lock().unwrap_or_else(|e| e.into_inner());
         // another account than the one this page state was made for: nothing of it stays
         if !g.sec.owner.is_empty() && g.sec.owner != key { g.sec.reset(); }
         g.sec.checked = true;
@@ -905,7 +914,7 @@ pub fn load(c: &Client, cache: &Shared) -> Result<(), String> {
         };
         Ok((enc, list))
     })();
-    let mut g = cache.lock().unwrap();
+    let mut g = cache.lock().unwrap_or_else(|e| e.into_inner());
     if g.sec.epoch != epoch { return Ok(()); }
     g.sec.otp_enabled = info.otp_enabled;
     g.sec.app_passwords = apps;
@@ -1121,23 +1130,30 @@ mod tests {
     #[test]
     fn a_panicking_job_does_not_leave_the_page_busy() {
         let k: Shared = Default::default();
-        { let mut g = k.lock().unwrap(); g.sec.busy = true; g.sec.epoch = 3; }
+        { let mut g = k.lock().unwrap_or_else(|e| e.into_inner()); g.sec.busy = true; g.sec.epoch = 3; }
         let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| { let _b = BusyGuard { cache: &k, epoch: 3 }; panic!("job failed"); }));
         assert!(r.is_err());
-        assert!(!k.lock().unwrap().sec.busy);
+        assert!(!k.lock().unwrap_or_else(|e| e.into_inner()).sec.busy);
         // a job of an earlier page session leaves the new page's flag alone
-        { let mut g = k.lock().unwrap(); g.sec.busy = true; g.sec.epoch = 4; }
+        { let mut g = k.lock().unwrap_or_else(|e| e.into_inner()); g.sec.busy = true; g.sec.epoch = 4; }
         drop(BusyGuard { cache: &k, epoch: 3 });
-        assert!(k.lock().unwrap().sec.busy);
+        assert!(k.lock().unwrap_or_else(|e| e.into_inner()).sec.busy);
     }
 
     #[test]
     fn ending_the_session_signs_the_app_out_with_the_message() {
         let seen: std::sync::Arc<std::sync::Mutex<Vec<String>>> = Default::default();
         let s2 = seen.clone();
-        set_sign_out_hook(Box::new(move |m| s2.lock().unwrap().push(m)));
+        set_sign_out_hook(Box::new(move |m| s2.lock().unwrap_or_else(|e| e.into_inner()).push(m)));
         assert!(sign_out("Password changed. Sign in again with your new password."));
-        assert_eq!(seen.lock().unwrap().as_slice(), ["Password changed. Sign in again with your new password."]);
+        assert_eq!(seen.lock().unwrap_or_else(|e| e.into_inner()).as_slice(), ["Password changed. Sign in again with your new password."]);
+    }
+
+    #[test]
+    fn the_reason_follows_the_sign_out_line() {
+        assert_eq!(append_status("Signed out.", "Sign in again."), "Signed out. Sign in again.");
+        assert_eq!(append_status("", "Sign in again."), "Sign in again.");
+        assert!(append_status("Signed out here, but your saved sign-in could not be removed.", "Sign in again.").starts_with("Signed out here"));
     }
 
     #[test]

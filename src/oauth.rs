@@ -506,6 +506,26 @@ pub fn remember(v: &Value, origin: Origin) {
     remember_in(crate::secrets::store(), crate::profile::current(), v, &origin);
 }
 
+/// Replace one account's entry where it stands, without making it the startup session: the list
+/// keeps its order, and the session entry changes only when it already is this account. (A
+/// `remember` moves the account first and makes it the session.) Nothing is written when the
+/// account has no entry.
+fn update_account_in(b: &dyn crate::secrets::Backend, profile: &str, v: &Value) {
+    let user = v["user"].as_str().unwrap_or("");
+    let server = v["server"].as_str().unwrap_or("");
+    let mut all = accounts_in(b, profile);
+    let Some(slot) = all.iter_mut().find(|a| is_account(a, &[user], server)) else { return };
+    *slot = v.clone();
+    put_in(b, profile, "accounts", &Value::Array(all).to_string());
+    if remembered_in(b, profile).is_some_and(|s| is_account(&s, &[user], server)) { put_in(b, profile, "session", &v.to_string()); }
+}
+
+/// [`update_account_in`] on the real store, under the refresh lock.
+pub fn update_account(v: &Value) {
+    let _lock = RefreshLock::acquire();
+    update_account_in(crate::secrets::store(), crate::profile::current(), v);
+}
+
 /// All remembered accounts (most recently used first).
 pub fn accounts() -> Vec<Value> {
     crate::secrets::get("accounts").and_then(|s| serde_json::from_str::<Value>(&s).ok())
@@ -1012,6 +1032,26 @@ mod tests {
         remember_in(&b, P, &mine, &Origin::Restore { read: Some("r2".into()) });
         assert_eq!(remembered_in(&b, P).unwrap()["refresh"], "r3");
         assert_eq!(accounts_in(&b, P)[0]["refresh"], "r3");
+    }
+
+    #[test]
+    fn updating_an_entry_keeps_the_order_and_the_startup_session() {
+        let b = Fake::default();
+        let bob = json!({"kind": "password", "server": HOST, "user": "bob@example.test", "pass": "b"});
+        let ann = json!({"kind": "password", "server": HOST, "user": "ann@example.test", "pass": "old"});
+        b.old.borrow_mut().insert("session".into(), bob.to_string());
+        b.old.borrow_mut().insert("accounts".into(), json!([bob, ann]).to_string());
+        let cleared = json!({"kind": "password", "server": HOST, "user": "ann@example.test", "pass": ""});
+        update_account_in(&b, P, &cleared);
+        assert_eq!(accounts_in(&b, P), vec![bob.clone(), cleared.clone()]);
+        assert_eq!(remembered_in(&b, P).unwrap(), bob, "another account's startup session is not replaced");
+        // when the session is this account it follows
+        put_in(&b, P, "session", &ann.to_string());
+        update_account_in(&b, P, &cleared);
+        assert_eq!(remembered_in(&b, P).unwrap(), cleared);
+        // an account with no entry writes nothing
+        update_account_in(&b, P, &json!({"kind": "password", "server": HOST, "user": "eve@example.test", "pass": "x"}));
+        assert_eq!(accounts_in(&b, P).len(), 2);
     }
 
     #[test]

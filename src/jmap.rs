@@ -144,6 +144,13 @@ pub fn problem_message(status: u16, v: &Value) -> String {
     }
 }
 
+/// The rejection for a remembered password sign-in whose password was cleared (two-step sign-in
+/// was turned on): no network call is made, so no failed login is counted on the server.
+/// `None` for anything that can be tried.
+pub fn cleared_password_rejection(v: &Value) -> Option<String> {
+    (v["kind"] != "oauth" && v["pass"].as_str().unwrap_or("").is_empty()).then(|| "Wrong username, password or 2FA code".to_string())
+}
+
 /// A 401 for a request sent with `sent` is worth one more try when the session's header has changed
 /// since (a password change switched it while the request was in flight).
 pub fn retry_after_401(sent: &str, current: &str) -> bool { sent != current }
@@ -1815,6 +1822,14 @@ pub const BODY_PROPERTIES: [&str; 9] = ["partId", "blobId", "size", "name", "typ
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_cleared_password_is_rejected_without_a_request() {
+        let e = cleared_password_rejection(&json!({"kind": "password", "user": "a", "pass": ""})).unwrap();
+        assert!(auth_rejected(&e));
+        assert!(cleared_password_rejection(&json!({"kind": "password", "pass": "x"})).is_none());
+        assert!(cleared_password_rejection(&json!({"kind": "oauth", "refresh": "r"})).is_none());
+    }
 
     #[test]
     fn a_401_is_retried_only_when_the_header_changed() {

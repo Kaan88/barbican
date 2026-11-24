@@ -973,7 +973,14 @@ fn main() -> Result<(), slint::PlatformError> {
     // a password change that ended the session signs out through the same flow, then says why
     let w_hook = ui.as_weak();
     security::set_sign_out_hook(Box::new(move |msg| {
-        let _ = w_hook.upgrade_in_event_loop(move |u| { u.invoke_sign_out(); u.set_status(msg.into()); });
+        let _ = w_hook.upgrade_in_event_loop(move |u| {
+            // the saved sign-in stays unless the password change cleared it (security.rs decided)
+            KEEP_SAVED_SIGN_IN.store(true, std::sync::atomic::Ordering::SeqCst);
+            u.invoke_sign_out();
+            KEEP_SAVED_SIGN_IN.store(false, std::sync::atomic::Ordering::SeqCst);
+            // after the sign-out's own line, so a keychain warning is not hidden
+            u.set_status(security::append_status(u.get_status().as_str(), &msg).into());
+        });
     }));
     ui.on_sign_out(move || {
         server_settings::reset(&srv_out);
@@ -992,7 +999,8 @@ fn main() -> Result<(), slint::PlatformError> {
         reminders::stop();
         // the account list is keyed by the name typed on the login form
         let login = std::mem::take(&mut *LOGIN_USER.lock().unwrap());
-        let forgot = signout::forget_keyring(&[login.as_str(), account.as_str()], &server);
+        let keep = KEEP_SAVED_SIGN_IN.load(std::sync::atomic::Ordering::SeqCst);
+        let forgot = if keep { signout::Forgot { last: false, cleared: true } } else { signout::forget_keyring(&[login.as_str(), account.as_str()], &server) };
         let last = forgot.last;
         if last { avatars::cancel_pending(); }
         // a chat answer still coming must not write the account's file again
@@ -1175,7 +1183,7 @@ fn main() -> Result<(), slint::PlatformError> {
                 let tab = u.get_settings_tab().to_string();
                 u.set_settings_title(p.title(&tab).into());
                 let mut rows = p.rows(&tab, &c, &acc());
-                if tab == "security" { srv.lock().unwrap().sec.advanced = adv; }
+                if tab == "security" { srv.lock().unwrap_or_else(|e| e.into_inner()).sec.advanced = adv; }
                 if let Some(extra) = server_settings::rows(&tab, &srv) {
                     if tab == "account" || tab == "composing" { rows.extend(extra); }
                     else if tab == "security" {
@@ -2261,6 +2269,10 @@ fn accounts_model() -> ModelRc<SharedString> {
 
 use jmap::auth_rejected;
 
+/// Set while the account security page ends a session: the sign-out then keeps the saved sign-in
+/// (an app password still works), and the form is shown.
+static KEEP_SAVED_SIGN_IN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 /// The stored session a start-up restore could not use for lack of a network: "Try again" runs it again.
 static RESTORE_PENDING: Mutex<Option<Value>> = Mutex::new(None);
 
@@ -2291,9 +2303,9 @@ fn restore_session(w: slint::Weak<AppWindow>, st: Shared, v: Value, switching: b
                     user: user.clone(),
                 };
                 jmap::Client::connect_oauth(&server, t)
-            } else if v["pass"].as_str().unwrap_or("").is_empty() {
+            } else if let Some(e) = jmap::cleared_password_rejection(&v) {
                 // a password that was cleared (two-step sign-in was turned on): nothing to try
-                Err("Wrong username, password or 2FA code".to_string())
+                Err(e)
             } else {
                 jmap::Client::connect(&server, &user, v["pass"].as_str().unwrap_or(""), "")
             };
