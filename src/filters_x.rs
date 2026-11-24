@@ -41,6 +41,17 @@ pub const ACTS: [(&str, &str, &str); 10] = [("move", "Move to folder", "folder")
     ("mark_read", "Mark as read", ""), ("star", "Star message", ""), ("add_label", "Add tag", "tag"), ("discard", "Discard (delete silently)", ""),
     ("reject", "Reject with message", "text"), ("keep", "Keep in inbox", ""), ("stop", "Don't apply later rules", "")];
 
+/// The ACTS indices an action row offers on a server with these Sieve extensions (G-020: reject
+/// only when listed). The row's own type stays in the list, so an existing rule still shows it.
+pub fn offered_acts(ext: &[String], current: &str) -> Vec<usize> {
+    (0..ACTS.len()).filter(|&i| ACTS[i].0 == current || crate::sieve::action_offered(ACTS[i].0, ext)).collect()
+}
+
+/// The server's Sieve extensions as the filters tab loaded them (empty before that).
+fn sieve_ext() -> Vec<String> {
+    CACHE.with(|c| c.borrow().as_ref().map(|k| k.lock().unwrap().sieve_ext.clone())).unwrap_or_default()
+}
+
 #[derive(Clone, Default, Debug)]
 pub struct Cond { pub field: String, pub cmp: String, pub value: String, pub header: String }
 #[derive(Clone, Default, Debug)]
@@ -488,6 +499,7 @@ pub fn applied_text(r: &Applied, total: usize) -> String {
 
 fn render(u: &AppWindow) {
     let g = u.global::<FilterX>();
+    let ext = sieve_ext();
     ED.with(|e| {
         let e = e.borrow();
         let conds: Vec<FCond> = e.conds.iter().map(|c| {
@@ -498,7 +510,10 @@ fn render(u: &AppWindow) {
         }).collect();
         let acts: Vec<FAct> = e.acts.iter().map(|a| {
             let (i, needs) = ACTS.iter().enumerate().find(|(_, x)| x.0 == a.kind).map(|(i, x)| (i, x.2)).unwrap_or((0, "folder"));
-            FAct { kind: i as i32, value: sv(&a.value), folder: e.folders.iter().position(|f| f.0 == a.mailbox).map(|x| x as i32).unwrap_or(-1), keep_copy: a.keep_copy, needs: sv(needs) }
+            let offer = offered_acts(&ext, &a.kind);
+            FAct { kind: offer.iter().position(|&j| j == i).unwrap_or(0) as i32, value: sv(&a.value),
+                folder: e.folders.iter().position(|f| f.0 == a.mailbox).map(|x| x as i32).unwrap_or(-1), keep_copy: a.keep_copy, needs: sv(needs),
+                types: model(offer.iter().map(|&j| sv(ACTS[j].1)).collect()) }
         }).collect();
         g.set_conds(model(conds));
         g.set_acts(model(acts));
@@ -510,10 +525,10 @@ fn open_editor(u: &AppWindow, cache: &Cache, id: Option<&str>) {
     let k = cache.lock().unwrap();
     let rule = id.and_then(|i| k.rules.iter().find(|r| r["id"] == i).cloned());
     let folders = folder_paths(&k.mailboxes);
+    let ext = k.sieve_ext.clone();
     drop(k);
     let g = u.global::<FilterX>();
     g.set_fields(model(FIELDS.iter().map(|f| sv(f.1)).collect()));
-    g.set_act_types(model(ACTS.iter().map(|a| sv(a.1)).collect()));
     let base = rule.clone().unwrap_or(Value::Null);
     g.set_title(if rule.is_some() { "Edit rule".into() } else { "New rule".into() });
     g.set_name(base["name"].as_str().unwrap_or("").into());
@@ -524,6 +539,12 @@ fn open_editor(u: &AppWindow, cache: &Cache, id: Option<&str>) {
     g.set_from(local_day(&base["activeFrom"]).into());
     g.set_until(local_day(&base["activeUntil"]).into());
     g.set_status("".into());
+    // G-020: a rule that uses an action the server does not list still shows and saves as it is
+    let unsupported: Vec<&str> = crate::sieve::unsupported_actions(&base, &ext).iter()
+        .map(|k| ACTS.iter().find(|a| a.0 == k.as_str()).map(|a| a.1).unwrap_or("an unknown action")).collect::<Vec<_>>();
+    if !unsupported.is_empty() {
+        g.set_status(format!("This rule uses {}, which this server does not list as a Sieve extension. The rule is kept as it is; the server may refuse the script when you save.", unsupported.join(", ")).into());
+    }
     g.set_busy(false);
     let mut conds = conds_of(&base);
     let mut acts = acts_of(&base);
@@ -643,7 +664,15 @@ pub fn wire(ui: &AppWindow, st: ClientSlot, cache: Cache, reload: Reload) {
     let w = ui.as_weak();
     g.on_remove_act(move |i| { ED.with(|e| { let mut e = e.borrow_mut(); if e.acts.len() > 1 && (i as usize) < e.acts.len() { e.acts.remove(i as usize); } }); render(&w.unwrap()); });
     let w = ui.as_weak();
-    g.on_set_act_kind(move |i, x| { ED.with(|e| if let Some(a) = e.borrow_mut().acts.get_mut(i as usize) { a.kind = ACTS.get(x as usize).map(|a| a.0).unwrap_or("move").into(); }); render(&w.unwrap()); });
+    g.on_set_act_kind(move |i, x| {
+        // x is a position in the row's own offer list (see render)
+        let ext = sieve_ext();
+        ED.with(|e| if let Some(a) = e.borrow_mut().acts.get_mut(i as usize) {
+            let offer = offered_acts(&ext, &a.kind);
+            a.kind = offer.get(x as usize).map(|&j| ACTS[j].0).unwrap_or("move").into();
+        });
+        render(&w.unwrap());
+    });
     g.on_set_act_value(move |i, v| ED.with(|e| if let Some(a) = e.borrow_mut().acts.get_mut(i as usize) { a.value = v.into(); }));
     g.on_set_act_folder(move |i, f| ED.with(|e| { let mut e = e.borrow_mut(); let id = e.folders.get(f as usize).map(|x| x.0.clone()); if let (Some(a), Some(id)) = (e.acts.get_mut(i as usize), id) { a.mailbox = id; } }));
     g.on_set_act_keep(move |i, on| ED.with(|e| if let Some(a) = e.borrow_mut().acts.get_mut(i as usize) { a.keep_copy = on; }));
@@ -888,5 +917,54 @@ mod tests {
         assert!(p.contains(&"header:X-Spam_Flag:asText:all".to_string()) && p.contains(&"header:X-Spam_Flag:all".to_string()), "{p:?}");
         let m = retro_message(&json!({"id": "e", "header:X-Spam_Flag:asText:all": ["v\"x\\y"], "header:X-Spam_Flag:all": [" v\"x\\y"]}));
         assert_eq!(m["headers"]["x-spam_flag"], json!(["v\"x\\y"]));
+    }
+
+    fn kinds(v: &[usize]) -> Vec<&'static str> { v.iter().map(|&i| ACTS[i].0).collect() }
+
+    #[test]
+    fn reject_is_offered_only_when_the_server_lists_it() {
+        let none: Vec<String> = vec![];
+        let listed = vec!["fileinto".to_string(), "reject".to_string()];
+        assert!(!kinds(&offered_acts(&none, "move")).contains(&"reject"));
+        assert!(kinds(&offered_acts(&listed, "move")).contains(&"reject"));
+        // the other types do not depend on the server
+        assert_eq!(kinds(&offered_acts(&none, "move")).len() + 1, kinds(&offered_acts(&listed, "move")).len());
+        // an existing reject row keeps its own type, on a server without the extension too
+        let row = kinds(&offered_acts(&none, "reject"));
+        assert!(row.contains(&"reject"));
+        assert_eq!(row.len(), kinds(&offered_acts(&none, "move")).len() + 1);
+    }
+
+    #[test]
+    fn row_positions_map_back_to_the_same_type() {
+        let none: Vec<String> = vec![];
+        for current in ["move", "reject", "keep", "stop"] {
+            let offer = offered_acts(&none, current);
+            // the position a row shows for its type is the one the dropdown reports back
+            let pos = offer.iter().position(|&j| ACTS[j].0 == current).unwrap();
+            assert_eq!(ACTS[offer[pos]].0, current);
+            assert!(offer.iter().all(|&j| ACTS[j].0 != "reject" || current == "reject"));
+        }
+    }
+
+    #[test]
+    fn existing_reject_rule_still_shows_and_is_not_dropped() {
+        let none: Vec<String> = vec![];
+        let conds = vec![Cond { field: "from".into(), cmp: "contains".into(), value: "spam@example.test".into(), ..Default::default() }];
+        let acts = vec![Act { kind: "reject".into(), value: "Not accepted".into(), ..Default::default() }];
+        let rule = build_rule(&Value::Null, Some("r1"), "Refuse", false, &conds, &acts, &folders(), false, false, "", "").unwrap();
+        // the editor reads the rule back as a reject row and warns about the missing extension
+        assert_eq!(crate::sieve::unsupported_actions(&rule, &none), vec!["reject".to_string()]);
+        assert_eq!(acts_of(&rule)[0].kind, "reject");
+        assert!(kinds(&offered_acts(&none, "reject")).contains(&"reject"));
+        // saving keeps the action in the script and the metadata: nothing is dropped silently
+        let script = crate::sieve::generate_meta(&json!({"version": 1, "rules": [rule.clone()]}), "", &none);
+        assert!(script.contains("reject \"Not accepted\";"), "{script}");
+        let back = crate::sieve::parse(&script);
+        assert_eq!(back.metadata["rules"][0]["actions"][0]["type"], "reject");
+        assert!(!back.locked);
+        // a server that lists reject sees no warning
+        let listed = vec!["reject".to_string()];
+        assert!(crate::sieve::unsupported_actions(&rule, &listed).is_empty());
     }
 }

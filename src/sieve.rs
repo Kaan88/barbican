@@ -391,6 +391,24 @@ fn actions(acts: &[Value], use_mbid: bool, req: &mut Vec<&'static str>) -> Vec<S
 
 const SPAM_GUARD: &str = r#"not spamtest :percent :value "ge" :comparator "i;ascii-numeric" "50""#;
 const SPAM_GUARD_REQUIRES: [&str; 3] = ["spamtestplus", "relational", "comparator-i;ascii-numeric"];
+/// Whether the server lists the Sieve extension `name` (JMAP `sieveExtensions`, lowercase).
+pub fn server_has(ext: &[String], name: &str) -> bool { ext.iter().any(|x| x == name) }
+
+/// Whether the rule editor offers action type `kind` on this server. `reject` is offered only
+/// when the server lists the reject extension (G-020; Bulwark's filter-rule-modal.tsx offers it
+/// unconditionally). Existing rules keep their actions either way: see `unsupported_actions`.
+pub fn action_offered(kind: &str, ext: &[String]) -> bool { kind != "reject" || server_has(ext, "reject") }
+
+/// Action types a rule uses that this server does not list (the rule still shows and saves as is).
+pub fn unsupported_actions(rule: &Value, ext: &[String]) -> Vec<String> {
+    let mut out: Vec<String> = vec![];
+    for a in rule["actions"].as_array().into_iter().flatten() {
+        let kind = a["type"].as_str().unwrap_or("");
+        if !action_offered(kind, ext) && !out.iter().any(|k| k == kind) { out.push(kind.to_string()); }
+    }
+    out
+}
+
 /// Sieve extensions a period needs (Bulwark period.ts PERIOD_REQUIRES).
 pub const PERIOD_REQUIRES: [&str; 2] = ["date", "relational"];
 
@@ -641,10 +659,25 @@ pub fn day_boundary(day: &str, end: bool) -> Result<Option<String>, String> {
 
 #[cfg(test)]
 mod tests {
+    use super::{action_offered, server_has, unsupported_actions};
     use serde_json::json;
 
     const FROM_T: &str = r#"anyof(currentdate :zone "+0000" :value "gt" "date" "2026-10-05", allof(currentdate :zone "+0000" :is "date" "2026-10-05", currentdate :zone "+0000" :value "ge" "time" "06:00:00"))"#;
     const UNTIL_T: &str = r#"anyof(currentdate :zone "+0000" :value "lt" "date" "2026-10-16", allof(currentdate :zone "+0000" :is "date" "2026-10-16", currentdate :zone "+0000" :value "le" "time" "16:00:00"))"#;
+
+    #[test]
+    fn reject_needs_the_reject_extension_and_existing_rules_keep_it() {
+        let listed = vec!["fileinto".to_string(), "reject".to_string()];
+        let none = vec!["fileinto".to_string(), "ereject".to_string()];
+        assert!(server_has(&listed, "reject") && !server_has(&none, "reject"));
+        assert!(action_offered("move", &none) && action_offered("reject", &listed));
+        // ereject alone does not make reject offered: the generator only writes reject
+        assert!(!action_offered("reject", &none));
+        let rule = json!({"name": "R", "conditions": [], "actions": [{"type": "move", "value": "A"}, {"type": "reject", "value": "No"}, {"type": "reject", "value": "No again"}]});
+        assert_eq!(unsupported_actions(&rule, &none), vec!["reject".to_string()]);
+        assert!(unsupported_actions(&rule, &listed).is_empty());
+        assert!(unsupported_actions(&json!({"name": "M"}), &none).is_empty());
+    }
 
     #[test]
     fn external_keeps_elsif_else_and_text_strings() {
