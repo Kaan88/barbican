@@ -761,7 +761,7 @@ fn show_message_body(u: &AppWindow, m: &Value) {
     let is_html = m["htmlBody"].as_array().is_some_and(|a| a.iter().any(|p| p["type"] == "text/html"));
     let html = (is_html && !html.is_empty()).then_some(html);
     let remote = html.as_deref().is_some_and(crate::has_remote_images);
-    let allow = u.get_auto_images();
+    let allow = crate::allow_remote(u, m);
     crate::CUR.with(|c| *c.borrow_mut() = Some(crate::Current { html, text, remote, allow }));
     crate::render_current(u);
 }

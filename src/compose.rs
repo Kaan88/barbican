@@ -839,8 +839,14 @@ fn retry_advice(intent: Intent) -> &'static str {
     }
 }
 
-/// Composer checks Bulwark runs before sending (attachment reminder, empty subject, placeholders).
+/// Composer checks Bulwark runs before sending (attachment reminder, empty subject, placeholders,
+/// recipients outside the organisation).
 fn pre_send_warning(o: &Outgoing, prefs: &crate::settings::Settings, intent: Intent) -> Option<String> {
+    pre_send_warning_with(o, prefs, intent, &crate::my_addrs_cached())
+}
+
+/// `mine`: the user's own addresses (identities), whose domains are the organisation.
+fn pre_send_warning_with(o: &Outgoing, prefs: &crate::settings::Settings, intent: Intent, mine: &[String]) -> Option<String> {
     if prefs.bool("emptySubjectWarningEnabled", true) && o.subject.trim().is_empty() {
         return Some(format!("The subject is empty. {}", retry_advice(intent)));
     }
@@ -858,7 +864,9 @@ fn pre_send_warning(o: &Outgoing, prefs: &crate::settings::Settings, intent: Int
             return Some(format!("You mention an attachment but none is attached. {}", retry_advice(intent)));
         }
     }
-    None
+    // Bulwark external-recipient-confirm.tsx: runs after the composer's own checks (ORDER 40);
+    // off unless the setting is on (decisions.md D-262)
+    crate::trust::recipient_warning(prefs.bool(crate::trust::RECIPIENT_CONFIRM_KEY, false), &o.to, &o.cc, &o.bcc, &crate::trust::own_domains(mine), retry_advice(intent))
 }
 
 pub fn send(u: &AppWindow, c: Arc<Client>, prefs: &crate::settings::Settings) {
@@ -1453,6 +1461,33 @@ mod tests {
         // the plugin warning appends the same action-specific advice
         let plugin = format!("Plugin says no. {}", retry_advice(Intent::Schedule(1_000)));
         assert!(!plugin.contains("Press Send") && plugin.contains("Schedule send again"), "{plugin}");
+    }
+
+    #[test]
+    fn external_recipients_are_confirmed_through_the_same_gate() {
+        let on = crate::settings::Settings::with_prefs(serde_json::json!({"externalRecipientConfirm": true, "attachmentReminderEnabled": false}).as_object().unwrap().clone());
+        let off = crate::settings::Settings::with_prefs(serde_json::json!({"attachmentReminderEnabled": false}).as_object().unwrap().clone());
+        let mine = vec!["me@example.test".to_string()];
+        let mut o = Outgoing::default();
+        o.to = "ann@example.test, Bob <bob@other.test>".into();
+        o.subject = "Hi".into();
+        o.text = "Hello".into();
+        assert!(pre_send_warning_with(&o, &off, Intent::Send, &mine).is_none(), "off by default");
+        let sending = pre_send_warning_with(&o, &on, Intent::Send, &mine).unwrap();
+        assert!(sending.contains("bob@other.test (To)") && !sending.contains("ann@example.test") && sending.contains("Press Send again"), "{sending}");
+        let scheduled = pre_send_warning_with(&o, &on, Intent::Schedule(5), &mine).unwrap();
+        assert!(!scheduled.contains("Press Send") && scheduled.contains("Schedule send again"), "{scheduled}");
+        // it composes with the plugin stage: confirming it once lets the plugin check run, then the send goes
+        let fp = draft_fingerprint(&o);
+        let w = |t: &str| Some(t.to_string());
+        let warn = pre_send_warning_with(&o, &on, Intent::Send, &mine);
+        assert_eq!(gate(None, fp, Intent::Send, || warn.clone(), || panic!("after the built-in stage")).unwrap_err().0, Stage::Builtin);
+        assert_eq!(gate(Some((fp, Intent::Send, Stage::Builtin)), fp, Intent::Send, || warn.clone(), || w("plugin says no")), Err((Stage::Plugin, "plugin says no".into())));
+        assert_eq!(gate(Some((fp, Intent::Send, Stage::Builtin)), fp, Intent::Send, || warn.clone(), || None), Ok(()));
+        // a different recipient list is a different draft: asked again
+        let mut o2 = Outgoing::default();
+        o2.to = "carol@third.test".into();
+        assert_ne!(draft_fingerprint(&o2), fp);
     }
 
     #[test]

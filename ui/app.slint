@@ -2144,6 +2144,10 @@ export component AppWindow inherits Window {
     callback settings-set-text(string, string);
     callback settings-button(string);
     callback load-images();
+    callback trust-sender();
+    in property <bool> images-can-load: true;
+    in property <bool> images-can-trust;
+    in property <bool> r-external;
     callback rerender();
     callback lite-click(length, length);
     in-out property <int> render-mode;
@@ -2966,6 +2970,19 @@ export component AppWindow inherits Window {
                         overflow: elide;
                         TouchArea { pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.ctx("addr", root.r-email, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } } }
                     }
+                    if root.r-external: VerticalLayout {
+                        alignment: center;
+                        padding-left: 6px;
+                        accessible-role: text;
+                        accessible-label: "External sender: outside your own domains";
+                        Rectangle {
+                            width: 56px;
+                            height: 18px;
+                            border-radius: 6px;
+                            background: Theme.amber-bg;
+                            Text { width: parent.width; height: parent.height; text: "External"; color: Theme.amber-fg; font-size: 10.5px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
+                        }
+                    }
                     Text {
                         text: (root.r-to != "" ? " to " + root.r-to : "") + (root.r-date != "" ? " · " + root.r-date : "");
                         color: Theme.dim;
@@ -3053,7 +3070,8 @@ export component AppWindow inherits Window {
                         spacing: 10px;
                         VerticalLayout { alignment: center; SIcon { commands: Icons.image; size: 16px; weight: 1.8; tint: Theme.accent; } }
                         Text { text: "Remote images were blocked to protect your privacy."; color: Theme.body; font-size: 12.5px; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
-                        VerticalLayout { alignment: center; ActionButton { label: "Load images"; clicked => { root.load-images(); } } }
+                        if root.images-can-load: VerticalLayout { alignment: center; ActionButton { label: "Load images"; clicked => { root.load-images(); } } }
+                        if root.images-can-trust: VerticalLayout { alignment: center; ActionButton { label: "Trust sender"; clicked => { root.trust-sender(); } } }
                     }
                 }
                 Rectangle { height: Theme.nordic ? 18px : 14px; }
@@ -4107,6 +4125,15 @@ export component AppWindow inherits Window {
                     VerticalLayout {
                         spacing: 1px;
                         Text { text: root.r-from; color: Theme.text; font-size: (Theme.nordic ? 17px : 16px) * Prefs.fs; font-weight: Theme.nordic ? 800 : 700; wrap: word-wrap; }
+                        if root.r-external: Rectangle {
+                            width: 56px;
+                            height: 18px;
+                            border-radius: 6px;
+                            background: Theme.amber-bg;
+                            accessible-role: text;
+                            accessible-label: "External sender: outside your own domains";
+                            Text { width: parent.width; height: parent.height; text: "External"; color: Theme.amber-fg; font-size: 10.5px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
+                        }
                         if root.sx-org != "": Text { text: root.sx-org; color: Theme.dim; font-size: (Theme.nordic ? 13px : 12.5px) * Prefs.fs; wrap: word-wrap; }
                     }
                     VerticalLayout {

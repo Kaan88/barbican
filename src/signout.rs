@@ -9,9 +9,9 @@
 //! signed in only takes what is that account's (stores/auth-store.ts `removeAccount`).
 //!
 //! Barbican keeps no mail, calendar, contact or search index on disk, drafts live on the
-//! server, there is no trusted-senders or remote-content allow list (the server's address
-//! book holds trusted senders) and plugins keep no data of their own, so the list in
-//! [`targets`] is short. The one list lives there; [`wipe`] runs it.
+//! server, and plugins keep no data of their own, so the list in
+//! [`targets`] is short. The one thing inside a kept file that goes is the trusted-senders list
+//! in `prefs.json` (`trustedSenders`, [`crate::trust::forget_in_file`]), when the last account signs out. The one list lives there; [`wipe`] runs it.
 //!
 //! Everything that list names belongs to the signing-out profile ([`Roots`]): the config folder
 //! (per profile), the mail view's WebView folder, the folder mail attachments are opened from
@@ -159,6 +159,9 @@ pub fn wipe_with(r: &Roots, who: &Who, remove: &dyn Fn(&Path) -> io::Result<()>,
         }
         if done { report.removed.push(p); } else { report.pending.push(p); }
     }
+    // the trusted senders (remote content allow list, prefs.json `trustedSenders`) are account data:
+    // with the last account gone they do not stay for the next person; the other preferences do
+    if who.last { crate::trust::forget_in_file(&r.config.join("prefs.json")); }
     if !who.last {
         if let Some(owner) = &who.owner { forget_owner(&r.config.join(crate::reminders::STATE_FILE), owner); }
     }
@@ -361,6 +364,20 @@ mod tests {
         assert!(r.webview.parent().unwrap().join("updates/pending.json").exists(), "downloaded updates are shared and stay");
         assert!(r.temp.parent().unwrap().join("unrelated.txt").exists());
         assert!(!r.config.join("pending-delete.txt").exists());
+    }
+
+    #[test]
+    fn trusted_senders_go_with_the_last_account_only() {
+        let t = Tmp::new("trusted");
+        let r = t.roots();
+        let prefs = r.config.join("prefs.json");
+        let text = r#"{"theme":"dark","trustedSenders":["a@x.test"],"externalContentPolicy":"block"}"#;
+        fs::write(&prefs, text).unwrap();
+        quick(&r, &who("ann@example.test", false, false));
+        assert_eq!(fs::read_to_string(&prefs).unwrap(), text, "another account stays: its trust list stays");
+        quick(&r, &who("ann@example.test", true, false));
+        let v: serde_json::Value = serde_json::from_str(&fs::read_to_string(&prefs).unwrap()).unwrap();
+        assert_eq!(v, serde_json::json!({"theme": "dark", "externalContentPolicy": "block"}));
     }
 
     #[test]

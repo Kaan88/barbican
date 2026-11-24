@@ -445,8 +445,15 @@ impl Settings {
                 out.extend(crate::desktop::settings_rows(tab, self));
                 if tab == "privacy" {
                     out.insert(0, row("section", "", "Remote content", "Images and other content loaded from the internet can tell senders when you read their mail."));
-                    out.insert(1, select("desktop.remoteImages", "Load remote images", "", &["Ask first (blocked until you choose)", "Always load"], if cfg.remote_images { 1 } else { 0 }));
-                    out.push(row("section", "", "Read receipts", ""));
+                    // Bulwark externalContentPolicy (stores/settings-store.ts:444): ask / block / allow
+                    let policy = crate::trust::policy(&self.prefs, cfg.remote_images);
+                    out.insert(1, select(crate::trust::POLICY_KEY, "Remote content", "Ask: blocked until you load a message's images or trust its sender. Always block: only trusted senders load. Always load: never blocked.",
+                        &crate::trust::ContentPolicy::ALL.map(|p| p.label()), crate::trust::ContentPolicy::ALL.iter().position(|p| *p == policy).unwrap_or(0) as i32));
+                    out.insert(2, text("textarea", crate::trust::TRUSTED_KEY, "Trusted senders", "Images from these addresses always load. One address per line; \"Trust sender\" in a message adds it here, and removing a line stops trusting it.", &crate::trust::list_text(&crate::trust::trusted_list(&self.prefs))));
+                    out.insert(3, row("section", "", "Outside your organisation", "Your own domains are those of your identities."));
+                    out.insert(4, toggle(crate::trust::SENDER_LABEL_KEY, "Label external senders", "Shows \"External\" next to a sender outside your own domains when you read a message.", self.bool(crate::trust::SENDER_LABEL_KEY, true)));
+                    out.insert(5, toggle(crate::trust::RECIPIENT_CONFIRM_KEY, "Confirm before sending outside", "Asks before sending to a recipient outside your own domains, and lists them.", self.bool(crate::trust::RECIPIENT_CONFIRM_KEY, false)));
+                    out.insert(6, row("section", "", "Read receipts", ""));
                     out.push(sel_pref("readReceiptResponse", "Respond to read-receipt requests", "What to do when an incoming message asks for a read receipt."));
                 }
             }
@@ -497,7 +504,13 @@ impl Settings {
             "ai.lang" => cfg.lang = value.as_str().unwrap_or("").into(),
             "spam.showClean" => cfg.show_clean_spam = value.as_bool().unwrap_or(true),
             "desktop.renderMode" => cfg.render_mode = value.as_i64().unwrap_or(0) as i32,
-            "desktop.remoteImages" => cfg.remote_images = value.as_i64() == Some(1),
+            // Bulwark's list is an array of lower-cased addresses; the page edits it as text
+            "trustedSenders" => {
+                let list = crate::trust::parse_list(value.as_str().unwrap_or(""));
+                self.prefs.insert(key.into(), crate::trust::trusted_json(&list));
+                self.save();
+                return;
+            }
             k if k.starts_with("hoverAction:") => {
                 let id = &k[12..];
                 let mut list = self.hover_actions();
@@ -577,6 +590,7 @@ impl Settings {
     /// Value to store for a select row's chosen index.
     pub fn select_value(&self, key: &str, index: i32) -> Value {
         if key.starts_with("ai.") || key.starts_with("desktop.") { return json!(index); }
+        if key == crate::trust::POLICY_KEY { return crate::trust::ContentPolicy::ALL.get(index as usize).map_or(Value::Null, |p| json!(p.as_str())); }
         if let Some(o) = option_override(key) { return o.get(index as usize).map(|x| x.0.clone()).unwrap_or(Value::Null); }
         for t in self.schema["tabs"].as_array().unwrap() {
             for r in t["rows"].as_array().unwrap() {

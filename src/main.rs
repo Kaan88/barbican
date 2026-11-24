@@ -73,6 +73,7 @@ mod gsearch;
 mod palette;
 mod search_history;
 mod signout;
+mod trust;
 mod search_ui;
 mod dnd;
 // distribution: platform layer, tray, notifications, updater
@@ -144,6 +145,30 @@ fn has_remote_images(h: &str) -> bool {
     ["src=http", "url(http", "background=http", "srcset=http", "src=//", "url(//"].iter().any(|p| l.contains(p))
 }
 
+/// The remote-content policy in force (preference, else the 0.1.x switch).
+fn content_policy(u: &AppWindow) -> trust::ContentPolicy {
+    trust::policy(&settings::Settings::load().prefs, u.get_auto_images())
+}
+
+/// Whether the remote content of message `m` loads when it opens: policy `allow`, or a trusted
+/// sender (Bulwark email-viewer.tsx:3129).
+pub fn allow_remote(u: &AppWindow, m: &Value) -> bool {
+    let prefs = settings::Settings::load().prefs;
+    let from = m["from"][0]["email"].as_str().unwrap_or("");
+    trust::loads_on_open(trust::policy(&prefs, u.get_auto_images()), trust::is_trusted(&trust::trusted_list(&prefs), from))
+}
+
+/// What the "remote images blocked" banner offers for the open message.
+fn images_offers(u: &AppWindow) -> trust::Offers {
+    let prefs = settings::Settings::load().prefs;
+    let (from, forged) = CUR_MSG.with(|x| x.borrow().as_ref().map(|(m, _)| {
+        let from = m["from"][0]["email"].as_str().unwrap_or("").to_string();
+        let forged = trust::forged(m["headers"].as_array().map(|a| a.as_slice()).unwrap_or(&[]), &from);
+        (from, forged)
+    }).unwrap_or_default());
+    trust::offers(trust::policy(&prefs, u.get_auto_images()), &from, trust::is_trusted(&trust::trusted_list(&prefs), &from), forged)
+}
+
 fn render_current(u: &AppWindow) {
     render_current_then(u, None);
 }
@@ -159,6 +184,11 @@ fn render_current_then(u: &AppWindow, on_ready: Option<Box<dyn FnOnce() -> bool>
         let c = c.borrow();
         let Some(cur) = c.as_ref() else { return };
         u.set_images_blocked(cur.remote && !cur.allow && mode != 2);
+        if cur.remote && !cur.allow && mode != 2 {
+            let o = images_offers(u);
+            u.set_images_can_load(o.load_once);
+            u.set_images_can_trust(o.trust);
+        }
         // Settings > Accessibility > Show messages as: plain text drops the layout
         let plain_view = a11y::A11y::load().plain_view;
         let body = match &cur.html {
@@ -1195,7 +1225,7 @@ fn main() -> Result<(), slint::PlatformError> {
         p.set(&key, v, &mut cf.lock().unwrap());
         drop(p);
         rs();
-        if key == "desktop.renderMode" || key == "desktop.remoteImages" { render_current(&w.unwrap()); }
+        if key == "desktop.renderMode" || key == trust::POLICY_KEY { render_current(&w.unwrap()); }
         if key == "theme" || key == "uiStyle" { apply_theme(&w.unwrap()); }
         if key == "writingLanguage" { rte::spell::reload(); }
         if key == "desktop.updateChannel" { desktop::setting_changed(&key, true); }
@@ -1376,6 +1406,20 @@ fn main() -> Result<(), slint::PlatformError> {
     ui.set_auto_images(cfg.lock().unwrap().remote_images);
 
     let w = ui.as_weak();
+    let (wt, pft) = (ui.as_weak(), prefs.clone());
+    ui.on_trust_sender(move || {
+        let u = wt.unwrap();
+        let from = CUR_MSG.with(|x| x.borrow().as_ref().map(|(m, _)| m["from"][0]["email"].as_str().unwrap_or("").to_string())).unwrap_or_default();
+        {
+            let mut p = pft.lock().unwrap();
+            let mut list = trust::trusted_list(&p.prefs);
+            if trust::add_trusted(&mut list, &from) { p.remember(trust::TRUSTED_KEY, trust::trusted_json(&list)); }
+        }
+        CUR.with(|c| if let Some(c) = c.borrow_mut().as_mut() { c.allow = true; });
+        render_current(&u);
+        mail::show_toast(&u, &format!("Images from {} will load from now on.", trust::sender_key(&from)), false);
+    });
+
     ui.on_load_images(move || {
         let u = w.unwrap();
         CUR.with(|c| if let Some(c) = c.borrow_mut().as_mut() { c.allow = true; });
