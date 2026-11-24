@@ -5,8 +5,9 @@
 
 Reads <bulwark>/lib/plugin-hook-catalog.ts and lib/plugin-slot-catalog.ts. The committed CSVs are the source of truth;
 this only refreshes them from a Bulwark checkout. Columns that people edit later (phase, rust_call_site, status,
-budget_ms, fail_closed) are kept from the existing CSV when the row's name is already there; new rows get
-phase 5-B5 (hooks) / 5-B6 (slots) and status pending. host-api.csv is not produced here (spec/plugins/README.md).
+budget_ms, fail_closed, barbican_status, barbican_note) are kept from the existing CSV when the row's name is already there; new rows get
+phase 5-B5 (hooks) / 5-B6 (slots), status pending and an empty barbican_status, which
+tools/gen-plugin-catalog.py refuses until someone decides adopt, adapt or skip. host-api.csv is not produced here (spec/plugins/README.md).
 Then run `python tools/gen-plugin-catalog.py` to regenerate src/plugin_catalog.rs.
 """
 import csv
@@ -107,7 +108,7 @@ def main():
     hooks_path, slots_path = OUT / "hooks.csv", OUT / "slots.csv"
     old_h, old_s = existing(hooks_path, "name"), existing(slots_path, "name")
     hcols = ["name", "group", "kind", "permission", "also_permission", "payload", "when", "bulwark_ref",
-             "phase", "rust_call_site", "status", "budget_ms", "fail_closed"]
+             "phase", "rust_call_site", "status", "budget_ms", "fail_closed", "barbican_status", "barbican_note"]
     rows = []
     for name, line, a, tail in entries(bw / "lib" / "plugin-hook-catalog.ts", "H"):
         group, kind, perm, payload, when = (unq(x) for x in a[:5])
@@ -128,13 +129,15 @@ def main():
             # R2-10: Bulwark lib/plugin-hooks.ts:62-66 (5 s, intercepts 60 s, takeovers fail closed); edited rows are kept
             "budget_ms": r.get("budget_ms") or {"intercept": "60000", "takeover": "600000"}.get(kind, "5000"),
             "fail_closed": r.get("fail_closed") or ("true" if kind == "takeover" else "false"),
+            "barbican_status": r.get("barbican_status", ""), "barbican_note": r.get("barbican_note", ""),
         })
     with hooks_path.open("w", encoding="utf-8", newline="") as f:
         w = csv.DictWriter(f, hcols, lineterminator="\n")
         w.writeheader()
         w.writerows(rows)
 
-    scols = ["name", "area", "kind", "permissions", "props", "where", "bulwark_ref", "phase", "status"]
+    scols = ["name", "area", "kind", "permissions", "props", "where", "bulwark_ref", "phase", "status",
+             "barbican_status", "barbican_note"]
     srows = []
     for name, line, a, tail in entries(bw / "lib" / "plugin-slot-catalog.ts", "S"):
         area, kind, perms, props, where = unq(a[0]), unq(a[1]), a[2], a[3], unq(a[4])
@@ -146,6 +149,7 @@ def main():
             "bulwark_ref": f"lib/plugin-slot-catalog.ts:{line}",
             "phase": r.get("phase") or "5-B6",
             "status": r.get("status") or "pending",
+            "barbican_status": r.get("barbican_status", ""), "barbican_note": r.get("barbican_note", ""),
         })
     with slots_path.open("w", encoding="utf-8", newline="") as f:
         w = csv.DictWriter(f, scols, lineterminator="\n")
