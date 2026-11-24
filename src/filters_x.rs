@@ -49,7 +49,7 @@ pub fn offered_acts(ext: &[String], current: &str) -> Vec<usize> {
 
 /// The server's Sieve extensions as the filters tab loaded them (empty before that).
 fn sieve_ext() -> Vec<String> {
-    CACHE.with(|c| c.borrow().as_ref().map(|k| k.lock().unwrap().sieve_ext.clone())).unwrap_or_default()
+    CACHE.with(|c| c.borrow().as_ref().map(|k| k.lock().unwrap_or_else(|e| e.into_inner()).sieve_ext.clone())).unwrap_or_default()
 }
 
 #[derive(Clone, Default, Debug)]
@@ -522,7 +522,7 @@ fn render(u: &AppWindow) {
 }
 
 fn open_editor(u: &AppWindow, cache: &Cache, id: Option<&str>) {
-    let k = cache.lock().unwrap();
+    let k = cache.lock().unwrap_or_else(|e| e.into_inner());
     let rule = id.and_then(|i| k.rules.iter().find(|r| r["id"] == i).cloned());
     let folders = folder_paths(&k.mailboxes);
     let ext = k.sieve_ext.clone();
@@ -562,14 +562,14 @@ fn open_editor(u: &AppWindow, cache: &Cache, id: Option<&str>) {
 /// Write the rules (with the script's metadata kept) in the background, then reload the page.
 fn save_rules(u: &AppWindow, c: Arc<Client>, cache: Cache, reload: Reload, rules: Vec<Value>, before: Vec<Value>, done: &'static str, close: bool) {
     let (script, scripts) = {
-        let k = cache.lock().unwrap();
+        let k = cache.lock().unwrap_or_else(|e| e.into_inner());
         (crate::sieve::generate_meta(&crate::sieve::with_rules(&k.filter_meta, &rules), &k.external, &k.sieve_ext), k.scripts.clone())
     };
     let w = u.as_weak();
     u.global::<FilterX>().set_busy(true);
     std::thread::spawn(move || {
         let res = crate::server_settings::save_script(&c, &script, &scripts);
-        { let mut k = cache.lock().unwrap(); if res.is_ok() { k.rules = rules; } else { k.rules = before; } }
+        { let mut k = cache.lock().unwrap_or_else(|e| e.into_inner()); if res.is_ok() { k.rules = rules; } else { k.rules = before; } }
         let ok = res.is_ok();
         let _ = w.upgrade_in_event_loop(move |u| {
             let g = u.global::<FilterX>();
@@ -585,7 +585,7 @@ fn save_rules(u: &AppWindow, c: Arc<Client>, cache: Cache, reload: Reload, rules
 }
 
 fn run_rule(u: &AppWindow, c: Arc<Client>, cache: &Cache, id: &str) {
-    let Some(rule) = cache.lock().unwrap().rules.iter().find(|r| r["id"] == id).cloned() else { return };
+    let Some(rule) = cache.lock().unwrap_or_else(|e| e.into_inner()).rules.iter().find(|r| r["id"] == id).cloned() else { return };
     let g = u.global::<FilterX>();
     g.set_retro_title(format!("Run \"{}\" on existing mail", rule["name"].as_str().unwrap_or("Rule")).into());
     g.set_retro_can_apply(false);
@@ -630,7 +630,7 @@ fn run_rule(u: &AppWindow, c: Arc<Client>, cache: &Cache, id: &str) {
 /// Automation probe: the loaded rules, the editor and the script (read-only).
 pub fn probe(u: &AppWindow) -> String {
     let g = u.global::<FilterX>();
-    let (rules, script) = CACHE.with(|c| c.borrow().as_ref().map(|k| { let k = k.lock().unwrap(); (k.rules.clone(), k.script_text.clone()) })).unwrap_or_default();
+    let (rules, script) = CACHE.with(|c| c.borrow().as_ref().map(|k| { let k = k.lock().unwrap_or_else(|e| e.into_inner()); (k.rules.clone(), k.script_text.clone()) })).unwrap_or_default();
     json!({"rules": rules.iter().map(|r| json!([r["id"], r["name"], r["enabled"], summary(r)])).collect::<Vec<_>>(), "script": script,
         "editor": {"open": g.get_open(), "status": g.get_status().to_string(), "conds": ED.with(|e| e.borrow().conds.len()), "acts": ED.with(|e| e.borrow().acts.len())},
         "retro": {"open": g.get_retro_open(), "text": g.get_retro_text().to_string(), "can": g.get_retro_can_apply()}}).to_string()
@@ -689,7 +689,7 @@ pub fn wire(ui: &AppWindow, st: ClientSlot, cache: Cache, reload: Reload) {
         match built {
             Err(e) => g.set_status(e.into()),
             Ok((rule, id)) => {
-                let before = k.lock().unwrap().rules.clone();
+                let before = k.lock().unwrap_or_else(|e| e.into_inner()).rules.clone();
                 let mut rules = before.clone();
                 match id.and_then(|id| rules.iter().position(|r| r["id"] == id.as_str())) { Some(i) => rules[i] = rule, None => rules.push(rule) }
                 save_rules(&u, c, k.clone(), rl.clone(), rules, before, "Rule saved", true);
@@ -699,10 +699,10 @@ pub fn wire(ui: &AppWindow, st: ClientSlot, cache: Cache, reload: Reload) {
     let (w, s, k, rl) = (ui.as_weak(), st.clone(), cache.clone(), reload.clone());
     g.on_move(move |id, dir| {
         let Some(c) = client(&s) else { return };
-        let rules = k.lock().unwrap().rules.clone();
+        let rules = k.lock().unwrap_or_else(|e| e.into_inner()).rules.clone();
         let next = moved(&rules, &id, dir);
         if next.iter().map(|r| r["id"].clone()).eq(rules.iter().map(|r| r["id"].clone())) { return; }
-        k.lock().unwrap().rules = next.clone();
+        k.lock().unwrap_or_else(|e| e.into_inner()).rules = next.clone();
         save_rules(&w.unwrap(), c, k.clone(), rl.clone(), next, rules, "Rule order saved", false);
     });
     let (w, s, k, rl) = (ui.as_weak(), st.clone(), cache.clone(), reload.clone());
@@ -712,7 +712,7 @@ pub fn wire(ui: &AppWindow, st: ClientSlot, cache: Cache, reload: Reload) {
         if g.get_confirm() != id { g.set_confirm(id); return; }
         g.set_confirm("".into());
         let Some(c) = client(&s) else { return };
-        let before = k.lock().unwrap().rules.clone();
+        let before = k.lock().unwrap_or_else(|e| e.into_inner()).rules.clone();
         let rules: Vec<Value> = before.iter().filter(|r| r["id"] != id.as_str()).cloned().collect();
         save_rules(&u, c, k.clone(), rl.clone(), rules, before, "Rule deleted", false);
     });

@@ -57,6 +57,7 @@ mod plugins;
 mod plugin_catalog;
 #[cfg(test)]
 mod plugin_catalog_check;
+mod security;
 mod server_settings;
 mod settings;
 mod sieve;
@@ -946,8 +947,13 @@ fn main() -> Result<(), slint::PlatformError> {
         let (server, user, pass, totp) = (server.to_string(), user.to_string(), pass.to_string(), totp.to_string());
         std::thread::spawn(move || {
             let res = jmap::Client::connect(&server, &user, &pass, &totp);
-            // a 2FA code is single-use, so only the password itself can be remembered
-            let rem = (remember && totp.trim().is_empty()).then(|| serde_json::json!({"kind": "password", "server": server, "user": user, "pass": pass}));
+            // a 2FA code is single-use, so only the password itself can be remembered; a saved
+            // sign-in whose password was cleared gets back one that worked on its own
+            let rem = match security::form_sign_in_entry(&oauth::accounts(), &server, &user, &pass, &totp, remember) {
+                security::FormEntry::Remember(v) => Some(v),
+                security::FormEntry::Repair(v) => { if res.is_ok() { oauth::repair_account(&v); } None }
+                security::FormEntry::Nothing => None,
+            };
             finish_login(w, st, res, server, user, rem, oauth::Origin::SignIn);
         });
     });
@@ -971,16 +977,48 @@ fn main() -> Result<(), slint::PlatformError> {
         });
     });
 
+    // what the settings pages cached (the account security page holds secrets): reset when Settings
+    // closes and on sign-out, sign-in and account switches
+    let server_cache: server_settings::Shared = Default::default();
     let w = ui.as_weak();
     let st = state.clone();
+    let srv_out = server_cache.clone();
+    // a password change that ended the session signs out through the same flow, then says why
+    let w_hook = ui.as_weak();
+    security::set_sign_out_hook(Box::new(move |key, msg| {
+        let _ = w_hook.upgrade_in_event_loop(move |u| {
+            // only the account whose session ended: the sign-out checks it under the same lock it
+            // takes the session with, so after a switch meanwhile the account now in use (its
+            // session, its saved sign-in) is left alone
+            *SIGN_OUT_ONLY.lock().unwrap_or_else(|e| e.into_inner()) = Some(key);
+            // the saved sign-in stays unless the password change cleared it (security.rs decided)
+            KEEP_SAVED_SIGN_IN.store(true, std::sync::atomic::Ordering::SeqCst);
+            u.invoke_sign_out();
+            KEEP_SAVED_SIGN_IN.store(false, std::sync::atomic::Ordering::SeqCst);
+            // still set: the sign-out did not apply, and there is nothing to say
+            if SIGN_OUT_ONLY.lock().unwrap_or_else(|e| e.into_inner()).take().is_some() { return; }
+            // after the sign-out's own line, so a keychain warning is not hidden
+            u.set_status(security::append_status(u.get_status().as_str(), &msg).into());
+        });
+    }));
     ui.on_sign_out(move || {
+        // the check and the take under one lock: a switch that finishes on its worker thread
+        // cannot put another account in between
+        let taken = {
+            let mut g = st.lock().unwrap_or_else(|e| e.into_inner());
+            let mut only = SIGN_OUT_ONLY.lock().unwrap_or_else(|e| e.into_inner());
+            if !security::sign_out_applies(g.as_ref().map(|c| c.state_key()).as_deref(), only.as_deref()) { return; }
+            *only = None;
+            g.take()
+        };
+        server_settings::reset(&srv_out);
         let u = w.unwrap();
         SESSION_GEN.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         *RESTORE_PENDING.lock().unwrap() = None;
         let account = u.get_account().to_string();
         let mut owner = None;
         let mut server = String::new();
-        if let Some(c) = st.lock().unwrap().take() {
+        if let Some(c) = taken {
             server = c.base.clone();
             owner = Some(reminders::owner_key(&c.base, &c.username));
             if let Some(t) = c.tokens() { std::thread::spawn(move || oauth::revoke(&c.base, &t)); }
@@ -989,7 +1027,8 @@ fn main() -> Result<(), slint::PlatformError> {
         reminders::stop();
         // the account list is keyed by the name typed on the login form
         let login = std::mem::take(&mut *LOGIN_USER.lock().unwrap());
-        let forgot = signout::forget_keyring(&[login.as_str(), account.as_str()], &server);
+        let keep = KEEP_SAVED_SIGN_IN.load(std::sync::atomic::Ordering::SeqCst);
+        let forgot = if keep { signout::Forgot { last: false, cleared: true } } else { signout::forget_keyring(&[login.as_str(), account.as_str()], &server) };
         let last = forgot.last;
         if last { avatars::cancel_pending(); }
         // a chat answer still coming must not write the account's file again
@@ -1004,6 +1043,13 @@ fn main() -> Result<(), slint::PlatformError> {
         // what was read from the account's address book; the book itself stays on the server
         trustbook::clear();
         signout::wipe(signout::Who { user: account, owner, last, webview_live: mailview::is_built() || platform::other_of_profile_running() });
+        // the template dialogs are drawn over the sign-in page too; the composer's template list
+        // was this account's
+        tplflow::reset(&u);
+        TEMPLATES.with(|t| *t.borrow_mut() = (String::new(), Vec::new()));
+        u.set_tpl_names(ModelRc::new(VecModel::from(vec![slint::SharedString::from("Insert template…")])));
+        u.set_tpl_index(0);
+        u.set_tpl_note("".into());
         // nobody at this computer finds the last person's password or code in the form
         u.set_login_password("".into());
         u.set_login_otp("".into());
@@ -1055,8 +1101,9 @@ fn main() -> Result<(), slint::PlatformError> {
     ui.set_accounts(accounts_model());
 
     // account switcher (Bulwark's account menu)
-    let (w, st) = (ui.as_weak(), state.clone());
+    let (w, st, srv_sw) = (ui.as_weak(), state.clone(), server_cache.clone());
     ui.on_switch_account(move |user| {
+        server_settings::reset(&srv_sw);
         let Some(v) = oauth::accounts().into_iter().find(|a| a["user"].as_str() == Some(user.as_str())) else { return };
         let u = w.unwrap();
         // the current session (and its push stream) stays until the new one is up: a failed
@@ -1067,8 +1114,9 @@ fn main() -> Result<(), slint::PlatformError> {
         u.set_busy(true);
         restore_session(w.clone(), st.clone(), v, true, None);
     });
-    let (w, st) = (ui.as_weak(), state.clone());
+    let (w, st, srv_add) = (ui.as_weak(), state.clone(), server_cache.clone());
     ui.on_add_account(move || {
+        server_settings::reset(&srv_add);
         let u = w.unwrap();
         SESSION_GEN.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         *st.lock().unwrap() = None;
@@ -1144,7 +1192,6 @@ fn main() -> Result<(), slint::PlatformError> {
         }
     };
     let account_info = Arc::new(account_info);
-    let server_cache: server_settings::Shared = Default::default();
     // load a server-backed settings page in the background, then redraw
     let load_server_page = {
         let (w, st, srv) = (ui.as_weak(), state.clone(), server_cache.clone());
@@ -1171,8 +1218,14 @@ fn main() -> Result<(), slint::PlatformError> {
                 let tab = u.get_settings_tab().to_string();
                 u.set_settings_title(p.title(&tab).into());
                 let mut rows = p.rows(&tab, &c, &acc());
+                if tab == "security" { srv.lock().unwrap_or_else(|e| e.into_inner()).sec.advanced = adv; }
                 if let Some(extra) = server_settings::rows(&tab, &srv) {
-                    if tab == "account" || tab == "composing" { rows.extend(extra); } else { rows = extra; }
+                    if tab == "account" || tab == "composing" { rows.extend(extra); }
+                    else if tab == "security" {
+                        // the server's account security replaces the schema's empty headings it covers
+                        rows.retain(|r| !(r.kind == "section" && matches!(r.label.as_str(), "Account security" | "Encryption")));
+                        rows.splice(0..0, extra);
+                    } else { rows = extra; }
                 }
                 rows
             } else {
@@ -1196,8 +1249,11 @@ fn main() -> Result<(), slint::PlatformError> {
         let reload: filters_x::Reload = Arc::new(move |tab: String| lsp(tab));
         filters_x::wire(&ui, state.clone(), server_cache.clone(), reload);
     }
-    let (w, rs, lsp) = (ui.as_weak(), refresh_settings.clone(), load_server_page.clone());
+    let srv_closed = server_cache.clone();
+    ui.on_settings_closed(move || server_settings::reset(&srv_closed));
+    let (w, rs, lsp, srv_open) = (ui.as_weak(), refresh_settings.clone(), load_server_page.clone(), server_cache.clone());
     ui.on_open_settings(move || {
+        server_settings::reset(&srv_open);
         let u = w.unwrap();
         u.set_settings_query("".into());
         rs();
@@ -2259,6 +2315,15 @@ fn accounts_model() -> ModelRc<SharedString> {
 
 use jmap::auth_rejected;
 
+/// Set while the account security page ends a session: the sign-out then keeps the saved sign-in
+/// (an app password still works), and the form is shown.
+static KEEP_SAVED_SIGN_IN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Set while the account security page ends a session: the `state_key` of that account. The
+/// sign-out applies only while it is the session in use (checked and taken under the session's
+/// lock), and clears this when it does.
+static SIGN_OUT_ONLY: Mutex<Option<String>> = Mutex::new(None);
+
 /// The stored session a start-up restore could not use for lack of a network: "Try again" runs it again.
 static RESTORE_PENDING: Mutex<Option<Value>> = Mutex::new(None);
 
@@ -2289,6 +2354,9 @@ fn restore_session(w: slint::Weak<AppWindow>, st: Shared, v: Value, switching: b
                     user: user.clone(),
                 };
                 jmap::Client::connect_oauth(&server, t)
+            } else if let Some(e) = jmap::cleared_password_rejection(&v) {
+                // a password that was cleared (two-step sign-in was turned on): nothing to try
+                Err(e)
             } else {
                 jmap::Client::connect(&server, &user, v["pass"].as_str().unwrap_or(""), "")
             };

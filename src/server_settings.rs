@@ -61,6 +61,8 @@ pub struct Cache {
     pub books: Vec<Value>,
     pub new_cal: String,
     pub new_book: String,
+    /// Settings > Password & sign-in (src/security.rs).
+    pub sec: crate::security::State,
 }
 
 /// Bulwark's calendar colour presets (lib/shared-calendar-colors.ts CALENDAR_COLORS).
@@ -125,6 +127,16 @@ const ARCHIVE_USING: [&str; 2] = ["urn:ietf:params:jmap:core", "urn:stalwart:jma
 
 pub type Shared = Arc<Mutex<Cache>>;
 
+/// Forget everything the pages cached, secrets first: Settings was closed, or the account signed
+/// out or changed. The security page's epoch moves on, so a job or load still running for the old
+/// account drops its answer instead of writing it into the next page.
+pub fn reset(cache: &Shared) {
+    let mut g = cache.lock().unwrap_or_else(|e| e.into_inner());
+    let epoch = g.sec.epoch + 1;
+    *g = Cache::default();
+    g.sec.epoch = epoch;
+}
+
 fn s(v: &str) -> SharedString { SharedString::from(v) }
 fn row(kind: &str, key: &str, label: &str, desc: &str, text: &str, on: bool) -> SRow {
     SRow { kind: s(kind), key: s(key), label: s(label), desc: s(desc), options: ModelRc::new(VecModel::from(Vec::<SharedString>::new())), index: 0, on, text: s(text) }
@@ -142,12 +154,14 @@ fn quota_rows(list: &[Value]) -> Vec<SRow> {
 
 /// Fetch what a page needs. Runs on a background thread.
 pub fn load(tab: &str, c: &Client, cache: &Shared) {
+    // typed passwords, codes and a secret just created are kept only while their page is open
+    if tab != "security" { cache.lock().unwrap_or_else(|e| e.into_inner()).sec.forget_secrets(); }
     let res: Result<(), String> = (|| {
         match tab {
             "vacation" => {
                 let acc = c.account_for("urn:ietf:params:jmap:vacationresponse");
                 let r = c.call(json!([["VacationResponse/get", {"accountId": acc, "ids": ["singleton"]}, "v"]]))?;
-                cache.lock().unwrap().vacation = Some(r[0][1]["list"][0].clone());
+                cache.lock().unwrap_or_else(|e| e.into_inner()).vacation = Some(r[0][1]["list"][0].clone());
             }
             "filters" => {
                 let acc = c.account_for("urn:ietf:params:jmap:sieve");
@@ -162,7 +176,7 @@ pub fn load(tab: &str, c: &Client, cache: &Shared) {
                 let ext: Vec<String> = c.session["capabilities"]["urn:ietf:params:jmap:sieve"]["sieveExtensions"].as_array()
                     .or(c.session["accounts"][&acc]["accountCapabilities"]["urn:ietf:params:jmap:sieve"]["sieveExtensions"].as_array())
                     .map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect()).unwrap_or_default();
-                let mut k = cache.lock().unwrap();
+                let mut k = cache.lock().unwrap_or_else(|e| e.into_inner());
                 k.sieve_ext = ext;
                 k.scripts = scripts;
                 k.rules = p.metadata["rules"].as_array().cloned().unwrap_or_default();
@@ -173,9 +187,9 @@ pub fn load(tab: &str, c: &Client, cache: &Shared) {
                 drop(k);
                 // folders for the rule editor's move / copy targets
                 let boxes = c.mailboxes().unwrap_or_default();
-                cache.lock().unwrap().mailboxes = boxes;
+                cache.lock().unwrap_or_else(|e| e.into_inner()).mailboxes = boxes;
             }
-            "organize" => { cache.lock().unwrap().mailboxes = c.mailboxes()?; }
+            "organize" => { cache.lock().unwrap_or_else(|e| e.into_inner()).mailboxes = c.mailboxes()?; }
             "recover" => {
                 // Stalwart's deleted-item archive (x:ArchivedItem), as Bulwark's Recover deleted items
                 let acc = c.account.clone();
@@ -192,13 +206,13 @@ pub fn load(tab: &str, c: &Client, cache: &Shared) {
                     items.extend(g[0][1]["list"].as_array().cloned().unwrap_or_default());
                 }
                 items.sort_by(|a, b| b["archivedAt"].as_str().unwrap_or("").cmp(a["archivedAt"].as_str().unwrap_or("")));
-                cache.lock().unwrap().archived = items;
+                cache.lock().unwrap_or_else(|e| e.into_inner()).archived = items;
             }
             "calendars" => {
                 let acc = c.account_for("urn:ietf:params:jmap:calendars");
                 let r = c.call(json!([["Calendar/get", {"accountId": acc, "ids": null, "properties": ["id", "name", "color", "isDefault", "isVisible", "isSubscribed", "sortOrder", "myRights", "description"]}, "c"]]))?;
                 if r[0][0] == "error" { return Err(crate::jmap::method_error(&r[0][1])); }
-                cache.lock().unwrap().calendars = sorted_calendars(r[0][1]["list"].as_array().map(|a| a.as_slice()).unwrap_or(&[]));
+                cache.lock().unwrap_or_else(|e| e.into_inner()).calendars = sorted_calendars(r[0][1]["list"].as_array().map(|a| a.as_slice()).unwrap_or(&[]));
             }
             "addressbooks" => {
                 let acc = c.account_for("urn:ietf:params:jmap:contacts");
@@ -206,21 +220,22 @@ pub fn load(tab: &str, c: &Client, cache: &Shared) {
                 if r[0][0] == "error" { return Err(crate::jmap::method_error(&r[0][1])); }
                 let mut v = r[0][1]["list"].as_array().cloned().unwrap_or_default();
                 v.sort_by_key(|b| (b["isDefault"] != true, b["name"].as_str().unwrap_or("").to_lowercase()));
-                cache.lock().unwrap().books = v;
+                cache.lock().unwrap_or_else(|e| e.into_inner()).books = v;
             }
             "account" => {
                 // the storage line is a courtesy: a server without quotas, or one that refuses, keeps the page
                 let quota = c.quotas().unwrap_or_default();
                 let ids = c.identities()?;
-                let mut k = cache.lock().unwrap();
+                let mut k = cache.lock().unwrap_or_else(|e| e.into_inner());
                 k.quota = quota;
                 k.identities = ids;
             }
+            "security" => { crate::security::load(c, cache)?; }
             "composing" => {
                 let ids = c.identities()?;
                 // a failed load is an error on the page, not an empty list
                 let tpls = crate::templates::list(c)?;
-                let mut k = cache.lock().unwrap();
+                let mut k = cache.lock().unwrap_or_else(|e| e.into_inner());
                 k.identities = ids;
                 k.templates = tpls;
                 k.tpl_state = if crate::templates::supported(c) { 1 } else { 2 };
@@ -229,16 +244,18 @@ pub fn load(tab: &str, c: &Client, cache: &Shared) {
         }
         Ok(())
     })();
-    cache.lock().unwrap().error = res.err().unwrap_or_default();
+    cache.lock().unwrap_or_else(|e| e.into_inner()).error = res.err().unwrap_or_default();
 }
 
 /// Rows for server-backed pages; `None` for pages this module doesn't own.
 pub fn rows(tab: &str, cache: &Shared) -> Option<Vec<SRow>> {
-    let k = cache.lock().unwrap();
+    let k = cache.lock().unwrap_or_else(|e| e.into_inner());
     let mut out = vec![];
     if !k.error.is_empty() { out.push(row("value", "", "Could not load from the server", &k.error, "", false)); }
     let quota = if tab == "account" { quota_rows(&k.quota) } else { vec![] };
     match tab {
+        // hidden (None) for an account without Stalwart's management capability
+        "security" => return crate::security::rows(&k.sec).map(|mut r| { r.splice(0..0, out); r }),
         "vacation" => {
             out.push(row("section", "", "Out of office", "Sends an automatic reply to people who write to you while you are away.", "", false));
             let Some(v) = k.vacation.as_ref() else { out.push(row("value", "", "Loading…", "", "", false)); return Some(out) };
@@ -392,7 +409,11 @@ pub fn rows(tab: &str, cache: &Shared) -> Option<Vec<SRow>> {
 
 /// Apply an edit locally (instant) and return a server write to run in the background.
 pub fn edit(key: &str, value: &Value, cache: &Shared) -> Option<Box<dyn FnOnce(&Client) -> Result<(), String> + Send>> {
-    let mut k = cache.lock().unwrap();
+    let mut k = cache.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(field) = key.strip_prefix("server.sec.") {
+        crate::security::edit(&mut k.sec, field, value);
+        return None;
+    }
     if let Some(field) = key.strip_prefix("server.vacation.") {
         let f = field.to_string();
         let mut v = value.clone();
@@ -490,27 +511,28 @@ pub fn edit(key: &str, value: &Value, cache: &Shared) -> Option<Box<dyn FnOnce(&
 
 /// Button actions on server pages. Returns true when the page should reload from the server.
 pub fn button(key: &str, cache: &Shared) -> Option<Box<dyn FnOnce(&Client, &Shared) -> Result<(), String> + Send>> {
+    if let Some(what) = key.strip_prefix("server.sec.") { return crate::security::button(&mut cache.lock().unwrap_or_else(|e| e.into_inner()).sec, what); }
     if key == "server.folder.create" {
-        let name = cache.lock().unwrap().new_folder.trim().to_string();
+        let name = cache.lock().unwrap_or_else(|e| e.into_inner()).new_folder.trim().to_string();
         if name.is_empty() { return None; }
-        return Some(Box::new(move |c: &Client, k: &Shared| { c.create_mailbox(&name, None)?; k.lock().unwrap().new_folder.clear(); Ok(()) }));
+        return Some(Box::new(move |c: &Client, k: &Shared| { c.create_mailbox(&name, None)?; k.lock().unwrap_or_else(|e| e.into_inner()).new_folder.clear(); Ok(()) }));
     }
     if let Some(id) = key.strip_prefix("server.folder.delete:") {
         let id = id.to_string();
-        let mut k = cache.lock().unwrap();
+        let mut k = cache.lock().unwrap_or_else(|e| e.into_inner());
         if k.confirm_delete != id { k.confirm_delete = id; return Some(Box::new(|_, _| Ok(()))); }
         k.confirm_delete.clear();
         return Some(Box::new(move |c: &Client, _| c.delete_mailbox(&id)));
     }
     if key == "server.cal.create" || key == "server.book.create" {
         let book = key == "server.book.create";
-        let name = { let k = cache.lock().unwrap(); if book { k.new_book.trim().to_string() } else { k.new_cal.trim().to_string() } };
+        let name = { let k = cache.lock().unwrap_or_else(|e| e.into_inner()); if book { k.new_book.trim().to_string() } else { k.new_cal.trim().to_string() } };
         if name.is_empty() { return None; }
         return Some(Box::new(move |c: &Client, k: &Shared| {
-            let n = if book { k.lock().unwrap().books.len() } else { k.lock().unwrap().calendars.len() };
+            let n = if book { k.lock().unwrap_or_else(|e| e.into_inner()).books.len() } else { k.lock().unwrap_or_else(|e| e.into_inner()).calendars.len() };
             let obj = if book { json!({"name": name}) } else { json!({"name": name, "color": CAL_COLORS[n % CAL_COLORS.len()].0, "isVisible": true}) };
             collection_set(c, book, json!({"create": {"n": obj}}))?;
-            let mut g = k.lock().unwrap();
+            let mut g = k.lock().unwrap_or_else(|e| e.into_inner());
             if book { g.new_book.clear() } else { g.new_cal.clear() }
             Ok(())
         }));
@@ -522,7 +544,7 @@ pub fn button(key: &str, cache: &Shared) -> Option<Box<dyn FnOnce(&Client, &Shar
         match what {
             "default" => return Some(Box::new(move |c: &Client, _| default_collection(c, book, &id))),
             "delete" => {
-                let mut k = cache.lock().unwrap();
+                let mut k = cache.lock().unwrap_or_else(|e| e.into_inner());
                 if k.confirm_delete != id { k.confirm_delete = id; return Some(Box::new(|_, _| Ok(()))); }
                 k.confirm_delete.clear();
                 let args = if book { json!({"destroy": [id], "onDestroyRemoveContents": true}) } else { json!({"destroy": [id], "onDestroyRemoveEvents": true}) };
@@ -532,8 +554,8 @@ pub fn button(key: &str, cache: &Shared) -> Option<Box<dyn FnOnce(&Client, &Shar
         }
     }
     if key == "server.rule.add" {
-        let k = cache.lock().unwrap();
-        if k.nr_field < 5 && k.nr_value.trim().is_empty() { drop(k); cache.lock().unwrap().script_status = "Add a value for the condition.".into(); return Some(Box::new(|_, _| Ok(()))); }
+        let k = cache.lock().unwrap_or_else(|e| e.into_inner());
+        if k.nr_field < 5 && k.nr_value.trim().is_empty() { drop(k); cache.lock().unwrap_or_else(|e| e.into_inner()).script_status = "Add a value for the condition.".into(); return Some(Box::new(|_, _| Ok(()))); }
         let field = NR_FIELDS[k.nr_field.clamp(0, 6) as usize];
         let cmp = NR_CMPS[k.nr_cmp.clamp(0, 5) as usize];
         let vals: Vec<String> = k.nr_value.split(',').map(|v| v.trim().to_string()).filter(|v| !v.is_empty()).collect();
@@ -549,7 +571,7 @@ pub fn button(key: &str, cache: &Shared) -> Option<Box<dyn FnOnce(&Client, &Shar
                 if let Some(f) = f { r["activeFrom"] = json!(f); }
                 if let Some(u) = u { r["activeUntil"] = json!(u); }
             }
-            Err(e) => { drop(k); cache.lock().unwrap().script_status = e; return Some(Box::new(|_, _| Ok(()))); }
+            Err(e) => { drop(k); cache.lock().unwrap_or_else(|e| e.into_inner()).script_status = e; return Some(Box::new(|_, _| Ok(()))); }
         }
         let mut rules = k.rules.clone();
         rules.push(r);
@@ -557,14 +579,14 @@ pub fn button(key: &str, cache: &Shared) -> Option<Box<dyn FnOnce(&Client, &Shar
         drop(k);
         return Some(Box::new(move |c: &Client, k: &Shared| {
             save_script(c, &script, &scripts)?;
-            let mut g = k.lock().unwrap();
+            let mut g = k.lock().unwrap_or_else(|e| e.into_inner());
             g.nr_name.clear(); g.nr_value.clear(); g.nr_action_value.clear(); g.nr_from.clear(); g.nr_until.clear(); g.script_status = "Rule added.".into();
             Ok(())
         }));
     }
     if let Some(id) = key.strip_prefix("server.rule.delete:") {
         let id = id.to_string();
-        let mut k = cache.lock().unwrap();
+        let mut k = cache.lock().unwrap_or_else(|e| e.into_inner());
         if k.confirm_delete != id { k.confirm_delete = id; return Some(Box::new(|_, _| Ok(()))); }
         k.confirm_delete.clear();
         let rules: Vec<Value> = k.rules.iter().filter(|r| r["id"] != id.as_str()).cloned().collect();
@@ -572,11 +594,11 @@ pub fn button(key: &str, cache: &Shared) -> Option<Box<dyn FnOnce(&Client, &Shar
         return Some(Box::new(move |c: &Client, _| save_script(c, &script, &scripts)));
     }
     if key == "server.tpl.cancel" {
-        clear_tpl_form(&mut cache.lock().unwrap());
+        clear_tpl_form(&mut cache.lock().unwrap_or_else(|e| e.into_inner()));
         return Some(Box::new(|_, _| Ok(())));
     }
     if let Some(id) = key.strip_prefix("server.tpl.edit:") {
-        let mut k = cache.lock().unwrap();
+        let mut k = cache.lock().unwrap_or_else(|e| e.into_inner());
         if k.tpl_edit == id { return Some(Box::new(|_, _| Ok(()))); }
         // what is half typed is not thrown away by one click
         let dirty = format!("{:?}", form_fields(&k)) != format!("{:?}", k.tpl_old.as_ref().map(crate::templates::fields_of).unwrap_or_default());
@@ -596,27 +618,27 @@ pub fn button(key: &str, cache: &Shared) -> Option<Box<dyn FnOnce(&Client, &Shar
     }
     if key == "server.tpl.create" {
         let (old, f, generation) = {
-            let k = cache.lock().unwrap();
-            if !k.tpl_edit.is_empty() && k.tpl_old.is_none() { return Some(Box::new(|_, k: &Shared| { let e = "This template is no longer in the list; reload and try again.".to_string(); k.lock().unwrap().tpl_error = e.clone(); Err(e) })); }
+            let k = cache.lock().unwrap_or_else(|e| e.into_inner());
+            if !k.tpl_edit.is_empty() && k.tpl_old.is_none() { return Some(Box::new(|_, k: &Shared| { let e = "This template is no longer in the list; reload and try again.".to_string(); k.lock().unwrap_or_else(|e| e.into_inner()).tpl_error = e.clone(); Err(e) })); }
             (k.tpl_old.clone().filter(|_| !k.tpl_edit.is_empty()), form_fields(&k), k.tpl_gen)
         };
         return Some(Box::new(move |c: &Client, k: &Shared| {
             match crate::templates::save(c, old.as_ref(), &f) {
                 // only when the form still holds what was saved (the user may have moved to another template)
-                Ok(()) => { let mut k = k.lock().unwrap(); if k.tpl_gen == generation { clear_tpl_form(&mut k); } Ok(()) }
-                Err(e) => { k.lock().unwrap().tpl_error = e.clone(); Err(e) }
+                Ok(()) => { let mut k = k.lock().unwrap_or_else(|e| e.into_inner()); if k.tpl_gen == generation { clear_tpl_form(&mut k); } Ok(()) }
+                Err(e) => { k.lock().unwrap_or_else(|e| e.into_inner()).tpl_error = e.clone(); Err(e) }
             }
         }));
     }
     if let Some(id) = key.strip_prefix("server.tpl.delete:") {
         let id = id.to_string();
-        let mut k = cache.lock().unwrap();
+        let mut k = cache.lock().unwrap_or_else(|e| e.into_inner());
         if k.confirm_delete != id { k.confirm_delete = id; return Some(Box::new(|_, _| Ok(()))); }
         k.confirm_delete.clear();
         return Some(Box::new(move |c: &Client, k: &Shared| {
             crate::templates::delete(c, &id)?;
             // the form was editing the template just deleted
-            let mut k = k.lock().unwrap();
+            let mut k = k.lock().unwrap_or_else(|e| e.into_inner());
             if k.tpl_edit == id { clear_tpl_form(&mut k); }
             Ok(())
         }));
@@ -628,23 +650,23 @@ pub fn button(key: &str, cache: &Shared) -> Option<Box<dyn FnOnce(&Client, &Shar
             let r = c.request_using(&ARCHIVE_USING, json!([["x:ArchivedItem/set", {"accountId": acc, "update": { id.clone(): {"status": "requestRestore"} }}, "r"]]))?;
             if r[0][0] == "error" { return Err(crate::jmap::method_error(&r[0][1])); }
             if let Some(e) = r[0][1]["notUpdated"].get(&id) { return Err(crate::jmap::set_error(e)); }
-            k.lock().unwrap().archived.retain(|x| x["id"] != id.as_str());
+            k.lock().unwrap_or_else(|e| e.into_inner()).archived.retain(|x| x["id"] != id.as_str());
             Ok(())
         }));
     }
     if key == "server.sieve.save" {
-        let text = cache.lock().unwrap().script_text.clone();
+        let text = cache.lock().unwrap_or_else(|e| e.into_inner()).script_text.clone();
         return Some(Box::new(move |c: &Client, k: &Shared| {
             let acc = c.account_for("urn:ietf:params:jmap:sieve");
             let (blob, _) = c.upload(text.into_bytes(), "application/sieve")?;
             let v = c.call(json!([["SieveScript/validate", {"accountId": acc, "blobId": blob}, "v"]]))?;
             if let Some(err) = v[0][1]["error"].as_object() {
                 let msg = err.get("description").and_then(|d| d.as_str()).unwrap_or("invalid script").to_string();
-                k.lock().unwrap().script_status = format!("Not saved: {msg}");
+                k.lock().unwrap_or_else(|e| e.into_inner()).script_status = format!("Not saved: {msg}");
                 return Ok(());
             }
             let existing = {
-                let g = k.lock().unwrap();
+                let g = k.lock().unwrap_or_else(|e| e.into_inner());
                 g.scripts.iter().find(|x| x["isActive"] == true).or(g.scripts.first()).and_then(|x| x["id"].as_str().map(String::from))
             };
             let r = match existing {
@@ -652,7 +674,7 @@ pub fn button(key: &str, cache: &Shared) -> Option<Box<dyn FnOnce(&Client, &Shar
                 None => c.call(json!([["SieveScript/set", {"accountId": acc, "create": {"n": {"name": "barbican", "blobId": blob}}, "onSuccessActivateScript": "#n"}, "s"]]))?,
             };
             let ok = r[0][1]["updated"].is_object() || r[0][1]["created"].is_object();
-            k.lock().unwrap().script_status = if ok { "Saved and active.".into() } else {
+            k.lock().unwrap_or_else(|e| e.into_inner()).script_status = if ok { "Saved and active.".into() } else {
                 format!("Not saved: {}", crate::jmap::set_error(r[0][1]["notUpdated"].as_object().and_then(|o| o.values().next())
                     .or(r[0][1]["notCreated"].as_object().and_then(|o| o.values().next())).unwrap_or(&Value::Null)))
             };
@@ -689,7 +711,7 @@ mod tests {
 
     fn cache_with(quota: Vec<Value>, identities: Vec<Value>) -> Shared {
         let c = Shared::default();
-        { let mut k = c.lock().unwrap(); k.quota = quota; k.identities = identities; }
+        { let mut k = c.lock().unwrap_or_else(|e| e.into_inner()); k.quota = quota; k.identities = identities; }
         c
     }
 
