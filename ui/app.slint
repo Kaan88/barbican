@@ -39,6 +39,8 @@ export struct Folder {
     count: string,
     chevron: int,
     muted: bool,
+    pinned: bool,
+    quiet: bool,
 }
 
 export struct Tag {
@@ -434,14 +436,16 @@ component FolderRow inherits Rectangle {
         }
         Text {
             text: f.name;
-            color: root.fg;
+            // an unsubscribed folder reads dimmed, unless it is the open one
+            color: f.muted && !root.selected ? Theme.faint : root.fg;
             vertical-alignment: center;
             overflow: elide;
             horizontal-stretch: 1;
             font-size: (Theme.nordic ? 14.5px : 13.5px) * Prefs.fs;
             font-weight: selected ? (Theme.nordic ? 700 : 600) : (Theme.nordic ? 500 : 400);
         }
-        if f.muted: Icon { text: "\u{E7ED}"; font-size: 10px; color: Theme.faint; }
+        if f.quiet: Icon { text: "\u{E74F}"; font-size: 10px; color: Theme.faint; }
+        if f.pinned: Icon { text: "\u{E718}"; font-size: 10px; color: Theme.faint; }
         Text {
             text: f.count;
             color: f.unread > 0 || root.selected ? root.fg : Theme.faint;

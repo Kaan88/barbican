@@ -241,6 +241,14 @@ export global Icons {
     out property <string> tool: "M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z";
     out property <string> undo: "M3 7v6h6 M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13";
     out property <string> redo: "M21 7v6h-6 M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3L21 13";
+    // folder icons Bulwark's folder menu offers (folderIcons), same line family
+    out property <string> heart: "M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7z";
+    out property <string> bookmark: "M19 21l-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z";
+    out property <string> flag: "M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z M4 22v-7";
+    out property <string> briefcase: "M16 20V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16 M4 6h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z";
+    out property <string> zap: "M13 2L3 14h9l-1 8 10-12h-9z";
+    out property <string> globe: "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20z M2 12h20 M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z";
+    out property <string> message: "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z";
     out property <string> info: "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20z M12 16v-4 M12 8h.01";
     // the line icon for a Settings section id (settings-schema.json tab ids)
     public pure function for-tab(id: string) -> string {
@@ -281,6 +289,21 @@ export global Icons {
         if g == "\u{E8F8}" { return alert; }
         if g == "\u{E74D}" { return trash; }
         if g == "\u{E787}" { return clock; }
+        // custom folder icons (folders::ICON_CHOICES)
+        if g == "\u{E734}" { return star; }
+        if g == "\u{EB51}" { return heart; }
+        if g == "\u{E8A4}" { return bookmark; }
+        if g == "\u{E8EC}" { return tag; }
+        if g == "\u{E7C1}" { return flag; }
+        if g == "\u{E821}" { return briefcase; }
+        if g == "\u{E716}" { return users; }
+        if g == "\u{EA8F}" { return bell; }
+        if g == "\u{E945}" { return zap; }
+        if g == "\u{E774}" { return globe; }
+        if g == "\u{E72E}" { return lock; }
+        if g == "\u{E7B3}" { return eye; }
+        if g == "\u{E8BD}" { return message; }
+        if g == "\u{E119}" { return mail; }
         return folder;
     }
 }

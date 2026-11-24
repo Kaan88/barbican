@@ -387,9 +387,9 @@ fn exec(name: &str, a: &Value, c: &Client, ctx: &Ctx, host: &dyn Host) -> Result
         "change_setting" => {
             let key = s(a, "key").to_string();
             if key.is_empty() || key.starts_with("ai.") || key.starts_with("admin") { return Err("That setting can't be changed by the assistant.".into()); }
-            let mut st = crate::settings::Settings::load();
             let mut cfg = Config::load();
-            st.set(&key, a["value"].clone(), &mut cfg);
+            let value = a["value"].clone();
+            crate::settings::with_live(|st| st.set(&key, value, &mut cfg));
             Ok(format!("Setting {key} changed. Some settings apply after reopening the view."))
         }
         "remember" => {
