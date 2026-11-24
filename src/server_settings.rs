@@ -15,6 +15,8 @@ pub struct Cache {
     pub script_status: String,
     pub mailboxes: Vec<Value>,
     pub identities: Vec<Value>,
+    /// Quota/get objects of the account (Account page, Storage usage).
+    pub quota: Vec<Value>,
     pub new_folder: String,
     pub confirm_delete: String,
     pub error: String,
@@ -97,6 +99,16 @@ fn row(kind: &str, key: &str, label: &str, desc: &str, text: &str, on: bool) -> 
     SRow { kind: s(kind), key: s(key), label: s(label), desc: s(desc), options: ModelRc::new(VecModel::from(Vec::<SharedString>::new())), index: 0, on, text: s(text) }
 }
 
+/// The Account page's storage lines (Bulwark account-settings.tsx "Storage usage"): a "meter" row
+/// with the used / limit text, a percentage and a bar (`index` is the percent, -1: no bar).
+fn quota_rows(list: &[Value]) -> Vec<SRow> {
+    crate::quota::entries(list).into_iter().map(|e| {
+        let mut r = row("meter", "", &e.label, &e.detail, &e.text, false);
+        r.index = e.percent.map_or(-1, |p| p as i32);
+        r
+    }).collect()
+}
+
 /// Fetch what a page needs. Runs on a background thread.
 pub fn load(tab: &str, c: &Client, cache: &Shared) {
     let res: Result<(), String> = (|| {
@@ -165,7 +177,14 @@ pub fn load(tab: &str, c: &Client, cache: &Shared) {
                 v.sort_by_key(|b| (b["isDefault"] != true, b["name"].as_str().unwrap_or("").to_lowercase()));
                 cache.lock().unwrap().books = v;
             }
-            "account" => { cache.lock().unwrap().identities = c.identities()?; }
+            "account" => {
+                // the storage line is a courtesy: a server without quotas, or one that refuses, keeps the page
+                let quota = c.quotas().unwrap_or_default();
+                let ids = c.identities()?;
+                let mut k = cache.lock().unwrap();
+                k.quota = quota;
+                k.identities = ids;
+            }
             "composing" => {
                 let ids = c.identities()?;
                 let tpls = crate::templates::list(c).unwrap_or_default();
@@ -185,6 +204,7 @@ pub fn rows(tab: &str, cache: &Shared) -> Option<Vec<SRow>> {
     let k = cache.lock().unwrap();
     let mut out = vec![];
     if !k.error.is_empty() { out.push(row("value", "", "Could not load from the server", &k.error, "", false)); }
+    let quota = if tab == "account" { quota_rows(&k.quota) } else { vec![] };
     match tab {
         "vacation" => {
             out.push(row("section", "", "Out of office", "Sends an automatic reply to people who write to you while you are away.", "", false));
@@ -285,8 +305,11 @@ pub fn rows(tab: &str, cache: &Shared) -> Option<Vec<SRow>> {
                 }
             }
         }
-        "account" | "composing" if !k.identities.is_empty() => {
-            out.push(row("section", "", if tab == "account" { "Identities" } else { "Signatures" }, "The addresses you send from, with their names and signatures.", "", false));
+        "account" | "composing" if !k.identities.is_empty() || !quota.is_empty() => {
+            if tab == "account" { out.extend(quota); }
+            if !k.identities.is_empty() {
+                out.push(row("section", "", if tab == "account" { "Identities" } else { "Signatures" }, "The addresses you send from, with their names and signatures.", "", false));
+            }
             for i in &k.identities {
                 let id = i["id"].as_str().unwrap_or("");
                 let email = i["email"].as_str().unwrap_or("");
@@ -559,5 +582,45 @@ pub fn default_collection(c: &Client, book: bool, id: &str) -> Result<(), String
     match collection_set(c, book, json!({"onSuccessSetIsDefault": id})) {
         Ok(()) => Ok(()),
         Err(_) => collection_set(c, book, json!({"update": { id: {"isDefault": true} }})),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn cache_with(quota: Vec<Value>, identities: Vec<Value>) -> Shared {
+        let c = Shared::default();
+        { let mut k = c.lock().unwrap(); k.quota = quota; k.identities = identities; }
+        c
+    }
+
+    #[test]
+    fn account_page_shows_storage_usage_even_without_identities() {
+        let q = vec![
+            json!({"id": "1", "resourceType": "octets", "scope": "account", "types": ["Email"], "used": 1024 * 1024, "hardLimit": 4 * 1024 * 1024}),
+            json!({"id": "2", "resourceType": "count", "scope": "account", "types": ["ContactCard"], "used": 3, "hardLimit": 10}),
+        ];
+        let rows = rows("account", &cache_with(q, vec![])).expect("the account page has rows");
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].kind.as_str(), "meter");
+        assert_eq!(rows[0].label.as_str(), "Storage usage");
+        assert_eq!(rows[0].desc.as_str(), "1 MB of 4 MB used");
+        assert_eq!(rows[0].text.as_str(), "25% used");
+        assert_eq!(rows[0].index, 25);
+        assert_eq!(rows[1].label.as_str(), "Item count (ContactCard)");
+        assert_eq!(rows[1].index, 30);
+    }
+
+    #[test]
+    fn no_quota_adds_nothing_and_other_pages_never_show_it() {
+        assert!(rows("account", &cache_with(vec![], vec![])).is_none());
+        let q = vec![json!({"resourceType": "octets", "used": 1, "hardLimit": 2})];
+        assert!(rows("composing", &cache_with(q.clone(), vec![])).is_none());
+        // with identities the storage lines come first, then the identities
+        let ids = vec![json!({"id": "i1", "email": "ann@example.test", "name": "Ann"})];
+        let r = rows("account", &cache_with(q, ids)).unwrap();
+        assert_eq!(r[0].kind.as_str(), "meter");
+        assert!(r.iter().any(|x| x.label.as_str() == "ann@example.test"));
     }
 }

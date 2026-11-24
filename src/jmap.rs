@@ -709,15 +709,31 @@ impl Client {
             "bodyProperties": BODY_PROPERTIES,
             // only the text and HTML body parts are shown (RFC 8621 §4.2 fetchTextBodyValues /
             // fetchHTMLBodyValues); attachments are downloaded as blobs
-            "fetchTextBodyValues": true, "fetchHTMLBodyValues": true, "maxBodyValueBytes": 2_000_000
+            "fetchTextBodyValues": true, "fetchHTMLBodyValues": true, "maxBodyValueBytes": OPEN_BODY_MAX_BYTES
         }, "g"])];
         if mark_seen {
             calls.push(json!(["Email/set", {"accountId": self.account, "update": { id: {"keywords/$seen": true} }}, "s"]));
         }
         let r = self.request(Value::Array(calls))?;
         if r[0][0] == "error" { return Err(method_error(&r[0][1])); }
-        let m = r[0][1]["list"][0].clone();
-        if m.is_null() { Err("Message not found.".into()) } else { Ok(m) }
+        let mut m = r[0][1]["list"][0].clone();
+        if m.is_null() { return Err("Message not found.".into()); }
+        m["__bodyLimit"] = json!(OPEN_BODY_MAX_BYTES);
+        // Bulwark getEmail: a shown body cut at the open limit is fetched again with the larger one
+        // (lib/jmap/client.ts refetchTruncatedBodyValues). A failure keeps the cut body; the reader's
+        // notice then offers "Load full message".
+        if crate::reader::displayed_truncated(&m) {
+            if let Ok(values) = self.refetch_body_values(id) { apply_refetched_bodies(&mut m, values); }
+        }
+        Ok(m)
+    }
+
+    /// The body values of a message again, up to TRUNCATED_BODY_REFETCH_MAX_BYTES (Bulwark
+    /// refetchTruncatedBodyValues: properties id and bodyValues only, text and HTML parts).
+    pub fn refetch_body_values(&self, id: &str) -> R<Map<String, Value>> {
+        let r = self.call(refetch_body_request(&self.account, id))?;
+        if r[0][0] == "error" { return Err(method_error(&r[0][1])); }
+        r[0][1]["list"][0]["bodyValues"].as_object().cloned().ok_or_else(|| "Message not found.".to_string())
     }
 
     /// Folders a message is in now; Ok(None) when the server no longer has it.
@@ -1212,23 +1228,40 @@ impl Client {
     // Vacation, quota
     // ------------------------------------------------------------------
 
-    pub fn quota(&self) -> R<Option<(u64, u64)>> {
-        if !self.has("urn:ietf:params:jmap:quota") { return Ok(None); }
+    /// Every Quota object of the account (RFC 9425 Quota/get, `ids` null), for the Account page.
+    /// Empty when the server has no quota capability (Stalwart sends none for an unlimited account).
+    pub fn quotas(&self) -> R<Vec<Value>> {
+        if !self.has("urn:ietf:params:jmap:quota") { return Ok(vec![]); }
         let acc = self.account_for("urn:ietf:params:jmap:quota");
         let r = self.call(json!([["Quota/get", {"accountId": acc, "ids": null}, "q"]]))?;
-        let list = r[0][1]["list"].as_array().cloned().unwrap_or_default();
-        Ok(pick_quota(&list).map(|q| (q["used"].as_u64().unwrap_or(0), q["hardLimit"].as_u64().unwrap_or(0))))
+        Ok(r[0][1]["list"].as_array().cloned().unwrap_or_default())
+    }
+
+    /// Used and total of the mail storage quota (Bulwark getQuota): the soft limit counts as the
+    /// total when the server sets one below the hard limit. Total 0: no limit.
+    pub fn quota(&self) -> R<Option<(u64, u64)>> {
+        let list = self.quotas()?;
+        Ok(crate::quota::pick(&list).map(|q| (q["used"].as_u64().unwrap_or(0), crate::quota::effective_limit(q))))
     }
 }
 
-/// The storage quota to show (RFC 9425 §4): an `octets` quota, preferring one that covers Mail
-/// (`types`) at account scope, then the tightest of the rest.
-pub fn pick_quota(list: &[Value]) -> Option<&Value> {
-    let octets = list.iter().filter(|q| q["resourceType"] == "octets");
-    let mail = |q: &&Value| q["types"].as_array().is_none_or(|t| t.is_empty() || t.iter().any(|x| x == "Mail"));
-    let room = |q: &&Value| q["hardLimit"].as_u64().unwrap_or(0).saturating_sub(q["used"].as_u64().unwrap_or(0));
-    octets.clone().filter(mail).min_by_key(|q| (q["scope"] != "account", room(q)))
-        .or_else(|| octets.min_by_key(room))
+/// Body value limit when a message is opened (what the first Email/get asks for).
+pub const OPEN_BODY_MAX_BYTES: u64 = 2_000_000;
+/// Body value limit of the refetch for a cut body. Bulwark TRUNCATED_BODY_REFETCH_MAX_BYTES
+/// (lib/jmap/client.ts:71). RFC 8621 §4.2 wants a positive maxBodyValueBytes, so there is no
+/// "unlimited"; a body past this stays cut and the notice points at the source.
+pub const TRUNCATED_BODY_REFETCH_MAX_BYTES: u64 = 8_000_000;
+
+/// The Email/get that fetches the body values of one message again with the larger limit.
+pub fn refetch_body_request(account: &str, id: &str) -> Value {
+    json!([["Email/get", {"accountId": account, "ids": [id], "properties": ["id", "bodyValues"],
+        "fetchTextBodyValues": true, "fetchHTMLBodyValues": true, "maxBodyValueBytes": TRUNCATED_BODY_REFETCH_MAX_BYTES}, "g"]])
+}
+
+/// Replace a message's body values with the refetched ones and note the limit they were fetched at.
+pub fn apply_refetched_bodies(m: &mut Value, values: Map<String, Value>) {
+    m["bodyValues"] = Value::Object(values);
+    m["__bodyLimit"] = json!(TRUNCATED_BODY_REFETCH_MAX_BYTES);
 }
 
 // ----------------------------------------------------------------------
@@ -1931,16 +1964,30 @@ mod tests {
     }
 
     #[test]
-    fn quota_prefers_mail_account_octets() {
-        let list = vec![
-            json!({"id": "1", "resourceType": "count", "scope": "account", "used": 1, "hardLimit": 9}),
-            json!({"id": "2", "resourceType": "octets", "scope": "domain", "types": ["Mail"], "used": 1, "hardLimit": 10}),
-            json!({"id": "3", "resourceType": "octets", "scope": "account", "types": ["Mail", "Calendar"], "used": 5, "hardLimit": 1000}),
-            json!({"id": "4", "resourceType": "octets", "scope": "account", "types": ["Contact"], "used": 0, "hardLimit": 2}),
-        ];
-        assert_eq!(pick_quota(&list).unwrap()["id"], "3");
-        assert_eq!(pick_quota(&list[3..]).unwrap()["id"], "4");
-        assert!(pick_quota(&list[..1]).is_none());
+    fn truncated_body_refetch_asks_for_the_larger_limit() {
+        let r = refetch_body_request("a1", "e9");
+        let g = &r[0][1];
+        assert_eq!(r[0][0], "Email/get");
+        assert_eq!(g["ids"], json!(["e9"]));
+        assert_eq!(g["properties"], json!(["id", "bodyValues"]));
+        assert_eq!(g["maxBodyValueBytes"], 8_000_000);
+        assert!(g["maxBodyValueBytes"].as_u64().unwrap() > OPEN_BODY_MAX_BYTES);
+        assert_eq!(g["fetchTextBodyValues"], true);
+        assert_eq!(g["fetchHTMLBodyValues"], true);
+        // RFC 8621 4.2: the limit must be positive, so never 0 for "everything"
+        assert!(g["maxBodyValueBytes"].as_u64().unwrap() > 0);
+    }
+
+    #[test]
+    fn refetched_bodies_replace_the_cut_ones_and_note_the_limit() {
+        let mut m = json!({"htmlBody": [{"partId": "1"}], "__bodyLimit": OPEN_BODY_MAX_BYTES,
+            "bodyValues": {"1": {"value": "<p>cut", "isTruncated": true, "isEncodingProblem": false}}});
+        assert!(crate::reader::displayed_truncated(&m));
+        let whole = json!({"1": {"value": "<p>cut and the rest</p>", "isTruncated": false, "isEncodingProblem": false}});
+        apply_refetched_bodies(&mut m, whole.as_object().unwrap().clone());
+        assert!(!crate::reader::displayed_truncated(&m));
+        assert_eq!(m["bodyValues"]["1"]["value"], "<p>cut and the rest</p>");
+        assert_eq!(m["__bodyLimit"], TRUNCATED_BODY_REFETCH_MAX_BYTES);
     }
 
     #[test]

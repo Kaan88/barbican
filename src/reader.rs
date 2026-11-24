@@ -248,6 +248,22 @@ pub fn displayed_truncated(m: &Value) -> bool {
     ["htmlBody", "textBody"].iter().any(|k| m[*k][0]["partId"].as_str().is_some_and(|p| m["bodyValues"][p]["isTruncated"] == true))
 }
 
+/// The long-message notice: its detail line, and whether "Load full message" can still get more.
+/// Opening a message fetches 2 MB of body and, when the shown part is cut, fetches again with
+/// the 8 MB limit (Bulwark refetchTruncatedBodyValues); only a message whose refetch failed (or
+/// that came from elsewhere) has the action, and a body still cut at 8 MB points at the source.
+fn trunc_notice(m: &Value, step: &Step) -> (String, bool) {
+    let limit = m["__bodyLimit"].as_u64().unwrap_or(crate::jmap::OPEN_BODY_MAX_BYTES);
+    let can_load = limit < crate::jmap::TRUNCATED_BODY_REFETCH_MAX_BYTES;
+    let mb = limit / 1_000_000;
+    let detail = match step {
+        Step::Failed(e) => format!("Could not load it: {e}"),
+        _ if can_load => format!("The server sent the first {mb} MB of this long message."),
+        _ => format!("Only the first {mb} MB is shown. Open View source and Save .eml for the whole message."),
+    };
+    (detail, can_load)
+}
+
 /// The source as shown: at most SOURCE_DISPLAY_LIMIT bytes, cut on a character boundary.
 pub fn source_shown(text: &str) -> (&str, bool) {
     if text.len() <= SOURCE_DISPLAY_LIMIT { return (text, false); }
@@ -427,9 +443,9 @@ fn banners(s: &State) -> Vec<RxBannerData> {
     }
     if s.trunc {
         let busy = s.trunc_step == Step::Busy;
-        let detail = match &s.trunc_step { Step::Failed(e) => format!("Could not load it: {e}"), _ => "The server sent the first 2 MB of this long message.".into() };
-        v.push(banner("trunc", "amber", "\u{E7BA}", "Long message", "Only part of this message is shown.", &detail, "",
-            vec![if busy { act_off("full", "Loading…", 1) } else { act("full", "Show whole message", 1) }]));
+        let (detail, can_load) = trunc_notice(&s.msg, &s.trunc_step);
+        let actions = if !can_load { vec![] } else if busy { vec![act_off("full", "Loading\u{2026}", 1)] } else { vec![act("full", "Load full message", 1)] };
+        v.push(banner("trunc", "amber", "\u{E7BA}", "Long message", "Only part of this message is shown.", &detail, "", actions));
     }
     if let Some(inv) = &s.invite { v.push(invite_banner(inv)); }
     if s.mdn {
@@ -639,23 +655,30 @@ fn load_full_body(u: &AppWindow) {
     let w = u.as_weak();
     std::thread::spawn(move || {
         let real = crate::unified::real_id(&id).to_string();
-        // maxBodyValueBytes 0: no truncation (RFC 8621 §4.2)
-        let res = c.call(json!([["Email/get", {"accountId": c.account, "ids": [real], "properties": ["bodyValues"],
-            "fetchTextBodyValues": true, "fetchHTMLBodyValues": true, "maxBodyValueBytes": 0}, "g"]]))
-            .and_then(|r| r[0][1]["list"][0]["bodyValues"].as_object().cloned().ok_or_else(|| "Message not found.".to_string()));
+        let res = c.refetch_body_values(&real);
         let _ = w.upgrade_in_event_loop(move |u| {
             if !is_open(&id) { return; }
             match res {
                 Ok(values) => {
                     let mut m = ST.with(|s| s.borrow().msg.clone());
-                    m["bodyValues"] = Value::Object(values);
+                    crate::jmap::apply_refetched_bodies(&mut m, values);
                     let (c2, w2, id2) = (c.clone(), u.as_weak(), id.clone());
                     std::thread::spawn(move || {
                         crate::inline_cid_images(&c2, &mut m);
                         let _ = w2.upgrade_in_event_loop(move |u| {
                             if !is_open(&id2) { return; }
+                            // the same sanitising and remote-content policy as any message: the body
+                            // goes through show_message_body (render_current), never around it; an
+                            // already granted "Load images" stays granted
+                            let allowed = crate::CUR.with(|c| c.borrow().as_ref().is_some_and(|c| c.allow));
                             show_message_body(&u, &m);
+                            if allowed {
+                                crate::CUR.with(|c| if let Some(c) = c.borrow_mut().as_mut() { c.allow = true; });
+                                crate::render_current(&u);
+                            }
                             crate::CUR_MSG.with(|x| if let Some((cm, _)) = x.borrow_mut().as_mut() { Arc::make_mut(cm)["bodyValues"] = m["bodyValues"].clone(); });
+                            // a reopen from the cache gets the whole body too
+                            crate::bodycache::with(|b| b.set_bodies(&c2.state_key(), &id2, &m));
                             set_step(&u, |s| { s.trunc = displayed_truncated(&m); s.trunc_step = Step::Idle; s.msg = m; });
                         });
                     });
@@ -754,7 +777,7 @@ pub fn parse_eml(c: &Client, blob: &str) -> Result<Value, String> {
         "properties": ["size", "sentAt", "from", "to", "cc", "bcc", "replyTo", "subject", "preview", "textBody", "htmlBody", "bodyValues",
             "hasAttachment", "attachments", "messageId", "inReplyTo", "references", "headers", "blobId"],
         "bodyProperties": crate::jmap::BODY_PROPERTIES,
-        "fetchTextBodyValues": true, "fetchHTMLBodyValues": true, "maxBodyValueBytes": 2_000_000}, "p"]]))?;
+        "fetchTextBodyValues": true, "fetchHTMLBodyValues": true, "maxBodyValueBytes": crate::jmap::TRUNCATED_BODY_REFETCH_MAX_BYTES}, "p"]]))?;
     if r[0][0] == "error" { return Err(crate::jmap::method_error(&r[0][1])); }
     if r[0][1]["notParsable"].as_array().is_some_and(|a| a.iter().any(|x| x == blob)) { return Err("The attachment is not a readable message.".into()); }
     let mut m = r[0][1]["parsed"][blob].clone();
@@ -1348,6 +1371,20 @@ Connection: close
         let m = json!({"subject": "Invoice 12/2026", "receivedAt": "2026-11-16T09:05:07Z"});
         let n = eml_export_name(&m);
         assert!(n.ends_with("-Invoice 12_2026.eml") && n.starts_with("2026-11-16 "), "{n}");
+    }
+
+    #[test]
+    fn long_message_notice_offers_the_load_only_below_the_refetch_limit() {
+        // cut at the open limit (the refetch failed, or none was tried): the action is there
+        let m = json!({"__bodyLimit": 2_000_000});
+        let (d, can) = trunc_notice(&m, &Step::Idle);
+        assert!(can && d.contains("first 2 MB"), "{d}");
+        assert!(trunc_notice(&json!({}), &Step::Idle).1, "no limit noted: the open limit applies");
+        let (d, can) = trunc_notice(&m, &Step::Failed("Offline".into()));
+        assert!(can && d == "Could not load it: Offline");
+        // still cut at 8 MB: a second refetch would get the same, so the notice points at the source
+        let (d, can) = trunc_notice(&json!({"__bodyLimit": 8_000_000}), &Step::Idle);
+        assert!(!can && d.contains("8 MB") && d.contains("View source"), "{d}");
     }
 
     #[test]
