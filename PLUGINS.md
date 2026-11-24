@@ -181,20 +181,26 @@ granted, origin not allowed), `unsupported`, `not_found`, `quota`, `rate_limited
   the send intercept and takeovers 10 min, blob upload 15 min); renders and actions get 5 s. Because the UI no longer
   waits, API 1's 10 s cap goes. **The deadline starts when the host calls `handle`, not when the message is queued.**
   Time the plugin spends waiting for the user in a host dialog (`ui.alert`, `ui.confirm`, `ui.prompt`, a permission
-  request) does not count, up to a hard 10 minutes per message (Bulwark `HELD_HOOK_DEADLINE_MS`,
-  `lib/plugin-hooks.ts:79`). The user can cancel a long intercept from the UI; the plugin then gets `cancel`.
+  request) does not count. **Hard cap:** no message is held more than 10 minutes in all, counted from when it was
+  queued (queue time, handling and user waits together; Bulwark `HELD_HOOK_DEADLINE_MS`, `lib/plugin-hooks.ts:79`). The
+  user can cancel a long intercept from the UI; the plugin then gets `cancel`.
 - While a plugin is inside `handle`, its later messages wait in its queue. A message that waits longer than its own
   budget is dropped before it is delivered: its action goes on as on a timeout (below), but a dropped message does
   **not** count toward the failure limit, because the plugin never saw it. A plugin that wants concurrency answers
   `deferred` and works on its own threads.
+- **Hung plugin.** When `handle` overruns the current message's deadline, that counts as one failure and the plugin is
+  marked hung: every message queued or arriving while it is still inside that `handle` fails at once with timeout
+  semantics (below), without waiting and without counting further failures. When `handle` returns, the mark is cleared
+  and the queue runs again. If `handle` has not returned when the message hits the 10-minute hard cap, the plugin is
+  switched off for the session (as for the failure limit), so a plugin that hangs cannot stay on.
 - A missed deadline, error, panic or invalid reply means: observers are ignored; intercepts count as "go on"; transforms
   keep the original value; takeovers and `fail_closed` hooks (`onBeforeEmailSend`, `onComposeSend`) stop the action
   and tell the user. Several plugins on one hook run in enable order: transforms chain, the first intercept that answers
   `false` stops the action.
 - The failure limit stays: 3 failures in a row (a deadline missed after `handle` was called, an error, a panic, an
-  invalid reply) switch the plugin off for the session (Bulwark: 3 errors in 60 s, `lib/plugin-hooks.ts:13-14`). Host
+  invalid reply; a hung plugin's at-once failures do not add to it) switch the plugin off for the session (Bulwark: 3 errors in 60 s, `lib/plugin-hooks.ts:13-14`). Host
   calls are rate-limited per plugin (50 per second by default: `rate_limited`).
-- **Switching off** (by the user, the failure limit or app exit) takes effect at once: queued messages are dropped,
+- **Switching off** (by the user, the failure limit, the hung-plugin cap or app exit) takes effect at once: queued messages are dropped,
   every later `host->call` returns `disabled`, `post` returns -3, and deferred results are ignored. `shutdown` is
   called on the plugin thread once it is idle; the host never waits for it, so a plugin stuck in `handle` never gets
   `shutdown` that session (its library stays loaded, as today).
@@ -414,13 +420,16 @@ finish.
 - **Storage** (`storage.get/set/remove/keys`): per plugin and per login, as Bulwark
   (`lib/plugin-sandbox/storage-scope.ts`). Keys 1-256 characters, JSON values, 1 MiB per plugin per login (Bulwark
   `PLUGIN_STORAGE_QUOTA_BYTES`, `lib/plugin-sandbox/host-api.ts:425`), kept in `plugin-data\<id>\<login hash>.json`
-  with atomic writes. Signing out wipes that login's data (Phase 0 item 5); removing the plugin wipes all of it.
-- **Blob store** (`upfiles.*`): per plugin and login, 16 MiB, same lifetime as storage.
+  with atomic writes.
+- **Blob store** (`upfiles.*`): per plugin and login, 16 MiB, kept under `plugin-data\<id>\`.
 - **Account data** (`accountData.*`): the plugin's entry in the account's mailbox metadata, synced like the Phase 3
   settings and so shared by every device of the account.
 - **Secrets** (`secrets.get/set/remove`, a Barbican addition): one OS keyring entry per plugin and login, never written
-  to disk by Barbican, never in `init_json` or the log. Wiped when the last profile signed in to that login signs out,
-  and for every login when the plugin is removed.
+  to disk by Barbican, never in `init_json` or the log.
+- **One wipe rule for all three** (storage, blob store, secrets). They are keyed by login (server + account), so
+  Barbican profiles signed in to the same login share them. Signing out of a profile wipes a login's plugin data only
+  when no other profile is still signed in to that login (Phase 0 item 5); removing a plugin wipes its data for every
+  login at once. Account data lives on the server and is not wiped by either.
 
 ### Porting a Bulwark plugin
 
