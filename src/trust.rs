@@ -227,19 +227,14 @@ pub fn recipient_warning(on: bool, to: &str, cc: &str, bcc: &str, internal: &[St
     Some(format!("This message goes outside your organisation to {}. {advice}", list.join(", ")))
 }
 
-/// The sender looks forged: the server's Authentication-Results fail for the From domain
-/// (Bulwark's `senderVerification`, which also stops "Trust sender"). Same test as the
-/// invitation banner uses.
+/// Bulwark hides "Trust sender" whenever `getSenderVerification` is non-null (email-viewer.tsx:6369,
+/// lib/email-headers.ts:132-161): the server's Authentication-Results failed for the From, or
+/// they exist but none ties the message to the From domain. With no results at all there is
+/// nothing to doubt, and trusting stays offered.
 pub fn forged(headers: &[Value], from: &str) -> bool {
     let res = crate::auth::topmost(headers);
-    crate::auth::failure(&res, crate::auth::aligned_pass(&res, from))
-}
-
-/// Removes the trusted senders from a preferences file (sign-out of the last account: the list
-/// is account data and must not stay for the next person at this computer).
-pub fn forget_in_file(file: &std::path::Path) {
-    let Some(mut v) = std::fs::read_to_string(file).ok().and_then(|t| serde_json::from_str::<Value>(&t).ok()) else { return };
-    if v.as_object_mut().is_some_and(|o| o.remove(TRUSTED_KEY).is_some()) { let _ = std::fs::write(file, v.to_string()); }
+    let aligned = crate::auth::aligned_pass(&res, from);
+    crate::auth::failure(&res, aligned) || (!res.is_empty() && !aligned)
 }
 
 #[cfg(test)]
@@ -350,16 +345,15 @@ mod tests {
     }
 
     #[test]
-    fn forget_removes_only_the_trusted_senders() {
-        let dir = std::env::temp_dir().join(format!("barbican-trust-test-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        let f = dir.join("prefs.json");
-        std::fs::write(&f, json!({"theme": "dark", "trustedSenders": ["a@x.test"], "externalContentPolicy": "block"}).to_string()).unwrap();
-        forget_in_file(&f);
-        let v: Value = serde_json::from_str(&std::fs::read_to_string(&f).unwrap()).unwrap();
-        assert_eq!(v, json!({"theme": "dark", "externalContentPolicy": "block"}));
-        forget_in_file(&dir.join("missing.json"));
-        let _ = std::fs::remove_dir_all(&dir);
+    fn forged_sender_follows_bulwarks_sender_verification() {
+        let h = |v: &str| vec![json!({"name": "Authentication-Results", "value": v})];
+        let from = "ann@example.test";
+        assert!(!forged(&[], from), "no results: nothing to doubt, trust stays offered");
+        assert!(!forged(&h("mx.test; dmarc=pass header.from=example.test"), from));
+        assert!(!forged(&h("mx.test; dkim=pass header.d=mail.example.test"), from), "aligned pass");
+        assert!(forged(&h("mx.test; dmarc=fail header.from=example.test"), from), "failed");
+        assert!(forged(&h("mx.test; spf=pass smtp.mailfrom=bounce@other.test; dmarc=none header.from=example.test"), from),
+            "results exist but only another domain passed: not tied to the From");
+        assert!(forged(&h("mx.test; spf=pass smtp.mailfrom=bounce@other.test"), "CEO <ceo>"), "no usable From domain");
     }
 }

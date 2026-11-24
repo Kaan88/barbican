@@ -870,6 +870,7 @@ fn show_parsed(u: &AppWindow, m: &Value) {
     let subject = m["subject"].as_str().unwrap_or("").to_string();
     u.set_r_subject(if subject.is_empty() { "(no subject)".into() } else { subject.clone().into() });
     u.set_r_from(from.into());
+    u.set_r_external(crate::message_external(m));
     u.set_r_date(mail::parse_time(&m["sentAt"]).map(|t| t.format("%a %d %b %Y, %H:%M").to_string()).unwrap_or_default().into());
     u.set_thread_msgs(ModelRc::default());
     u.set_plugin_rows(ModelRc::default());

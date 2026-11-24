@@ -229,14 +229,8 @@ fn present(u: &AppWindow, c: &Arc<jmap::Client>, id: &str, m: Arc<Value>, thread
     let f = &m["from"][0];
     let from = mail::sender(&m);
     let email = f["email"].as_str().unwrap_or("").to_string();
-    // "External" chip (Bulwark external-sender-chip.tsx): the From is outside the user's own domains
-    let external = {
-        let mut own: Vec<String> = MY_ADDRS.with(|a| a.borrow().clone());
-        own.push(c.username.clone());
-        let label_on = settings::Settings::load().bool(trust::SENDER_LABEL_KEY, true);
-        // a message with no From at all has nothing to label
-        !email.is_empty() && trust::external_sender(&email, &trust::own_domains(&own), label_on)
-    };
+    // "External" chip (Bulwark external-sender-chip.tsx)
+    let external = message_external(&m);
     let names = |k: &str| m[k].as_array().map(|a| a.iter().map(|x| {
         let e = x["email"].as_str().unwrap_or("");
         if e.eq_ignore_ascii_case(&c.username) || MY_ADDRS.with(|a| a.borrow().iter().any(|x| x.eq_ignore_ascii_case(e))) { "me".to_string() } else { x["name"].as_str().filter(|n| !n.is_empty()).unwrap_or(e).to_string() }

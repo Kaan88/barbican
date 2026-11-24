@@ -145,9 +145,25 @@ fn has_remote_images(h: &str) -> bool {
     ["src=http", "url(http", "background=http", "srcset=http", "src=//", "url(//"].iter().any(|p| l.contains(p))
 }
 
-/// The remote-content policy in force (preference, else the 0.1.x switch).
-fn content_policy(u: &AppWindow) -> trust::ContentPolicy {
-    trust::policy(&settings::Settings::load().prefs, u.get_auto_images())
+/// The user's own addresses (identities and login): their domains are the organisation, for the
+/// "External" chip and the send confirm alike.
+pub fn own_addresses() -> Vec<String> {
+    match msgload::SHARED.with(|s| s.borrow().clone()) {
+        Some(st) => my_addrs(&st),
+        None => my_addrs_cached(),
+    }
+}
+
+/// The "External" chip for message `m`: any From address is outside the own domains and the
+/// setting is on (Bulwark `externalSenders`: a message is external when any of them is).
+pub fn message_external(m: &Value) -> bool {
+    let label_on = settings::Settings::load().bool(trust::SENDER_LABEL_KEY, true);
+    let own = trust::own_domains(&own_addresses());
+    m["from"].as_array().is_some_and(|a| a.iter().any(|f| {
+        let e = f["email"].as_str().unwrap_or("");
+        // an entry with no address at all has nothing to label
+        !e.is_empty() && trust::external_sender(e, &own, label_on)
+    }))
 }
 
 /// Whether the remote content of message `m` loads when it opens: policy `allow`, or a trusted
@@ -167,6 +183,14 @@ fn images_offers(u: &AppWindow) -> trust::Offers {
         (from, forged)
     }).unwrap_or_default());
     trust::offers(trust::policy(&prefs, u.get_auto_images()), &from, trust::is_trusted(&trust::trusted_list(&prefs), &from), forged)
+}
+
+/// The policy or the trusted list changed: decide again whether the open message's remote content loads.
+fn redecide_remote(u: &AppWindow) {
+    let Some(m) = CUR_MSG.with(|x| x.borrow().as_ref().map(|(m, _)| m.clone())) else { return };
+    let allow = allow_remote(u, &m);
+    let changed = CUR.with(|c| c.borrow_mut().as_mut().is_some_and(|c| { let was = c.allow; c.allow = allow; c.remote && was != allow }));
+    if changed { render_current(u); }
 }
 
 fn render_current(u: &AppWindow) {
@@ -1075,6 +1099,7 @@ fn main() -> Result<(), slint::PlatformError> {
     ui.set_spam_show_clean(cfg.lock().unwrap().show_clean_spam);
 
     let prefs = Arc::new(Mutex::new(settings::Settings::load()));
+    settings::register_live(prefs.clone());
     ui.set_show_advanced_settings(prefs.lock().unwrap().bool("showAdvancedSettings", false));
     let st_acc = state.clone();
     let account_info = move || {
@@ -1225,7 +1250,8 @@ fn main() -> Result<(), slint::PlatformError> {
         p.set(&key, v, &mut cf.lock().unwrap());
         drop(p);
         rs();
-        if key == "desktop.renderMode" || key == trust::POLICY_KEY { render_current(&w.unwrap()); }
+        if key == "desktop.renderMode" { render_current(&w.unwrap()); }
+        if key == trust::POLICY_KEY { redecide_remote(&w.unwrap()); }
         if key == "theme" || key == "uiStyle" { apply_theme(&w.unwrap()); }
         if key == "writingLanguage" { rte::spell::reload(); }
         if key == "desktop.updateChannel" { desktop::setting_changed(&key, true); }
@@ -1242,6 +1268,7 @@ fn main() -> Result<(), slint::PlatformError> {
             return;
         }
         pf.lock().unwrap().set(&key, serde_json::json!(t.to_string()), &mut cf.lock().unwrap());
+        if key == trust::TRUSTED_KEY { if let Some(u) = wk.upgrade() { redecide_remote(&u); } }
         if key == "admin.key" { if let Some(u) = wk.upgrade() { u.set_admin_enabled(!t.trim().is_empty()); } }
     });
 
