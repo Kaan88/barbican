@@ -410,9 +410,11 @@ pub fn removal_request(acc: &str, r: &Removal) -> Option<Value> {
 }
 
 fn set_failure(r: &[Value]) -> Option<String> {
-    if r[0][0] == "error" { return Some(crate::jmap::method_error(&r[0][1])); }
-    for k in ["notUpdated", "notDestroyed"] {
-        if let Some(e) = r[0][1][k].as_object().and_then(|o| o.values().next()) { return Some(crate::jmap::set_error(e)); }
+    for m in r {
+        if m[0] == "error" { return Some(crate::jmap::method_error(&m[1])); }
+        for k in ["notUpdated", "notDestroyed"] {
+            if let Some(e) = m[1][k].as_object().and_then(|o| o.values().next()) { return Some(crate::jmap::set_error(e)); }
+        }
     }
     None
 }
@@ -504,9 +506,24 @@ pub fn participants_asked_again(ev: &Value) -> Option<Value> {
     asked.then(|| Value::Object(out))
 }
 
+/// How a proposal for one occurrence of a series, which has no stored event of its own, is
+/// written: as the occurrence's entry in the series' `recurrenceOverrides`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct OccurrenceWrite {
+    /// The override's key: the occurrence's recurrence id in the series' zone.
+    pub key: String,
+    /// The occurrence's entry as stored; None when it has no override yet.
+    pub existing: Option<serde_json::Map<String, Value>>,
+    /// The series is known to have no overrides at all (the first one goes in as the whole map).
+    pub no_overrides: bool,
+    /// The occurrence as it is now: the series with its override applied.
+    pub view: Value,
+}
+
 /// A counter proposal read against the calendar.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Proposal {
+    /// The stored event written: the event itself, or the series of an occurrence.
     pub id: String,
     pub patch: serde_json::Map<String, Value>,
     pub changes: Vec<(String, String, String)>,
@@ -515,6 +532,8 @@ pub struct Proposal {
     pub organizer_me: bool,
     /// Attendees to ask again when the proposal moves the event.
     pub asked: Option<Value>,
+    /// Set for an occurrence of a series that has no event of its own.
+    pub occurrence: Option<OccurrenceWrite>,
 }
 
 impl Proposal {
@@ -531,26 +550,250 @@ impl Proposal {
         }
         p
     }
+
+    /// Whether the change to a new override goes out in two steps (Bulwark reachesOnlyUnanswered,
+    /// calendar-store.ts:389): Stalwart sends a new override only to attendees who have not
+    /// answered, so an attendee who answered and is not asked again would not hear of it.
+    pub fn two_step(&self) -> bool {
+        let Some(w) = &self.occurrence else { return false };
+        if w.existing.is_some() { return false; }
+        let mut after = w.view.clone();
+        if let Some(ps) = self.update().get("participants") { after["participants"] = ps.clone(); }
+        has_answered_attendees(&after)
+    }
+}
+
+/// Whether an attendee other than the organizer has answered with something but a refusal
+/// (Bulwark hasAnsweredAttendees, calendar-participants.ts:271).
+fn has_answered_attendees(ev: &Value) -> bool {
+    let org = stored_organizer(ev);
+    ev["participants"].as_object().is_some_and(|o| o.values().any(|p| {
+        let is_org = is_organizer(p) || (org.is_some() && participant_email(p) == org);
+        !is_org && !matches!(p["participationStatus"].as_str().unwrap_or(""), "" | "needs-action" | "declined")
+    }))
+}
+
+/// An RFC 6901 token.
+fn pointer_token(k: &str) -> String { k.replace('~', "~0").replace('/', "~1") }
+fn pointer_untoken(k: &str) -> String { k.replace("~1", "/").replace("~0", "~") }
+
+/// `target` with the member at the JSON pointer `key` set, or removed when `value` is null.
+fn set_pointer(target: &mut Value, key: &str, value: &Value) {
+    let path: Vec<String> = key.split('/').map(pointer_untoken).collect();
+    let mut cur = target;
+    for (i, name) in path.iter().enumerate() {
+        if !cur.is_object() { *cur = json!({}); }
+        let o = cur.as_object_mut().unwrap();
+        if i + 1 == path.len() {
+            if value.is_null() { o.remove(name); } else { o.insert(name.clone(), value.clone()); }
+            return;
+        }
+        if value.is_null() && !o.get(name).is_some_and(|v| v.is_object()) { return; }
+        cur = o.entry(name.clone()).or_insert_with(|| json!({}));
+    }
+}
+
+/// The occurrence's override applied to the series (an RFC 8984 PatchObject: each key a pointer,
+/// null removing). A whole `participants` map is completed from the series' participant with the
+/// same id or address: the override decides who takes part, the series fills in the rest
+/// (Bulwark applyOverridePatch / mergeOverrideParticipants, recurrence-instances.ts:280-360).
+fn apply_override(view: &mut Value, entry: &serde_json::Map<String, Value>) {
+    let mut keys: Vec<&String> = entry.keys().filter(|k| !matches!(k.as_str(), "excluded" | "updated")).collect();
+    keys.sort_by_key(|k| k.split('/').count());
+    for k in keys {
+        let v = &entry[k];
+        if k == "participants" && v.is_object() {
+            let series = view["participants"].as_object().cloned().unwrap_or_default();
+            let mut merged = serde_json::Map::new();
+            for (id, p) in v.as_object().unwrap() {
+                let addr = participant_email(p);
+                let found = if series.contains_key(id) { Some(id.clone()) }
+                    else { series.iter().find(|(_, sp)| addr.is_some() && participant_email(sp) == addr).map(|(i, _)| i.clone()) };
+                let mut m = found.as_ref().and_then(|f| series[f].as_object().cloned()).unwrap_or_default();
+                if let Some(po) = p.as_object() { for (pk, pv) in po { if !pv.is_null() { m.insert(pk.clone(), pv.clone()); } } }
+                merged.insert(found.unwrap_or_else(|| id.clone()), Value::Object(m));
+            }
+            view["participants"] = Value::Object(merged);
+        } else {
+            set_pointer(view, k, v);
+        }
+    }
+}
+
+/// The proposal as the occurrence's own: the proposed time in the occurrence's zone, so that the
+/// same moment in another zone (or UTC) is no change and a time that moves does not move the
+/// occurrence's zone with it; a proposal without a zone is read in the occurrence's. All-day
+/// occurrences and zones that cannot be read are left as they are.
+fn in_occurrence_zone(view: &Value, counter: &Value) -> Value {
+    use chrono_tz::Tz;
+    let mut c = counter.clone();
+    if view["showWithoutTime"] == true || c["showWithoutTime"] == true { return c; }
+    let Some(vz) = view["timeZone"].as_str().filter(|z| !z.is_empty()) else { return c };
+    let Some(start) = c["start"].as_str().map(String::from) else { return c };
+    let utc = |z: &str| z.eq_ignore_ascii_case("utc") || z.eq_ignore_ascii_case("etc/utc");
+    let cz = match c["timeZone"].as_str().filter(|z| !z.is_empty()) {
+        Some(z) if utc(z) => "UTC".to_string(),
+        Some(z) => z.to_string(),
+        None if start.ends_with('Z') => "UTC".to_string(),
+        None => vz.to_string(),
+    };
+    if cz != vz {
+        if cz.parse::<Tz>().is_err() || vz.parse::<Tz>().is_err() { return c; }
+        c["start"] = json!(move_local(start.get(..19).unwrap_or(&start), &cz, vz));
+    }
+    c["timeZone"] = json!(vz);
+    c
+}
+
+/// The series an occurrence belongs to, when the calendar holds no event of its own for it:
+/// (the series, the occurrence's override key, its override entry if it has one). None for an
+/// occurrence the series excludes or does not have, a series whose overrides were not read (a
+/// whole-map write would drop the ones there are) and one that is not a series (Bulwark's
+/// counterTarget finds only occurrences the calendar shows, and an excluded one is not shown).
+fn series_occurrence<'a>(events: &'a [Value], counter: &Value) -> Option<(&'a Value, String, Option<serde_json::Map<String, Value>>)> {
+    let uid = counter["uid"].as_str()?;
+    if counter["recurrenceId"].is_null() { return None; }
+    let series = events.iter().find(|e| e["uid"].as_str() == Some(uid) && e["recurrenceId"].is_null()
+        && e["recurrenceRules"].as_array().is_some_and(|r| !r.is_empty()))?;
+    let overrides = series.get("recurrenceOverrides")?;
+    let key = recurrence_id_in_zone_of(series, counter)?;
+    let entry = overrides.as_object().and_then(|o| o.get(&key)).and_then(|e| e.as_object()).cloned();
+    if entry.as_ref().is_some_and(|e| e.get("excluded") == Some(&json!(true))) { return None; }
+    let listed = match &series["excludedRecurrenceIds"] {
+        Value::Array(a) => a.iter().any(|v| v.as_str().is_some_and(|v| v.get(..19).unwrap_or(v) == key)),
+        Value::Object(o) => o.contains_key(&key),
+        _ => false,
+    };
+    if listed { return None; }
+    if entry.is_none() {
+        // the rules have to give it
+        use crate::recurrence::{occurrences, parse_local};
+        let at = parse_local(&key)?;
+        let mut bare = series.clone();
+        bare.as_object_mut()?.remove("recurrenceOverrides");
+        let one = chrono::Duration::seconds(1);
+        if !occurrences(&bare, at - one, at + one).iter().any(|o| o.start == at && o.rid.as_deref() == Some(key.as_str())) { return None; }
+    }
+    Some((series, key, entry))
+}
+
+/// The occurrence as it is now: the series' own fields at the occurrence's start, the override on top.
+fn occurrence_view(series: &Value, key: &str, entry: Option<&serde_json::Map<String, Value>>) -> Value {
+    let mut v = series.clone();
+    if let Some(o) = v.as_object_mut() {
+        for k in ["recurrenceRules", "excludedRecurrenceRules", "recurrenceOverrides", "excludedRecurrenceIds"] { o.remove(k); }
+    }
+    v["recurrenceId"] = json!(key);
+    v["start"] = json!(key);
+    if let Some(e) = entry { apply_override(&mut v, e); }
+    v
+}
+
+/// What a new override copies from its occurrence unless the change sets it itself: Stalwart
+/// stores an override as a VEVENT with only the override's own properties, so without these the
+/// occurrence would lose its title, place and attendees for other clients (Bulwark
+/// NEW_OVERRIDE_COPIED_KEYS and NEW_OVERRIDE_SERIES_KEYS, recurrence-instances.ts:615-640).
+const NEW_OVERRIDE_COPIED: [&str; 15] = ["title", "description", "descriptionContentType", "locations", "virtualLocations", "links", "keywords",
+    "categories", "color", "locale", "status", "freeBusyStatus", "alerts", "participants", "sequence"];
+const NEW_OVERRIDE_SERIES: [&str; 2] = ["privacy", "organizerCalendarAddress"];
+
+/// The override entry to write: the occurrence's stored entry (or, for a new one, its start,
+/// duration and details), and with `patch` the proposed changes on top. `series_keys` leaves out
+/// the series' privacy and organizer when false, which Stalwart 1.0 refuses inside an override.
+fn override_entry(w: &OccurrenceWrite, patch: Option<&serde_json::Map<String, Value>>, series_keys: bool) -> serde_json::Map<String, Value> {
+    let mut e = match &w.existing {
+        Some(x) => { let mut x = x.clone(); x.remove("updated"); x }
+        None => {
+            let mut x = serde_json::Map::new();
+            x.insert("start".into(), w.view["start"].clone());
+            if !w.view["duration"].is_null() { x.insert("duration".into(), w.view["duration"].clone()); }
+            let series: &[&str] = if series_keys { &NEW_OVERRIDE_SERIES } else { &[] };
+            for k in NEW_OVERRIDE_COPIED.iter().chain(series.iter()) {
+                if !w.view[*k].is_null() { x.insert((*k).into(), w.view[*k].clone()); }
+            }
+            x
+        }
+    };
+    for (k, v) in patch.into_iter().flatten() {
+        let below = format!("{k}/");
+        e.retain(|x, _| !x.starts_with(&below));
+        e.insert(k.clone(), v.clone());
+    }
+    e
 }
 
 pub fn proposal(stored: &[Value], counter: &Value, sender: Option<&str>, mine: &[String], zone: &str) -> Option<Proposal> {
-    let target = counter_target(stored, counter)?;
     let s = sender.map(norm_addr).filter(|s| !s.is_empty());
-    let from_participant = s.is_some_and(|s| target["participants"].as_object().is_some_and(|o| o.values().any(|p| participant_email(p).as_deref() == Some(s.as_str()))));
+    let from = |target: &Value| s.as_ref().is_some_and(|s| target["participants"].as_object().is_some_and(|o| o.values().any(|p| participant_email(p).as_deref() == Some(s.as_str()))));
+    if let Some(target) = counter_target(stored, counter) {
+        return Some(Proposal {
+            id: target["id"].as_str()?.to_string(),
+            patch: proposal_patch(&target, counter),
+            changes: proposal_changes(&target, counter, zone),
+            from_participant: from(&target),
+            organizer_me: i_organize(&target, mine),
+            asked: participants_asked_again(&target),
+            occurrence: None,
+        });
+    }
+    // an occurrence of a series that has no event of its own for it
+    let (series, key, entry) = series_occurrence(stored, counter)?;
+    let view = occurrence_view(series, &key, entry.as_ref());
+    let own = in_occurrence_zone(&view, counter);
     Some(Proposal {
-        id: target["id"].as_str()?.to_string(),
-        patch: proposal_patch(&target, counter),
-        changes: proposal_changes(&target, counter, zone),
-        from_participant,
-        organizer_me: i_organize(&target, mine),
-        asked: participants_asked_again(&target),
+        id: series["id"].as_str()?.to_string(),
+        patch: proposal_patch(&view, &own),
+        changes: proposal_changes(&view, &own, zone),
+        from_participant: from(&view),
+        organizer_me: i_organize(&view, mine),
+        asked: participants_asked_again(&view),
+        occurrence: Some(OccurrenceWrite { no_overrides: series["recurrenceOverrides"].as_object().is_none_or(|o| o.is_empty()), key, existing: entry, view }),
     })
+}
+
+/// The `update` of the series: the occurrence's entry under `recurrenceOverrides/<key>`, or the
+/// whole map when it is the first (a pointer into a series with no overrides fails).
+fn entry_update(w: &OccurrenceWrite, entry: serde_json::Map<String, Value>, whole_map: bool) -> Value {
+    if whole_map { json!({"recurrenceOverrides": {w.key.clone(): entry}}) }
+    else { json!({format!("recurrenceOverrides/{}", pointer_token(&w.key)): entry}) }
 }
 
 /// The request that applies a proposal: scheduling messages go out, so the attendees hear of the
 /// change (Bulwark handleApplyProposal, banner:957-978).
-pub fn proposal_request(acc: &str, p: &Proposal) -> Value {
-    json!([["CalendarEvent/set", {"accountId": acc, "sendSchedulingMessages": true, "update": {p.id.clone(): Value::Object(p.update())}}, "s"]])
+pub fn proposal_request(acc: &str, p: &Proposal) -> Value { proposal_request_with(acc, p, true) }
+
+/// [`proposal_request`], with or without the series' privacy and organizer inside a new override.
+pub fn proposal_request_with(acc: &str, p: &Proposal, series_keys: bool) -> Value {
+    let update = match &p.occurrence {
+        None => json!({p.id.clone(): Value::Object(p.update())}),
+        Some(w) => {
+            let entry = override_entry(w, Some(&p.update()), series_keys);
+            // after a first step the entry is there to point at
+            let whole_map = w.existing.is_none() && w.no_overrides && !p.two_step();
+            json!({p.id.clone(): entry_update(w, entry, whole_map)})
+        }
+    };
+    json!([["CalendarEvent/set", {"accountId": acc, "sendSchedulingMessages": true, "update": update}, "s"]])
+}
+
+/// The first of two writes for a new override that an attendee who answered would not hear of:
+/// the occurrence's override as it is now, with no scheduling messages (Bulwark
+/// updateNewOverrideForEveryone, calendar-store.ts:436). The change then goes out as a change of
+/// that override. None when one write is enough.
+pub fn proposal_prepare_request(acc: &str, p: &Proposal, series_keys: bool) -> Option<Value> {
+    let w = p.occurrence.as_ref().filter(|_| p.two_step())?;
+    let update = json!({p.id.clone(): entry_update(w, override_entry(w, None, series_keys), w.no_overrides)});
+    Some(json!([["CalendarEvent/set", {"accountId": acc, "sendSchedulingMessages": false, "update": update}, "p"]]))
+}
+
+fn send_proposal(c: &crate::jmap::Client, p: &Proposal, series_keys: bool) -> Result<(), String> {
+    let acc = c.account_for(CAP);
+    if let Some(first) = proposal_prepare_request(&acc, p, series_keys) {
+        let r = c.call(first)?;
+        if let Some(e) = set_failure(&r) { return Err(e); }
+    }
+    let r = c.call(proposal_request_with(&acc, p, series_keys))?;
+    match set_failure(&r) { Some(e) => Err(e), None => Ok(()) }
 }
 
 /// Apply the proposal to the stored event, read again as it is now.
@@ -560,8 +803,11 @@ pub fn apply_proposal(c: &crate::jmap::Client, counter: &Value, sender: Option<&
     if !p.organizer_me { return Err("You do not organize this event.".into()); }
     if !p.from_participant { return Err("This proposal did not come from one of the event's participants.".into()); }
     if p.patch.is_empty() { return Err("The event already has these changes.".into()); }
-    let r = c.call(proposal_request(&c.account_for(CAP), &p))?;
-    if let Some(e) = set_failure(&r) { return Err(e); }
+    match send_proposal(c, &p, true) {
+        // Stalwart 1.0 refuses the series' keys inside an override: once more without them
+        Err(e) if p.occurrence.is_some() && e.to_lowercase().contains("cannot be set inside recurrenceoverrides") => send_proposal(c, &p, false)?,
+        r => r?,
+    }
     Ok("Proposed changes applied.".into())
 }
 
@@ -903,5 +1149,237 @@ mod tests {
         let mut e = ev();
         e["participants"]["m"]["participationStatus"] = json!("needs-action");
         assert!(participants_asked_again(&e).is_none(), "the organizer's own entry stays and nobody else has answered");
+    }
+
+    // ---- G-001: a proposal for one occurrence of a series
+
+    fn series() -> Value {
+        let mut s = ev();
+        s["id"] = json!("s1");
+        s["recurrenceRules"] = json!([{"frequency": "weekly"}]);
+        s["recurrenceOverrides"] = Value::Null;
+        s["organizerCalendarAddress"] = json!("mailto:me@x.org");
+        s["participants"] = json!({
+            "o": {"calendarAddress": "mailto:me@x.org", "roles": {"owner": true, "attendee": true}, "participationStatus": "accepted"},
+            "a": {"calendarAddress": "mailto:ann@example.test", "roles": {"attendee": true}, "participationStatus": "accepted"},
+            "b": {"calendarAddress": "mailto:bob@example.test", "roles": {"attendee": true}, "participationStatus": "needs-action"}});
+        s
+    }
+
+    fn one(rid: &str, start: &str) -> Value {
+        json!({"uid": "u1", "title": "Planning", "recurrenceId": rid, "start": start, "timeZone": "Europe/Berlin", "duration": "PT1H30M",
+            "locations": {"l1": {"name": "Room 4"}}})
+    }
+
+    fn occ_proposal(stored: &[Value], c: &Value) -> Option<Proposal> {
+        proposal(stored, c, Some("ann@example.test"), &["me@x.org".to_string()], "Europe/Berlin")
+    }
+
+    #[test]
+    fn occurrence_of_a_series_gets_an_override_with_the_proposed_time() {
+        let c = one("2026-11-24T10:00:00", "2026-11-24T14:00:00");
+        let p = occ_proposal(&[series()], &c).unwrap();
+        assert_eq!(p.id, "s1");
+        assert!(p.can_apply() && p.occurrence.is_some());
+        assert_eq!(Value::Object(p.patch.clone()), json!({"start": "2026-11-24T14:00:00"}));
+        assert_eq!(p.changes, vec![("Time".to_string(), "Tue 24 Nov 2026, 10:00 – 11:30".to_string(), "Tue 24 Nov 2026, 14:00 – 15:30".to_string())]);
+        assert!(!p.two_step(), "a move asks the answered attendees again, so they are reached by the one write");
+        assert!(proposal_prepare_request("acc", &p, true).is_none());
+        let req = proposal_request("acc", &p);
+        assert_eq!(req[0][1]["sendSchedulingMessages"], true);
+        let up = req[0][1]["update"].as_object().unwrap();
+        assert_eq!(up.len(), 1, "one write on the series");
+        assert_eq!(up["s1"].as_object().unwrap().len(), 1, "the series' own fields are not written, no other occurrence either");
+        let entry = &up["s1"]["recurrenceOverrides"]["2026-11-24T10:00:00"];
+        assert_eq!(entry["start"], "2026-11-24T14:00:00");
+        assert_eq!(entry["duration"], "PT1H30M");
+        assert_eq!(entry["title"], "Planning", "a new override keeps what the occurrence has");
+        assert_eq!(entry["locations"]["l1"]["name"], "Room 4");
+        assert_eq!(entry["organizerCalendarAddress"], "mailto:me@x.org");
+        assert_eq!(entry["participants"]["a"]["participationStatus"], "needs-action", "asked to answer again");
+        assert_eq!(entry["participants"]["o"]["participationStatus"], "accepted");
+        assert!(entry.get("recurrenceRules").is_none() && entry.get("timeZone").is_none());
+        // Stalwart 1.0 refuses the series keys inside an override
+        let bare = proposal_request_with("acc", &p, false);
+        assert!(bare[0][1]["update"]["s1"]["recurrenceOverrides"]["2026-11-24T10:00:00"].get("organizerCalendarAddress").is_none());
+    }
+
+    #[test]
+    fn a_change_that_keeps_the_answers_is_written_in_two_steps() {
+        let mut c = one("2026-11-24T10:00:00", "2026-11-24T10:00:00");
+        c["title"] = json!("Planning II");
+        c["locations"] = json!({"l2": {"name": "Cafe"}});
+        let mut s = series();
+        s["recurrenceOverrides"] = json!({"2026-12-01T10:00:00": {"excluded": true}});
+        let p = occ_proposal(&[s], &c).unwrap();
+        let mut keys: Vec<String> = p.patch.keys().cloned().collect();
+        keys.sort();
+        assert_eq!(keys, ["locations", "title"]);
+        assert!(p.two_step(), "Ann answered and is not asked again");
+        let first = proposal_prepare_request("acc", &p, true).unwrap();
+        assert_eq!(first[0][1]["sendSchedulingMessages"], false);
+        let e1 = &first[0][1]["update"]["s1"]["recurrenceOverrides/2026-11-24T10:00:00"];
+        assert_eq!(e1["title"], "Planning", "the override as the occurrence is");
+        assert_eq!(e1["start"], "2026-11-24T10:00:00");
+        assert_eq!(e1["participants"]["a"]["participationStatus"], "accepted");
+        let last = proposal_request("acc", &p);
+        assert_eq!(last[0][1]["sendSchedulingMessages"], true);
+        let e2 = &last[0][1]["update"]["s1"]["recurrenceOverrides/2026-11-24T10:00:00"];
+        assert_eq!(e2["title"], "Planning II");
+        assert_eq!(e2["locations"]["l2"]["name"], "Cafe");
+        assert_eq!(e2["participants"]["a"]["participationStatus"], "accepted", "the answers stay");
+        let labels: Vec<String> = p.changes.iter().map(|c| c.0.clone()).collect();
+        assert_eq!(labels, ["Title", "Location"]);
+        // with no other override yet the first step is the whole map and the second points into it
+        let p0 = occ_proposal(&[series()], &c).unwrap();
+        assert!(proposal_prepare_request("acc", &p0, true).unwrap()[0][1]["update"]["s1"].get("recurrenceOverrides").is_some());
+        assert!(proposal_request("acc", &p0)[0][1]["update"]["s1"].get("recurrenceOverrides/2026-11-24T10:00:00").is_some());
+    }
+
+    #[test]
+    fn nobody_answered_means_one_write() {
+        let mut s = series();
+        s["participants"]["a"]["participationStatus"] = json!("declined");
+        let mut c = one("2026-11-24T10:00:00", "2026-11-24T10:00:00");
+        c["title"] = json!("Planning II");
+        let p = occ_proposal(&[s], &c).unwrap();
+        assert!(!p.two_step());
+    }
+
+    #[test]
+    fn the_recurrence_id_and_start_may_come_in_another_zone() {
+        // 10:00 in Berlin is 09:00 UTC in November
+        let mut c = one("2026-11-24T09:00:00", "2026-11-24T09:00:00");
+        c["recurrenceIdTimeZone"] = json!("UTC");
+        c["timeZone"] = json!("UTC");
+        let none = occ_proposal(&[series()], &c).unwrap();
+        assert!(none.patch.is_empty() && none.changes.is_empty() && !none.can_apply(), "the same moment is no change");
+        c["start"] = json!("2026-11-24T13:00:00");
+        let moved = occ_proposal(&[series()], &c).unwrap();
+        assert_eq!(moved.occurrence.as_ref().unwrap().key, "2026-11-24T10:00:00");
+        assert_eq!(Value::Object(moved.patch.clone()), json!({"start": "2026-11-24T14:00:00"}), "in the occurrence's zone, which stays");
+        // a start with a Z and no zone is UTC; one without a zone is the occurrence's
+        let mut z = one("2026-11-24T10:00:00", "2026-11-24T13:00:00Z");
+        z.as_object_mut().unwrap().remove("timeZone");
+        assert_eq!(occ_proposal(&[series()], &z).unwrap().patch["start"], "2026-11-24T14:00:00");
+        let mut f = one("2026-11-24T10:00:00", "2026-11-24T15:00:00");
+        f.as_object_mut().unwrap().remove("timeZone");
+        let fp = occ_proposal(&[series()], &f).unwrap();
+        assert_eq!(Value::Object(fp.patch.clone()), json!({"start": "2026-11-24T15:00:00"}));
+    }
+
+    #[test]
+    fn all_day_occurrences() {
+        let mut s = series();
+        s["showWithoutTime"] = json!(true);
+        s["start"] = json!("2026-11-17T00:00:00");
+        s["duration"] = json!("P1D");
+        s.as_object_mut().unwrap().remove("timeZone");
+        let c = json!({"uid": "u1", "recurrenceId": "2026-11-24T00:00:00", "start": "2026-11-25T00:00:00", "duration": "P1D", "showWithoutTime": true,
+            "locations": {"l1": {"name": "Room 4"}}});
+        let p = occ_proposal(&[s.clone()], &c).unwrap();
+        assert_eq!(Value::Object(p.patch.clone()), json!({"start": "2026-11-25T00:00:00"}));
+        let entry = &proposal_request("acc", &p)[0][1]["update"]["s1"]["recurrenceOverrides"]["2026-11-24T00:00:00"];
+        assert_eq!(entry["start"], "2026-11-25T00:00:00");
+        assert_eq!(entry["duration"], "P1D");
+        assert!(entry.get("showWithoutTime").is_none(), "still all day");
+        assert_eq!(p.changes[0].1, "Tue 24 Nov 2026, all day");
+        assert_eq!(p.changes[0].2, "Wed 25 Nov 2026, all day");
+        // a timed proposal for an all-day occurrence changes that too
+        let mut t = c.clone();
+        t["showWithoutTime"] = json!(false);
+        t["start"] = json!("2026-11-24T09:00:00");
+        t["duration"] = json!("PT1H");
+        let tp = occ_proposal(&[s], &t).unwrap();
+        assert_eq!(tp.patch["showWithoutTime"], false);
+        assert_eq!(tp.patch["start"], "2026-11-24T09:00:00");
+    }
+
+    #[test]
+    fn no_proposal_for_what_the_series_excludes_or_does_not_have() {
+        let c = one("2026-11-24T10:00:00", "2026-11-24T14:00:00");
+        let mut ex = series();
+        ex["recurrenceOverrides"] = json!({"2026-11-24T10:00:00": {"excluded": true}});
+        assert!(occ_proposal(&[ex], &c).is_none(), "excluded by an override");
+        let mut ids = series();
+        ids["excludedRecurrenceIds"] = json!(["2026-11-24T10:00:00"]);
+        assert!(occ_proposal(&[ids], &c).is_none(), "excluded by id");
+        let mut rule = series();
+        rule["excludedRecurrenceRules"] = json!([{"frequency": "weekly"}]);
+        assert!(occ_proposal(&[rule], &c).is_none(), "excluded by rule");
+        let off = one("2026-11-25T10:00:00", "2026-11-25T14:00:00");
+        assert!(occ_proposal(&[series()], &off).is_none(), "the rule gives no such occurrence");
+        let before = one("2026-11-10T10:00:00", "2026-11-10T14:00:00");
+        assert!(occ_proposal(&[series()], &before).is_none(), "nor one before the series starts");
+        let mut unread = series();
+        unread.as_object_mut().unwrap().remove("recurrenceOverrides");
+        assert!(occ_proposal(&[unread], &c).is_none(), "overrides not read: a whole-map write would drop the ones there are");
+        let mut single = series();
+        single.as_object_mut().unwrap().remove("recurrenceRules");
+        assert!(occ_proposal(&[single], &c).is_none(), "not a series");
+        assert!(occ_proposal(&[], &c).is_none());
+    }
+
+    #[test]
+    fn an_occurrence_with_an_override_gets_the_changes_on_top_of_it() {
+        let mut s = series();
+        s["recurrenceOverrides"] = json!({
+            "2026-11-24T10:00:00": {"start": "2026-11-24T11:00:00", "title": "Planning (moved)", "locations/l1/name": "Room 9", "updated": "2026-11-20T08:00:00Z"},
+            "2026-12-01T10:00:00": {"title": "Other week"}});
+        // the occurrence is where the override puts it, the proposal is against that
+        let mut same = one("2026-11-24T10:00:00", "2026-11-24T11:00:00");
+        same["title"] = json!("Planning (moved)");
+        same["locations"] = json!({"l1": {"name": "Room 9"}});
+        assert!(occ_proposal(&[s.clone()], &same).unwrap().patch.is_empty());
+        let mut c = same.clone();
+        c["locations"] = json!({"l2": {"name": "Cafe"}});
+        let p = occ_proposal(&[s], &c).unwrap();
+        assert_eq!(Value::Object(p.patch.clone()), json!({"locations": {"l2": {"name": "Cafe"}}}));
+        assert!(!p.two_step(), "an existing override is changed in one write");
+        assert!(proposal_prepare_request("acc", &p, true).is_none());
+        let req = proposal_request("acc", &p);
+        let up = req[0][1]["update"]["s1"].as_object().unwrap();
+        assert_eq!(up.len(), 1);
+        let e = &up["recurrenceOverrides/2026-11-24T10:00:00"];
+        assert_eq!(e["start"], "2026-11-24T11:00:00");
+        assert_eq!(e["title"], "Planning (moved)", "what the override had stays");
+        assert_eq!(e["locations"]["l2"]["name"], "Cafe");
+        assert!(e.get("locations/l1/name").is_none(), "a pointer below what is set whole goes");
+        assert!(e.get("updated").is_none() && e.get("participants").is_none(), "nothing copied into an existing override");
+        assert_eq!(p.changes, vec![("Location".to_string(), "Room 9".to_string(), "Cafe".to_string())]);
+    }
+
+    #[test]
+    fn an_occurrence_proposal_follows_the_same_rules_as_the_others() {
+        let c = one("2026-11-24T10:00:00", "2026-11-24T14:00:00");
+        let mine = vec!["me@x.org".to_string()];
+        // a stranger, or a user who does not organise it
+        let s = proposal(&[series()], &c, Some("eve@evil.net"), &mine, "Europe/Berlin").unwrap();
+        assert!(!s.from_participant && !s.can_apply());
+        let n = proposal(&[series()], &c, Some("ann@example.test"), &["ann@example.test".to_string()], "Europe/Berlin").unwrap();
+        assert!(!n.can_apply());
+        // an occurrence stored on its own is the target, not the series
+        let mut own = series();
+        own["id"] = json!("o1");
+        own["recurrenceId"] = json!("2026-11-24T10:00:00");
+        own.as_object_mut().unwrap().remove("recurrenceRules");
+        let p = occ_proposal(&[series(), own], &c).unwrap();
+        assert_eq!(p.id, "o1");
+        assert!(p.occurrence.is_none());
+        // a proposal for the whole meeting still writes the series' own fields
+        let whole = proposal(&[series()], &counter(), Some("ann@example.test"), &mine, "Europe/Berlin").unwrap();
+        assert!(whole.occurrence.is_none());
+        assert_eq!(proposal_request("acc", &whole)[0][1]["update"]["s1"]["start"], "2026-11-17T14:00:00");
+    }
+
+    #[test]
+    fn override_pointers() {
+        assert_eq!(pointer_token("a/b~c"), "a~1b~0c");
+        assert_eq!(pointer_untoken("a~1b~0c"), "a/b~c");
+        let mut v = json!({"a": {"b": 1, "c": 2}});
+        set_pointer(&mut v, "a/b", &Value::Null);
+        set_pointer(&mut v, "d/e", &json!(3));
+        set_pointer(&mut v, "x/y/z", &Value::Null);
+        assert_eq!(v, json!({"a": {"c": 2}, "d": {"e": 3}}));
     }
 }
