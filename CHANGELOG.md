@@ -7,6 +7,8 @@ example "## 0.1.0 — 2026-12-01", and start a new "Unreleased" above it.
 
 ## Unreleased
 
+- Filter rules: "Reject with message" is offered only when the server lists the reject Sieve extension. A rule that already rejects still shows its action, with a note, and is saved as it was.
+
 ## 0.1.1 — 2026-11-24
 
 - The window reopens where you left it: its size, position and whether it was maximised are remembered on this computer (not synced with your settings). When the monitor it was on is gone or the screen changed so the window would be off screen, Barbican opens at the default size and place instead.

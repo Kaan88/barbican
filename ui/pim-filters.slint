@@ -8,8 +8,9 @@ import { PimTheme, PimIcon, PimButton, PimIconButton, PimChip, PimCaption } from
 // One condition. `cmps` are the comparators the field allows; `value-kind`: "" none,
 // "text", "size" (e.g. 1M), "types" (attachment extensions).
 export struct FCond { field: int, cmp: int, cmps: [string], value: string, header: string, value-kind: string, is-header: bool }
-// One action. `needs`: "" none, "folder", "tag", "address", "text".
-export struct FAct { kind: int, value: string, folder: int, keep-copy: bool, needs: string }
+// One action. `needs`: "" none, "folder", "tag", "address", "text". `types`: the action types this
+// row offers (the server's Sieve extensions decide, e.g. reject); `kind` is an index into it.
+export struct FAct { kind: int, value: string, folder: int, keep-copy: bool, needs: string, types: [string] }
 
 export global FilterX {
     // ---- editor ----
@@ -20,7 +21,6 @@ export global FilterX {
     in property <[FCond]> conds;
     in property <[FAct]> acts;
     in property <[string]> fields;
-    in property <[string]> act-types;
     in property <[string]> folders;
     in-out property <bool> stop;
     in-out property <bool> include-spam;
@@ -125,7 +125,7 @@ component ActRow inherits HorizontalLayout {
     in property <FAct> a;
     in property <int> i;
     spacing: 6px;
-    ComboBox { width: 190px; model: FilterX.act-types; current-index: a.kind; selected => { FilterX.set-act-kind(root.i, self.current-index); } }
+    ComboBox { width: 190px; model: a.types; current-index: a.kind; selected => { FilterX.set-act-kind(root.i, self.current-index); } }
     if a.needs == "folder": ComboBox { horizontal-stretch: 1; model: FilterX.folders; current-index: a.folder; selected => { FilterX.set-act-folder(root.i, self.current-index); } }
     if a.needs == "tag" || a.needs == "address" || a.needs == "text": LineEdit {
         horizontal-stretch: 1;
