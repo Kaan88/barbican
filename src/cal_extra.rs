@@ -427,7 +427,33 @@ pub fn task_delete(u: &AppWindow, c: Arc<Client>) {
 
 /// The fields an imported or subscribed event keeps (Bulwark importEventsUnhooked): no ids, the
 /// target calendar, a zero duration where the file had none, participants cleaned up.
-pub fn sanitize_import(src: &Value, cal: &str) -> Value {
+pub fn sanitize_import(src: &Value, cal: &str) -> Value { import_event(src, cal, true) }
+
+/// Whether an event carries its own alerts (VALARM in the file): in the event or in an override
+/// of one occurrence.
+pub fn has_alerts(e: &Value) -> bool {
+    e["alerts"].as_object().is_some_and(|a| !a.is_empty())
+        || e["recurrenceOverrides"].as_object().is_some_and(|o| o.values().any(|p| p.as_object().is_some_and(|p| p.iter().any(|(k, v)| is_alert_key(k) && !is_removal(v)))))
+}
+
+/// A null (or empty) alerts value in an override takes reminders away: not a reminder of its own.
+fn is_removal(v: &Value) -> bool { v.is_null() || v.as_object().is_some_and(|o| o.is_empty()) }
+
+fn is_alert_key(k: &str) -> bool { k == "alerts" || k.starts_with("alerts/") }
+
+/// The same event without its alerts, nor those of its overrides, and no calendar defaults in
+/// their place.
+fn drop_alerts(d: &mut Map<String, Value>) {
+    d.remove("alerts");
+    if let Some(o) = d.get_mut("recurrenceOverrides").and_then(Value::as_object_mut) {
+        for p in o.values_mut() { if let Some(p) = p.as_object_mut() { p.retain(|k, _| !is_alert_key(k)); } }
+    }
+    d.insert("useDefaultAlerts".into(), json!(false));
+}
+
+/// `sanitize_import`, keeping the file's alerts or not (the choice of the import dialog; Bulwark
+/// `importEventsUnhooked` always keeps them: its dialog has no such choice and keeping is the default here).
+pub fn import_event(src: &Value, cal: &str, keep_alerts: bool) -> Value {
     const KEEP: [&str; 24] = ["@type", "uid", "title", "description", "descriptionContentType", "start", "timeZone", "showWithoutTime", "status", "freeBusyStatus",
         "privacy", "color", "keywords", "categories", "locale", "locations", "virtualLocations", "links", "recurrenceRules", "recurrenceOverrides",
         "excludedRecurrenceRules", "alerts", "due", "progress"];
@@ -459,6 +485,7 @@ pub fn sanitize_import(src: &Value, cal: &str) -> Value {
         d.insert("participants".into(), Value::Object(out));
     }
     if !d.contains_key("@type") { d.insert("@type".into(), json!("Event")); }
+    if !keep_alerts { drop_alerts(&mut d); }
     d.insert("calendarIds".into(), json!({ cal: true }));
     Value::Object(d)
 }
@@ -516,7 +543,18 @@ pub fn import_begin(u: &AppWindow) {
     x.set_imp_status("".into());
     x.set_imp_ready(false);
     x.set_imp_busy(false);
+    x.set_imp_alerts("".into());
+    x.set_imp_keep_alerts(true);
     x.set_imp_open(true);
+}
+
+/// The line that asks whether to keep the file's reminders; empty when no event in it has any.
+pub fn alerts_note(list: &[Value]) -> String {
+    match list.iter().filter(|e| has_alerts(e)).count() {
+        0 => String::new(),
+        1 => "1 event in this file has its own reminders.".into(),
+        n => format!("{n} events in this file have their own reminders."),
+    }
 }
 
 pub fn import_choose(u: &AppWindow, c: Arc<Client>) {
@@ -528,6 +566,7 @@ pub fn import_choose(u: &AppWindow, c: Arc<Client>) {
     let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
     x.set_imp_file(name.clone().into());
     x.set_imp_info("Reading…".into());
+    x.set_imp_alerts("".into());
     x.set_imp_ready(false);
     x.set_imp_busy(true);
     let w = u.as_weak();
@@ -539,6 +578,8 @@ pub fn import_choose(u: &AppWindow, c: Arc<Client>) {
             match res {
                 Ok(list) if !list.is_empty() => {
                     let n = list.len();
+                    x.set_imp_alerts(alerts_note(&list).into());
+                    x.set_imp_keep_alerts(true);
                     IMPORT.with(|i| *i.borrow_mut() = Some((name, list)));
                     x.set_imp_info(format!("{n} event{} found", if n == 1 { "" } else { "s" }).into());
                     x.set_imp_ready(true);
@@ -554,6 +595,8 @@ pub fn import_run(u: &AppWindow, c: Arc<Client>) {
     let x = u.global::<crate::CalX>();
     let Some((_, list)) = IMPORT.with(|i| i.borrow().clone()) else { return };
     let Some(target) = IMPORT_TARGETS.with(|l| l.borrow().get(x.get_imp_calendar().max(0) as usize).cloned()) else { return };
+    // asked only when the file has reminders; the answer defaults to keeping them (D-M4-09)
+    let keep_alerts = x.get_imp_alerts().is_empty() || x.get_imp_keep_alerts();
     x.set_imp_busy(true);
     x.set_imp_status("".into());
     let w = u.as_weak();
@@ -575,7 +618,7 @@ pub fn import_run(u: &AppWindow, c: Arc<Client>) {
                         ci[&raw] = json!(true);
                         if c.update("CalendarEvent/set", &acc, vec![(id.clone(), json!({"calendarIds": ci}))]).is_ok_and(|(n, _)| n > 0) { linked += 1; }
                     }
-                    None => new.push(sanitize_import(&e, &raw)),
+                    None => new.push(import_event(&e, &raw, keep_alerts)),
                 }
             }
             let (made, err) = create_batch(&c, &acc, new);
@@ -658,7 +701,14 @@ pub fn sub_begin(u: &AppWindow, id: &str) {
     x.set_sub_interval(s.as_ref().and_then(|s| s["refreshInterval"].as_i64()).and_then(|m| INTERVALS.iter().position(|i| *i == m)).unwrap_or(2) as i32);
     x.set_sub_status(s.as_ref().and_then(|s| s["error"].as_str()).map(|e| format!("Last refresh failed: {e}")).unwrap_or_default().into());
     x.set_sub_busy(false);
+    sub_url_changed(u, &x.get_sub_url());
     x.set_sub_open(true);
+}
+
+/// The address field changed: a plain http address gets its warning under the field at once.
+pub fn sub_url_changed(u: &AppWindow, text: &str) {
+    let plain = normalize_feed_url(text).is_some_and(|x| crate::feed_guard::is_plain_http(&x));
+    u.global::<crate::CalX>().set_sub_warning(if plain { crate::feed_guard::PLAIN_HTTP_WARNING } else { "" }.into());
 }
 
 /// The feed's events into the subscription calendar: new ones created, gone ones removed,
@@ -720,19 +770,33 @@ pub fn refresh_feed(c: &Client, sub: &Value) -> Result<usize, String> {
 
 const FEED_MAX_BYTES: u64 = 20_000_000;
 
-/// GET the feed: at most 5 redirects, never past FEED_MAX_BYTES (checked while reading).
+/// GET the feed. Every address (the first and each redirect, at most 5) is checked by
+/// `feed_guard` before it is requested: not this computer or a local network, and for a name every
+/// address it resolves to; the connection is then made to exactly the addresses that were checked
+/// (the name is resolved once), so a DNS answer that changes cannot redirect it (G-006). The body
+/// is never read past FEED_MAX_BYTES (checked while reading). A system proxy is not used: it
+/// would resolve the name itself, beyond the check.
 fn fetch_feed(url: &str) -> Result<Vec<u8>, String> {
     use std::io::Read;
-    let http = reqwest::blocking::Client::builder().timeout(std::time::Duration::from_secs(60)).user_agent("Barbican calendar")
-        .redirect(reqwest::redirect::Policy::limited(5)).build().map_err(|e| e.to_string())?;
-    let resp = http.get(url).send().map_err(|e| format!("Could not fetch the calendar: {e}"))?;
-    if !resp.status().is_success() { return Err(format!("The calendar address answered {}.", resp.status())); }
-    if resp.content_length().is_some_and(|n| n > FEED_MAX_BYTES) { return Err("The calendar is too large.".into()); }
-    let mut body = vec![];
-    resp.take(FEED_MAX_BYTES + 1).read_to_end(&mut body).map_err(|e| e.to_string())?;
-    if body.len() as u64 > FEED_MAX_BYTES { return Err("The calendar is too large.".into()); }
-    if !String::from_utf8_lossy(&body[..body.len().min(4096)]).contains("BEGIN:VCALENDAR") { return Err("This address doesn't return a calendar (.ics).".into()); }
-    Ok(body)
+    crate::feed_guard::follow(url, &crate::feed_guard::system_resolve, |hop| {
+        let mut b = reqwest::blocking::Client::builder().timeout(std::time::Duration::from_secs(60)).user_agent("Barbican calendar")
+            .redirect(reqwest::redirect::Policy::none()).no_proxy();
+        if let Some(pin) = &hop.pin { b = b.resolve_to_addrs(&hop.host, pin); }
+        let http = b.build().map_err(|e| e.to_string())?;
+        let mut req = http.get(hop.url.clone());
+        if let Some((user, pass)) = &hop.auth { req = req.basic_auth(user, Some(pass)); }
+        let resp = req.send().map_err(|e| format!("Could not fetch the calendar: {e}"))?;
+        if crate::redirect::is_redirect(resp.status().as_u16()) {
+            return Ok(crate::feed_guard::Step::Redirect(resp.headers().get(reqwest::header::LOCATION).and_then(|v| v.to_str().ok()).map(String::from)));
+        }
+        if !resp.status().is_success() { return Err(format!("The calendar address answered {}.", resp.status())); }
+        if resp.content_length().is_some_and(|n| n > FEED_MAX_BYTES) { return Err("The calendar is too large.".into()); }
+        let mut body = vec![];
+        resp.take(FEED_MAX_BYTES + 1).read_to_end(&mut body).map_err(|e| e.to_string())?;
+        if body.len() as u64 > FEED_MAX_BYTES { return Err("The calendar is too large.".into()); }
+        if !String::from_utf8_lossy(&body[..body.len().min(4096)]).contains("BEGIN:VCALENDAR") { return Err("This address doesn't return a calendar (.ics).".into()); }
+        Ok(crate::feed_guard::Step::Done(body))
+    })
 }
 
 /// A feed event without a UID gets one from what identifies it in the feed (url, start, title;
@@ -753,8 +817,8 @@ pub fn fill_uids(url: &str, feed: &mut [Value]) {
 
 /// Subscriptions never carry the feed's own alarms (Bulwark does not fire remote alarms).
 pub fn sanitize_feed(src: &Value, cal: &str) -> Value {
-    let mut v = sanitize_import(src, cal);
-    if let Some(o) = v.as_object_mut() { o.remove("alerts"); o.insert("useDefaultAlerts".into(), json!(false)); }
+    let mut v = import_event(src, cal, false);
+    if let Some(o) = v.as_object_mut() { o.insert("useDefaultAlerts".into(), json!(false)); }
     v
 }
 
@@ -766,14 +830,16 @@ fn refresh_error(failed: &[String]) -> String {
 pub fn sub_save(u: &AppWindow, c: Arc<Client>) {
     let x = u.global::<crate::CalX>();
     let Some(url) = normalize_feed_url(&x.get_sub_url()) else { x.set_sub_status("Enter a webcal:// or https:// address.".into()); return };
+    // a local address or name is refused at once (the fetch checks the resolved addresses too)
+    if let Err(r) = crate::feed_guard::precheck(&url) { x.set_sub_status(r.message().into()); return; }
     let name = x.get_sub_name().trim().to_string();
     if name.is_empty() { x.set_sub_status("Give the calendar a name.".into()); return; }
     let color = x.get_sub_colors().row_data(x.get_sub_color().max(0) as usize).map(color_hex).unwrap_or_else(|| "#3b82f6".into());
     let interval = INTERVALS[x.get_sub_interval().clamp(0, 4) as usize];
     let id = x.get_sub_id().to_string();
     x.set_sub_busy(true);
-    let plain = if url.starts_with("http://") { " (warning: this address is not encrypted, use https:// if the site offers it)" } else { "" };
-    x.set_sub_status(format!("{}{plain}", if id.is_empty() { "Subscribing…" } else { "Saving…" }).into());
+    let plain = crate::feed_guard::is_plain_http(&url);
+    x.set_sub_status(if id.is_empty() { "Subscribing…" } else { "Saving…" }.into());
     let w = u.as_weak();
     std::thread::spawn(move || {
         let acc = c.account_for(CAL);
@@ -807,7 +873,13 @@ pub fn sub_save(u: &AppWindow, c: Arc<Client>) {
             let x = u.global::<crate::CalX>();
             x.set_sub_busy(false);
             match res {
-                Ok(msg) => { x.set_sub_open(false); crate::mail::show_toast(&u, &msg, false); render_subs(&u, &c); calendar::load(w2, c); }
+                Ok(msg) => {
+                    x.set_sub_open(false);
+                    // an address that is not encrypted is accepted, with the warning
+                    crate::mail::show_toast(&u, &if plain { format!("{msg} Warning: {}", crate::feed_guard::PLAIN_HTTP_WARNING) } else { msg }, false);
+                    render_subs(&u, &c);
+                    calendar::load(w2, c);
+                }
                 Err(e) => x.set_sub_status(e.into()),
             }
         });
@@ -931,6 +1003,7 @@ pub fn wire(ui: &AppWindow, st: crate::Shared) {
     { let (w, st) = (ui.as_weak(), st.clone()); x.on_imp_choose(move || { if let Some(c) = cl(&st) { import_choose(&w.unwrap(), c); } }); }
     { let (w, st) = (ui.as_weak(), st.clone()); x.on_imp_run(move || { if let Some(c) = cl(&st) { import_run(&w.unwrap(), c); } }); }
     with_ui!(w, x.on_sub_begin(move |id| sub_begin(&w.unwrap(), &id)));
+    with_ui!(w, x.on_sub_url_changed(move |t| sub_url_changed(&w.unwrap(), &t)));
     { let (w, st) = (ui.as_weak(), st.clone()); x.on_sub_save(move || { if let Some(c) = cl(&st) { sub_save(&w.unwrap(), c); } }); }
     { let (w, st) = (ui.as_weak(), st.clone()); x.on_sub_remove(move |id| { if let Some(c) = cl(&st) { sub_remove(&w.unwrap(), c, &id); } }); }
     { let (w, st) = (ui.as_weak(), st.clone()); x.on_sub_refresh(move |id| { if let Some(c) = cl(&st) { sub_refresh(&w.unwrap(), c, &id); } }); }
@@ -978,6 +1051,50 @@ mod tests {
         assert_eq!(refresh_error(&["a: x".into()]), "1 change could not be applied (a: x)");
         assert!(refresh_error(&["a".into(), "b".into()]).starts_with("2 changes"));
     }
+    #[test]
+    fn import_asks_about_alerts_only_when_there_are_some() {
+        let with = json!({"@type": "Event", "uid": "a", "title": "T", "start": "2026-11-20T10:00:00", "alerts": {"x": {"trigger": {"offset": "-PT5M"}}}});
+        let none = json!({"@type": "Event", "uid": "b", "title": "T", "start": "2026-11-20T10:00:00"});
+        let empty = json!({"@type": "Event", "uid": "c", "title": "T", "start": "2026-11-20T10:00:00", "alerts": {}});
+        let in_override = json!({"@type": "Event", "uid": "d", "title": "T", "start": "2026-11-20T10:00:00",
+            "recurrenceOverrides": {"2026-11-27T10:00:00": {"title": "Moved", "alerts/x/trigger/offset": "-PT1H"}}});
+        assert!(has_alerts(&with) && has_alerts(&in_override));
+        assert!(!has_alerts(&none) && !has_alerts(&empty));
+        // overrides that only remove reminders do not count as having some
+        let removal = json!({"@type": "Event", "uid": "r", "title": "T", "start": "2026-11-20T10:00:00",
+            "recurrenceOverrides": {"2026-11-27T10:00:00": {"alerts": null, "alerts/x": null}, "2026-12-04T10:00:00": {"alerts": {}}}});
+        assert!(!has_alerts(&removal));
+        assert_eq!(alerts_note(&[removal]), "");
+        assert_eq!(alerts_note(&[none.clone(), empty.clone()]), "");
+        assert_eq!(alerts_note(&[with.clone(), none.clone()]), "1 event in this file has its own reminders.");
+        assert_eq!(alerts_note(&[with.clone(), in_override.clone(), none]), "2 events in this file have their own reminders.");
+    }
+
+    #[test]
+    fn import_keeps_alerts_by_default_and_drops_them_on_no() {
+        let src = json!({"@type": "Event", "uid": "a", "title": "T", "start": "2026-11-20T10:00:00", "alerts": {"x": {"trigger": {"offset": "-PT5M"}}},
+            "recurrenceRules": [{"frequency": "weekly"}],
+            "recurrenceOverrides": {"2026-11-27T10:00:00": {"title": "Moved", "alerts": {"y": {"trigger": {"offset": "-PT1H"}}}, "alerts/x/trigger/offset": "-PT2H"}}});
+        // the default (and sanitize_import) keeps them
+        assert_eq!(sanitize_import(&src, "cal")["alerts"], src["alerts"]);
+        assert_eq!(import_event(&src, "cal", true), sanitize_import(&src, "cal"));
+        assert!(import_event(&src, "cal", true)["recurrenceOverrides"]["2026-11-27T10:00:00"]["alerts"].is_object());
+        // "No": none in the event or in its overrides; the rest of the override stays
+        let d = import_event(&src, "cal", false);
+        assert!(d.get("alerts").is_none());
+        assert_eq!(d["recurrenceOverrides"]["2026-11-27T10:00:00"], json!({"title": "Moved"}));
+        assert_eq!(d["useDefaultAlerts"], false);
+        assert!(import_event(&src, "cal", true).get("useDefaultAlerts").is_none());
+        assert_eq!(d["title"], "T");
+        assert_eq!(d["recurrenceRules"], src["recurrenceRules"]);
+        assert_eq!(d["calendarIds"], json!({"cal": true}));
+        assert!(!has_alerts(&d));
+        // a feed never keeps them, nor the calendar's defaults
+        let f = sanitize_feed(&src, "cal");
+        assert!(f.get("alerts").is_none() && !has_alerts(&f));
+        assert_eq!(f["useDefaultAlerts"], false);
+    }
+
     fn d(s: &str) -> NaiveDate { NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap() }
 
     #[test]
