@@ -120,6 +120,20 @@ impl BodyCache {
         }
     }
 
+    /// The reader fetched the whole body of a cached message: keep it (and its fetch limit) so a
+    /// reopen does not show the cut one again. Nothing is added for a message that is not cached.
+    pub fn set_bodies(&mut self, account: &str, id: &str, full: &Value) {
+        let k = (account.to_string(), id.to_string());
+        let Some((v, old)) = self.bodies.get_mut(&k) else { return };
+        let m = Arc::make_mut(v);
+        for key in ["bodyValues", "__cidBodyValues", "__bodyLimit"] {
+            if !full[key].is_null() { m[key] = full[key].clone(); }
+        }
+        let w = weight(m);
+        self.bytes = self.bytes + w - *old;
+        *old = w;
+    }
+
     pub fn remove(&mut self, account: &str, id: &str) {
         let k = (account.to_string(), id.to_string());
         if let Some((_, w)) = self.bodies.remove(&k) { self.bytes -= w; }
@@ -232,6 +246,25 @@ mod tests {
         assert!(c.contains("a", "1") && c.contains("a", "3"));
         assert!(!c.contains("a", "2"), "least recently used goes first");
         assert_eq!(c.len(), 2);
+    }
+
+    #[test]
+    fn whole_body_replaces_the_cut_one_and_keeps_the_byte_count_right() {
+        let mut c = BodyCache::default();
+        c.put("a", "1", json!({"id": "1", "keywords": {"$seen": true}, "__bodyLimit": 2_000_000,
+            "bodyValues": {"1": {"value": "cut", "isTruncated": true}}}));
+        let before = c.bytes();
+        let whole = json!({"bodyValues": {"1": {"value": "cut and a very much longer rest of the message", "isTruncated": false}}, "__bodyLimit": 8_000_000});
+        c.set_bodies("a", "1", &whole);
+        let m = c.get("a", "1").unwrap();
+        assert_eq!(m["bodyValues"]["1"]["isTruncated"], false);
+        assert_eq!(m["__bodyLimit"], 8_000_000);
+        assert_eq!(m["keywords"]["$seen"], true, "what the full body does not carry is kept");
+        assert!(c.bytes() > before);
+        assert_eq!(c.bytes(), weight(&m));
+        // a message that is not cached is not added
+        c.set_bodies("a", "2", &whole);
+        assert!(!c.contains("a", "2"));
     }
 
     #[test]

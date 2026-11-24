@@ -7,6 +7,9 @@ example "## 0.1.0 — 2026-12-01", and start a new "Unreleased" above it.
 
 ## Unreleased
 
+- Long messages open whole: when the server cuts a long message body, Barbican fetches it again at once with a larger limit (8 MB instead of 2 MB), as Bulwark does, and the notice only appears when that failed or the message is longer still. "Load full message" in the notice fetches again; before, it asked for no limit, which the JMAP standard does not allow, and it did not update the copy kept for reopening the message. The text is shown through the same safe reader (sanitised HTML, remote images off unless you allowed them). A message longer than 8 MB says so and points to View source and Save .eml.
+- Settings > Account shows your storage: "Storage usage" with how much is used of the limit, the percentage and a bar (the soft limit counts as the limit when the server sets one, as in Bulwark). When the server reports several quotas (message counts, other data), each gets its own line. The quota is also found when the server names its type Email.
+
 ## 0.1.1 — 2026-11-24
 
 - The window reopens where you left it: its size, position and whether it was maximised are remembered on this computer (not synced with your settings). When the monitor it was on is gone or the screen changed so the window would be off screen, Barbican opens at the default size and place instead.

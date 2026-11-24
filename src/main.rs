@@ -5,6 +5,7 @@ mod winstate;
 mod auth;
 mod attachments;
 mod avatars;
+mod quota;
 mod crashguard;
 mod tags;
 mod mailimport;
