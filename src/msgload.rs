@@ -267,7 +267,7 @@ fn present(u: &AppWindow, c: &Arc<jmap::Client>, id: &str, m: Arc<Value>, thread
         let html = (is_html && !html.is_empty()).then_some(html);
         let remote = html.as_deref().is_some_and(has_remote_images);
         let allow = u.get_auto_images();
-        CUR.with(|c| *c.borrow_mut() = Some(Current { html, text, remote, allow }));
+        CUR.with(|c| *c.borrow_mut() = Some(Current { html, text, remote, allow, links_off: kw[phish::KEYWORD].as_bool() == Some(true) || phish::marked(&m) }));
     }
     let atts2 = atts.clone();
     CUR_MSG.with(|x| *x.borrow_mut() = Some((m.clone(), atts)));

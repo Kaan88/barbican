@@ -30,12 +30,13 @@ pub fn header(headers: &[Value], name: &str) -> Option<String> {
 }
 
 /// Every header `name`, unfolded.
+#[cfg(test)]
 pub fn headers_all(headers: &[Value], name: &str) -> Vec<String> {
     headers.iter().filter(|h| h["name"].as_str().is_some_and(|n| n.eq_ignore_ascii_case(name)))
         .filter_map(|h| h["value"].as_str()).map(unfold).collect()
 }
 
-fn unfold(v: &str) -> String {
+pub fn unfold(v: &str) -> String {
     let mut out = String::new();
     let mut it = v.chars().peekable();
     while let Some(c) = it.next() {
@@ -136,13 +137,20 @@ pub fn unsubscribe_mailto(url: &str) -> Option<(String, Option<String>, Option<S
 }
 
 /// RFC 8058 §4 wants a DKIM signature over the list headers before a one-click POST: the
-/// receiving server's (topmost) Authentication-Results must report a DKIM pass whose signing
-/// domain (header.d) aligns with the From domain, so a stranger's own valid signature does not
-/// count. (Whether that signature covers List-Unsubscribe is not in the results; an aligned
-/// signature from the sender is the closest the client can check.)
-pub fn dkim_pass(headers: &[Value], from: &str) -> bool {
+/// results our server wrote (auth::assess, never a header the sender included) must report a
+/// DKIM pass whose signing domain (header.d) aligns with the From domain, so a stranger's own
+/// valid signature does not count. (Whether that signature covers List-Unsubscribe is not in
+/// the results; an aligned signature from the sender is the closest the client can check.)
+pub fn dkim_pass(trust: &crate::auth::Trust, from: &str) -> bool {
     let Some(d) = crate::auth::domain_of(from) else { return false };
-    crate::auth::aligned_dkim_pass(&crate::auth::topmost(headers), &d)
+    trust.trusted && crate::auth::aligned_dkim_pass(&trust.results, &d)
+}
+
+/// The trust in the Authentication-Results of message `m` read through `c`'s server.
+pub fn trust_of(m: &Value, c: &Client) -> crate::auth::Trust {
+    let roles: Vec<String> = m["mailboxIds"].as_object().map(|o| o.keys().map(|k| mail::mailbox_role(k)).collect()).unwrap_or_default();
+    let host = crate::avatars::host_of(&c.base);
+    crate::auth::assess(m["headers"].as_array().map(|a| a.as_slice()).unwrap_or(&[]), &crate::auth::Origin::of(m, &host, &roles))
 }
 
 /// Whether an address is on the public internet (not loopback, private, link-local, CGNAT,
@@ -320,6 +328,10 @@ struct State {
     mdn_step: Step,
     trunc: bool,
     trunc_step: Step,
+    /// The message carries `$phishing`: banner, links off (phish.rs).
+    phish: bool,
+    /// "Report phishing…" asked for, confirmed, running.
+    phish_step: Step,
     invite: Option<Invite>,
     view: View,
     /// Save to Files: the Files account, its draft-18 shape and own folders (id, name, depth).
@@ -366,7 +378,7 @@ pub fn loaded(u: &AppWindow, c: Arc<Client>, m: &Value, id: &str) {
     let invite_part = (prefs.bool("calendarInvitationParsingEnabled", true) && c.has(invite::CAP)).then(|| invite::find_part(m)).flatten();
     ST.with(|s| {
         let mut s = s.borrow_mut();
-        *s = State { id: id.to_string(), msg: m.clone(), client: Some(c.clone()), unsub, mdn: offer && !auto, trunc: displayed_truncated(m), ..Default::default() };
+        *s = State { id: id.to_string(), msg: m.clone(), client: Some(c.clone()), unsub, mdn: offer && !auto, trunc: displayed_truncated(m), phish: crate::phish::marked(m), ..Default::default() };
         if invite_part.is_some() {
             s.invite = Some(Invite { loading: true, error: None, ev: Value::Null, method: Method::Unknown, step: Step::Idle, status: String::new(), organizer_me: false, mine: vec![], trust: None, sender: None, from_me: false, cancel: None, proposal: None });
         }
@@ -387,8 +399,9 @@ pub fn loaded(u: &AppWindow, c: Arc<Client>, m: &Value, id: &str) {
         // the message's own login answers: its addresses, not the active login's
         let active = crate::my_addrs_cached();
         let from = m["from"][0]["email"].as_str().map(String::from);
-        let auth = crate::auth::topmost(&headers);
-        let has_auth = !headers_all(&headers, "Authentication-Results").is_empty();
+        // only the results our server wrote count; a header that is there but not ours reads as "present, unverified"
+        let trust = trust_of(m, &c);
+        let (auth, has_auth) = (trust.results.clone(), trust.present);
         std::thread::spawn(move || {
             let mut mine = if other_login {
                 c2.identities().unwrap_or_default().iter().filter_map(|i| i["email"].as_str().map(String::from)).collect()
@@ -457,6 +470,18 @@ fn banners(s: &State) -> Vec<RxBannerData> {
             return v;
         }
         View::Message => {}
+    }
+    if s.phish {
+        v.push(banner("phish", "rose", "\u{E7BA}", "Phishing", crate::phish::BANNER, "", "", vec![]));
+    } else {
+        let to = crate::phish::setup_from_settings().map(|p| p.address).unwrap_or_default();
+        match &s.phish_step {
+            Step::Idle | Step::Done(_) => {}
+            Step::Confirm => v.push(banner("phish", "rose", "\u{E7BA}", "Report phishing", "Report this message as phishing?",
+                &format!("It goes to {to} and moves to Junk. Its links stay turned off."), "", vec![act("confirm", "Report", 1), act("cancel", "Cancel", 0)])),
+            Step::Busy => v.push(banner("phish", "rose", "\u{E7BA}", "Report phishing", "Reporting\u{2026}", "", "", vec![act_off("confirm", "Reporting\u{2026}", 1)])),
+            Step::Failed(e) => v.push(banner("phish", "amber", "\u{E7BA}", "Report phishing", "The message could not be reported.", e, "", vec![act("dismiss", "Dismiss", 2)])),
+        }
     }
     if s.trunc {
         let busy = s.trunc_step == Step::Busy;
@@ -617,6 +642,8 @@ fn banner_action(u: &AppWindow, st: &Shared, b: &str, a: &str) {
                 });
             });
         }
+        ("phish", "cancel" | "dismiss") => set_step(u, |s| s.phish_step = Step::Idle),
+        ("phish", "confirm") => report_phishing(u),
         ("unsub", "start") => set_step(u, |s| s.unsub_step = Step::Confirm),
         ("unsub", "cancel") => set_step(u, |s| s.unsub_step = Step::Idle),
         ("unsub", "dismiss") => set_step(u, |s| s.unsub_hidden = true),
@@ -672,14 +699,53 @@ fn banner_action(u: &AppWindow, st: &Shared, b: &str, a: &str) {
     }
 }
 
+/// The confirmed "Report phishing": one report to the address in Settings, then the message goes to
+/// Junk with `$phishing` and is shown with its links off.
+fn report_phishing(u: &AppWindow) {
+    let (c, mut m, id) = ST.with(|s| (s.borrow().client.clone(), s.borrow().msg.clone(), s.borrow().id.clone()));
+    let (Some(c), Some(setup)) = (c, crate::phish::setup_from_settings()) else { return };
+    let roles: Vec<String> = m["mailboxIds"].as_object().map(|o| o.keys().map(|k| mail::mailbox_role(k)).collect()).unwrap_or_default();
+    if mail::shared_account(&id).is_some() || !crate::phish::is_reportable(&m, &roles) { set_step(u, |s| s.phish_step = Step::Idle); return; }
+    set_step(u, |s| s.phish_step = Step::Busy);
+    m["id"] = json!(crate::unified::real_id(&id));
+    let w = u.as_weak();
+    std::thread::spawn(move || {
+        let real = crate::unified::real_id(&id).to_string();
+        let res = crate::phish::report(&c, &m, &setup);
+        // reported but not filed: the keyword alone still turns the links off
+        if matches!(res, Err(crate::phish::Failure::NotMoved(_))) { let _ = c.set_keyword(&[real], crate::phish::KEYWORD, true); }
+        let _ = w.upgrade_in_event_loop(move |u| {
+            let addr = setup.address.clone();
+            match res {
+                Ok(()) => {
+                    if is_open(&id) { set_step(&u, |s| { s.phish = true; s.phish_step = Step::Idle; }); }
+                    mail::phishing_filed(&u, c, &id);
+                    mail::show_toast(&u, &format!("Reported to {addr} and moved to Junk."), false);
+                }
+                Err(crate::phish::Failure::NotMoved(e)) => {
+                    if is_open(&id) {
+                        // the keyword is set: the message shows its banner and its links go off
+                        set_step(&u, |s| { s.phish = true; s.phish_step = Step::Idle; });
+                        crate::links_off_now(&u);
+                    }
+                    mail::show_toast(&u, &format!("Reported to {addr}, but the message could not be moved to Junk: {e}"), false);
+                }
+                Err(crate::phish::Failure::NotReported(e)) => {
+                    if is_open(&id) { set_step(&u, |s| s.phish_step = Step::Failed(e)); }
+                }
+            }
+        });
+    });
+}
+
 fn unsubscribe(u: &AppWindow, st: &Shared) {
     let (unsub, m, id) = ST.with(|s| (s.borrow().unsub.clone(), s.borrow().msg.clone(), s.borrow().id.clone()));
     let Some(un) = unsub else { return };
-    let headers = m["headers"].as_array().cloned().unwrap_or_default();
+    let trust = ST.with(|s| s.borrow().client.clone()).map(|c| trust_of(&m, &c)).unwrap_or_default();
     if un.prefers_http() {
         let url = un.http.clone().unwrap_or_default();
         if !valid_unsub_url(&url) { set_step(u, |s| s.unsub_step = Step::Failed("The link is not a web address.".into())); return; }
-        if un.one_click && dkim_pass(&headers, m["from"][0]["email"].as_str().unwrap_or("")) {
+        if un.one_click && dkim_pass(&trust, m["from"][0]["email"].as_str().unwrap_or("")) {
             set_step(u, |s| s.unsub_step = Step::Busy);
             let w = u.as_weak();
             std::thread::spawn(move || {
@@ -762,7 +828,7 @@ fn show_message_body(u: &AppWindow, m: &Value) {
     let html = (is_html && !html.is_empty()).then_some(html);
     let remote = html.as_deref().is_some_and(crate::has_remote_images);
     let allow = u.get_auto_images();
-    crate::CUR.with(|c| *c.borrow_mut() = Some(crate::Current { html, text, remote, allow }));
+    crate::CUR.with(|c| *c.borrow_mut() = Some(crate::Current { html, text, remote, allow, links_off: crate::phish::marked(m) }));
     crate::render_current(u);
 }
 
@@ -790,7 +856,7 @@ fn view_source(u: &AppWindow) {
                         let stash = match std::mem::take(&mut s.view) { View::Source { stash: old, .. } => old, _ => stash };
                         s.view = View::Source { raw, full, cut, stash };
                     });
-                    crate::CUR.with(|c| *c.borrow_mut() = Some(crate::Current { html: Some(html), text: shown, remote: false, allow: false }));
+                    crate::CUR.with(|c| *c.borrow_mut() = Some(crate::Current { html: Some(html), text: shown, remote: false, allow: false, links_off: ST.with(|s| crate::phish::marked(&s.borrow().msg)) }));
                     crate::render_current(&u);
                     refresh(&u);
                 }
@@ -1084,6 +1150,13 @@ pub fn menu(u: &AppWindow) -> Vec<CtxItem> {
         off(it(G_DOWNLOAD, "Download (.eml)", "rx:eml"), has_blob && !eml_view),
         off(it(G_ZIP, "Download all attachments (.zip)", "rx:zip"), n_atts > 0),
     ];
+    if !eml_view {
+        v.push(sep());
+        let roles: Vec<String> = m["mailboxIds"].as_object().map(|o| o.keys().map(|k| mail::mailbox_role(k)).collect()).unwrap_or_default();
+        let can = !shared && crate::phish::is_reportable(&m, &roles);
+        if crate::phish::setup_from_settings().is_some() { v.push(off(it(G_BLOCK, "Report phishing\u{2026}", "rx:phish"), can)); }
+        else { v.push(hinted(off(it(G_BLOCK, "Report phishing\u{2026}", ""), false), "Set an address in Settings")); }
+    }
     if let Some(s) = rule_subject(u).filter(|_| !eml_view) {
         v.push(sep());
         v.push(head("Rules"));
@@ -1179,6 +1252,7 @@ pub fn pick(u: &AppWindow, st: &Shared, action: &str, target_id: &str) {
     let Some(a) = action.strip_prefix("rx:") else { return };
     match a {
         "source" => view_source(u),
+        "phish" => set_step(u, |s| if s.client.is_some() && !s.phish { s.phish_step = Step::Confirm; }),
         "eml" => save_eml(u, st),
         "zip" => download_all(u, st),
         "open-eml" => {
@@ -1352,13 +1426,21 @@ mod tests {
 
     #[test]
     fn dkim_gate() {
-        let pass = vec![json!({"name": "Authentication-Results", "value": " mx.x.org; dkim=pass header.d=news.example; spf=pass"}),
-            json!({"name": "Authentication-Results", "value": " evil; dkim=fail"})];
+        use crate::auth::{assess_list, Origin};
+        let recv = "from mx.news.example by mx.mine.test (Stalwart) with ESMTPS id 1; Tue, 24 Nov 2026 10:00:00 +0000";
+        let h = |ar: &str| vec![("received".to_string(), recv.to_string()), ("authentication-results".to_string(), ar.to_string())];
+        let org = Origin { server_host: "mail.mine.test", imported: false, own_mail: false };
+        let pass = assess_list(&h(" mx.mine.test; dkim=pass header.d=news.example; spf=pass"), &org);
         assert!(dkim_pass(&pass, "list@news.example"));
         assert!(!dkim_pass(&pass, "ceo@bank.example"), "a pass for another domain does not vouch for From");
-        let fail = vec![json!({"name": "Authentication-Results", "value": " mx.x.org; dkim=fail header.d=news.example; spf=pass"})];
+        let fail = assess_list(&h(" mx.mine.test; dkim=fail header.d=news.example; spf=pass"), &org);
         assert!(!dkim_pass(&fail, "list@news.example"));
-        assert!(!dkim_pass(&[], "list@news.example"));
+        assert!(!dkim_pass(&crate::auth::Trust::default(), "list@news.example"));
+        // a results header the sender wrote (not the server's) never opens the one-click gate
+        let forged = assess_list(&h(" mx.elsewhere.example; dkim=pass header.d=news.example"), &org);
+        assert!(!dkim_pass(&forged, "list@news.example"));
+        let sub = vec![("received".to_string(), recv.replace("ESMTPS", "ESMTPSA")), ("authentication-results".to_string(), " mx.mine.test; dkim=pass header.d=news.example".to_string())];
+        assert!(!dkim_pass(&assess_list(&sub, &org), "list@news.example"), "submitted mail");
         assert!(one_click_post("http://insecure.example/u").is_err());
     }
 

@@ -262,7 +262,7 @@ fn store(key: &str, bytes: &[u8]) {
     let _ = std::fs::write(p, bytes);
 }
 
-fn http() -> Option<reqwest::blocking::Client> {
+pub(crate) fn http() -> Option<reqwest::blocking::Client> {
     reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(6))
         // the icon services answer directly; a redirect would go somewhere nobody approved
@@ -333,19 +333,21 @@ pub fn raster(bytes: &[u8]) -> Option<SharedPixelBuffer<Rgba8Pixel>> {
     Some(SharedPixelBuffer::clone_from_slice(t.as_raw(), t.width(), t.height()))
 }
 
-/// The logo URL of a BIMI record ("v=BIMI1; l=https://…/logo.svg; a=…"); https only.
+/// The logo URL of a BIMI record ("v=BIMI1; l=https://…/logo.svg; a=…"); https only. The record
+/// is read by `bimi::pick_record`, the one parse the sender logo and the verified badge share.
 pub fn bimi_logo_url(record: &str) -> Option<String> {
-    let mut parts = record.split(';').map(str::trim);
-    if !parts.next()?.eq_ignore_ascii_case("v=BIMI1") { return None; }
-    record.split(';').map(str::trim).find_map(|p| p.strip_prefix("l=").map(|u| u.trim().to_string()))
-        .filter(|u| u.starts_with("https://") && safe_https_host(u))
+    crate::bimi::pick_record(&[record.to_string()]).and_then(|r| r.logo_url).filter(|u| safe_https_host(u))
 }
 
 /// A logo URL named by a sender's DNS may only reach a public host by name: no IP literals,
 /// no local or internal names, no other port, no credentials (no probing of the local network).
-pub fn safe_https_host(u: &str) -> bool {
+pub fn safe_https_host(u: &str) -> bool { safe_public_host(u, false) }
+
+/// `safe_https_host`, and with `allow_http` plain http too (a certificate's CRL address is http).
+pub fn safe_public_host(u: &str, allow_http: bool) -> bool {
     let Ok(url) = reqwest::Url::parse(u) else { return false };
-    if url.scheme() != "https" || url.port().is_some() || !url.username().is_empty() || url.password().is_some() { return false; }
+    let scheme_ok = url.scheme() == "https" || (allow_http && url.scheme() == "http");
+    if !scheme_ok || url.port().is_some() || !url.username().is_empty() || url.password().is_some() { return false; }
     // an IP literal (v6 in brackets, or all-numeric v4) is never a brand's logo host
     let Some(d) = url.host_str() else { return false };
     !d.starts_with('[') && d.parse::<std::net::IpAddr>().is_err() && valid_domain(d) && !d.split('.').all(|l| l.chars().all(|c| c.is_ascii_digit()))
@@ -353,7 +355,7 @@ pub fn safe_https_host(u: &str) -> bool {
 
 /// TXT records of a name, through the system resolver.
 #[cfg(windows)]
-fn txt_records(name: &str) -> Vec<String> {
+pub(crate) fn txt_records(name: &str) -> Vec<String> {
     use windows::Win32::NetworkManagement::Dns::*;
     let wide: Vec<u16> = name.encode_utf16().chain(std::iter::once(0)).collect();
     let mut head: *mut DNS_RECORDA = std::ptr::null_mut();
@@ -379,48 +381,10 @@ fn txt_records(name: &str) -> Vec<String> {
 }
 
 #[cfg(not(windows))]
-fn txt_records(_name: &str) -> Vec<String> { vec![] }
-
-/// The From domain of a message that passed DMARC for it, from its Authentication-Results
-/// (Bulwark brandIndicatorDomain): only then may a BIMI logo stand for the sender.
-/// Only an Authentication-Results written by the account's own server counts (RFC 8601 §5):
-/// its authserv-id must be the JMAP host or share its registered domain.
-pub fn brand_domain(m: &serde_json::Value, server_host: &str) -> Option<String> {
-    let from = m["from"][0]["email"].as_str()?;
-    let domain = domain_of(from);
-    if domain.is_empty() { return None; }
-    let headers = m["headers"].as_array()?;
-    // the topmost Authentication-Results is the receiving server's own
-    let ar = headers.iter().find(|h| h["name"].as_str().is_some_and(|n| n.eq_ignore_ascii_case("Authentication-Results")))?["value"].as_str()?;
-    if !trusted_authserv(ar, server_host) { return None; }
-    dmarc_pass_domain(ar).filter(|d| *d == domain)
-}
-
-/// Whether the authserv-id (the first token) of an Authentication-Results is the server's.
-pub fn trusted_authserv(ar: &str, server_host: &str) -> bool {
-    let id = ar.split(';').next().unwrap_or("").split_whitespace().next().unwrap_or("").trim_end_matches('.').to_lowercase();
-    let host = server_host.trim().trim_end_matches('.').to_lowercase();
-    if id.is_empty() || host.is_empty() { return false; }
-    id == host || (id.contains('.') && host.contains('.') && root_domain(&id) == root_domain(&host))
-}
+pub(crate) fn txt_records(_name: &str) -> Vec<String> { vec![] }
 
 /// The host of the account's JMAP URL.
 pub fn host_of(base: &str) -> String { reqwest::Url::parse(base).ok().and_then(|u| u.host_str().map(str::to_string)).unwrap_or_default() }
-
-/// The header.from domain of a dmarc=pass result in one Authentication-Results header.
-pub fn dmarc_pass_domain(ar: &str) -> Option<String> {
-    // drop comments, then look at each ;-separated result
-    let mut clean = String::new();
-    let mut depth = 0;
-    for c in ar.chars() {
-        match c { '(' => depth += 1, ')' if depth > 0 => depth -= 1, _ if depth == 0 => clean.push(c), _ => {} }
-    }
-    clean.split(';').map(str::trim).find_map(|part| {
-        let lower = part.to_lowercase();
-        if !lower.starts_with("dmarc=pass") { return None; }
-        lower.split_whitespace().find_map(|t| t.strip_prefix("header.from=").map(|d| d.trim_matches(|c| c == '"' || c == ';').to_string()))
-    })
-}
 
 #[cfg(test)]
 mod tests {
@@ -470,17 +434,6 @@ mod tests {
         assert_eq!(bimi_logo_url("v=BIMI1; l=https://x.com/l.svg; a=https://x.com/c.pem").as_deref(), Some("https://x.com/l.svg"));
         assert_eq!(bimi_logo_url("v=BIMI1; l=http://x.com/l.svg"), None);
         assert_eq!(bimi_logo_url("v=spf1 include:x"), None);
-        assert_eq!(dmarc_pass_domain("mx.a; spf=pass smtp.mailfrom=b.com; dmarc=pass (p=reject) header.from=B.com").as_deref(), Some("b.com"));
-        assert_eq!(dmarc_pass_domain("mx.a; dmarc=fail header.from=b.com"), None);
-        let m = json!({"from": [{"email": "n@b.com"}], "headers": [{"name": "Authentication-Results", "value": "mx.mine.org; dmarc=pass header.from=b.com"}]});
-        assert_eq!(brand_domain(&m, "mail.mine.org").as_deref(), Some("b.com"));
-        let spoof = json!({"from": [{"email": "n@b.com"}], "headers": [{"name": "Authentication-Results", "value": "mx.mine.org; dmarc=pass header.from=evil.com"}]});
-        assert_eq!(brand_domain(&spoof, "mail.mine.org"), None);
-        // a forged header with someone else's authserv-id earns no logo
-        let forged = json!({"from": [{"email": "n@bank.com"}], "headers": [{"name": "Authentication-Results", "value": "mx.bank.com; dmarc=pass header.from=bank.com"}]});
-        assert_eq!(brand_domain(&forged, "mail.mine.org"), None);
-        assert!(trusted_authserv("mail.mine.org; spf=pass", "mail.mine.org"));
-        assert!(!trusted_authserv("; dmarc=pass", "mail.mine.org"));
         assert_eq!(host_of("https://mail.mine.org:443/jmap"), "mail.mine.org");
         // logo URLs only to public names
         for bad in ["https://10.0.0.5/l.svg", "https://localhost/l.svg", "https://[::1]/l.svg", "https://x.local/l.svg", "https://a.com:8443/l.svg", "https://u:p@a.com/l.svg", "https://127.0.0.1/x"] {
