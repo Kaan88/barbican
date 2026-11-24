@@ -559,11 +559,21 @@ impl Client {
     /// Give a folder a standard role (None removes its role), taking the role off the folder that
     /// held it first: one request per update, in order (Bulwark setMailboxRole).
     pub fn set_mailbox_role(&self, list: &[Value], id: &str, role: Option<&str>) -> R<()> {
-        let patches = crate::folders::role_patches(list, id, role);
-        let result = patches.into_iter().try_for_each(|p| {
-            let (_, bad) = self.update("Mailbox/set", &self.account, vec![p])?;
-            if bad.is_empty() { Ok(()) } else { Err(bad.join("; ")) }
-        });
+        let mut cleared: Vec<String> = vec![];
+        let mut result = Ok(());
+        for p in crate::folders::role_patches(list, id, role) {
+            let is_clear = p.0 != id;
+            let name = p.0.clone();
+            let r = self.update("Mailbox/set", &self.account, vec![p]).and_then(|(_, bad)| if bad.is_empty() { Ok(()) } else { Err(bad.join("; ")) });
+            match r {
+                Ok(()) => if is_clear { cleared.push(name) },
+                Err(e) => { result = Err(e); break }
+            }
+        }
+        if result.is_err() {
+            // the new holder could not be set: the old one gets its role back
+            for h in cleared { let _ = self.update("Mailbox/set", &self.account, vec![(h, json!({"role": role}))]); }
+        }
         self.roles.lock().unwrap().take();
         result
     }

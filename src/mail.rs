@@ -42,6 +42,8 @@ struct BoxState {
     collapsed: HashSet<String>,
     /// JMAP account id of `list` (the key of its notification mutes).
     account: String,
+    /// The pin scope of `list` (Client::state_key: server, login and account).
+    scope: String,
     /// (Client::state_key, Mailbox state) of `list`, for Mailbox/changes.
     state: Option<(String, String)>,
 }
@@ -103,10 +105,6 @@ fn role_color(role: &str) -> Color {
     }))
 }
 
-fn role_rank(role: &str) -> i64 {
-    match role { "inbox" => 0, "drafts" => 1, "sent" => 2, "archive" => 3, "junk" => 4, "trash" => 5, _ => 10 }
-}
-
 fn count_text(role: &str, unread: i64, total: i64) -> String {
     if unread > 0 && total > unread && role != "inbox" && role != "" { format!("{unread} / {total}") }
     else if unread > 0 { unread.to_string() }
@@ -127,15 +125,16 @@ pub fn rebuild_folders(u: &AppWindow) {
     BOXES.with(|b| {
         let b = b.borrow();
         let account = b.account.as_str();
+        let scope = b.scope.as_str();
         let mut children: HashMap<String, Vec<&Value>> = HashMap::new();
         for m in &b.list {
             children.entry(m["parentId"].as_str().unwrap_or("").to_string()).or_default().push(m);
         }
-        let is_pinned = |m: &Value| pins.contains(&crate::folders::pin_key(account, m["id"].as_str().unwrap_or("")));
+        let is_pinned = |m: &Value| pins.contains(&crate::folders::pin_key(scope, m["id"].as_str().unwrap_or("")));
         for v in children.values_mut() {
             v.sort_by_key(|m| crate::folders::sibling_key(m, is_pinned(m)));
         }
-        struct Look<'a> { modes: &'a HashMap<String, crate::folders::CountMode>, icons: &'a HashMap<String, String>, pins: &'a [String], mutes: &'a crate::folders::Mutes, account: &'a str }
+        struct Look<'a> { modes: &'a HashMap<String, crate::folders::CountMode>, icons: &'a HashMap<String, String>, pins: &'a [String], mutes: &'a crate::folders::Mutes, account: &'a str, scope: &'a str }
         fn walk(p: &str, d: i32, ch: &HashMap<String, Vec<&Value>>, col: &HashSet<String>, out: &mut Vec<Folder>, colorful: bool, totals: bool, look: &Look) {
             let Some(kids) = ch.get(p) else { return };
             for m in kids {
@@ -163,7 +162,7 @@ pub fn rebuild_folders(u: &AppWindow) {
                     }).into(),
                     chevron: if has_kids { if collapsed { 2 } else { 1 } } else { 0 },
                     muted: m["isSubscribed"].as_bool() == Some(false),
-                    pinned: look.pins.contains(&crate::folders::pin_key(look.account, id)),
+                    pinned: look.pins.contains(&crate::folders::pin_key(look.scope, id)),
                     quiet: look.mutes.muted(look.account, id),
                 });
                 if !collapsed { walk(id, d + 1, ch, col, out, colorful, totals, look); }
@@ -186,7 +185,7 @@ pub fn rebuild_folders(u: &AppWindow) {
                 count: if unread > 0 { unread.to_string().into() } else { "".into() }, chevron: 0, muted: false, pinned: false, quiet: false,
             });
         }
-        let look = Look { modes: &modes, icons: &icons, pins: &pins, mutes: &mutes, account };
+        let look = Look { modes: &modes, icons: &icons, pins: &pins, mutes: &mutes, account, scope };
         walk("", 0, &children, &b.collapsed, &mut out, colorful, totals, &look);
         // Settings > Accessibility > Unread counts: a number, a dot, or nothing
         if style != "count" {
@@ -194,9 +193,7 @@ pub fn rebuild_folders(u: &AppWindow) {
                 // a folder set to "No counter" shows no dot either
                 if f.unread > 0 && modes.get(f.id.as_str()) != Some(&crate::folders::CountMode::None) {
                     // "unread counts hidden" still shows the total of a folder set to "all" (sidebar.tsx:305-309)
-                    f.count = if style == "dot" { "\u{25CF}".into() }
-                        else if modes.get(f.id.as_str()) == Some(&crate::folders::CountMode::All) && f.total > 0 { f.total.to_string().into() }
-                        else { "".into() };
+                    f.count = if style == "dot" { "\u{25CF}".into() } else { crate::folders::hidden_count(&f.count, f.total as i64).into() };
                 }
             }
         }
@@ -265,13 +262,24 @@ pub fn mailbox_info(id: &str) -> (String, String) {
 
 /// The active account's folders as Mailbox/get returned them.
 pub fn mailboxes() -> Vec<Value> { BOXES.with(|b| b.borrow().list.clone()) }
-/// The active account's pinned folder ids (pins are stored per account).
+/// The active account's pinned folder ids (pins are stored per server and account).
 pub fn pinned_ids() -> HashSet<String> {
-    let account = account_id();
     let prefs = crate::settings::Settings::load();
     let pins = crate::folders::decode_pinned(prefs.prefs.get(crate::folders::KEY_PINNED));
-    BOXES.with(|b| b.borrow().list.iter().filter_map(|m| m["id"].as_str())
-        .filter(|id| pins.contains(&crate::folders::pin_key(&account, id))).map(String::from).collect())
+    BOXES.with(|b| { let b = b.borrow(); b.list.iter().filter_map(|m| m["id"].as_str())
+        .filter(|id| pins.contains(&crate::folders::pin_key(&b.scope, id))).map(String::from).collect() })
+}
+/// The pin key of one of the active account's folders.
+pub fn pin_key_of(id: &str) -> String { BOXES.with(|b| crate::folders::pin_key(&b.borrow().scope, id)) }
+/// Whether a folder is pinned / its notifications muted, from the saved settings (not the sidebar
+/// rows, which lack a folder under a collapsed parent).
+pub fn is_pinned(id: &str) -> bool {
+    let prefs = crate::settings::Settings::load();
+    crate::folders::decode_pinned(prefs.prefs.get(crate::folders::KEY_PINNED)).contains(&pin_key_of(id))
+}
+pub fn is_muted(id: &str) -> bool {
+    let prefs = crate::settings::Settings::load();
+    crate::folders::Mutes::decode(prefs.prefs.get(crate::folders::KEY_MUTES)).muted(&account_id(), id)
 }
 
 /// The JMAP account id of the folders loaded (the key of their notification mutes).
@@ -339,7 +347,7 @@ pub fn load_mailboxes(w: slint::Weak<AppWindow>, c: Arc<Client>, select_inbox: b
             if stale { return; }
             // a change that finished after an account switch must not install the old login's list
             if !crate::unified::is_active(&c) && !crate::unified::active_user().is_empty() { return; }
-            BOXES.with(|b| { let mut b = b.borrow_mut(); b.list = list; b.account = c.account.clone(); b.state = state.map(|s| (c.state_key(), s)); });
+            BOXES.with(|b| { let mut b = b.borrow_mut(); b.list = list; b.account = c.account.clone(); b.scope = c.state_key(); b.state = state.map(|s| (c.state_key(), s)); });
             // the copy and move pickers hold this login's folders from before
             crate::ctxmenu::folders_changed(&crate::unified::login_of(&c));
             rebuild_folders(&u);

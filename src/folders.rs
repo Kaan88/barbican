@@ -103,9 +103,19 @@ pub fn encode_icon(v: Option<&Value>, id: &str, icon: Option<&str>) -> Value {
 
 // ---------------- pins ----------------
 
-/// The key of a pin: "accountId/mailboxId" like notificationMutes. Mailbox ids repeat across
-/// accounts (Stalwart numbers them from the same small ids), so a bare id would pin in all.
-pub fn pin_key(account: &str, mailbox: &str) -> String { mailbox_key(account, mailbox) }
+/// The key of a pin: "scope/mailboxId". Mailbox ids repeat across accounts and servers (Stalwart
+/// numbers them from the same small ids), so the scope is the client's state key (server, login
+/// and account; its line breaks written as "|"). Pins are Barbican's own, so unlike
+/// notificationMutes (Bulwark's "accountId/mailboxId" format, kept for export) they can carry
+/// the server. NOTE: mutes can therefore still collide between two servers that use the same
+/// account id; that is the price of keeping Bulwark's format.
+pub fn pin_key(scope: &str, mailbox: &str) -> String { format!("{}/{mailbox}", scope.replace('\n', "|")) }
+
+/// The count text when unread counts are hidden (Bulwark sidebar.tsx:305-309 zeroes the unread
+/// part only): a text that carried a total ("3 / 10") keeps the total, anything else goes.
+pub fn hidden_count(resolved: &str, total: i64) -> String {
+    if resolved.contains(" / ") && total > 0 { total.to_string() } else { String::new() }
+}
 
 /// The sidebar order of sibling folders, shared with the folder drag and drop: pinned first, then
 /// the system folders, then sortOrder and name.
@@ -117,10 +127,15 @@ pub fn sibling_key(m: &Value, pinned: bool) -> (bool, i64, i64, String) {
 /// Whether the standard role has no mute entry in Bulwark's menu (mailbox-context-menu.tsx:316).
 pub fn mute_hidden(role: &str) -> bool { matches!(role, "trash" | "junk" | "sent" | "drafts") }
 
-/// Roles whose move to another folder asks first: they decide where mail is sent, filed and saved.
+/// Roles that decide where mail is received, sent and saved.
+fn guarded(role: Option<&str>) -> bool { matches!(role, Some("inbox" | "sent" | "drafts")) }
+
+/// Whether giving folder `id` this role (None: no role) asks first: taking inbox, sent or drafts
+/// from the folder that has it, or giving up one of them on the folder itself.
 pub fn role_needs_confirm(list: &[Value], id: &str, role: Option<&str>) -> bool {
-    matches!(role, Some("inbox" | "sent" | "drafts"))
-        && list.iter().any(|m| m["role"].as_str() == role && m["id"].as_str() != Some(id))
+    let own = list.iter().find(|m| m["id"].as_str() == Some(id)).and_then(|m| m["role"].as_str()).filter(|r| !r.is_empty());
+    (guarded(role) && list.iter().any(|m| m["role"].as_str() == role && m["id"].as_str() != Some(id)))
+        || (guarded(own) && own != role)
 }
 
 /// Unread messages in a folder and everything below it.
@@ -303,6 +318,37 @@ mod tests {
         assert_eq!(icon_glyph("tabler:rocket"), None);
         let glyphs: HashSet<_> = ICON_CHOICES.iter().map(|c| c.1).collect();
         assert_eq!(glyphs.len(), ICON_CHOICES.len());
+    }
+
+    #[test]
+    fn pins_are_per_server_and_account() {
+        let a = pin_key("https://one.test\nann@example.test\nacc", "f");
+        let b = pin_key("https://two.test\nann@example.test\nacc", "f");
+        assert_ne!(a, b, "the same account id on another server is not the same pin");
+        assert!(!a.contains('\n'));
+        let v = encode_pin(None, &a, true);
+        assert!(!decode_pinned(Some(&v)).contains(&b));
+    }
+
+    #[test]
+    fn a_folder_cannot_lose_inbox_sent_or_drafts_unasked() {
+        let l = boxes();
+        assert!(role_needs_confirm(&l, "in", None), "No role on the Inbox");
+        assert!(role_needs_confirm(&l, "in", Some("archive")), "another role on the Inbox");
+        assert!(!role_needs_confirm(&l, "in", Some("inbox")), "same role: nothing changes");
+        assert!(!role_needs_confirm(&l, "b", None), "archive may be dropped freely");
+        assert!(!role_needs_confirm(&l, "a", None));
+    }
+
+    #[test]
+    fn hidden_style_keeps_a_total_the_text_had() {
+        assert_eq!(hidden_count("3 / 10", 10), "10");
+        assert_eq!(hidden_count("3", 10), "");
+        assert_eq!(hidden_count("", 10), "");
+        assert_eq!(hidden_count("3 / 10", 0), "");
+        // mode "all" with unread resolves to "unread / total": its total stays
+        assert_eq!(hidden_count(&count_text(CountMode::All, 3, 10), 10), "10");
+        assert_eq!(hidden_count(&count_text(CountMode::Unread, 3, 10), 10), "");
     }
 
     #[test]

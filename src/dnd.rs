@@ -128,10 +128,6 @@ pub fn drop(u: &AppWindow, st: &Shared) {
 
 // ---------------- folder tree (folder-tree-dnd.ts) ----------------
 
-fn role_rank(role: &str) -> i64 {
-    match role { "inbox" => 0, "drafts" => 1, "sent" => 2, "archive" => 3, "junk" => 4, "trash" => 5, _ => 10 }
-}
-
 fn parent(m: &Value) -> String { m["parentId"].as_str().unwrap_or("").to_string() }
 fn id_of(m: &Value) -> String { m["id"].as_str().unwrap_or("").to_string() }
 
