@@ -87,6 +87,12 @@ Plain paragraph first.
     [IO.File]::AppendAllText($setup, 'x')
     Check ((Run-Child @($verify, '-HubTxt', $out, '-Dir', $scratch)) -eq 1) 'verify refuses a changed installer'
 
+    # ---- the installer asks a running Barbican to quit by its event, then falls back to closing the window
+    $iss = [IO.File]::ReadAllText((Join-Path $PSScriptRoot '..\packaging\inno\barbican.iss'))
+    Check ($iss.Contains("OpenExisting(''Local\Barbican.Quit.'' + `$pr.Id).Set()")) 'barbican.iss sets the Local\Barbican.Quit.<pid> event'
+    Check ($iss.Contains('CloseMainWindow()')) 'barbican.iss still falls back to CloseMainWindow'
+    Check (-not ($iss -match '[^\x00-\x7F]')) 'barbican.iss is plain ASCII'
+
     # ---- the installer compiles (only where Inno Setup is installed; CI always has it)
     $iscc = Get-ChildItem "${env:ProgramFiles(x86)}\Inno Setup *\ISCC.exe", "$env:ProgramFiles\Inno Setup *\ISCC.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($iscc) {
