@@ -11,7 +11,7 @@
 //! Barbican keeps no mail, calendar, contact or search index on disk, drafts live on the
 //! server, and plugins keep no data of their own, so the list in
 //! [`targets`] is short. The one thing inside a kept file that goes is the trusted-senders list
-//! in `prefs.json` (`trustedSenders`, [`crate::settings::forget_trusted_senders`]), when the last account signs out. The one list lives there; [`wipe`] runs it.
+//! in `prefs.json` (`trustedSenders`, [`crate::settings::forget_trusted_senders`], called by the sign-out handler before the wipe starts), when the last account signs out. The one list lives there; [`wipe`] runs it.
 //!
 //! Everything that list names belongs to the signing-out profile ([`Roots`]): the config folder
 //! (per profile), the mail view's WebView folder, the folder mail attachments are opened from
@@ -168,14 +168,7 @@ pub fn wipe_with(r: &Roots, who: &Who, remove: &dyn Fn(&Path) -> io::Result<()>,
 
 /// Sign-out: wipe in the background (retries sleep), never blocking or failing the UI.
 pub fn wipe(who: Who) {
-    std::thread::spawn(move || {
-        wipe_with(&Roots::current(), &who, &remove_any, 5, Duration::from_millis(300));
-        // the trusted senders (remote content allow list, prefs.json `trustedSenders`) are account
-        // data: with the last account gone they do not stay for the next person, the other
-        // preferences do. Dropped from the running program's own settings and saved through them,
-        // under the writer's lock: editing the file here would be overwritten by their next save.
-        if who.last { crate::settings::forget_trusted_senders(); }
-    });
+    std::thread::spawn(move || { wipe_with(&Roots::current(), &who, &remove_any, 5, Duration::from_millis(300)); });
 }
 
 /// Drop one account's entries from the reminder state (other accounts keep theirs).

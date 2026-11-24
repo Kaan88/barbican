@@ -188,8 +188,10 @@ fn images_offers(u: &AppWindow) -> trust::Offers {
 /// The policy or the trusted list changed: decide again whether the open message's remote content loads.
 fn redecide_remote(u: &AppWindow) {
     let Some(m) = CUR_MSG.with(|x| x.borrow().as_ref().map(|(m, _)| m.clone())) else { return };
-    let allow = allow_remote(u, &m);
-    let changed = CUR.with(|c| c.borrow_mut().as_mut().is_some_and(|c| { let was = c.allow; c.allow = allow; c.remote && was != allow }));
+    let decided = allow_remote(u, &m);
+    // under Ask a one-off "Load images" grant for this message stays
+    let ask = trust::policy(&settings::Settings::load().prefs, u.get_auto_images()) == trust::ContentPolicy::Ask;
+    let changed = CUR.with(|c| c.borrow_mut().as_mut().is_some_and(|c| { let was = c.allow; c.allow = decided || (ask && was); c.remote && was != c.allow }));
     if changed { render_current(u); }
 }
 
@@ -970,6 +972,8 @@ fn main() -> Result<(), slint::PlatformError> {
         // cookies, cache and storage of the mail view, and the account's files on disk
         mailview::clear_browsing_data();
         // live, now: this process's view, or another Barbican of this profile (same WebView folder)
+        // synchronously: the wipe's thread retries locked files and may not finish before the program quits
+        if last { settings::forget_trusted_senders(); }
         signout::wipe(signout::Who { user: account, owner, last, webview_live: mailview::is_built() || platform::other_of_profile_running() });
         // nobody at this computer finds the last person's password or code in the form
         u.set_login_password("".into());

@@ -234,7 +234,9 @@ pub fn recipient_warning(on: bool, to: &str, cc: &str, bcc: &str, internal: &[St
 pub fn forged(headers: &[Value], from: &str) -> bool {
     let res = crate::auth::topmost(headers);
     let aligned = crate::auth::aligned_pass(&res, from);
-    crate::auth::failure(&res, aligned) || (!res.is_empty() && !aligned)
+    // only spf, dkim and dmarc count as results (email-headers.ts:136): an iprev-only header says nothing
+    let present = res.iter().any(|r| matches!(r.method.as_str(), "spf" | "dkim" | "dmarc"));
+    crate::auth::failure(&res, aligned) || (present && !aligned)
 }
 
 #[cfg(test)]
@@ -352,6 +354,7 @@ mod tests {
         assert!(!forged(&h("mx.test; dmarc=pass header.from=example.test"), from));
         assert!(!forged(&h("mx.test; dkim=pass header.d=mail.example.test"), from), "aligned pass");
         assert!(forged(&h("mx.test; dmarc=fail header.from=example.test"), from), "failed");
+        assert!(!forged(&h("mx.test; iprev=pass policy.iprev=192.0.2.1"), from), "iprev alone is no verdict");
         assert!(forged(&h("mx.test; spf=pass smtp.mailfrom=bounce@other.test; dmarc=none header.from=example.test"), from),
             "results exist but only another domain passed: not tied to the From");
         assert!(forged(&h("mx.test; spf=pass smtp.mailfrom=bounce@other.test"), "CEO <ceo>"), "no usable From domain");
