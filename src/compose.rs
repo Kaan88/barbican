@@ -563,6 +563,15 @@ fn draft_body(m: &Value) -> DraftBody {
     DraftBody { html, inline, attachments }
 }
 
+/// The inline parts of a re-opened draft that are not editor images: those only a quoted original
+/// (reply or forward) refers to. The editor never holds them, so they are kept for the next save
+/// or send (Bulwark email-composer.tsx:1245 keeps every cid part of a re-opened draft, #849).
+fn quoted_inline_of(doc: &Doc, inline: &[(String, Attachment)]) -> Vec<(String, Attachment)> {
+    let is_image = |cid: &str| doc.blocks.iter().any(|b| matches!(&b.kind, Kind::Image(i) if i.cid.as_deref() == Some(cid)));
+    inline.iter().filter(|(cid, _)| !is_image(cid) && doc.blocks.iter().any(|b| matches!(&b.kind,
+        Kind::Quoted { html, .. } if html.contains(&format!("cid:{cid}"))))).cloned().collect()
+}
+
 /// The inline images a message goes out with: those of the editor that have an uploaded blob, then
 /// the kept inline parts of a quoted original. Images still uploading have no blob and are left out.
 fn outgoing_inline(images: Vec<(String, Option<String>, String, String, usize)>, quoted: &[(String, Attachment)]) -> Vec<(String, Attachment)> {
@@ -593,11 +602,14 @@ pub fn open_draft(u: &AppWindow, c: Arc<Client>, m: &Value) {
     u.set_c_subject(m["subject"].as_str().unwrap_or("").into());
     let plan = draft_body(m);
     let blocks = if plan.html.trim().is_empty() { rte::html::import_text(&text_of(m)) } else { rte::html::import_with_quotes(&rte::html::clean_quoted_html(&plan.html)) };
-    rte::set_doc(u, Doc { blocks });
+    let doc = Doc { blocks };
+    // parts only the quoted original refers to are not editor images: keep them for the next save
+    let quoted = quoted_inline_of(&doc, &plan.inline);
+    rte::set_doc(u, doc);
     // inline images stay in the body under their own cid (Bulwark email-composer.tsx:1245 keeps the
     // cid parts of a re-opened draft, cid and all); the bytes are fetched for display
     let atts = plan.attachments;
-    for (cid, a) in plan.inline {
+    for (cid, a) in plan.inline.into_iter().filter(|(c, _)| !quoted.iter().any(|(q, _)| q == c)) {
         rte::set_image_info(&cid, &a.blob_id, &a.mime, &a.name);
         let Some(c2) = CLIENT.with(|x| x.borrow().clone()) else { continue };
         let w = u.as_weak();
@@ -609,6 +621,7 @@ pub fn open_draft(u: &AppWindow, c: Arc<Client>, m: &Value) {
     ST.with(|s| {
         let mut s = s.borrow_mut();
         s.attachments = atts;
+        s.quoted_inline = quoted;
         s.draft_id = m["id"].as_str().map(String::from);
         s.in_reply_to = m["inReplyTo"].as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect()).unwrap_or_default();
         s.references = m["references"].as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect()).unwrap_or_default();
@@ -1271,17 +1284,21 @@ mod tests {
                 {"blobId": "BLOB-PDF", "type": "application/pdf", "name": "doc.pdf", "size": 10, "disposition": "attachment"}]})
     }
 
-    fn reopen(m: &Value) -> (DraftBody, Doc) {
+    /// The pure steps of `open_draft` (it needs a window), in the same order and through the same
+    /// functions; the third item is what `open_draft` keeps as `quoted_inline`.
+    fn reopen(m: &Value) -> (DraftBody, Doc, Vec<(String, Attachment)>) {
         let plan = draft_body(m);
         let doc = Doc { blocks: rte::html::import_with_quotes(&rte::html::clean_quoted_html(&plan.html)) };
+        let quoted = quoted_inline_of(&doc, &plan.inline);
         rte::with(|e| e.load(doc.clone()));
         for (cid, a) in &plan.inline { rte::set_image_info(cid, &a.blob_id, &a.mime, &a.name); }
-        (plan, doc)
+        (plan, doc, quoted)
     }
 
     #[test]
     fn reopened_draft_restores_inline_images_by_cid() {
-        let (plan, _) = reopen(&saved_draft());
+        let (plan, _, quoted) = reopen(&saved_draft());
+        assert!(quoted.is_empty());
         // the cid: references stay in the body, the inline parts are not listed as attachments
         assert!(plan.html.contains("cid:a-1@example.test") && plan.html.contains("cid:b-2@example.test"));
         assert!(!plan.html.contains("data:image"), "the data: copy is not what gets edited");
@@ -1298,7 +1315,8 @@ mod tests {
 
     #[test]
     fn resending_a_reopened_draft_keeps_cid_and_attachment() {
-        let (plan, _) = reopen(&saved_draft());
+        let (plan, _, quoted) = reopen(&saved_draft());
+        assert!(quoted.is_empty());
         let o = Outgoing {
             from: "ann@example.test".into(), to: "bob@example.test".into(), subject: "Pics".into(), text: rte::to_text(),
             html: Some(rte::to_html()), inline: outgoing_inline(rte::inline_images(), &[]), attachments: plan.attachments.clone(),
@@ -1321,13 +1339,38 @@ mod tests {
     }
 
     #[test]
+    fn reopened_reply_draft_keeps_its_quoted_inline_image() {
+        // a saved reply: the quote holds a cid image, the part sits in multipart/related
+        let m = json!({"id": "D2", "htmlBody": [{"partId": "1"}],
+            "bodyValues": {"1": {"value": "<p>Thanks</p><blockquote type=\"cite\"><img src=\"data:image/png;base64,QUFB\"></blockquote>"}},
+            "__cidBodyValues": {"1": "<p>Thanks</p><blockquote type=\"cite\"><img src=\"cid:q@example.test\"></blockquote>"},
+            "attachments": [{"cid": "<q@example.test>", "blobId": "BLOB-Q", "type": "image/png", "name": "q.png", "size": 3, "disposition": "inline"}]});
+        let (plan, _, quoted) = reopen(&m);
+        assert!(plan.attachments.is_empty(), "the quoted image is not an attachment");
+        assert_eq!(quoted.len(), 1);
+        assert_eq!((quoted[0].0.as_str(), quoted[0].1.blob_id.as_str()), ("q@example.test", "BLOB-Q"));
+        // the editor itself holds no image, so the part reaches the message only through quoted_inline
+        assert!(rte::inline_images().is_empty());
+        let inline = outgoing_inline(rte::inline_images(), &quoted);
+        let o = Outgoing {
+            from: "ann@example.test".into(), to: "bob@example.test".into(), subject: "Re: Pics".into(), text: rte::to_text(),
+            html: Some(rte::to_html()), inline, attachments: plan.attachments.clone(), ..Default::default()
+        };
+        assert!(o.html.as_deref().unwrap().contains("cid:q@example.test"));
+        let e = crate::jmap::build_email_object(&o, &json!({"id": "i1", "email": "ann@example.test"}), "MB", true, "ann@example.test").unwrap();
+        let dump = e["bodyStructure"].to_string();
+        assert!(dump.contains("multipart/related") && dump.contains("BLOB-Q") && dump.contains("q@example.test"), "{dump}");
+        assert!(!dump.contains("\"disposition\":\"attachment\""), "{dump}");
+    }
+
+    #[test]
     fn draft_with_raw_cid_body_and_plain_data_image() {
         // a draft opened without the reader's rewrite (a cancelled send): cid: is already in the body
         let m = json!({"htmlBody": [{"partId": "1"}],
             "bodyValues": {"1": {"value": "<img src=\"cid:x@example.test\"><img src=\"data:image/png;base64,QUFB\">"}},
             "attachments": [{"cid": "<x@example.test>", "blobId": "BX", "type": "image/png", "name": "x.png", "size": 1},
                             {"cid": "<unused@example.test>", "blobId": "BU", "type": "image/png", "name": "u.png", "size": 1, "disposition": "inline"}]});
-        let (plan, doc) = reopen(&m);
+        let (plan, doc, _) = reopen(&m);
         assert_eq!(plan.inline.len(), 1);
         assert_eq!(plan.inline[0].0, "x@example.test");
         // a part the body no longer mentions stays an attachment; a pasted data: image is never given a stranger's cid

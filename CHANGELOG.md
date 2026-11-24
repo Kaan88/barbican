@@ -7,7 +7,7 @@ example "## 0.1.0 — 2026-12-01", and start a new "Unreleased" above it.
 
 ## Unreleased
 
-- Re-opening a saved draft that holds inline pictures now ties every picture to its own part by Content-ID, as Bulwark does, instead of by position: before, a draft whose pictures were stored in another order than they appear in the text could show them swapped, and a picture pasted as plain data could be given another picture's identity. Sending the draft again keeps each picture's cid and attachment, and real attachments stay attachments.
+- Re-opening a saved draft that holds inline pictures now ties every picture to its own part by Content-ID, as Bulwark does, instead of by position: before, a draft whose pictures were stored in another order than they appear in the text could show them swapped, and a picture pasted as plain data could be given another picture's identity. Sending the draft again keeps each picture's cid and attachment, and real attachments stay attachments. A reply or forward draft keeps the pictures of its quoted original when it is saved or sent again, instead of dropping them and leaving broken images.
 
 ## 0.1.1 — 2026-11-24
 
