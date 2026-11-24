@@ -449,10 +449,27 @@ impl Settings {
                     let policy = crate::trust::policy(&self.prefs, cfg.remote_images);
                     out.insert(1, select(crate::trust::POLICY_KEY, "Remote content", "Ask: blocked until you load a message's images or trust its sender. Always block: only trusted senders load. Always load: never blocked.",
                         &crate::trust::ContentPolicy::ALL.map(|p| p.label()), crate::trust::ContentPolicy::ALL.iter().position(|p| *p == policy).unwrap_or(0) as i32));
-                    out.insert(2, text("textarea", crate::trust::TRUSTED_KEY, "Trusted senders", "Images from these addresses always load. One address per line; \"Trust sender\" in a message adds it here, and removing a line stops trusting it.", &crate::trust::list_text(&crate::trust::trusted_list(&self.prefs))));
-                    out.insert(3, row("section", "", "Outside your organisation", "Your own domains are those of your identities."));
-                    out.insert(4, toggle(crate::trust::SENDER_LABEL_KEY, "Label external senders", "Shows \"External\" next to a sender outside your own domains when you read a message.", self.bool(crate::trust::SENDER_LABEL_KEY, true)));
-                    out.insert(5, toggle(crate::trust::RECIPIENT_CONFIRM_KEY, "Confirm before sending outside", "Asks before sending to a recipient outside your own domains, and lists them.", self.bool(crate::trust::RECIPIENT_CONFIRM_KEY, false)));
+                    // Bulwark trustedSendersAddressBook (default on): the list lives in the server's
+                    // "Trusted Senders" address book; off keeps it on this computer only
+                    let in_book = crate::trustbook::in_book(&self.prefs);
+                    let mut trust_rows: Vec<SRow> = vec![];
+                    if in_book {
+                        trust_rows.push(text("textarea", crate::trustbook::TEXT_KEY, "Trusted senders", "Images from these addresses always load. One address per line, from your \"Trusted Senders\" address book and this computer. Change the lines, then choose Save changes: a new line trusts that address, a removed line stops trusting it.", &crate::trust::list_text(&crate::trustbook::view_list(&self.prefs))));
+                        trust_rows.push(text("button", crate::trustbook::SAVE_KEY, "Save changes to trusted senders", "", "Save changes"));
+                    } else {
+                        trust_rows.push(text("textarea", crate::trust::TRUSTED_KEY, "Trusted senders", "Images from these addresses always load. One address per line; \"Trust sender\" in a message adds it here, and removing a line stops trusting it.", &crate::trust::list_text(&crate::trust::trusted_list(&self.prefs))));
+                    }
+                    let book_desc = if crate::trustbook::unavailable() && crate::trustbook::setting_on(&self.prefs) {
+                        "Not available: this account can't keep address books on the server. The list stays on this computer."
+                    } else {
+                        "Store trusted senders in a dedicated \"Trusted Senders\" address book so they sync across all your devices"
+                    };
+                    trust_rows.push(toggle(crate::trustbook::SETTING_KEY, "Sync with address book", book_desc, crate::trustbook::setting_on(&self.prefs)));
+                    let mut at = 2;
+                    for r in trust_rows { out.insert(at, r); at += 1; }
+                    out.insert(at, row("section", "", "Outside your organisation", "Your own domains are those of your identities."));
+                    out.insert(at + 1, toggle(crate::trust::SENDER_LABEL_KEY, "Label external senders", "Shows \"External\" next to a sender outside your own domains when you read a message.", self.bool(crate::trust::SENDER_LABEL_KEY, true)));
+                    out.insert(at + 2, toggle(crate::trust::RECIPIENT_CONFIRM_KEY, "Confirm before sending outside", "Asks before sending to a recipient outside your own domains, and lists them.", self.bool(crate::trust::RECIPIENT_CONFIRM_KEY, false)));
                     out.push(row("section", "", "Read receipts", ""));
                     out.push(sel_pref("readReceiptResponse", "Respond to read-receipt requests", "What to do when an incoming message asks for a read receipt."));
                 }
@@ -611,6 +628,18 @@ impl Settings {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_trusted_list_changes_through_the_helper_only_when_it_differs() {
+        let mut p = serde_json::Map::new();
+        assert!(!apply_trusted(&mut p, |_| {}));
+        assert!(p.is_empty());
+        assert!(apply_trusted(&mut p, |l| { l.push("Ann@Example.Test".into()); l.push("ann@example.test".into()); }));
+        assert_eq!(p["trustedSenders"], json!(["ann@example.test"]));
+        assert!(!apply_trusted(&mut p, |l| l.push("ann@example.test".into())));
+        assert!(apply_trusted(&mut p, |l| l.clear()));
+        assert_eq!(p["trustedSenders"], json!([]));
+    }
+
     use super::*;
 
     // One test so the APPDATA override can't race other tests touching config_dir().
@@ -730,6 +759,35 @@ pub fn forget_trusted_senders() {
             if drop_trusted(&mut s.prefs) { s.save(); }
         }
     }
+}
+
+/// Change the device's trusted list from another thread: the live settings under their lock (the
+/// writer's lock and sequence), or a fresh load when not started. `f` sees the list as it is now,
+/// so a change never overwrites an edit made meanwhile.
+pub fn trusted_local_update(f: impl FnOnce(&mut Vec<String>)) {
+    let live = LIVE.lock().ok().and_then(|l| l.clone());
+    match live {
+        Some(s) => {
+            let mut s = s.lock().unwrap_or_else(|e| e.into_inner());
+            if apply_trusted(&mut s.prefs, f) { s.save(); }
+        }
+        None => {
+            let mut s = Settings::load();
+            if apply_trusted(&mut s.prefs, f) { s.save(); }
+        }
+    }
+}
+
+/// Run `f` on the trusted list in `prefs`; whether the list changed (and was stored).
+fn apply_trusted(prefs: &mut Map<String, Value>, f: impl FnOnce(&mut Vec<String>)) -> bool {
+    let before = crate::trust::trusted_list(prefs);
+    let mut list = before.clone();
+    f(&mut list);
+    let mut seen: Vec<String> = vec![];
+    for a in list { let k = crate::trust::sender_key(&a); if !k.is_empty() && !seen.contains(&k) { seen.push(k); } }
+    if seen == before { return false; }
+    prefs.insert(crate::trust::TRUSTED_KEY.into(), crate::trust::trusted_json(&seen));
+    true
 }
 
 /// Write one Bulwark-keyed pref (a value with no settings row, such as sharedCalendarColors).

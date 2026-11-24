@@ -79,6 +79,7 @@ mod palette;
 mod search_history;
 mod signout;
 mod trust;
+mod trustbook;
 mod search_ui;
 mod dnd;
 // distribution: platform layer, tray, notifications, updater
@@ -178,7 +179,7 @@ pub fn message_external(m: &Value) -> bool {
 pub fn allow_remote(u: &AppWindow, m: &Value) -> bool {
     let prefs = settings::Settings::load().prefs;
     let from = m["from"][0]["email"].as_str().unwrap_or("");
-    trust::loads_on_open(trust::policy(&prefs, u.get_auto_images()), trust::is_trusted(&trust::trusted_list(&prefs), from))
+    trust::loads_on_open(trust::policy(&prefs, u.get_auto_images()), trustbook::is_trusted(&prefs, from))
 }
 
 /// What the "remote images blocked" banner offers for the open message.
@@ -189,7 +190,7 @@ fn images_offers(u: &AppWindow) -> trust::Offers {
         let forged = trust::forged(&reader::open_trust(m), &from);
         (from, forged)
     }).unwrap_or_default());
-    trust::offers(trust::policy(&prefs, u.get_auto_images()), &from, trust::is_trusted(&trust::trusted_list(&prefs), &from), forged)
+    trust::offers(trust::policy(&prefs, u.get_auto_images()), &from, trustbook::is_trusted(&prefs, &from), forged)
 }
 
 /// The policy or the trusted list changed: decide again whether the open message's remote content loads.
@@ -633,6 +634,7 @@ const PUSH_TYPES: [&str; 5] = ["Email", "Mailbox", "Thread", "EmailDelivery", "E
 fn push_types(c: &jmap::Client) -> Vec<&'static str> {
     let mut v = PUSH_TYPES.to_vec();
     if c.has(calendar::CAL) { v.extend(["CalendarEvent", "Calendar"]); }
+    if c.has("urn:ietf:params:jmap:contacts") { v.extend(["ContactCard", "AddressBook"]); }
     v
 }
 
@@ -695,6 +697,7 @@ fn schedule_refresh(w: slint::Weak<AppWindow>, c: Arc<jmap::Client>, types: std:
         if has("Email") || has("Thread") || (scheduled && has("EmailSubmission")) { mail::sync(w.clone(), c.clone()); }
         if has("Email") || has("Thread") { if let Some(u) = w.upgrade() { refresh_open_thread(&u); } }
         if has("Email") || has("EmailDelivery") { check_new_mail(c.clone(), Some(w.clone())); }
+        if has("ContactCard") || has("AddressBook") { trustbook::refresh(w.clone(), c.clone(), false); }
         if has("CalendarEvent") || has("Calendar") {
             reminders::changed(w.clone(), c.clone());
             if w.upgrade().is_some_and(|u| u.get_app() == 1) { calendar::load(w.clone(), c.clone()); }
@@ -989,6 +992,8 @@ fn main() -> Result<(), slint::PlatformError> {
         // live, now: this process's view, or another Barbican of this profile (same WebView folder)
         // synchronously: the wipe's thread retries locked files and may not finish before the program quits
         if last { settings::forget_trusted_senders(); }
+        // what was read from the account's address book; the book itself stays on the server
+        trustbook::clear();
         signout::wipe(signout::Who { user: account, owner, last, webview_live: mailview::is_built() || platform::other_of_profile_running() });
         // nobody at this computer finds the last person's password or code in the form
         u.set_login_password("".into());
@@ -1222,7 +1227,7 @@ fn main() -> Result<(), slint::PlatformError> {
         })
     };
 
-    let (pf, cf, rs, srv, sw, wt) = (prefs.clone(), cfg.clone(), refresh_settings.clone(), server_cache.clone(), server_write.clone(), ui.as_weak());
+    let (pf, cf, rs, srv, sw, wt, stg) = (prefs.clone(), cfg.clone(), refresh_settings.clone(), server_cache.clone(), server_write.clone(), ui.as_weak(), state.clone());
     ui.on_settings_set_toggle(move |key, on| {
         if key.starts_with("server.") {
             if let Some(job) = server_settings::edit(&key, &serde_json::json!(on), &srv) { sw(job, 10); }
@@ -1233,6 +1238,8 @@ fn main() -> Result<(), slint::PlatformError> {
         let on = if p.is_inverted(&key) { !on } else { on };
         p.set(&key, serde_json::json!(on), &mut cf.lock().unwrap());
         drop(p);
+        // after the lock is released: it files or copies the trusted list through the same settings
+        if key == trustbook::SETTING_KEY { trustbook::toggled(on, wt.clone(), stg.lock().unwrap().clone()); }
         rs();
         if key == "enableUnifiedMailbox" && on { unified::warm_up(Some(wt.clone())); }
         if let Some(u) = wt.upgrade() {
@@ -1286,6 +1293,8 @@ fn main() -> Result<(), slint::PlatformError> {
             if let Some(job) = server_settings::edit(&key, &serde_json::json!(t.to_string()), &srv) { sw(job, 900); }
             return;
         }
+        // the book's list is applied by "Save changes", not while typing
+        if key == trustbook::TEXT_KEY { trustbook::set_pending(&t); return; }
         pf.lock().unwrap().set(&key, serde_json::json!(t.to_string()), &mut cf.lock().unwrap());
         if key == trust::TRUSTED_KEY { if let Some(u) = wk.upgrade() { redecide_remote(&u); } }
         if key == "admin.key" { if let Some(u) = wk.upgrade() { u.set_admin_enabled(!t.trim().is_empty()); } }
@@ -1320,6 +1329,7 @@ fn main() -> Result<(), slint::PlatformError> {
             match mailto::unregister() { Ok(m) => mail::show_toast(&u, &m, false), Err(e) => mail::show_toast(&u, &e, false) }
             u.invoke_settings_search(u.get_settings_query());
         }
+        if key == trustbook::SAVE_KEY { trustbook::apply_pending(w.clone(), st.lock().unwrap().clone()); return; }
         if contacts_x::settings_button(&u, st.lock().unwrap().clone(), &key) { return; }
         if key == "filters.new" { u.global::<FilterX>().invoke_new_rule(); return; }
         if key == "a11y.reset" {
@@ -1452,18 +1462,16 @@ fn main() -> Result<(), slint::PlatformError> {
     ui.set_auto_images(cfg.lock().unwrap().remote_images);
 
     let w = ui.as_weak();
-    let (wt, pft) = (ui.as_weak(), prefs.clone());
+    let (wt, stt) = (ui.as_weak(), state.clone());
     ui.on_trust_sender(move || {
         let u = wt.unwrap();
         let from = CUR_MSG.with(|x| x.borrow().as_ref().map(|(m, _)| m["from"][0]["email"].as_str().unwrap_or("").to_string())).unwrap_or_default();
-        {
-            let mut p = pft.lock().unwrap();
-            let mut list = trust::trusted_list(&p.prefs);
-            if trust::add_trusted(&mut list, &from) { p.remember(trust::TRUSTED_KEY, trust::trusted_json(&list)); }
-        }
+        // this message's images load at once; the address is filed in the background (the
+        // Trusted Senders address book, or this computer's list), see trustbook.rs
+        let on = trustbook::setting_on(&settings::Settings::load().prefs);
+        trustbook::trust_sender(wt.clone(), stt.lock().unwrap().clone(), from, on);
         CUR.with(|c| if let Some(c) = c.borrow_mut().as_mut() { c.allow = true; });
         render_current(&u);
-        mail::show_toast(&u, &format!("Images from {} will load from now on.", trust::sender_key(&from)), false);
     });
 
     ui.on_load_images(move || {
@@ -2370,6 +2378,9 @@ fn finish_login(w: slint::Weak<AppWindow>, st: Shared, res: Result<jmap::Client,
                 let c4 = c.clone();
                 let _ = w2.upgrade_in_event_loop(move |u| reminders::start(&u, c4));
             }
+            // the trusted senders address book (reads it; files this computer's list into it)
+            trustbook::clear();
+            trustbook::refresh(w2.clone(), c.clone(), true);
             start_push(w2, c);
         }
         Err(e) => {
