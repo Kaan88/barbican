@@ -121,6 +121,11 @@ pub fn login_of(c: &Client) -> String {
     found.unwrap_or_else(|| c.username.clone())
 }
 
+/// How many signed-in sessions other than `c` this run holds (remembered or not).
+pub fn sessions_besides(c: &Client) -> usize {
+    POOL.lock().unwrap().as_ref().map_or(0, |p| p.values().filter(|x| !std::ptr::eq(x.as_ref(), c)).count())
+}
+
 pub fn is_active(c: &Client) -> bool {
     let a = active_user();
     POOL.lock().unwrap().as_ref().and_then(|p| p.get(&a)).is_some_and(|x| std::ptr::eq(x.as_ref(), c))

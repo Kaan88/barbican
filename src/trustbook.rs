@@ -20,9 +20,10 @@
 //!   off keeps the book's senders trusted on the device.
 //!
 //! Several accounts: the preferences (and so the device's list) belong to the computer, the book to
-//! one account. The device's list is filed into a book only when exactly one account is remembered
-//! (`trustedSendersAddressBook` on). When the setting is turned off, each address copied from a
-//! book is tagged with its account in `trustedSendersFrom`, and a tagged address is only ever filed
+//! one account. The device's list is filed into a book only when the one account remembered here is
+//! the one being read and no other session is signed in (`sole_remembered`). When the setting is
+//! turned off, each address copied from a book is tagged with a hash of its account in
+//! `trustedSendersFrom` (the tag travels in settings exports, so it holds no server or user name), and a tagged address is only ever filed
 //! into that account's book; an address with no tag follows the one-account rule.
 //! Two Barbican processes (or Barbican and Bulwark) that load at the same moment can each create
 //! the book; the next load reads both and uses the lowest id, and nothing is merged or deleted.
@@ -130,11 +131,11 @@ pub fn to_file(book: &[String], local: &[String]) -> Vec<String> {
 }
 
 /// The device's addresses that may be filed into the book of the account `key`: tagged for that
-/// account, or untagged while exactly one account is remembered (`accounts`).
-pub fn eligible_local(local: &[String], tags: &Map<String, Value>, key: &str, accounts: usize) -> Vec<String> {
+/// account (`tag`), or untagged while this account is the only one there is (`single`).
+pub fn eligible_local(local: &[String], tags: &Map<String, Value>, tag: &str, single: bool) -> Vec<String> {
     local.iter().map(|a| sender_key(a)).filter(|a| match tags.get(a).and_then(|v| v.as_str()) {
-        Some(t) => t == key,
-        None => accounts == 1,
+        Some(t) => t == tag,
+        None => single,
     }).collect()
 }
 
@@ -151,6 +152,29 @@ pub fn copy_with_tags(local: &mut Vec<String>, tags: &mut Map<String, Value>, bo
     for e in book {
         if !local.contains(e) { local.push(e.clone()); tags.insert(e.clone(), json!(key)); }
     }
+}
+
+/// What is stored in `trustedSendersFrom` for an account: a hash of its `Client::state_key`.
+pub fn account_tag(state_key: &str) -> String {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(state_key.as_bytes()).iter().take(16).map(|b| format!("{b:02x}")).collect()
+}
+
+fn same_name(a: &str, b: &str) -> bool {
+    let local = |s: &str| s.split('@').next().unwrap_or("").to_lowercase();
+    !a.is_empty() && !b.is_empty() && (a.eq_ignore_ascii_case(b) || local(a) == local(b))
+}
+
+/// Whether the device's untagged list may be filed into this account's book: the one account
+/// remembered on this computer is this one (same server, and a name that matches the typed or the
+/// reported one: `ann` and `ann@example.test` are the same login), and no other session is signed
+/// in. A session that is not remembered counts through `others`.
+pub fn sole_remembered(entries: &[Value], names: &[&str], server: &str, others: usize) -> bool {
+    if others != 0 || entries.len() != 1 { return false; }
+    let e = &entries[0];
+    let s = e["server"].as_str().unwrap_or("");
+    let same_server = s.is_empty() || crate::jmap::normalize_base(s).eq_ignore_ascii_case(&crate::jmap::normalize_base(server));
+    same_server && names.iter().any(|n| same_name(n, e["user"].as_str().unwrap_or("")))
 }
 
 /// Bulwark's v14 migration (settings-store.ts:2645-2649) for a settings file that is not
@@ -289,6 +313,13 @@ struct Cache {
     at: Option<std::time::Instant>,
 }
 
+/// The key of the session this run is in (set at sign-in, emptied at sign-out). Anything that
+/// belongs to another account, such as a timer armed by the one before, is refused.
+static SESSION: Mutex<String> = Mutex::new(String::new());
+
+fn session() -> String { SESSION.lock().unwrap_or_else(|e| e.into_inner()).clone() }
+fn session_is(key: &str) -> bool { !key.is_empty() && session() == key }
+
 static CACHE: Mutex<Cache> = Mutex::new(Cache { key: String::new(), book_ids: Vec::new(), emails: Vec::new(), loaded: false, unavailable: false, at: None });
 /// Bumped by sign-out and account change. The UI thread reads it before it starts a worker and the
 /// worker is handed that value: a worker from before the bump writes nothing (no card, no cache,
@@ -299,7 +330,7 @@ static FLIGHT: Mutex<()> = Mutex::new(());
 /// A load is running; a burst of pushes starts one. A forced refresh asked for meanwhile runs once
 /// more afterwards, with what it was asked with.
 static LOADING: AtomicBool = AtomicBool::new(false);
-type Again = (u64, usize, Arc<Client>);
+type Again = (u64, bool, Arc<Client>);
 static AGAIN: Mutex<Option<Again>> = Mutex::new(None);
 /// (account key, address) that could not be filed this session: not tried (or told about) again
 /// on every push. Forgotten at sign-out and when the user turns the setting off and on.
@@ -315,14 +346,30 @@ fn live(gen: u64) -> bool { GEN.load(Ordering::SeqCst) == gen }
 /// Whether the cache was read for this account.
 fn mine(k: &Cache, c: &Client) -> bool { mine_key(k, &c.state_key()) }
 fn mine_key(k: &Cache, key: &str) -> bool { !k.key.is_empty() && k.key == key }
+/// The client belongs to the session this run is in.
+fn current(c: &Client) -> bool { session_is(&c.state_key()) }
 
 /// Sign-out or account change: forget what was read, what was staged and what failed (the
 /// server's book stays where it is).
 pub fn clear() {
     GEN.fetch_add(1, Ordering::SeqCst);
+    SESSION.lock().unwrap_or_else(|e| e.into_inner()).clear();
     *cache() = Cache::default();
     failed().clear();
     *stage() = Stage::default();
+}
+
+/// A new session begins (sign-in or account switch): forget the last one, then remember this one.
+pub fn begin(c: &Client) { begin_key(&c.state_key()); }
+
+fn begin_key(key: &str) {
+    clear();
+    *SESSION.lock().unwrap_or_else(|e| e.into_inner()) = key.to_string();
+}
+
+/// The cache's addresses, only while it was read for the current session.
+fn session_emails(k: &Cache) -> Vec<String> {
+    if k.key.is_empty() || session_is(&k.key) { k.emails.clone() } else { vec![] }
 }
 
 /// Whether the trusted list lives in the book right now: setting on and the account can keep it.
@@ -334,13 +381,14 @@ pub fn unavailable() -> bool { cache().unavailable }
 /// The list to show: see [`combined`].
 pub fn view_list(prefs: &Map<String, Value>) -> Vec<String> {
     // one lock: a second `cache()` in the same statement would wait for the first
-    let (emails, usable) = { let k = cache(); (k.emails.clone(), !k.unavailable) };
+    let (emails, usable) = { let k = cache(); (session_emails(&k), !k.unavailable) };
     combined(&trusted_list(prefs), &emails, setting_on(prefs) && usable)
 }
 
 /// Reader decision (cache and preferences only, no network).
 pub fn is_trusted(prefs: &Map<String, Value>, address: &str) -> bool {
-    trusted(&trusted_list(prefs), &cache().emails, setting_on(prefs), address)
+    let emails = { let k = cache(); session_emails(&k) };
+    trusted(&trusted_list(prefs), &emails, setting_on(prefs), address)
 }
 
 // ---------------------------------------------------------------- the settings page's edit
@@ -415,6 +463,9 @@ fn resolve(c: &Client, create: bool, gen: u64) -> Result<Option<String>, String>
     Ok(ids.first().cloned())
 }
 
+/// The account has no contacts capability: it cannot keep the book. (A read or write that merely
+/// failed does not come here: what was read for the same account is kept, as Bulwark keeps
+/// `trustedSenderEmails`.)
 fn mark_unavailable(c: &Client, gen: u64) {
     if !live(gen) { return; }
     let mut k = cache();
@@ -422,20 +473,21 @@ fn mark_unavailable(c: &Client, gen: u64) {
 }
 
 /// Read the book; with `file_local`, file the device's list into it (Bulwark's migration, limited
-/// to what [`eligible_local`] allows with `accounts` remembered accounts) and take the filed
+/// to what [`eligible_local`] allows for `single`) and take the filed
 /// addresses off the device's list. A card that fails stays on the device and is not tried again
 /// this session. `gen` is the value read on the UI thread.
 /// JMAP writes: AddressBook/set create (once, only when something is to be filed and no book exists),
 /// ContactCard/set create (one request per `max_set` addresses).
-pub fn load(c: &Client, file_local: bool, gen: u64, accounts: usize) -> Result<(), String> {
+pub fn load(c: &Client, file_local: bool, gen: u64, single: bool) -> Result<(), String> {
     let _f = FLIGHT.lock().unwrap_or_else(|e| e.into_inner());
-    if !live(gen) { return Ok(()); }
+    if !live(gen) || !current(c) { return Ok(()); }
     if !c.has(CONTACTS) { mark_unavailable(c, gen); return Ok(()); }
     let key = c.state_key();
+    let tag = account_tag(&key);
     let eligible = if file_local {
         let prefs = crate::settings::Settings::load().prefs;
         let tags = prefs.get(TAGS_KEY).and_then(|v| v.as_object().cloned()).unwrap_or_default();
-        eligible_local(&trusted_list(&prefs), &tags, &key, accounts)
+        eligible_local(&trusted_list(&prefs), &tags, &tag, single)
     } else { vec![] };
     let tried = |a: &String| failed().iter().any(|(k, x)| *k == key && x == a);
     let fresh: Vec<String> = eligible.iter().filter(|a| !tried(a)).cloned().collect();
@@ -443,7 +495,7 @@ pub fn load(c: &Client, file_local: bool, gen: u64, accounts: usize) -> Result<(
     let book = match resolve(c, need_book, gen) {
         Ok(b) => b,
         Err(e) if e == STALE => return Ok(()),
-        Err(e) => { mark_unavailable(c, gen); return Err(e); }
+        Err(e) => return Err(e),
     };
     if !file_local { return Ok(()); }
     let book_emails = cache().emails.clone();
@@ -489,7 +541,7 @@ pub fn add(c: &Client, entry: &str, gen: u64) -> Result<Added, String> {
     if !is_address(&addr) { return Err("That is not an email address.".into()); }
     let local_add = |addr: &str| if live(gen) { crate::settings::trusted_local_update(|l| { if !l.contains(&addr.to_string()) { l.push(addr.to_string()); } }); };
     let _f = FLIGHT.lock().unwrap_or_else(|e| e.into_inner());
-    if !live(gen) { return Err(STALE.into()); }
+    if !live(gen) || !current(c) { return Err(STALE.into()); }
     let (known, unavailable, have) = {
         let k = cache();
         if mine(&k, c) { (k.book_ids.first().cloned(), k.unavailable, k.emails.contains(&addr)) } else { (None, false, false) }
@@ -501,7 +553,7 @@ pub fn add(c: &Client, entry: &str, gen: u64) -> Result<Added, String> {
         None => match resolve(c, true, gen) {
             Ok(b) => b,
             Err(e) if e == STALE => return Err(e),
-            Err(e) => { mark_unavailable(c, gen); local_add(&addr); return Ok(Added::LocalAfter(e)); }
+            Err(e) => { local_add(&addr); return Ok(Added::LocalAfter(e)); }
         },
     };
     let Some(book) = book else { local_add(&addr); return Ok(Added::Local) };
@@ -526,7 +578,7 @@ pub fn add(c: &Client, entry: &str, gen: u64) -> Result<Added, String> {
 pub fn remove(c: &Client, entry: &str, gen: u64) -> Result<(), String> {
     let addr = sender_key(entry);
     let _f = FLIGHT.lock().unwrap_or_else(|e| e.into_inner());
-    if !live(gen) { return Err(STALE.into()); }
+    if !live(gen) || !current(c) { return Err(STALE.into()); }
     let (books, unavailable) = {
         let k = cache();
         if !mine(&k, c) || !k.loaded { return Err("the address book has not been read yet".into()); }
@@ -558,37 +610,63 @@ fn finished(u: &AppWindow) {
     if u.get_show_settings() { u.invoke_settings_search(u.get_settings_query()); }
 }
 
-/// How many accounts are remembered on this computer (at least this one).
-fn accounts_known() -> usize { crate::oauth::accounts().len().max(1) }
+/// Whether the device's untagged list may be filed into `c`'s book (see [`sole_remembered`]).
+fn single_account(c: &Client) -> bool {
+    let login = crate::unified::login_of(c);
+    sole_remembered(&crate::oauth::accounts(), &[c.username.as_str(), login.as_str()], &c.base, crate::unified::sessions_besides(c))
+}
+
+/// Clears `LOADING` when the worker ends, however it ends.
+struct Running;
+impl Drop for Running { fn drop(&mut self) { LOADING.store(false, Ordering::SeqCst); } }
 
 /// Read the book in the background (sign-in, account switch, push, the settings switch turned on).
-/// Does nothing while the setting is off (no server traffic then), while a load is already running
+/// Does nothing while the setting is off (no server traffic then), for a client that is not the
+/// current session's (a timer armed before a sign-out or switch), while a load is already running
 /// (a forced one then runs once more afterwards) and, unless `force`, when this account's book
 /// was read in the last ten seconds.
 pub fn refresh(w: slint::Weak<AppWindow>, c: Arc<Client>, force: bool) {
-    if !setting_on(&crate::settings::Settings::load().prefs) { return; }
+    if !setting_on(&crate::settings::Settings::load().prefs) || !current(&c) { return; }
     if force { failed().clear(); }
     {
         let k = cache();
         if !force && mine(&k, &c) && k.at.is_some_and(|t| t.elapsed() < std::time::Duration::from_secs(10)) { return; }
     }
-    let ask = (generation(), accounts_known(), c);
+    let ask = (generation(), single_account(&c), c);
     if LOADING.swap(true, Ordering::SeqCst) {
         if force { *AGAIN.lock().unwrap_or_else(|e| e.into_inner()) = Some(ask); }
         return;
     }
     std::thread::spawn(move || {
+        let mut guard = Some(Running);
         let mut ask = Some(ask);
-        while let Some((gen, n, c)) = ask.take() {
-            let res = load(&c, true, gen, n);
-            let w2 = w.clone();
-            let _ = w2.upgrade_in_event_loop(move |u| {
-                if let Err(e) = res { crate::mail::show_toast(&u, &format!("Trusted senders address book: {e}"), false); }
-                finished(&u);
-            });
-            ask = AGAIN.lock().unwrap_or_else(|e| e.into_inner()).take();
+        loop {
+            while let Some((gen, single, c)) = ask.take() {
+                let res = load(&c, true, gen, single);
+                let w2 = w.clone();
+                let _ = w2.upgrade_in_event_loop(move |u| {
+                    if let Err(e) = res { crate::mail::show_toast(&u, &format!("Trusted senders address book: {e}"), false); }
+                    finished(&u);
+                });
+                ask = AGAIN.lock().unwrap_or_else(|e| e.into_inner()).take();
+            }
+            // a forced refresh asked for just as the loop ended is not lost
+            guard = None;
+            let late = AGAIN.lock().unwrap_or_else(|e| e.into_inner()).take();
+            match late {
+                None => break,
+                Some(a) => {
+                    if LOADING.swap(true, Ordering::SeqCst) {
+                        // another refresh took over; it runs this one when it ends
+                        *AGAIN.lock().unwrap_or_else(|e| e.into_inner()) = Some(a);
+                        break;
+                    }
+                    guard = Some(Running);
+                    ask = Some(a);
+                }
+            }
         }
-        LOADING.store(false, Ordering::SeqCst);
+        drop(guard);
     });
 }
 
@@ -695,10 +773,10 @@ pub fn toggled(on: bool, w: slint::Weak<AppWindow>, c: Option<Arc<Client>>) {
     };
     std::thread::spawn(move || {
         let read = { let k = cache(); mine(&k, &c) && k.loaded };
-        let res = if read { Ok(()) } else { load(&c, false, gen, 0) };
+        let res = if read { Ok(()) } else { load(&c, false, gen, false) };
         let copied = live(gen) && {
             let (ok, emails, key) = { let k = cache(); (mine(&k, &c) && k.loaded && !k.unavailable, k.emails.clone(), k.key.clone()) };
-            if ok { crate::settings::trusted_state_update(|l, tags| copy_with_tags(l, tags, &emails, &key)); }
+            if ok { let tag = account_tag(&key); crate::settings::trusted_state_update(|l, tags| copy_with_tags(l, tags, &emails, &tag)); }
             ok
         };
         let msg = match (copied, res) {
@@ -863,12 +941,12 @@ mod tests {
         let local = s(&["a@example.test", "b@example.test", "c@example.test"]);
         let tags = prefs(json!({"b@example.test": "acct-B", "c@example.test": "acct-A"}));
         // one remembered account: untagged and its own tagged ones, never another account's
-        assert_eq!(eligible_local(&local, &tags, "acct-A", 1), s(&["a@example.test", "c@example.test"]));
+        assert_eq!(eligible_local(&local, &tags, "acct-A", true), s(&["a@example.test", "c@example.test"]));
         // several remembered accounts: only what came from this account's book
-        assert_eq!(eligible_local(&local, &tags, "acct-A", 2), s(&["c@example.test"]));
-        assert!(eligible_local(&local, &tags, "acct-Z", 3).is_empty());
-        assert_eq!(eligible_local(&local, &prefs(json!({})), "acct-A", 1), local);
-        assert!(eligible_local(&local, &prefs(json!({})), "acct-A", 2).is_empty());
+        assert_eq!(eligible_local(&local, &tags, "acct-A", false), s(&["c@example.test"]));
+        assert!(eligible_local(&local, &tags, "acct-Z", false).is_empty());
+        assert_eq!(eligible_local(&local, &prefs(json!({})), "acct-A", true), local);
+        assert!(eligible_local(&local, &prefs(json!({})), "acct-A", false).is_empty());
     }
 
     #[test]
@@ -974,6 +1052,54 @@ b@example.test".into());
         failed().push(("acct-A".into(), "x@example.test".into()));
         clear();
         assert!(failed().is_empty());
+    }
+
+    #[test]
+    fn the_untagged_list_is_filed_only_for_the_one_account_there_is() {
+        let a = json!({"user": "ann", "server": "https://mail.example.test/"});
+        let names = ["ann@example.test", "ann@example.test"];
+        // A is the only remembered account and the session is A's
+        assert!(sole_remembered(std::slice::from_ref(&a), &names, "https://mail.example.test", 0));
+        // an extra session that is not remembered (B added without "remember", OAuth without a refresh token)
+        assert!(!sole_remembered(std::slice::from_ref(&a), &names, "https://mail.example.test", 1));
+        // B is the current session, but the one remembered account is A
+        assert!(!sole_remembered(std::slice::from_ref(&a), &["bob@example.test"], "https://mail.example.test", 0));
+        // same name on another server is another account
+        assert!(!sole_remembered(std::slice::from_ref(&a), &names, "https://other.example.test", 0));
+        // two remembered, or none
+        assert!(!sole_remembered(&[a.clone(), json!({"user": "bob", "server": "https://mail.example.test"})], &names, "https://mail.example.test", 0));
+        assert!(!sole_remembered(&[], &names, "https://mail.example.test", 0));
+    }
+
+    #[test]
+    fn the_tag_is_a_hash_that_holds_no_names() {
+        let k = "https://mail.example.test\nann@example.test\nacc1";
+        let t = account_tag(k);
+        assert_eq!(t.len(), 32);
+        assert!(t.chars().all(|c| c.is_ascii_hexdigit()));
+        assert_eq!(t, account_tag(k));
+        assert_ne!(t, account_tag("https://mail.example.test\nbob@example.test\nacc2"));
+    }
+
+    #[test]
+    fn a_leftover_timer_of_the_last_session_is_refused() {
+        let _g = GLOBALS.lock().unwrap_or_else(|e| e.into_inner());
+        clear();
+        assert!(!session_is("acct-A"), "no session after sign-out");
+        begin_key("acct-A");
+        assert!(session_is("acct-A") && !session_is("acct-B"));
+        // A's book lands in the cache, then the user switches to B
+        { let mut k = cache(); k.key = "acct-A".into(); k.emails = s(&["bk@example.test"]); k.loaded = true; }
+        let p = prefs(json!({}));
+        assert!(is_trusted(&p, "bk@example.test"));
+        begin_key("acct-B");
+        assert!(!session_is("acct-A"), "a refresh for A's client is refused: its key is not the session's");
+        // a cache that belongs to another session is ignored even if one got in
+        { let mut k = cache(); k.key = "acct-A".into(); k.emails = s(&["bk@example.test"]); }
+        assert!(!is_trusted(&p, "bk@example.test"));
+        assert!(view_list(&p).is_empty());
+        clear();
+        assert!(!session_is("acct-B"));
     }
 
     #[test]
