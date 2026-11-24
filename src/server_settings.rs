@@ -10,6 +10,13 @@ use std::sync::{Arc, Mutex};
 #[derive(Default)]
 pub struct Cache {
     pub vacation: Option<Value>,
+    /// What the filters script holds for the out-of-office page (audience, forwarding).
+    pub vac_filters: Option<crate::vacation::Filters>,
+    /// The account's own domains (its identities), for "internal" / "external" senders.
+    pub vac_domains: Vec<String>,
+    pub fwd_enabled: bool,
+    pub fwd_to: String,
+    pub fwd_keep: bool,
     pub scripts: Vec<Value>,
     pub script_text: String,
     pub script_status: String,
@@ -116,7 +123,25 @@ pub fn load(tab: &str, c: &Client, cache: &Shared) {
             "vacation" => {
                 let acc = c.account_for("urn:ietf:params:jmap:vacationresponse");
                 let r = c.call(json!([["VacationResponse/get", {"accountId": acc, "ids": ["singleton"]}, "v"]]))?;
-                cache.lock().unwrap().vacation = Some(r[0][1]["list"][0].clone());
+                let vac = r[0][1]["list"][0].clone();
+                let emails: Vec<String> = c.identities().unwrap_or_default().iter().filter_map(|i| i["email"].as_str().map(String::from)).collect();
+                let domains = crate::vacation::own_domains(&emails);
+                let filters = crate::vacation::load_filters(c);
+                {
+                    let mut k = cache.lock().unwrap();
+                    let f = filters.as_ref().and_then(|f| f.forward.as_ref());
+                    k.fwd_enabled = f.is_some_and(|f| f["enabled"] == true);
+                    k.fwd_to = f.and_then(|f| f["to"].as_str()).unwrap_or("").to_string();
+                    k.fwd_keep = f.is_some_and(|f| f["keepCopy"] == true);
+                    k.vac_filters = filters;
+                    k.vac_domains = domains;
+                    k.vacation = Some(vac.clone());
+                }
+                // the reply may have been set in another client: bring the calendar block in line, once per run
+                if first_load(&acc) {
+                    let on = vac["isEnabled"] == true || cache.lock().unwrap().vac_filters.as_ref().is_some_and(|f| f.includes_vacation);
+                    let _ = crate::vacation::sync_block(c, &reply_of(&vac, on), crate::vacation::Trigger::Load, None);
+                }
             }
             "filters" => {
                 let acc = c.account_for("urn:ietf:params:jmap:sieve");
@@ -206,15 +231,7 @@ pub fn rows(tab: &str, cache: &Shared) -> Option<Vec<SRow>> {
     if !k.error.is_empty() { out.push(row("value", "", "Could not load from the server", &k.error, "", false)); }
     let quota = if tab == "account" { quota_rows(&k.quota) } else { vec![] };
     match tab {
-        "vacation" => {
-            out.push(row("section", "", "Out of office", "Sends an automatic reply to people who write to you while you are away.", "", false));
-            let Some(v) = k.vacation.as_ref() else { out.push(row("value", "", "Loading…", "", "", false)); return Some(out) };
-            out.push(row("toggle", "server.vacation.isEnabled", "Automatic reply", "On while the dates below apply (or always, without dates).", "", v["isEnabled"] == true));
-            out.push(row("text", "server.vacation.subject", "Subject", "Leave empty to reuse the original subject.", v["subject"].as_str().unwrap_or(""), false));
-            out.push(row("textarea", "server.vacation.textBody", "Message", "", v["textBody"].as_str().unwrap_or(""), false));
-            out.push(row("text", "server.vacation.fromDate", "First day", "YYYY-MM-DD, empty for no start date.", v["fromDate"].as_str().map(|d| &d[..10.min(d.len())]).unwrap_or(""), false));
-            out.push(row("text", "server.vacation.toDate", "Last day", "YYYY-MM-DD, empty for no end date.", v["toDate"].as_str().map(|d| &d[..10.min(d.len())]).unwrap_or(""), false));
-        }
+        "vacation" => return Some(vacation_rows(&k, out)),
         "filters" => {
             out.push(row("section", "", "Filters", "Rules the server applies to incoming mail, written in Sieve (RFC 5228).", "", false));
             let active = k.scripts.iter().find(|x| x["isActive"] == true).and_then(|x| x["name"].as_str()).unwrap_or("none");
@@ -343,20 +360,7 @@ pub fn rows(tab: &str, cache: &Shared) -> Option<Vec<SRow>> {
 /// Apply an edit locally (instant) and return a server write to run in the background.
 pub fn edit(key: &str, value: &Value, cache: &Shared) -> Option<Box<dyn FnOnce(&Client) -> Result<(), String> + Send>> {
     let mut k = cache.lock().unwrap();
-    if let Some(field) = key.strip_prefix("server.vacation.") {
-        let f = field.to_string();
-        let mut v = value.clone();
-        if (f == "fromDate" || f == "toDate") && v.is_string() {
-            let d = v.as_str().unwrap_or("").trim().to_string();
-            if d.is_empty() { v = Value::Null; } else if d.len() == 10 { v = json!(format!("{d}T00:00:00Z")); } else { return None; }
-        }
-        if let Some(vac) = k.vacation.as_mut() { vac[&f] = v.clone(); }
-        return Some(Box::new(move |c: &Client| {
-            let acc = c.account_for("urn:ietf:params:jmap:vacationresponse");
-            let (_, bad) = c.update("VacationResponse/set", &acc, vec![("singleton".into(), json!({ f: v }))])?;
-            if bad.is_empty() { Ok(()) } else { Err(bad.join("; ")) }
-        }));
-    }
+    if let Some(field) = key.strip_prefix("server.vacation.") { return edit_vacation(field, value, &mut k, cache.clone()); }
     match key {
         "server.nr.name" => { k.nr_name = value.as_str().unwrap_or("").into(); return None; }
         "server.nr.value" => { k.nr_value = value.as_str().unwrap_or("").into(); return None; }
@@ -562,6 +566,170 @@ pub fn button(key: &str, cache: &Shared) -> Option<Box<dyn FnOnce(&Client, &Shar
         }));
     }
     None
+}
+
+type Job = Box<dyn FnOnce(&Client) -> Result<(), String> + Send>;
+
+/// The calendar block is brought in line once per run and account when the page is first loaded.
+fn first_load(account: &str) -> bool {
+    static SEEN: std::sync::OnceLock<Mutex<std::collections::HashSet<String>>> = std::sync::OnceLock::new();
+    SEEN.get_or_init(Default::default).lock().unwrap().insert(account.to_string())
+}
+
+fn vacation_rows(k: &Cache, mut out: Vec<SRow>) -> Vec<SRow> {
+    use crate::vacation as vac;
+    out.push(row("section", "", "Out of office", "Sends an automatic reply to people who write to you while you are away. Shared with Bulwark.", "", false));
+    let Some(v) = k.vacation.as_ref() else { out.push(row("value", "", "Loading…", "", "", false)); return out };
+    let f = k.vac_filters.clone().unwrap_or_default();
+    let tz = vac::user_tz();
+    let on = v["isEnabled"] == true || f.includes_vacation;
+    out.push(row("toggle", "server.vacation.isEnabled", "Automatic reply", "On while the dates below apply (or always, without dates).", "", on));
+    if f.not_running {
+        out.push(row("value", "", "Not running yet", "Forwarding or reply recipients are stored, but the server's own vacation script took over. Switch the reply off and on to set it right.", "", false));
+    }
+    if f.audience_available && !k.vac_domains.is_empty() {
+        let opts = ["Everyone".to_string(), format!("Only people at {}", k.vac_domains.join(", ")), "Only people outside those domains".to_string()];
+        let opts: Vec<&str> = opts.iter().map(String::as_str).collect();
+        out.push(sel("server.vacation.audience", "Reply to", &opts, vac::audience_choice(f.audience.as_ref())));
+    }
+    let day = |key: &str| v[key].as_str().map(|d| vac::show_moment(d, tz)).unwrap_or_default();
+    out.push(row("text", "server.vacation.fromDate", "From (optional)", "YYYY-MM-DD, or YYYY-MM-DD HH:MM; empty for no start. Your time zone.", &day("fromDate"), false));
+    out.push(row("text", "server.vacation.toDate", "Until (optional)", "YYYY-MM-DD, or YYYY-MM-DD HH:MM; empty for no end.", &day("toDate"), false));
+    if v["fromDate"].is_string() && v["toDate"].is_string() {
+        out.push(row("toggle", "server.vacation.block", "Block my calendar", "Keeps a busy event in your default calendar for these dates (shared with Bulwark).", "", vac::block_setting()));
+    }
+    out.push(row("section", "", "Message", "", "", false));
+    out.push(row("text", "server.vacation.subject", "Subject", "Leave empty to reuse the original subject.", v["subject"].as_str().unwrap_or(""), false));
+    out.push(row("textarea", "server.vacation.textBody", "Message", "Plain text. Editing it replaces the formatted version.", v["textBody"].as_str().unwrap_or(""), false));
+    out.push(row("textarea", "server.vacation.htmlBody", "Message (HTML)", "The formatted version recipients see; cleaned of scripts and remote content on save. The plain text is made from it.", v["htmlBody"].as_str().unwrap_or(""), false));
+    if f.forward_available {
+        out.push(row("section", "", "Forward while away", "Sends a copy of incoming mail to another address while the reply is on.", "", false));
+        out.push(row("toggle", "server.vacation.forwardEnabled", "Forward messages", "", "", k.fwd_enabled));
+        out.push(row("text", "server.vacation.forwardTo", "Forward to", "", &k.fwd_to, false));
+        if k.fwd_enabled {
+            out.push(row("toggle", "server.vacation.forwardKeep", "Keep in inbox", "Keep a copy here as well as forwarding it.", "", k.fwd_keep));
+        }
+    }
+    out
+}
+
+/// The reply as the calendar block reads it.
+fn reply_of(v: &Value, on: bool) -> crate::vacation::Reply {
+    crate::vacation::Reply { is_enabled: on, from: v["fromDate"].as_str().map(String::from), to: v["toDate"].as_str().map(String::from), subject: v["subject"].as_str().unwrap_or("").into() }
+}
+
+fn refuse(msg: &str) -> Option<Job> { let m = msg.to_string(); Some(Box::new(move |_| Err(m))) }
+
+fn forward_usable(to: &str) -> bool { crate::sieve::valid_forward(&json!({"enabled": true, "to": to, "keepCopy": false})) }
+
+/// An edit on the out-of-office page: applied to the cache at once, written to the server in the job.
+fn edit_vacation(field: &str, value: &Value, k: &mut Cache, shared: Shared) -> Option<Job> {
+    use crate::vacation as vac;
+    let mut cur = k.vacation.clone()?;
+    let includes = k.vac_filters.as_ref().is_some_and(|f| f.includes_vacation);
+    let before = reply_of(&cur, cur["isEnabled"] == true || includes);
+    let text = value.as_str().unwrap_or("").to_string();
+    let mut patch = serde_json::Map::new();
+    let mut forward_change = false;
+    let mut audience_change: Option<Option<Value>> = None;
+    match field {
+        "isEnabled" => {
+            let on = value.as_bool().unwrap_or(false);
+            let (t, h) = (cur["textBody"].as_str().unwrap_or(""), cur["htmlBody"].as_str());
+            if let Err(e) = vac::check_message(on, cur["subject"].as_str().unwrap_or(""), t, h) { return refuse(&e); }
+            patch.insert("isEnabled".into(), json!(on));
+        }
+        "subject" => {
+            if let Err(e) = vac::check_message(false, &text, "", None) { return refuse(&e); }
+            patch.insert("subject".into(), json!(text));
+        }
+        "textBody" => {
+            let (t, h) = vac::parts_from_text(&text);
+            if let Err(e) = vac::check_message(cur["isEnabled"] == true, "", &t, h.as_deref()) { return refuse(&e); }
+            patch.insert("textBody".into(), json!(t));
+            patch.insert("htmlBody".into(), json!(h));
+        }
+        "htmlBody" => {
+            if text.trim().is_empty() {
+                patch.insert("htmlBody".into(), Value::Null);
+            } else {
+                let (t, h) = vac::parts_from_html(&text);
+                if let Err(e) = vac::check_message(cur["isEnabled"] == true, "", &t, h.as_deref()) { return refuse(&e); }
+                patch.insert("textBody".into(), json!(t));
+                patch.insert("htmlBody".into(), json!(h));
+            }
+        }
+        "fromDate" | "toDate" => {
+            // text that is not a date yet is kept in the field and not saved
+            let Ok(m) = vac::parse_moment(&text, vac::user_tz()) else { return None };
+            let other = cur[if field == "fromDate" { "toDate" } else { "fromDate" }].as_str().map(String::from);
+            let (f, t) = if field == "fromDate" { (m.clone(), other) } else { (other, m.clone()) };
+            if let (Some(f), Some(t)) = (&f, &t) {
+                if t <= f { return refuse("The end must be after the start."); }
+            }
+            patch.insert(field.into(), json!(m));
+        }
+        "audience" => {
+            if !k.vac_filters.as_ref().is_some_and(|f| f.audience_available) || k.vac_domains.is_empty() { return None; }
+            audience_change = Some(vac::audience_for(value.as_i64().unwrap_or(0) as i32, &k.vac_domains));
+        }
+        "forwardEnabled" => {
+            let on = value.as_bool().unwrap_or(false);
+            if on && !forward_usable(&k.fwd_to) { return refuse("Enter the address to forward to first."); }
+            k.fwd_enabled = on;
+            forward_change = true;
+        }
+        "forwardKeep" => {
+            k.fwd_keep = value.as_bool().unwrap_or(false);
+            forward_change = true;
+        }
+        "forwardTo" => {
+            k.fwd_to = text.trim().to_string();
+            // typed before forwarding is switched on, or not an address yet: kept in the field, not saved
+            let stored = k.vac_filters.as_ref().is_some_and(|f| f.forward.is_some());
+            if !forward_usable(&k.fwd_to) || !(k.fwd_enabled || stored) { return None; }
+            forward_change = true;
+        }
+        "block" => {
+            crate::settings::set_pref("vacationBlockCalendar", json!(value.as_bool().unwrap_or(true)));
+            return Some(Box::new(move |c: &Client| {
+                let prev = Some((before.from.clone(), before.to.clone()));
+                vac::sync_block(c, &before, vac::Trigger::Save, prev).map(|_| ())
+            }));
+        }
+        _ => return None,
+    }
+    for (pk, pv) in &patch { cur[pk] = pv.clone(); }
+    k.vacation = Some(cur.clone());
+    if let (Some(a), Some(f)) = (&audience_change, k.vac_filters.as_mut()) { f.audience = a.clone(); }
+    let after_on = match patch.get("isEnabled") { Some(v) => v == &json!(true), None => before.is_enabled };
+    let after = reply_of(&cur, after_on);
+    // forwarding as a save stores it: an address that is off is kept for next time if it is usable
+    let stored_forward = k.vac_filters.as_ref().is_some_and(|f| f.forward.is_some());
+    let forward: Option<Option<Value>> = if !forward_change { None } else if k.fwd_enabled || (forward_usable(&k.fwd_to) && stored_forward) {
+        Some(Some(json!({"enabled": k.fwd_enabled, "to": k.fwd_to, "keepCopy": k.fwd_keep})))
+    } else { Some(None) };
+    let dates = patch.contains_key("fromDate") || patch.contains_key("toDate");
+    let touches_filters = patch.contains_key("isEnabled") || dates || forward.is_some() || audience_change.is_some();
+    let touches_block = patch.contains_key("isEnabled") || dates || patch.contains_key("subject");
+    Some(Box::new(move |c: &Client| {
+        if !patch.is_empty() {
+            let acc = c.account_for("urn:ietf:params:jmap:vacationresponse");
+            let (_, bad) = c.update("VacationResponse/set", &acc, vec![("singleton".into(), Value::Object(patch))])?;
+            if !bad.is_empty() { return Err(bad.join("; ")); }
+        }
+        let mut res = Ok(());
+        if touches_filters {
+            let req = vac::SyncRequest { enabled: after.is_enabled, forward, audience: audience_change, from: after.from.as_deref(), until: after.to.as_deref() };
+            res = vac::sync_filters(c, &req).map_err(|e| format!("The reply was saved, but its filters part was not: {e}"));
+        }
+        if let Some(f) = vac::load_filters(c) { shared.lock().unwrap().vac_filters = Some(f); }
+        if touches_block {
+            let prev = Some((before.from.clone(), before.to.clone()));
+            if let Err(e) = vac::sync_block(c, &after, vac::Trigger::Save, prev) { eprintln!("out-of-office calendar block: {e}"); }
+        }
+        res
+    }))
 }
 
 /// Calendar/set or AddressBook/set with the account filled in; the first SetError is the error.

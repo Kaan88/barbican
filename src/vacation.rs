@@ -1,0 +1,841 @@
+//! Out of office, as Bulwark stores it, so a reply set up in one app shows in the other.
+//!
+//! * The reply itself is the server's `VacationResponse` (subject, text and HTML body, dates).
+//! * Who gets it (`vacationAudience`), forwarding while away (`vacationForward`, with "keep a copy
+//!   in the Inbox" as `keepCopy`) and the include of the server's vacation script live in the
+//!   metadata and the generated Sieve of the filters script (Bulwark stores/vacation-store.ts,
+//!   stores/filter-store.ts readVacationFilters / syncVacationWithFilters,
+//!   lib/sieve/vacation-audience.ts, lib/sieve/vacation-forward.ts; the Sieve itself is
+//!   `sieve::generate_meta`).
+//! * "Block my calendar": one busy event with the UID `bulwark-ooo-<accountId>` (Bulwark
+//!   lib/vacation-calendar.ts). Everything that decides or formats is pure and tested here;
+//!   the JMAP calls are thin.
+use crate::jmap::Client;
+use crate::sieve;
+use chrono::{DateTime, Duration, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Timelike, Utc};
+use chrono_tz::Tz;
+use serde_json::{json, Value};
+
+/// The name of the script Stalwart manages for VacationResponse (Bulwark VACATION_SCRIPT_NAME).
+pub const VACATION_SCRIPT_NAME: &str = "vacation";
+/// Stalwart refuses a subject of 512 bytes or more and a body of 2048 or more (vacation-settings.tsx).
+pub const SUBJECT_MAX: usize = 511;
+pub const BODY_MAX: usize = 2047;
+
+// ---------------------------------------------------------------------------------------------
+// audience and forwarding values
+// ---------------------------------------------------------------------------------------------
+
+/// The domains of the given addresses, lower-cased, each once, in order (vacation-audience.ts ownDomains).
+pub fn own_domains(addresses: &[String]) -> Vec<String> {
+    let mut out: Vec<String> = vec![];
+    for a in addresses {
+        let Some((_, d)) = a.rsplit_once('@') else { continue };
+        let d = d.trim().to_lowercase();
+        if sieve::valid_domain(&d) && !out.contains(&d) { out.push(d); }
+    }
+    out
+}
+
+/// The audience a choice stores: `None` for everyone; `Some` for the account's own domains only
+/// (`1`, "internal") or everyone else (`2`, "external"). Bulwark stores `{only, domains}`.
+pub fn audience_for(choice: i32, domains: &[String]) -> Option<Value> {
+    let only = match choice { 1 => "internal", 2 => "external", _ => return None };
+    if domains.is_empty() { return None; }
+    Some(json!({"only": only, "domains": domains}))
+}
+
+/// The select index of a stored audience (0 everyone, 1 internal, 2 external).
+pub fn audience_choice(a: Option<&Value>) -> i32 {
+    match a.and_then(|a| a["only"].as_str()) { Some("internal") => 1, Some("external") => 2, _ => 0 }
+}
+
+/// A forwarding with the vacation's period: it runs while the reply does (an empty date leaves
+/// that end open) (vacation-forward.ts withVacationPeriod).
+pub fn with_period(forward: &Value, from: Option<&str>, until: Option<&str>) -> Value {
+    let mut m = serde_json::Map::new();
+    m.insert("enabled".into(), forward["enabled"].clone());
+    m.insert("to".into(), forward["to"].clone());
+    m.insert("keepCopy".into(), forward["keepCopy"].clone());
+    if let Some(f) = from.filter(|s| !s.is_empty()) { m.insert("activeFrom".into(), json!(f)); }
+    if let Some(u) = until.filter(|s| !s.is_empty()) { m.insert("activeUntil".into(), json!(u)); }
+    Value::Object(m)
+}
+
+fn same_moment(a: Option<&str>, b: Option<&str>) -> bool {
+    match (a, b) {
+        (None, None) => true,
+        (Some(a), Some(b)) => a == b || matches!((DateTime::parse_from_rfc3339(a), DateTime::parse_from_rfc3339(b)), (Ok(x), Ok(y)) if x == y),
+        _ => false,
+    }
+}
+
+fn same_forward(a: Option<&Value>, b: Option<&Value>) -> bool {
+    match (a, b) {
+        (Some(a), Some(b)) => a["enabled"] == b["enabled"] && a["to"] == b["to"] && a["keepCopy"] == b["keepCopy"]
+            && same_moment(a["activeFrom"].as_str(), b["activeFrom"].as_str()) && same_moment(a["activeUntil"].as_str(), b["activeUntil"].as_str()),
+        (None, None) => true,
+        _ => false,
+    }
+}
+
+fn same_audience(a: Option<&Value>, b: Option<&Value>) -> bool {
+    let n = |v: &Value| json!({"only": v["only"], "domains": v["domains"]});
+    match (a, b) { (Some(a), Some(b)) => n(a) == n(b), (None, None) => true, _ => false }
+}
+
+// ---------------------------------------------------------------------------------------------
+// what the filters script says (readVacationFilters)
+// ---------------------------------------------------------------------------------------------
+
+/// What the vacation page needs from the account's filters script.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Filters {
+    /// The filters script runs the server's vacation script (VacationResponse then reads "off").
+    pub includes_vacation: bool,
+    pub forward: Option<Value>,
+    pub forward_available: bool,
+    pub audience: Option<Value>,
+    pub audience_available: bool,
+    /// Forwarding that is on, or a reply for some senders only, is stored but does not run.
+    pub not_running: bool,
+}
+
+/// The script Bulwark writes: the active one that is not the vacation script, else the first.
+pub fn target_script(scripts: &[Value]) -> Option<&Value> {
+    let filters = || scripts.iter().filter(|s| s["name"] != VACATION_SCRIPT_NAME);
+    filters().find(|s| s["isActive"] == true).or_else(|| filters().next())
+}
+
+fn has_ext(ext: &[String], e: &str) -> bool { ext.iter().any(|x| x == e) }
+
+/// The server runs the forwarding block: a redirect, its period, its spam check and the copy.
+fn can_forward(ext: &[String], max_redirects: Option<i64>) -> bool {
+    max_redirects != Some(0) && has_ext(ext, "date") && has_ext(ext, "relational") && has_ext(ext, "spamtestplus") && has_ext(ext, "copy")
+}
+
+/// `target_text` is the target script's content (None: no target script).
+pub fn read_filters(scripts: &[Value], target_text: Option<&str>, ext: &[String], max_redirects: Option<i64>) -> Filters {
+    let target = target_script(scripts);
+    let parsed = target_text.map(sieve::parse);
+    let opaque = target.is_some() && parsed.as_ref().is_none_or(|p| p.locked);
+    let usable = has_ext(ext, "include") && !opaque;
+    let meta = parsed.as_ref().filter(|p| !p.locked).map(|p| &p.metadata);
+    let forward = meta.and_then(|m| m.get("vacationForward")).filter(|f| sieve::valid_forward(f)).cloned();
+    let audience = meta.and_then(|m| m.get("vacationAudience")).filter(|a| sieve::valid_audience(a)).cloned();
+    let vacation_script = scripts.iter().find(|s| s["name"] == VACATION_SCRIPT_NAME);
+    let filters_active = target.is_some_and(|t| t["isActive"] == true);
+    let vacation_active = vacation_script.is_some_and(|s| s["isActive"] == true);
+    Filters {
+        includes_vacation: vacation_script.is_some() && filters_active && meta.is_some_and(|m| m["includeVacation"] == true),
+        forward_available: usable && (can_forward(ext, max_redirects) || forward.as_ref().is_some_and(|f| f["enabled"] == true)),
+        audience_available: usable && has_ext(ext, "envelope"),
+        not_running: !filters_active && (forward.as_ref().is_some_and(|f| f["enabled"] == true) || (audience.is_some() && vacation_active)),
+        forward,
+        audience,
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// writing the filters script (syncVacationWithFilters)
+// ---------------------------------------------------------------------------------------------
+
+/// What a save asks of the filters script. `forward` / `audience`: `None` keeps what is stored,
+/// `Some(None)` removes it, `Some(Some(v))` replaces it.
+pub struct SyncRequest<'a> {
+    pub enabled: bool,
+    pub forward: Option<Option<Value>>,
+    pub audience: Option<Option<Value>>,
+    pub from: Option<&'a str>,
+    pub until: Option<&'a str>,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum Plan {
+    Nothing,
+    /// Write `content` over `target` (None: create the script) and activate it when `activate`.
+    Write { target: Option<String>, content: String, activate: bool },
+}
+
+/// The pure decision of syncVacationWithFilters. `target_text` is the content of
+/// `target_script(scripts)`.
+pub fn plan_sync(req: &SyncRequest, scripts: &[Value], target_text: Option<&str>, ext: &[String]) -> Result<Plan, String> {
+    let can_include = has_ext(ext, "include");
+    if req.enabled && !can_include && req.forward.is_none() && req.audience.is_none() { return Ok(Plan::Nothing); }
+    let target = target_script(scripts);
+    let parsed = target_text.map(sieve::parse);
+    let opaque = target.is_some() && parsed.as_ref().is_none_or(|p| p.locked);
+    let readable = parsed.as_ref().filter(|p| !p.locked);
+    let meta = readable.map(|p| p.metadata.clone()).unwrap_or_else(|| json!({"version": 1, "rules": []}));
+    let stored_forward = meta.get("vacationForward").filter(|f| sieve::valid_forward(f)).cloned();
+    let stored_audience = meta.get("vacationAudience").filter(|a| sieve::valid_audience(a)).cloned();
+    let requested = match &req.forward { None => stored_forward.clone(), Some(f) => f.clone() };
+    let next_forward = requested.map(|f| with_period(&f, req.from, req.until));
+    let next_audience = match &req.audience { None => stored_audience.clone(), Some(a) => a.clone() };
+    let changed = !same_forward(stored_forward.as_ref(), next_forward.as_ref()) || !same_audience(stored_audience.as_ref(), next_audience.as_ref());
+    if changed {
+        if opaque { return Err("The filters script was edited by hand, so forwarding and reply recipients cannot be changed here.".into()); }
+        if !can_include { return Err("Forwarding and reply recipients need the Sieve \"include\" extension".into()); }
+        if next_forward.as_ref().is_some_and(|f| !sieve::valid_forward(f)) { return Err("Unusable vacation forwarding".into()); }
+        if next_audience.as_ref().is_some_and(|a| !sieve::valid_audience(a)) { return Err("Unusable vacation reply recipients".into()); }
+    }
+    if (req.enabled && !can_include) || opaque { return Ok(Plan::Nothing); }
+
+    let has_rules = meta["rules"].as_array().is_some_and(|r| !r.is_empty());
+    let forwarding = next_forward.as_ref().is_some_and(|f| f["enabled"] == true);
+    let target_active = target.is_some_and(|t| t["isActive"] == true);
+    if req.enabled {
+        let vacation_active = scripts.iter().any(|s| s["name"] == VACATION_SCRIPT_NAME && s["isActive"] == true);
+        let took_over = vacation_active && !target_active;
+        let needs_filters = has_rules || forwarding || next_audience.is_some();
+        if !changed && !(took_over && needs_filters) { return Ok(Plan::Nothing); }
+    } else {
+        let forwarding_idle = forwarding && !target_active;
+        if !changed && meta["includeVacation"] != true && !forwarding_idle { return Ok(Plan::Nothing); }
+    }
+
+    let mut m = meta;
+    m["includeVacation"] = json!(req.enabled);
+    match &next_forward { Some(f) => m["vacationForward"] = f.clone(), None => { m.as_object_mut().map(|o| o.remove("vacationForward")); } }
+    match &next_audience { Some(a) => m["vacationAudience"] = a.clone(), None => { m.as_object_mut().map(|o| o.remove("vacationAudience")); } }
+    let external = readable.map(|p| p.external.clone()).unwrap_or_default();
+    let content = sieve::generate_meta(&m, &external, ext);
+    Ok(Plan::Write { target: target.and_then(|t| t["id"].as_str().map(String::from)), content, activate: req.enabled || forwarding || target_active })
+}
+
+/// The account's Sieve scripts, extensions and redirect limit; `None` when the account has no Sieve.
+pub fn read_sieve(c: &Client) -> Result<Option<(Vec<Value>, Vec<String>, Option<i64>)>, String> {
+    if !c.has("urn:ietf:params:jmap:sieve") { return Ok(None); }
+    let acc = c.account_for("urn:ietf:params:jmap:sieve");
+    let r = c.call(json!([["SieveScript/get", {"accountId": acc, "ids": null, "properties": ["id", "name", "blobId", "isActive"]}, "s"]]))?;
+    let scripts = r[0][1]["list"].as_array().cloned().unwrap_or_default();
+    let cap = if c.session["accounts"][&acc]["accountCapabilities"]["urn:ietf:params:jmap:sieve"].is_object() {
+        &c.session["accounts"][&acc]["accountCapabilities"]["urn:ietf:params:jmap:sieve"]
+    } else { &c.session["capabilities"]["urn:ietf:params:jmap:sieve"] };
+    let ext = cap["sieveExtensions"].as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect()).unwrap_or_default();
+    Ok(Some((scripts, ext, cap["maxNumberRedirects"].as_i64())))
+}
+
+fn target_content(c: &Client, scripts: &[Value]) -> Result<Option<String>, String> {
+    match target_script(scripts).and_then(|t| t["blobId"].as_str()) {
+        Some(b) => Ok(Some(String::from_utf8_lossy(&c.download(b, "script.sieve", "application/sieve")?).to_string())),
+        None => Ok(None),
+    }
+}
+
+/// What the filters script holds now (None: no Sieve, or it could not be read).
+pub fn load_filters(c: &Client) -> Option<Filters> {
+    let (scripts, ext, max) = read_sieve(c).ok()??;
+    let text = target_content(c, &scripts).ok()?;
+    Some(read_filters(&scripts, text.as_deref(), &ext, max))
+}
+
+/// Keep the filters, the auto-reply and its forwarding running after `VacationResponse/set`.
+pub fn sync_filters(c: &Client, req: &SyncRequest) -> Result<(), String> {
+    let Some((scripts, ext, _)) = read_sieve(c)? else { return Ok(()) };
+    let text = target_content(c, &scripts)?;
+    let Plan::Write { target, content, activate } = plan_sync(req, &scripts, text.as_deref(), &ext)? else { return Ok(()) };
+    let acc = c.account_for("urn:ietf:params:jmap:sieve");
+    let (blob, _) = c.upload(content.into_bytes(), "application/sieve")?;
+    let v = c.call(json!([["SieveScript/validate", {"accountId": acc, "blobId": blob}, "v"]]))?;
+    if let Some(err) = v[0][1]["error"].as_object() {
+        return Err(format!("Not saved: {}", err.get("description").and_then(|d| d.as_str()).unwrap_or("invalid script")));
+    }
+    let r = match target {
+        Some(id) => {
+            let mut args = json!({"accountId": acc, "update": { id.clone(): {"blobId": blob} }});
+            if activate { args["onSuccessActivateScript"] = json!(id); }
+            c.call(json!([["SieveScript/set", args, "s"]]))?
+        }
+        None => {
+            let mut args = json!({"accountId": acc, "create": {"n": {"name": "filters", "blobId": blob}}});
+            if activate { args["onSuccessActivateScript"] = json!("#n"); }
+            c.call(json!([["SieveScript/set", args, "s"]]))?
+        }
+    };
+    if r[0][1]["updated"].is_object() || r[0][1]["created"].is_object() { return Ok(()); }
+    Err(format!("Not saved: {}", crate::jmap::set_error(r[0][1]["notUpdated"].as_object().and_then(|o| o.values().next())
+        .or(r[0][1]["notCreated"].as_object().and_then(|o| o.values().next())).unwrap_or(&Value::Null))))
+}
+
+// ---------------------------------------------------------------------------------------------
+// the message
+// ---------------------------------------------------------------------------------------------
+
+/// Plain text as the HTML body Bulwark's editor holds: a paragraph per block of lines, a line break
+/// per single newline, everything escaped (lib/text-to-paragraph-html.ts).
+pub fn text_to_paragraph_html(text: &str) -> String {
+    let t = text.replace("\r\n", "\n").replace('\r', "\n");
+    let t = t.trim();
+    if t.is_empty() { return String::new(); }
+    let mut blocks: Vec<String> = vec![];
+    let mut cur: Vec<&str> = vec![];
+    let mut blank = 0;
+    for line in t.split('\n') {
+        if line.is_empty() { blank += 1; continue; }
+        if blank >= 1 && !cur.is_empty() { blocks.push(cur.join("\n")); cur.clear(); }
+        blank = 0;
+        cur.push(line);
+    }
+    if !cur.is_empty() { blocks.push(cur.join("\n")); }
+    blocks.iter().map(|b| format!("<p>{}</p>", crate::esc(b).replace('\n', "<br>"))).collect()
+}
+
+/// Whether HTML holds any text a recipient would read.
+pub fn has_readable_text(html: &str) -> bool { !crate::html_to_text(html).trim().is_empty() }
+
+/// The parts a save of the plain-text message sends: `(textBody, htmlBody)`.
+pub fn parts_from_text(text: &str) -> (String, Option<String>) {
+    let t = text.replace("\r\n", "\n").replace('\r', "\n").trim().to_string();
+    let html = text_to_paragraph_html(&t);
+    (t, if html.is_empty() { None } else { Some(html) })
+}
+
+/// The parts a save of the HTML message sends: the sanitised HTML and the plain text derived from it.
+pub fn parts_from_html(html: &str) -> (String, Option<String>) {
+    if !has_readable_text(html) { return (String::new(), None); }
+    let clean = strip_active(&crate::mailview::sanitize_mail_html_opts(html, false));
+    (crate::html_to_text(&clean).trim().to_string(), Some(clean))
+}
+
+/// A stored reply is shown by other people's mail clients: no scripts, frames, plugins, styles,
+/// event handlers or `javascript:` links, whatever the editor field held. Repeats until stable so
+/// removing one piece cannot join the rest into a new tag.
+fn strip_active(html: &str) -> String {
+    use regex::Regex;
+    static RES: std::sync::OnceLock<Vec<(Regex, &'static str)>> = std::sync::OnceLock::new();
+    let res = RES.get_or_init(|| vec![
+        (Regex::new(r"(?is)<\s*(script|style|iframe|object|embed|applet|noscript)\b.*?<\s*/\s*(script|style|iframe|object|embed|applet|noscript)\s*>").unwrap(), ""),
+        (Regex::new(r"(?is)<\s*/?\s*(script|style|iframe|object|embed|applet|noscript|link|meta|base|form)\b[^>]*>").unwrap(), ""),
+        (Regex::new(r#"(?is)\s+on[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)"#).unwrap(), ""),
+        (Regex::new(r#"(?is)(href|src|xlink:href|action)\s*=\s*("\s*(javascript|vbscript|data):[^"]*"|'\s*(javascript|vbscript|data):[^']*')"#).unwrap(), "$1=\"\""),
+    ]);
+    let mut cur = html.to_string();
+    for _ in 0..16 {
+        let mut next = cur.clone();
+        for (re, rep) in res { next = re.replace_all(&next, *rep).into_owned(); }
+        if next == cur { break; }
+        cur = next;
+    }
+    cur
+}
+
+/// The refusals before a save: an empty message on a reply that is on, a subject or body over
+/// Stalwart's limits (they would only answer "Field could not be set.").
+pub fn check_message(enabled: bool, subject: &str, text: &str, html: Option<&str>) -> Result<(), String> {
+    if subject.len() > SUBJECT_MAX { return Err(format!("The subject is too long (at most {SUBJECT_MAX} bytes).")); }
+    if text.len() > BODY_MAX || html.is_some_and(|h| h.len() > BODY_MAX) { return Err(format!("The message is too long (at most {BODY_MAX} bytes).")); }
+    if enabled && text.trim().is_empty() && !html.is_some_and(has_readable_text) { return Err("Write the message first.".into()); }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------------------------
+// dates as the page shows them
+// ---------------------------------------------------------------------------------------------
+
+/// The user's time zone (the system's), UTC when unknown.
+pub fn user_tz() -> Tz { crate::agent::local_tz().parse().unwrap_or(chrono_tz::UTC) }
+
+/// What the user typed as a stored moment: `YYYY-MM-DD` (midnight) or `YYYY-MM-DD HH:MM` on the
+/// wall clock of `tz`; `Ok(None)` for empty, `Err` for text that is not a date yet.
+pub fn parse_moment(input: &str, tz: Tz) -> Result<Option<String>, ()> {
+    let t = input.trim().replace('T', " ");
+    if t.is_empty() { return Ok(None); }
+    let naive = if t.len() == 10 {
+        NaiveDate::parse_from_str(&t, "%Y-%m-%d").map_err(|_| ())?.and_time(NaiveTime::MIN)
+    } else {
+        NaiveDateTime::parse_from_str(&t, "%Y-%m-%d %H:%M").map_err(|_| ())?
+    };
+    let utc = tz.from_local_datetime(&naive).earliest().ok_or(())?.with_timezone(&Utc);
+    if utc.format("%Y").to_string().len() != 4 { return Err(()); }
+    Ok(Some(utc.format("%Y-%m-%dT%H:%M:%S.000Z").to_string()))
+}
+
+/// A stored moment as the field shows it: the day alone at midnight, else day and time.
+pub fn show_moment(stored: &str, tz: Tz) -> String {
+    let Ok(t) = DateTime::parse_from_rfc3339(stored) else { return stored.chars().take(10).collect() };
+    let l = t.with_timezone(&tz);
+    if l.hour() == 0 && l.minute() == 0 && l.second() == 0 { l.format("%Y-%m-%d").to_string() } else { l.format("%Y-%m-%d %H:%M").to_string() }
+}
+
+// ---------------------------------------------------------------------------------------------
+// the calendar block (lib/vacation-calendar.ts)
+// ---------------------------------------------------------------------------------------------
+
+pub const OOO_UID_PREFIX: &str = "bulwark-ooo-";
+/// The keyword (iCalendar CATEGORIES) on the busy event.
+pub const OOO_KEYWORD: &str = "bulwark-out-of-office";
+/// The event title when the reply has no subject (English on purpose: colleagues see it).
+pub const OUT_OF_OFFICE_TITLE: &str = "Out of office";
+
+pub fn ooo_uid(account: &str) -> String { format!("{OOO_UID_PREFIX}{account}") }
+
+/// What the vacation response says, as far as the block cares.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Reply { pub is_enabled: bool, pub from: Option<String>, pub to: Option<String>, pub subject: String }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Trigger { Save, Load }
+
+#[derive(Debug, PartialEq)]
+pub enum Decision {
+    None,
+    Create(DateTime<Utc>, DateTime<Utc>),
+    Update(DateTime<Utc>, DateTime<Utc>),
+    Destroy,
+    EndNow(DateTime<Utc>),
+}
+
+pub struct DecisionInput<'a> {
+    pub block: bool,
+    pub reply: &'a Reply,
+    pub event: Option<(DateTime<Utc>, DateTime<Utc>)>,
+    /// The times last written, as ISO instants.
+    pub last: Option<(String, String)>,
+    /// The reply's dates before the change at hand.
+    pub previous: Option<(Option<String>, Option<String>)>,
+    pub marked: bool,
+    pub now: DateTime<Utc>,
+    pub trigger: Trigger,
+}
+
+fn instant(s: &Option<String>) -> Option<DateTime<Utc>> {
+    s.as_deref().and_then(|s| DateTime::parse_from_rfc3339(s).ok()).map(|d| d.with_timezone(&Utc))
+}
+
+fn same_instant(a: DateTime<Utc>, b: &str) -> bool { DateTime::parse_from_rfc3339(b).is_ok_and(|b| b.with_timezone(&Utc) == a) }
+
+/// What to do with the busy event, by the rules of Bulwark's decideBlock.
+pub fn decide_block(i: &DecisionInput) -> Decision {
+    let (from, to) = (instant(&i.reply.from), instant(&i.reply.to));
+    let dates_usable = matches!((from, to), (Some(f), Some(t)) if t > f);
+    let wanted = i.block && i.reply.is_enabled && dates_usable;
+    let ran_out = i.reply.is_enabled && to.is_some_and(|t| t <= i.now);
+    if let Some((es, ee)) = i.event {
+        let matches_last = i.last.as_ref().is_some_and(|(s, e)| same_instant(es, s) && same_instant(ee, e));
+        let matches_prev = i.previous.as_ref().is_some_and(|(f, t)| matches!((f, t), (Some(f), Some(t)) if same_instant(es, f) && same_instant(ee, t)));
+        let marked_on_load = i.last.is_none() && i.marked && i.trigger == Trigger::Load;
+        if !matches_last && !matches_prev && !marked_on_load { return Decision::None; }
+        if wanted {
+            let (f, t) = (from.unwrap(), to.unwrap());
+            if ran_out || (es == f && ee == t) { return Decision::None; }
+            return Decision::Update(f, t);
+        }
+        if ran_out || ee <= i.now { return Decision::None; }
+        if es > i.now { return Decision::Destroy; }
+        return Decision::EndNow(i.now);
+    }
+    if !wanted || ran_out { return Decision::None; }
+    let (f, t) = (from.unwrap(), to.unwrap());
+    if i.trigger == Trigger::Load && i.last.as_ref().is_some_and(|(s, e)| same_instant(f, s) && same_instant(t, e)) {
+        // it was there for these dates and someone deleted it: that sticks
+        return Decision::None;
+    }
+    Decision::Create(f, t)
+}
+
+/// ISO 8601 duration of a span, in days, hours and minutes.
+pub fn iso_duration(ms: i64) -> String {
+    let total = (ms.max(0) as f64 / 60000.0).round() as i64;
+    let (days, hours, minutes) = (total / 1440, (total % 1440) / 60, total % 60);
+    let time = format!("{}{}", if hours > 0 { format!("{hours}H") } else { String::new() }, if minutes > 0 { format!("{minutes}M") } else { String::new() });
+    if days == 0 && time.is_empty() { return "PT0S".into(); }
+    format!("P{}{}", if days > 0 { format!("{days}D") } else { String::new() }, if time.is_empty() { String::new() } else { format!("T{time}") })
+}
+
+/// The event's time fields for a span: all-day when both ends are midnight in `tz`, timed in the
+/// zone otherwise (blockTimes).
+pub fn block_times(start: DateTime<Utc>, end: DateTime<Utc>, tz: Tz) -> Value {
+    let (a, b) = (start.with_timezone(&tz).naive_local(), end.with_timezone(&tz).naive_local());
+    if a.time() == NaiveTime::MIN && b.time() == NaiveTime::MIN {
+        let days = (b.date() - a.date()).num_days();
+        return json!({"start": format!("{}T00:00:00", a.date().format("%Y-%m-%d")), "duration": format!("P{days}D"), "timeZone": null, "showWithoutTime": true});
+    }
+    json!({"start": a.format("%Y-%m-%dT%H:%M:%S").to_string(), "duration": iso_duration((end - start).num_milliseconds()), "timeZone": tz.name(), "showWithoutTime": false})
+}
+
+/// Seconds of an ISO 8601 duration (`P1DT2H30M`, `P2W`, `PT90S`).
+pub fn duration_secs(d: &str) -> Option<i64> {
+    let rest = d.strip_prefix('P')?;
+    let (date, time) = match rest.split_once('T') { Some((a, b)) => (a, b), None => (rest, "") };
+    let mut total = 0i64;
+    for (part, units) in [(date, [('W', 604800), ('D', 86400)].as_slice()), (time, [('H', 3600), ('M', 60), ('S', 1)].as_slice())] {
+        let mut num = String::new();
+        for ch in part.chars() {
+            if ch.is_ascii_digit() { num.push(ch); continue; }
+            let (_, mult) = units.iter().find(|(u, _)| *u == ch)?;
+            total += num.parse::<i64>().ok()? * mult;
+            num.clear();
+        }
+        if !num.is_empty() { return None; }
+    }
+    Some(total)
+}
+
+/// The instants an event covers, read the way `block_times` writes them (eventSpan).
+pub fn event_span(ev: &Value, tz: Tz) -> Option<(DateTime<Utc>, DateTime<Utc>)> {
+    let start = ev["start"].as_str()?;
+    let naive = NaiveDateTime::parse_from_str(start, "%Y-%m-%dT%H:%M:%S").ok()?;
+    let all_day = ev["showWithoutTime"] == true;
+    let zone: Tz = if all_day { tz } else { ev["timeZone"].as_str().and_then(|z| z.parse().ok()).unwrap_or(tz) };
+    let secs = duration_secs(ev["duration"].as_str().unwrap_or("PT0S")).unwrap_or(0);
+    if all_day {
+        let day = naive.date();
+        let days = (secs as f64 / 86400.0).round() as i64;
+        let s = zone.from_local_datetime(&day.and_time(NaiveTime::MIN)).earliest()?.with_timezone(&Utc);
+        let e = zone.from_local_datetime(&(day + Duration::days(days)).and_time(NaiveTime::MIN)).earliest()?.with_timezone(&Utc);
+        return Some((s, e));
+    }
+    let s = zone.from_local_datetime(&naive).earliest()?.with_timezone(&Utc);
+    Some((s, s + Duration::seconds(secs)))
+}
+
+/// The calendar a block goes into: the default one the user may add events to (blockCalendar).
+pub fn block_calendar(calendars: &[Value]) -> Option<&Value> {
+    let own: Vec<&Value> = calendars.iter().filter(|c| c["isTasksOnly"] != true).collect();
+    let cal = own.iter().find(|c| c["isDefault"] == true).or(own.first()).copied()?;
+    let r = &cal["myRights"];
+    if r.is_null() || r["mayWriteAll"] == true || r["mayWriteOwn"] == true { Some(cal) } else { None }
+}
+
+/// The event to create for a span (the fields of syncVacationBlock's `create`).
+pub fn new_block_event(account: &str, calendar_id: &str, subject: &str, start: DateTime<Utc>, end: DateTime<Utc>, tz: Tz) -> Value {
+    let mut ev = json!({
+        "@type": "Event", "uid": ooo_uid(account), "title": title_for(subject), "calendarIds": {calendar_id: true},
+        "freeBusyStatus": "busy", "privacy": "public", "status": "confirmed", "keywords": {OOO_KEYWORD: true},
+    });
+    for (k, v) in block_times(start, end, tz).as_object().cloned().unwrap_or_default() { ev[k] = v; }
+    ev
+}
+
+fn title_for(subject: &str) -> String { if subject.trim().is_empty() { OUT_OF_OFFICE_TITLE.into() } else { subject.trim().into() } }
+
+fn pref_blocks() -> Value { crate::settings::Settings::load().prefs.get("vacationCalendarBlocks").cloned().filter(Value::is_object).unwrap_or_else(|| json!({})) }
+
+fn remember(account: &str, block: Option<(DateTime<Utc>, DateTime<Utc>)>) {
+    let mut m = pref_blocks();
+    match block {
+        Some((s, e)) => m[account] = json!({"start": s.to_rfc3339_opts(chrono::SecondsFormat::Millis, true), "end": e.to_rfc3339_opts(chrono::SecondsFormat::Millis, true)}),
+        None => { m.as_object_mut().map(|o| o.remove(account)); }
+    }
+    crate::settings::set_pref("vacationCalendarBlocks", m);
+}
+
+/// Whether the block is on: the "Block my calendar" setting, on by default.
+pub fn block_setting() -> bool { crate::settings::Settings::load().bool("vacationBlockCalendar", true) }
+
+/// Bring the busy event in line with the reply. Never throws into the save: the caller logs.
+pub fn sync_block(c: &Client, reply: &Reply, trigger: Trigger, previous: Option<(Option<String>, Option<String>)>) -> Result<&'static str, String> {
+    if !c.has("urn:ietf:params:jmap:calendars") { return Ok("none"); }
+    let acc = c.account_for("urn:ietf:params:jmap:calendars");
+    let tz = user_tz();
+    let r = c.call(json!([
+        ["CalendarEvent/query", {"accountId": acc, "filter": {"uid": ooo_uid(&acc)}, "limit": 1}, "q"],
+        ["CalendarEvent/get", {"accountId": acc, "#ids": {"resultOf": "q", "name": "CalendarEvent/query", "path": "/ids"},
+            "properties": ["id", "start", "duration", "timeZone", "showWithoutTime", "keywords"]}, "g"],
+    ]))?;
+    let found = r[1][1]["list"].as_array().and_then(|l| l.first()).cloned();
+    let span = found.as_ref().and_then(|f| event_span(f, tz));
+    let last = pref_blocks()[&acc].as_object().and_then(|o| Some((o.get("start")?.as_str()?.to_string(), o.get("end")?.as_str()?.to_string())));
+    let marked = found.as_ref().is_some_and(|f| f["keywords"][OOO_KEYWORD] == true);
+    let block = block_setting();
+    let now = Utc::now();
+    let decision = decide_block(&DecisionInput { block, reply, event: span, last: last.clone(), previous, marked, now, trigger });
+    let id = found.as_ref().and_then(|f| f["id"].as_str()).unwrap_or("").to_string();
+    let set = |args: Value| -> Result<Value, String> {
+        let mut a = args;
+        a["accountId"] = json!(acc);
+        a["sendSchedulingMessages"] = json!(false);
+        let r = c.call(json!([["CalendarEvent/set", a, "s"]]))?;
+        for k in ["notCreated", "notUpdated", "notDestroyed"] {
+            if let Some(e) = r[0][1][k].as_object().and_then(|m| m.values().next()) { return Err(crate::jmap::set_error(e)); }
+        }
+        Ok(r[0][1].clone())
+    };
+    match decision {
+        Decision::None => {
+            if found.is_none() && last.is_some() && !(reply.is_enabled && block) { remember(&acc, None); }
+            Ok("none")
+        }
+        Decision::Create(s, e) => {
+            let cals = c.call(json!([["Calendar/get", {"accountId": acc, "ids": null, "properties": ["id", "isDefault", "myRights", "isTasksOnly"]}, "c"]]))?;
+            let list = cals[0][1]["list"].as_array().cloned().unwrap_or_default();
+            let Some(cal) = block_calendar(&list) else { return Ok("no-calendar") };
+            set(json!({"create": {"e": new_block_event(&acc, cal["id"].as_str().unwrap_or(""), &reply.subject, s, e, tz)}}))?;
+            remember(&acc, Some((s, e)));
+            Ok("create")
+        }
+        Decision::Update(s, e) => {
+            let mut patch = block_times(s, e, tz);
+            patch["title"] = json!(title_for(&reply.subject));
+            patch[format!("keywords/{OOO_KEYWORD}")] = json!(true);
+            set(json!({"update": {id: patch}}))?;
+            remember(&acc, Some((s, e)));
+            Ok("update")
+        }
+        Decision::EndNow(now_end) => {
+            let (start, _) = span.ok_or("event has no times")?;
+            // whole minutes: Stalwart stores the duration in them
+            let end = std::cmp::max(start + Duration::seconds(60), Utc.timestamp_opt((now_end.timestamp() + 59) / 60 * 60, 0).single().unwrap_or(now_end));
+            set(json!({"update": {id: block_times(start, end, tz)}}))?;
+            let written = event_span(&block_times(start, end, tz), tz).map(|x| x.1).unwrap_or(end);
+            remember(&acc, Some((start, written)));
+            Ok("end-now")
+        }
+        Decision::Destroy => {
+            set(json!({"destroy": [id]}))?;
+            remember(&acc, None);
+            Ok("destroy")
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn t(s: &str) -> DateTime<Utc> { DateTime::parse_from_rfc3339(s).unwrap().with_timezone(&Utc) }
+    fn reply(on: bool, from: Option<&str>, to: Option<&str>) -> Reply { Reply { is_enabled: on, from: from.map(Into::into), to: to.map(Into::into), subject: "Away".into() } }
+    fn doms(v: &[&str]) -> Vec<String> { v.iter().map(|s| s.to_string()).collect() }
+
+    #[test]
+    fn own_domains_are_lowercase_unique_and_valid() {
+        let a = doms(&["Ann@Example.Test", "bob@example.test", "x@sub.example.test", "no-at", "y@localhost", "z@bad_domain.test"]);
+        assert_eq!(own_domains(&a), doms(&["example.test", "sub.example.test"]));
+    }
+
+    #[test]
+    fn audience_is_stored_as_bulwark_does() {
+        let d = doms(&["example.test"]);
+        assert_eq!(audience_for(0, &d), None);
+        assert_eq!(audience_for(1, &[]), None);
+        let a = audience_for(2, &d).unwrap();
+        assert_eq!(a.to_string(), r#"{"only":"external","domains":["example.test"]}"#);
+        assert!(sieve::valid_audience(&a));
+        assert_eq!(audience_choice(Some(&a)), 2);
+        assert_eq!(audience_choice(audience_for(1, &d).as_ref()), 1);
+        assert_eq!(audience_choice(None), 0);
+    }
+
+    #[test]
+    fn forward_takes_the_vacation_period() {
+        let f = json!({"enabled": true, "to": "ann@example.test", "keepCopy": true, "activeFrom": "old"});
+        let w = with_period(&f, Some("2026-10-05T06:00:00.000Z"), None);
+        assert_eq!(w, json!({"enabled": true, "to": "ann@example.test", "keepCopy": true, "activeFrom": "2026-10-05T06:00:00.000Z"}));
+        assert!(sieve::valid_forward(&w));
+        assert_eq!(with_period(&f, None, Some("")), json!({"enabled": true, "to": "ann@example.test", "keepCopy": true}));
+    }
+
+    const EXT: [&str; 8] = ["include", "envelope", "date", "relational", "spamtestplus", "copy", "vacation", "fileinto"];
+    fn ext() -> Vec<String> { EXT.iter().map(|s| s.to_string()).collect() }
+    fn script(id: &str, name: &str, active: bool) -> Value { json!({"id": id, "name": name, "isActive": active, "blobId": format!("b{id}")}) }
+
+    #[test]
+    fn forwarding_writes_the_include_and_the_block() {
+        let scripts = vec![script("1", "vacation", true)];
+        let fwd = json!({"enabled": true, "to": "ann@example.test", "keepCopy": true});
+        let req = SyncRequest { enabled: true, forward: Some(Some(fwd)), audience: Some(audience_for(2, &doms(&["example.test"]))),
+            from: Some("2026-10-05T06:00:00.000Z"), until: Some("2026-10-16T16:00:00.000Z") };
+        let Plan::Write { target, content, activate } = plan_sync(&req, &scripts, None, &ext()).unwrap() else { panic!("expected a write") };
+        assert_eq!(target, None);
+        assert!(activate);
+        assert!(content.contains(r#""vacationForward":{"enabled":true,"to":"ann@example.test","keepCopy":true,"activeFrom":"2026-10-05T06:00:00.000Z","activeUntil":"2026-10-16T16:00:00.000Z"}"#), "{content}");
+        assert!(content.contains(r#""vacationAudience":{"only":"external","domains":["example.test"]}"#));
+        assert!(content.contains(r#""includeVacation":true"#));
+        assert!(content.contains("# Vacation forwarding") && content.contains(r#"redirect :copy "ann@example.test";"#));
+        assert!(content.contains(r#"if not envelope :domain :is "from" ["example.test"] {"#));
+        // what was written reads back as the page shows it
+        let written = vec![script("1", "vacation", false), script("2", "filters", true)];
+        let f = read_filters(&written, Some(&content), &ext(), None);
+        assert!(f.includes_vacation && f.forward_available && f.audience_available && !f.not_running);
+        assert_eq!(f.forward.unwrap()["keepCopy"], true);
+        assert_eq!(f.audience.unwrap()["only"], "external");
+    }
+
+    #[test]
+    fn nothing_to_do_changes_nothing() {
+        // a reply with no filters script and nothing to forward needs no script
+        let scripts = vec![script("1", "vacation", true)];
+        let req = SyncRequest { enabled: true, forward: None, audience: None, from: None, until: None };
+        assert_eq!(plan_sync(&req, &scripts, None, &ext()).unwrap(), Plan::Nothing);
+        // switching off with nothing stored
+        let off = SyncRequest { enabled: false, ..req };
+        assert_eq!(plan_sync(&off, &scripts, None, &ext()).unwrap(), Plan::Nothing);
+        // no `include` on the server: the reply simply runs on its own
+        let no_include = vec!["vacation".to_string()];
+        let req = SyncRequest { enabled: true, forward: None, audience: None, from: None, until: None };
+        assert_eq!(plan_sync(&req, &scripts, None, &no_include).unwrap(), Plan::Nothing);
+    }
+
+    #[test]
+    fn rules_keep_running_when_the_reply_switches_on_and_off() {
+        let rule = sieve::rule("News", "from", "contains", "n@", "move", "N", false);
+        let base = sieve::generate_meta(&json!({"version": 1, "rules": [rule]}), "", &ext());
+        let scripts = vec![script("1", "vacation", true), script("2", "filters", false)];
+        let on = SyncRequest { enabled: true, forward: None, audience: None, from: None, until: None };
+        // the vacation script took over from the filters: the include puts them back
+        let Plan::Write { target, content, activate } = plan_sync(&on, &scripts, Some(&base), &ext()).unwrap() else { panic!() };
+        assert_eq!(target.as_deref(), Some("2"));
+        assert!(activate && content.contains(r#"include :personal :optional "vacation";"#) && content.contains("# Rule: News"));
+        // switched off again: the include goes, the filters stay active
+        let scripts = vec![script("1", "vacation", false), script("2", "filters", true)];
+        let off = SyncRequest { enabled: false, ..on };
+        let Plan::Write { content, activate, .. } = plan_sync(&off, &scripts, Some(&content), &ext()).unwrap() else { panic!() };
+        assert!(activate && !content.contains(r#"include :personal"#) && content.contains("# Rule: News"));
+    }
+
+    #[test]
+    fn a_hand_edited_script_is_not_rewritten() {
+        let scripts = vec![script("2", "filters", true)];
+        let hand = "/* @metadata:begin\n{\"version\":99,\"rules\":[]}\n@metadata:end */\nkeep;\n";
+        let fwd = json!({"enabled": true, "to": "ann@example.test", "keepCopy": false});
+        let req = SyncRequest { enabled: true, forward: Some(Some(fwd)), audience: None, from: None, until: None };
+        assert!(plan_sync(&req, &scripts, Some(hand), &ext()).is_err());
+        let plain = SyncRequest { enabled: true, forward: None, audience: None, from: None, until: None };
+        assert_eq!(plan_sync(&plain, &scripts, Some(hand), &ext()).unwrap(), Plan::Nothing);
+        let f = read_filters(&scripts, Some(hand), &ext(), None);
+        assert!(!f.forward_available && !f.audience_available);
+        // an unusable address is refused
+        let bad = SyncRequest { enabled: true, forward: Some(Some(json!({"enabled": true, "to": "nope", "keepCopy": false}))), audience: None, from: None, until: None };
+        assert!(plan_sync(&bad, &vec![], None, &ext()).is_err());
+    }
+
+    #[test]
+    fn forwarding_availability_follows_the_server() {
+        let scripts = vec![script("2", "filters", true)];
+        let text = sieve::generate_meta(&json!({"version": 1, "rules": []}), "", &ext());
+        assert!(read_filters(&scripts, Some(&text), &ext(), Some(5)).forward_available);
+        assert!(!read_filters(&scripts, Some(&text), &ext(), Some(0)).forward_available);
+        let few: Vec<String> = doms(&["include", "envelope"]);
+        let f = read_filters(&scripts, Some(&text), &few, None);
+        assert!(!f.forward_available && f.audience_available);
+        // stored forwarding that is idle: the filters script is not the active one
+        let on = sieve::generate_meta(&json!({"version": 2, "rules": [], "vacationForward": {"enabled": true, "to": "a@b.cd", "keepCopy": false}}), "", &ext());
+        let idle = vec![script("1", "vacation", true), script("2", "filters", false)];
+        assert!(read_filters(&idle, Some(&on), &ext(), None).not_running);
+    }
+
+    #[test]
+    fn messages_are_stored_as_text_plus_html() {
+        assert_eq!(text_to_paragraph_html("Hi <b>\nthere\n\n\nBye & thanks"), "<p>Hi &lt;b&gt;<br>there</p><p>Bye &amp; thanks</p>");
+        assert_eq!(text_to_paragraph_html("  \n "), "");
+        assert_eq!(parts_from_text("Away\r\nback soon"), ("Away\nback soon".to_string(), Some("<p>Away<br>back soon</p>".to_string())));
+        assert_eq!(parts_from_text(""), (String::new(), None));
+        let (text, html) = parts_from_html("<p>Hello</p><script>alert(1)</script><p>there</p>");
+        assert!(!html.as_deref().unwrap().contains("script") && text.contains("Hello") && text.contains("there"), "{html:?} / {text:?}");
+        assert_eq!(parts_from_html("<p> </p>"), (String::new(), None));
+        let (_, h) = parts_from_html(r#"<p onclick="x()">Hi <a href="javascript:evil()">a</a><scr<script></script>ipt>bad</scr<script></script>ipt></p>"#);
+        let h = h.unwrap();
+        assert!(!h.contains("onclick") && !h.contains("javascript:") && !h.to_lowercase().contains("<script"), "{h}");
+    }
+
+    #[test]
+    fn message_checks_match_stalwart_limits() {
+        assert!(check_message(true, "S", "text", None).is_ok());
+        assert!(check_message(true, "S", "", None).is_err());
+        assert!(check_message(false, "S", "", None).is_ok());
+        assert!(check_message(true, "S", "", Some("<p>x</p>")).is_ok());
+        assert!(check_message(false, &"s".repeat(512), "x", None).is_err());
+        assert!(check_message(false, &"s".repeat(511), &"x".repeat(2047), None).is_ok());
+        assert!(check_message(false, "s", &"x".repeat(2048), None).is_err());
+        assert!(check_message(false, "s", "x", Some(&"y".repeat(2048))).is_err());
+    }
+
+    #[test]
+    fn dates_round_trip_on_the_wall_clock() {
+        let berlin: Tz = "Europe/Berlin".parse().unwrap();
+        assert_eq!(parse_moment("2026-10-05", berlin), Ok(Some("2026-10-04T22:00:00.000Z".into())));
+        assert_eq!(parse_moment("2026-10-05 08:30", berlin), Ok(Some("2026-10-05T06:30:00.000Z".into())));
+        assert_eq!(parse_moment("", berlin), Ok(None));
+        assert_eq!(parse_moment("2026-1", berlin), Err(()));
+        assert_eq!(parse_moment("2026-13-40", berlin), Err(()));
+        assert_eq!(show_moment("2026-10-04T22:00:00.000Z", berlin), "2026-10-05");
+        assert_eq!(show_moment("2026-10-05T06:30:00Z", berlin), "2026-10-05 08:30");
+    }
+
+    #[test]
+    fn calendar_times_are_all_day_or_timed() {
+        let berlin: Tz = "Europe/Berlin".parse().unwrap();
+        let all_day = block_times(t("2026-10-04T22:00:00Z"), t("2026-10-11T22:00:00Z"), berlin);
+        assert_eq!(all_day, json!({"start": "2026-10-05T00:00:00", "duration": "P7D", "timeZone": null, "showWithoutTime": true}));
+        assert_eq!(event_span(&all_day, berlin), Some((t("2026-10-04T22:00:00Z"), t("2026-10-11T22:00:00Z"))));
+        let timed = block_times(t("2026-10-05T06:30:00Z"), t("2026-10-05T16:00:00Z"), berlin);
+        assert_eq!(timed, json!({"start": "2026-10-05T08:30:00", "duration": "PT9H30M", "timeZone": "Europe/Berlin", "showWithoutTime": false}));
+        assert_eq!(event_span(&timed, berlin), Some((t("2026-10-05T06:30:00Z"), t("2026-10-05T16:00:00Z"))));
+        assert_eq!(iso_duration(0), "PT0S");
+        assert_eq!(iso_duration(26 * 3600 * 1000), "P1DT2H");
+        assert_eq!(duration_secs("P1DT2H30M"), Some(95400));
+        assert_eq!(duration_secs("P2W"), Some(1209600));
+        assert_eq!(duration_secs("PT5"), None);
+    }
+
+    #[test]
+    fn the_event_carries_bulwarks_uid_and_marks() {
+        let ev = new_block_event("a1", "cal9", "  ", t("2026-10-05T06:30:00Z"), t("2026-10-05T16:00:00Z"), chrono_tz::UTC);
+        assert_eq!(ev["uid"], "bulwark-ooo-a1");
+        assert_eq!(ev["title"], "Out of office");
+        assert_eq!(ev["calendarIds"], json!({"cal9": true}));
+        assert_eq!(ev["freeBusyStatus"], "busy");
+        assert_eq!(ev["privacy"], "public");
+        assert_eq!(ev["status"], "confirmed");
+        assert_eq!(ev["keywords"], json!({"bulwark-out-of-office": true}));
+        assert_eq!(ev["start"], "2026-10-05T06:30:00");
+        let cals = vec![json!({"id": "t", "isTasksOnly": true, "isDefault": true}), json!({"id": "c1"}), json!({"id": "c2", "isDefault": true, "myRights": {"mayWriteAll": true}})];
+        assert_eq!(block_calendar(&cals).unwrap()["id"], "c2");
+        let ro = vec![json!({"id": "c", "isDefault": true, "myRights": {"mayWriteAll": false, "mayWriteOwn": false}})];
+        assert!(block_calendar(&ro).is_none());
+    }
+
+    fn input<'a>(r: &'a Reply, event: Option<(&str, &str)>, last: Option<(&str, &str)>, trigger: Trigger, now: &str) -> DecisionInput<'a> {
+        DecisionInput { block: true, reply: r, event: event.map(|(a, b)| (t(a), t(b))), last: last.map(|(a, b)| (a.into(), b.into())),
+            previous: None, marked: false, now: t(now), trigger }
+    }
+    const FROM: &str = "2026-10-05T00:00:00Z";
+    const TO: &str = "2026-10-12T00:00:00Z";
+
+    #[test]
+    fn block_decisions_follow_bulwark() {
+        let on = reply(true, Some(FROM), Some(TO));
+        // no event yet: create it for the dates
+        assert_eq!(decide_block(&input(&on, None, None, Trigger::Save, "2026-09-30T00:00:00Z")), Decision::Create(t(FROM), t(TO)));
+        // reply off or no dates: nothing
+        assert_eq!(decide_block(&input(&reply(false, Some(FROM), Some(TO)), None, None, Trigger::Save, "2026-09-30T00:00:00Z")), Decision::None);
+        assert_eq!(decide_block(&input(&reply(true, Some(FROM), None), None, None, Trigger::Save, "2026-09-30T00:00:00Z")), Decision::None);
+        let mut off = input(&on, None, None, Trigger::Save, "2026-09-30T00:00:00Z");
+        off.block = false;
+        assert_eq!(decide_block(&off), Decision::None);
+        // an event we wrote with other dates is moved
+        let moved = reply(true, Some("2026-10-06T00:00:00Z"), Some(TO));
+        assert_eq!(decide_block(&input(&moved, Some((FROM, TO)), Some((FROM, TO)), Trigger::Save, "2026-09-30T00:00:00Z")), Decision::Update(t("2026-10-06T00:00:00Z"), t(TO)));
+        // the same dates: nothing
+        assert_eq!(decide_block(&input(&on, Some((FROM, TO)), Some((FROM, TO)), Trigger::Save, "2026-09-30T00:00:00Z")), Decision::None);
+        // someone edited the event: left alone
+        assert_eq!(decide_block(&input(&moved, Some(("2026-10-07T00:00:00Z", TO)), Some((FROM, TO)), Trigger::Save, "2026-09-30T00:00:00Z")), Decision::None);
+        // the reply switched off: a future event goes, a running one ends now, a past one stays
+        let off = reply(false, Some(FROM), Some(TO));
+        assert_eq!(decide_block(&input(&off, Some((FROM, TO)), Some((FROM, TO)), Trigger::Save, "2026-09-30T00:00:00Z")), Decision::Destroy);
+        assert_eq!(decide_block(&input(&off, Some((FROM, TO)), Some((FROM, TO)), Trigger::Save, "2026-10-07T00:00:00Z")), Decision::EndNow(t("2026-10-07T00:00:00Z")));
+        assert_eq!(decide_block(&input(&off, Some((FROM, TO)), Some((FROM, TO)), Trigger::Save, "2026-10-20T00:00:00Z")), Decision::None);
+        // a reply that ran out leaves its event; and creates none
+        assert_eq!(decide_block(&input(&on, Some((FROM, TO)), Some((FROM, TO)), Trigger::Load, "2026-10-20T00:00:00Z")), Decision::None);
+        assert_eq!(decide_block(&input(&on, None, None, Trigger::Load, "2026-10-20T00:00:00Z")), Decision::None);
+    }
+
+    #[test]
+    fn a_deleted_event_stays_deleted_until_the_dates_change() {
+        let on = reply(true, Some(FROM), Some(TO));
+        // on load, with a record for the same dates: it was deleted elsewhere
+        assert_eq!(decide_block(&input(&on, None, Some((FROM, TO)), Trigger::Load, "2026-09-30T00:00:00Z")), Decision::None);
+        // on a save it is made again
+        assert_eq!(decide_block(&input(&on, None, Some((FROM, TO)), Trigger::Save, "2026-09-30T00:00:00Z")), Decision::Create(t(FROM), t(TO)));
+        // a marked event with no record on this device counts as ours when loaded; the previous dates count on a save
+        let moved = reply(true, Some("2026-10-06T00:00:00Z"), Some(TO));
+        let mut i = input(&moved, Some((FROM, TO)), None, Trigger::Load, "2026-09-30T00:00:00Z");
+        assert_eq!(decide_block(&i), Decision::None);
+        i.marked = true;
+        assert_eq!(decide_block(&i), Decision::Update(t("2026-10-06T00:00:00Z"), t(TO)));
+        let mut i = input(&moved, Some((FROM, TO)), None, Trigger::Save, "2026-09-30T00:00:00Z");
+        i.previous = Some((Some(FROM.into()), Some(TO.into())));
+        assert_eq!(decide_block(&i), Decision::Update(t("2026-10-06T00:00:00Z"), t(TO)));
+    }
+}

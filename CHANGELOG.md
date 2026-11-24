@@ -7,6 +7,8 @@ example "## 0.1.0 — 2026-12-01", and start a new "Unreleased" above it.
 
 ## Unreleased
 
+- Out of office now matches Bulwark's: choose who gets the reply (everyone, only your own domains, or only others), forward mail while you are away (with an option to keep a copy in the Inbox), write the message as HTML, set start and end with a time, and block your calendar with a busy event for the dates. These settings are stored the way Bulwark stores them, so a reply set in one app shows in the other. Reply templates from an organisation library are not included yet.
+
 ## 0.2.1 — 2026-11-24
 
 - Updates through Hub or the installer now close a Barbican that is running in the tray (it saves an open draft first) instead of stopping with "Setup could not close Barbican". The update to this version still needs Barbican to be quit by hand once (tray icon, Quit), because the older version does not listen for the signal.

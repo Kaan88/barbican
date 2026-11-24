@@ -470,7 +470,7 @@ fn valid_email(e: &str) -> bool {
     !l.is_empty() && l.chars().all(|c| c.is_ascii_alphanumeric() || ".!#$%&'*+/=?^_`{|}~-".contains(c)) && d.split('.').all(label)
 }
 
-fn valid_domain(d: &str) -> bool {
+pub fn valid_domain(d: &str) -> bool {
     let labels: Vec<&str> = d.split('.').collect();
     labels.len() >= 2 && labels.iter().all(|l| !l.is_empty() && l.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
         && !l.starts_with('-') && !l.ends_with('-'))

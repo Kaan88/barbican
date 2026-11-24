@@ -1,6 +1,7 @@
 #![cfg_attr(not(test), windows_subsystem = "windows")]
 
 mod a11y;
+mod vacation;
 mod winstate;
 mod auth;
 mod attachments;
