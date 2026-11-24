@@ -41,7 +41,7 @@ of truth; `src/plugin_catalog.rs` is generated from them.
 - `phase`: the ROADMAP phase and item that fires the hook: `5-B5` (Phase 5, track B, item B5 Hooks), or `n/a` for Bulwark's phone layout.
 - `rust_call_site`: `path:line` of the place in `src/` that fires the hook; filled in the same commit that fires it.
 - `status`: `pending`, `done`, or `n/a(reason)`.
-- `budget_ms`: the time a handler gets (Bulwark `lib/plugin-hooks.ts:62-66`: 5 s, intercepts 60 s, takeovers 10 min).
+- `budget_ms`: the time a handler gets (Bulwark `lib/plugin-hooks.ts:62-72`: 5 s, intercepts 60 s, the send intercept and takeovers 10 min, blob upload 15 min).
 - `fail_closed`: true when a handler that fails or times out stops the action (the send takeover).
 - `barbican_status`: `adopt`, `adapt` or `skip` (B1, the same in all three files); `barbican_note` says why, and for adapt what changes.
   A skipped row has `status` `n/a(...)`. Refusing a manifest that names a skipped hook, slot or method is planned for B2

@@ -181,7 +181,7 @@ granted, origin not allowed), `unsupported`, `not_found`, `quota`, `rate_limited
   the send intercept and takeovers 10 min, blob upload 15 min); renders and actions get 5 s. Because the UI no longer
   waits, API 1's 10 s cap goes. **The deadline starts when the host calls `handle`, not when the message is queued.**
   Time the plugin spends waiting for the user in a host dialog (`ui.alert`, `ui.confirm`, `ui.prompt`, a permission
-  request) does not count. **Hard cap:** no message is held more than 10 minutes in all, counted from when it was
+  request) does not count. **Hard cap:** no message is held more than 10 minutes in all (or its hook's budget when that is longer, the 15-min blob upload), counted from when it was
   queued (queue time, handling and user waits together; Bulwark `HELD_HOOK_DEADLINE_MS`, `lib/plugin-hooks.ts:79`). The
   user can cancel a long intercept from the UI; the plugin then gets `cancel`.
 - While a plugin is inside `handle`, its later messages wait in its queue. A message that waits longer than its own
