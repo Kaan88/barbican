@@ -666,9 +666,14 @@ fn folder_items(u: &AppWindow, id: &str) -> Vec<CtxItem> {
         off(it(G_RENAME, "Rename", "", "rename"), role.is_empty()),
         // Bulwark mail import: .eml and .mbox files into this folder (Email/import)
         it(G_UPLOAD, "Import messages (.eml, .mbox)…", "", "import"),
+        // Bulwark "keep folders": each .mbox into its own subfolder named from the file
+        it(G_UPLOAD, "Import .mbox files as subfolders…", "", "import-folders"),
         // Bulwark mail export: the folder as .mbox or as .eml files
         it(G_DOWNLOAD, "Export folder as .mbox…", "", "export-mbox"),
         it(G_DOWNLOAD, "Export folder as .eml files…", "", "export-eml"),
+        // Bulwark whole-account export (no mailbox): every folder, nested as the folders are
+        it(G_DOWNLOAD, "Export all mail as .mbox files…", "", "export-all-mbox"),
+        it(G_DOWNLOAD, "Export all mail as .eml files…", "", "export-all-eml"),
     ];
     if crate::mailexport::running() { v.push(it(G_DELETE, "Cancel export", "", "export-cancel")); }
     if role == "trash" || role == "junk" {
@@ -1078,7 +1083,9 @@ pub fn pick(u: &AppWindow, st: &Shared, action: &str) {
                 "folder-read" => mark_read_query(u, c, json!({"inMailbox": fid, "notKeyword": "$seen"})),
                 "refresh" => u.invoke_refresh(),
                 "new-sub" => prompt(u, "New subfolder", "", "new-sub", id),
-                "import" => crate::mailimport::start(u, c, &fid),
+                "import" => crate::mailimport::start(u, c, &fid, false),
+                "import-folders" => crate::mailimport::start(u, c, &fid, true),
+                "export-all-mbox" | "export-all-eml" => crate::mailexport::start_all(u, c, action == "export-all-mbox"),
                 "export-mbox" | "export-eml" => {
                     let name = folder(u, id).map(|f| f.name.to_string()).unwrap_or_default();
                     crate::mailexport::start(u, c, &fid, &name, action == "export-mbox");
