@@ -5,6 +5,8 @@ mod winstate;
 mod auth;
 mod attachments;
 mod avatars;
+mod bimi;
+mod phish;
 mod quota;
 mod crashguard;
 mod tags;
@@ -136,6 +138,8 @@ struct Current {
     text: String,
     remote: bool,
     allow: bool,
+    /// Reported as phishing (`$phishing`): its links are turned off (phish.rs).
+    links_off: bool,
 }
 
 thread_local! {
@@ -182,7 +186,7 @@ fn images_offers(u: &AppWindow) -> trust::Offers {
     let prefs = settings::Settings::load().prefs;
     let (from, forged) = CUR_MSG.with(|x| x.borrow().as_ref().map(|(m, _)| {
         let from = m["from"][0]["email"].as_str().unwrap_or("").to_string();
-        let forged = trust::forged(m["headers"].as_array().map(|a| a.as_slice()).unwrap_or(&[]), &from);
+        let forged = trust::forged(&reader::open_trust(m), &from);
         (from, forged)
     }).unwrap_or_default());
     trust::offers(trust::policy(&prefs, u.get_auto_images()), &from, trust::is_trusted(&trust::trusted_list(&prefs), &from), forged)
@@ -202,6 +206,12 @@ fn render_current(u: &AppWindow) {
     render_current_then(u, None);
 }
 
+/// The open message was just reported as phishing: draw it again with its links off.
+pub(crate) fn links_off_now(u: &AppWindow) {
+    CUR.with(|c| if let Some(c) = c.borrow_mut().as_mut() { c.links_off = true; });
+    render_current(u);
+}
+
 /// Render the open message's body; `on_ready` runs when it is about to appear (with the
 /// WebView: once the new page is laid out, right before it is swapped in).
 /// `on_ready` returning false means the page is no longer wanted (another message was opened
@@ -213,6 +223,9 @@ fn render_current_then(u: &AppWindow, on_ready: Option<Box<dyn FnOnce() -> bool>
         let c = c.borrow();
         let Some(cur) = c.as_ref() else { return };
         u.set_images_blocked(cur.remote && !cur.allow && mode != 2);
+        // every renderer below reads this: the page (links lose their address), the navigation
+        // handlers and the light renderer's click
+        mailview::set_links_off(cur.links_off);
         if cur.remote && !cur.allow && mode != 2 {
             let o = images_offers(u);
             u.set_images_can_load(o.load_once);
@@ -299,8 +312,10 @@ fn wrap_html_opts(body: &str, images: bool) -> String {
 /// when `recolor` (dark_mail.rs, email_dark.js) and the accessibility colour override is off;
 /// anything else is on white.
 fn page(body: &str, images: bool, recolor: bool) -> (String, bool, &'static str) {
-    // no <base>, no meta refresh, no names that shadow `document` (mailview::sanitize_mail_html)
-    let body = &mailview::sanitize_mail_html(body);
+    // no <base>, no meta refresh, no names that shadow `document` (mailview::sanitize_mail_html);
+    // in a message reported as phishing also no link address (mailview::links_off)
+    let links_off = mailview::links_off();
+    let body = &mailview::sanitize_mail_html_opts(body, links_off);
     let p = settings::Settings::load();
     // Settings > Accessibility: spacing, width, links, motion, text size and fitting
     let a = a11y::A11y::from(&p, a11y::System::detect());
@@ -320,7 +335,9 @@ fn page(body: &str, images: bool, recolor: bool) -> (String, bool, &'static str)
     // the accessibility override paints its own page colour (a11y.rs)
     let bg = if dark && a.override_active() { "#0a0a0a" } else if themed { mailview::reader_bg() } else if recolor { dark_mail::BACKGROUND } else { "#ffffff" };
     let csp = csp_with(images, script.as_deref());
-    let extra = format!("<style>{}</style>{}", a.mail_css(dark), script.map(|s| format!("<script>{s}</script>")).unwrap_or_default());
+    // a link with no address (a reported message) reads as plain text, and says it is off
+    let off_css = if links_off { "a:not([href]),area:not([href]){color:inherit!important;text-decoration:underline dotted!important;cursor:not-allowed!important}" } else { "" };
+    let extra = format!("<style>{}{off_css}</style>{}", a.mail_css(dark), script.map(|s| format!("<script>{s}</script>")).unwrap_or_default());
     let csp = format!("{csp}{extra}");
     // Bulwark plainTextFont: sans (default) or mono for text/plain bodies
     let pre_font = if p.str("plainTextFont", "sans") == "mono" { "ui-monospace,Consolas,'Cascadia Mono',monospace" } else { "inherit" };
@@ -1459,6 +1476,7 @@ fn main() -> Result<(), slint::PlatformError> {
     ui.on_rerender(move || render_current(&w.unwrap()));
 
     ui.on_lite_click(move |x, y| {
+        if mailview::links_off() { return; }
         if let Some(href) = lite::link_at(x, y) {
             if mailto::parse(&href).is_some() { mailto::request(href); }
             else if href.starts_with("http://") || href.starts_with("https://") { oauth::open_browser(&href); }

@@ -184,6 +184,14 @@ fn sandbox(script: bool) -> &'static str {
 /// (Until then the shell's own initial load is on its way, in whatever URL form the platform
 /// reports it, so that one load is not judged.)
 static NAV_LOCKED: AtomicBool = AtomicBool::new(false);
+/// The open message was reported as phishing: no link in it leads anywhere (set when it renders).
+static LINKS_OFF: AtomicBool = AtomicBool::new(false);
+
+/// A message reported as phishing is about to render (or not): its links are off from now on.
+pub fn set_links_off(on: bool) { LINKS_OFF.store(on, Ordering::Relaxed); }
+
+/// Whether the message on screen has its links turned off.
+pub fn links_off() -> bool { LINKS_OFF.load(Ordering::Relaxed) }
 
 #[derive(Debug, PartialEq)]
 enum Nav { Allow, Browser, Cancel }
@@ -393,11 +401,18 @@ fn is_html_ws(b: u8) -> bool { matches!(b, b' ' | b'\t' | b'\n' | b'\r' | 0x0c) 
 /// removals repeat until nothing changes, so deleting one tag cannot join the pieces around
 /// it into a new one (`<me<base>ta http-equiv=refresh>`). Input made to cost too much
 /// to scan is not rendered as HTML at all.
-pub fn sanitize_mail_html(html: &str) -> String {
+#[cfg(test)]
+pub fn sanitize_mail_html(html: &str) -> String { sanitize_mail_html_opts(html, false) }
+
+/// `sanitize_mail_html`, and with `links_off` (a message reported as phishing, `$phishing`) every
+/// `<a>` and `<area>` also loses its address (`href`, `xlink:href`, and with them `target`,
+/// `rel`, `ping`, `download`), so it cannot be clicked, opened in a new window or reached with
+/// Tab; the page's style draws it as plain text that says it is off (Bulwark lib/phishing-links.ts).
+pub fn sanitize_mail_html_opts(html: &str, links_off: bool) -> String {
     let mut cur = std::borrow::Cow::Borrowed(html);
     // each change makes the text shorter, so this ends; the cap only bounds the work
     for _ in 0..64 {
-        match sanitize_pass(&cur) {
+        match sanitize_pass(&cur, links_off) {
             Ok(None) => return cur.into_owned(),
             Ok(Some(next)) => cur = std::borrow::Cow::Owned(next),
             Err(()) => return format!("<pre>{}</pre>", crate::esc(html)),
@@ -407,10 +422,14 @@ pub fn sanitize_mail_html(html: &str) -> String {
 }
 
 /// One pass: `Ok(None)` when nothing needs removing, `Err` when the work budget ran out.
-fn sanitize_pass(s: &str) -> Result<Option<String>, ()> {
+const LINK_OFF_ATTRS: &str = "title=\"Link disabled: this message was reported as phishing\" aria-disabled=\"true\" ";
+
+fn sanitize_pass(s: &str, links_off: bool) -> Result<Option<String>, ()> {
     let b = s.as_bytes();
     let mut budget: usize = b.len().saturating_mul(24).saturating_add(1 << 20);
     let mut dels: Vec<(usize, usize)> = Vec::new();
+    // text that takes the place of the attribute deleted at that start (a turned-off link says so)
+    let mut rep: std::collections::HashMap<usize, &'static str> = std::collections::HashMap::new();
     let mut i = 0;
     while i < b.len() {
         let Some(off) = b[i..].iter().position(|&c| c == b'<') else { break };
@@ -455,6 +474,15 @@ fn sanitize_pass(s: &str) -> Result<Option<String>, ()> {
         // associated with nothing, so their names cannot shadow.
         if name == "base" || name == "form" || (name == "meta" && has("http-equiv")) {
             dels.push((i, end));
+        } else if links_off && (name == "a" || name == "area") {
+            let dead = |n: &str| matches!(n, "href" | "xlink:href" | "target" | "rel" | "ping" | "download" | "tabindex");
+            let first = attrs.iter().find(|a| dead(&a.0)).map(|a| a.1);
+            for (n, a, e) in &attrs {
+                // an earlier title would win over ours: it goes too
+                if dead(n) || (first.is_some() && matches!(n.as_str(), "title" | "aria-disabled")) { dels.push((*a, *e)); }
+            }
+            // Bulwark phishing-links.ts: the link stays as text, says it is off and is marked disabled
+            if let Some(a) = first { rep.insert(a, LINK_OFF_ATTRS); }
         } else if NAMED_ACCESS_TAGS.contains(&name.as_str()) {
             let id_too = NAMED_ACCESS_ID_TAGS.contains(&name.as_str());
             for (n, a, e) in &attrs {
@@ -468,11 +496,12 @@ fn sanitize_pass(s: &str) -> Result<Option<String>, ()> {
     dels.sort_unstable();
     let mut out = String::with_capacity(s.len());
     let mut at = 0;
-    for (a, e) in dels {
+    for (a0, e) in dels {
         if e <= at { continue; }
-        let a = a.max(at);
+        let a = a0.max(at);
         if !s.is_char_boundary(a) || !s.is_char_boundary(e) { continue; }
         out.push_str(&s[at..a]);
+        if let Some(r) = rep.get(&a0) { out.push_str(r); }
         at = e;
     }
     out.push_str(&s[at..]);
@@ -641,6 +670,66 @@ mod tests {
         assert_eq!(parse_key("nokey"), None);
         assert_eq!(parse_key("|"), None);
     }
+
+    // ---- links turned off in a message reported as phishing (G-049)
+
+    fn off(h: &str) -> String { super::sanitize_mail_html_opts(h, true) }
+    fn no_address(h: &str) -> bool {
+        let l = off(h).to_ascii_lowercase();
+        !l.contains("href") && !l.contains("http") && !l.contains("evil.example")
+    }
+
+    #[test]
+    fn a_reported_message_has_no_link_left() {
+        // the link text stays; the address does not
+        let o = off("<p>Hi <a href=\"https://evil.example/login\" target=\"_blank\" rel=\"x\">your bank</a></p>");
+        assert!(o.contains("your bank") && !o.contains("evil.example") && !o.contains("href") && !o.contains("target"), "{o}");
+        for h in [
+            "<a href=https://evil.example/x>t</a>",
+            "<a href='https://evil.example/x'>t</a>",
+            "<A HREF=\"https://evil.example/x\">t</A>",
+            "<a\nhref\n=\n\"https://evil.example/x\">t</a>",
+            "<a/href=\"https://evil.example/x\">t</a>",
+            "<a class=x href=\"https://evil.example/x\" id=y>t</a>",
+            "<a href=\"mailto:evil@evil.example\">t</a>",
+            "<a href=\"javascript:alert(1)\">t</a>",
+            "<map name=m><area href=\"https://evil.example/x\" shape=rect coords=\"0,0,9,9\"></map>",
+            "<svg><a xlink:href=\"https://evil.example/x\"><text>t</text></a><a href=\"https://evil.example/y\">u</a></svg>",
+            "<a href=\"https://evil.example/x\" ping=\"https://evil.example/p\" download=\"f\">t</a>",
+            "<!-- <a href=https://evil.example/x> --><a href=https://evil.example/y>t</a>",
+            "<textarea><a href=https://evil.example/x></textarea>",
+            "<a href=\"https://evil.example/1\">1</a><a href=\"https://evil.example/2\">2</a><a href=\"https://evil.example/3\">3</a>",
+        ] {
+            assert!(no_address(h), "{h} -> {}", off(h));
+        }
+        // a start tag split by a tag that is removed does not join into a link
+        assert!(no_address("<a hr<base>ef=\"https://evil.example/x\">t</a>"), "{}", off("<a hr<base>ef=\"https://evil.example/x\">t</a>"));
+        // a turned-off link says so, once, and does not keep an earlier title
+        let o = off("<a title=\"x\" href=\"https://evil.example/x\" aria-disabled=\"false\">t</a>");
+        assert_eq!(o.matches("title=").count(), 1, "{o}");
+        assert!(o.contains("aria-disabled=\"true\"") && !o.contains("title=\"x\"") && !o.contains("aria-disabled=\"false\""), "{o}");
+        assert_eq!(off(&o), o, "turning links off again changes nothing");
+        // the rest of the page is left alone
+        let o = off("<p id=\"a\">Hi <img src=\"x.png\" alt=\"n\"> <b>bold</b></p>");
+        assert!(o.contains("<img src=\"x.png\"") && o.contains("<b>bold</b>"), "{o}");
+        // the safety passes still run
+        assert!(!off("<base href=\"http://evil/\"><a href=x>t</a>").to_ascii_lowercase().contains("<base"));
+    }
+
+    #[test]
+    fn links_are_kept_in_a_message_that_was_not_reported() {
+        let h = "<a href=\"https://e.x/?a=1&b=2\">go</a>";
+        assert_eq!(san(h), h);
+        assert_eq!(super::sanitize_mail_html_opts(h, false), h);
+    }
+
+    #[test]
+    fn the_flag_follows_the_message_on_screen() {
+        super::set_links_off(true);
+        assert!(super::links_off());
+        super::set_links_off(false);
+        assert!(!super::links_off());
+    }
 }
 
 fn on_ipc(msg: &str) {
@@ -720,6 +809,7 @@ fn build_in(ui: &AppWindow, ctx: &mut wry::WebContext) -> Option<wry::WebView> {
             // a web URL is handed to the browser instead.
             match nav_decision(&url, NAV_LOCKED.load(Ordering::Relaxed)) {
                 Nav::Allow => true,
+                Nav::Browser if links_off() => false,
                 Nav::Browser => { crate::oauth::open_browser(&url); false }
                 Nav::Cancel => false,
             }
@@ -727,7 +817,8 @@ fn build_in(ui: &AppWindow, ctx: &mut wry::WebContext) -> Option<wry::WebView> {
         .with_new_window_req_handler(|url, _| {
             // links in a message (all retargeted to a new window): web links open in the
             // browser, mailto: in the composer
-            if url.starts_with("http://") || url.starts_with("https://") { crate::oauth::open_browser(&url); }
+            if links_off() {}
+            else if url.starts_with("http://") || url.starts_with("https://") { crate::oauth::open_browser(&url); }
             else if crate::mailto::parse(&url).is_some() { crate::mailto::request(url); }
             wry::NewWindowResponse::Deny
         })

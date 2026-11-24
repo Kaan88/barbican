@@ -313,7 +313,10 @@ impl<R: std::io::BufRead> Reader<R> {
 
 /// The Email/import entry of an uploaded message.
 pub fn import_entry(blob: &str, mailbox: &str, it: &Item) -> Value {
-    let kw: Map<String, Value> = it.keywords.iter().map(|k| (k.clone(), json!(true))).collect();
+    let mut kw: Map<String, Value> = it.keywords.iter().map(|k| (k.clone(), json!(true))).collect();
+    // from a file: the server never checked it (Bulwark lib/mail-import/sources.ts:118-122), so
+    // its Authentication-Results are not believed (auth::Origin)
+    kw.insert("$imported".into(), json!(true));
     let mut e = json!({"blobId": blob, "mailboxIds": { mailbox: true }, "keywords": kw});
     if let Some(r) = &it.received_at { e["receivedAt"] = json!(r); }
     e
@@ -536,7 +539,11 @@ mod tests {
         assert_eq!(e["blobId"], "B1");
         assert_eq!(e["mailboxIds"]["M1"], true);
         assert_eq!(e["keywords"]["$seen"], true);
+        assert_eq!(e["keywords"]["$imported"], true, "every message from a file is marked");
         assert!(e.get("receivedAt").is_none());
+        let none = import_entry("B2", "M1", &Item { bytes: vec![], keywords: vec![], received_at: Some("2026-01-01T00:00:00Z".into()) });
+        assert_eq!(none["keywords"], json!({"$imported": true}));
+        assert_eq!(none["receivedAt"], "2026-01-01T00:00:00Z");
         // folded headers are unfolded
         let f = header_fields(b"Subject: a\n  b\n\n");
         assert_eq!(f[0], ("subject".to_string(), "a b".to_string()));

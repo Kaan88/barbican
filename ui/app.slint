@@ -1801,6 +1801,9 @@ export component AppWindow inherits Window {
     in property <color> r-color: #6366f1;
     in property <image> r-avatar;
     in property <int> r-avatar-kind;
+    // BIMI: a Verified or Common Mark Certificate backs the sender's logo and the message passed DMARC (src/bimi.rs)
+    in property <bool> r-brand-verified;
+    in property <string> r-brand-tip;
     in property <bool> r-flagged;
     in property <[Att]> attachments;
     in-out property <string> toast;
@@ -2976,6 +2979,22 @@ export component AppWindow inherits Window {
                         font-weight: 600;
                         overflow: elide;
                         TouchArea { pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.ctx("addr", root.r-email, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } } }
+                    }
+                    if root.r-brand-verified: Rectangle {
+                        width: 22px;
+                        accessible-role: image;
+                        accessible-label: root.r-brand-tip;
+                        SIcon { x: 5px; y: (parent.height - self.height) / 2; commands: Icons.check; size: 14px; weight: 2.2; tint: Theme.accent; }
+                        bva := TouchArea { }
+                        if bva.has-hover: Tip {
+                            y: parent.height + 4px;
+                            x: 0px;
+                            width: bvt.preferred-width + 12px;
+                            height: 24px;
+                            border-radius: Theme.nordic ? 12px : 8px;
+                            background: Theme.text;
+                            bvt := Text { text: root.r-brand-tip; color: Theme.bg; font-size: 11px; font-weight: 600; vertical-alignment: center; horizontal-alignment: center; }
+                        }
                     }
                     if root.r-external: VerticalLayout {
                         alignment: center;

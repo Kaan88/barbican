@@ -460,9 +460,36 @@ thread_local! {
 /// Show the open message's sender picture (the reader may use a BIMI logo: it has the headers).
 pub fn set_reader_avatar(u: &AppWindow, m: Option<&Value>, server_host: &str) {
     let junk = LIST.with(|l| filter_in_junk(&l.borrow().filter));
-    let s = m.and_then(|m| Some((m["from"][0]["email"].as_str()?.to_string(), crate::avatars::brand_domain(m, server_host), junk)));
+    let s = m.and_then(|m| {
+        // the logo only for a message whose results are the server's own (auth::assess)
+        let roles: Vec<String> = m["mailboxIds"].as_object().map(|o| o.keys().map(|k| mailbox_role(k)).collect()).unwrap_or_default();
+        let origin = crate::auth::Origin::of(m, server_host, &roles);
+        Some((m["from"][0]["email"].as_str()?.to_string(), crate::auth::brand_domain(m, &origin), junk))
+    });
+    let brand = s.as_ref().and_then(|s| s.1.clone());
     READER_SENDER.with(|r| *r.borrow_mut() = s);
-    reader_avatar(u, &crate::avatars::Prefs::load());
+    let prefs = crate::avatars::Prefs::load();
+    reader_avatar(u, &prefs);
+    brand_badge(u, brand, &prefs);
+}
+
+/// The verified-brand check mark (Bulwark BrandVerifiedBadge): only for a From domain the message
+/// passed DMARC for in our own server's results (`brand`), only when the setting that lets
+/// Barbican ask the sender's DNS and hosts is on, and only when a VMC or CMC backs the logo.
+/// The lookup runs off the UI thread; an answer for a message no longer open is dropped.
+fn brand_badge(u: &AppWindow, brand: Option<String>, prefs: &crate::avatars::Prefs) {
+    u.set_r_brand_verified(false);
+    u.set_r_brand_tip("".into());
+    let Some(domain) = brand.filter(|_| prefs.favicons) else { return };
+    let w = u.as_weak();
+    std::thread::spawn(move || {
+        let info = crate::bimi::info(&domain);
+        let Some(tip) = crate::bimi::description(&domain, &info) else { return };
+        let _ = w.upgrade_in_event_loop(move |u| {
+            let still = READER_SENDER.with(|r| r.borrow().as_ref().is_some_and(|s| s.1.as_deref() == Some(domain.as_str())));
+            if still { u.set_r_brand_tip(tip.into()); u.set_r_brand_verified(true); }
+        });
+    });
 }
 
 fn reader_avatar(u: &AppWindow, ap: &crate::avatars::Prefs) {
@@ -938,6 +965,25 @@ fn remove_local(ids: &[String]) {
         let removed = before - l.emails.len();
         l.total = l.total.saturating_sub(removed);
         for i in ids { l.checked.remove(i); }
+    });
+}
+
+/// A message reported as phishing was filed in Junk by the server (phish::report): the list drops
+/// it, the folder counts follow, and the reader goes back to the list, as "Report spam" does.
+/// The reported message is marked `$phishing` in the list copy (it stays where it is).
+pub fn mark_phishing_local(id: &str) {
+    patch_local(&[id.to_string()], |m| m["keywords"][crate::phish::KEYWORD] = json!(true));
+}
+
+pub fn phishing_filed(u: &AppWindow, c: Arc<Client>, id: &str) {
+    let ids = vec![id.to_string()];
+    remove_local(&ids);
+    if u.get_current_mail().as_str() == id { u.set_current_mail("".into()); }
+    rebuild_list(u);
+    let w = u.as_weak();
+    std::thread::spawn(move || {
+        if crate::unified::is_active(&c) { load_mailboxes(w.clone(), c.clone(), false); }
+        let _ = w.clone().upgrade_in_event_loop(move |_| sync(w, c));
     });
 }
 

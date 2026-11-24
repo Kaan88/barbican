@@ -217,6 +217,35 @@
     },
     {
      "kind": "section",
+     "label": "Phishing reports",
+     "desc": ""
+    },
+    {
+     "kind": "text",
+     "label": "Report phishing to",
+     "desc": "The address \"Report phishing\" sends a message to (your organisation's security team or a reporting service such as the Anti-Phishing Working Group). Leave it empty to turn reporting off. The reported message moves to Junk and its links stay off.",
+     "key": "phishingReportAddress",
+     "default": ""
+    },
+    {
+     "kind": "select",
+     "label": "Report format",
+     "desc": "Forward sends the message as an attachment; ARF is the machine-readable abuse report (RFC 5965).",
+     "key": "phishingReportFormat",
+     "default": "forward",
+     "options": [
+      [
+       "forward",
+       "Forward the message as an attachment"
+      ],
+      [
+       "arf",
+       "ARF report (RFC 5965)"
+      ]
+     ]
+    },
+    {
+     "kind": "section",
      "label": "Notifications",
      "desc": ""
     }

@@ -231,12 +231,19 @@ pub fn recipient_warning(on: bool, to: &str, cc: &str, bcc: &str, internal: &[St
 /// lib/email-headers.ts:132-161): the server's Authentication-Results failed for the From, or
 /// they exist but none ties the message to the From domain. With no results at all there is
 /// nothing to doubt, and trusting stays offered.
-pub fn forged(headers: &[Value], from: &str) -> bool {
-    let res = crate::auth::topmost(headers);
-    let aligned = crate::auth::aligned_pass(&res, from);
+///
+/// Only results our own server wrote count (`auth::Trust`, R3-06): results the sender wrote or
+/// that were not written on arrival are unverified: they hide "Trust sender", as Bulwark's
+/// getSenderVerification does, and never vouch for the From.
+pub fn forged(t: &crate::auth::Trust, from: &str) -> bool {
+    // results that exist but are not our server's are unverified, like none that vouch for the
+    // From: "Trust sender" is hidden (main, Bulwark). With no results at all there is nothing to doubt.
+    if !t.trusted { return t.present; }
+    let res = &t.results;
+    let aligned = crate::auth::aligned_pass(res, from);
     // only spf, dkim and dmarc count as results (email-headers.ts:136): an iprev-only header says nothing
     let present = res.iter().any(|r| matches!(r.method.as_str(), "spf" | "dkim" | "dmarc"));
-    crate::auth::failure(&res, aligned) || (present && !aligned)
+    crate::auth::failure(res, aligned) || (present && !aligned)
 }
 
 #[cfg(test)]
@@ -348,9 +355,25 @@ mod tests {
 
     #[test]
     fn forged_sender_follows_bulwarks_sender_verification() {
-        let h = |v: &str| vec![json!({"name": "Authentication-Results", "value": v})];
+        use crate::auth::{assess_list, Origin};
+        const IN: &str = "from mx.sender.test by mx.mine.test (Stalwart) with ESMTPS id 1; Tue, 24 Nov 2026 10:00:00 +0000";
+        let org = Origin { server_host: "mail.mine.test", imported: false, own_mail: false };
+        let t = |v: &str| assess_list(&[("received".to_string(), IN.to_string()), ("authentication-results".to_string(), v.to_string())], &org);
+        let h = |v: &str| t(&format!(" mx.mine.test{}", v.strip_prefix("mx.test").unwrap_or(v)));
         let from = "ann@example.test";
-        assert!(!forged(&[], from), "no results: nothing to doubt, trust stays offered");
+        assert!(!forged(&crate::auth::Trust::default(), from), "no results: nothing to doubt, trust stays offered");
+        // results that are not our server's give no verdict either way
+        let foreign = t("mx.sender.test; dmarc=fail header.from=example.test");
+        assert!(foreign.present && !foreign.trusted);
+        assert!(forged(&foreign, from), "results that are not the server's leave the sender unverified");
+        let foreign_pass = t("mx.sender.test; dmarc=pass header.from=example.test");
+        assert!(forged(&foreign_pass, from), "and a pass the sender wrote does not verify it");
+        let submitted = assess_list(&[("received".to_string(), IN.replace("ESMTPS", "ESMTPSA")), ("authentication-results".to_string(), " mx.mine.test; dmarc=fail header.from=example.test".to_string())], &org);
+        assert!(forged(&submitted, from), "submitted mail carries the submitter's own results: unverified");
+        // a header planted after the server's own does not change the verdict
+        let planted = assess_list(&[("received".to_string(), IN.to_string()), ("authentication-results".to_string(), " mx.mine.test; dmarc=fail header.from=example.test".to_string()),
+            ("authentication-results".to_string(), " mx.mine.test; dmarc=pass header.from=example.test".to_string())], &org);
+        assert!(forged(&planted, from));
         assert!(!forged(&h("mx.test; dmarc=pass header.from=example.test"), from));
         assert!(!forged(&h("mx.test; dkim=pass header.d=mail.example.test"), from), "aligned pass");
         assert!(forged(&h("mx.test; dmarc=fail header.from=example.test"), from), "failed");
