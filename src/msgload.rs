@@ -297,6 +297,7 @@ fn present(u: &AppWindow, c: &Arc<jmap::Client>, id: &str, m: Arc<Value>, thread
         u.set_r_to(to.into());
         u.set_attachments(ModelRc::new(VecModel::from(att_rows)));
         attachments::show(&u, c2.clone(), &id2, &atts2);
+        crate::tnef::expand(&u, c2.clone(), &id2, &atts2);
         u.set_thread_msgs(ModelRc::new(VecModel::from(trows)));
         u.set_r_subject(subject.into());
         u.set_r_from(from.into());

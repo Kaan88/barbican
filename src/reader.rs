@@ -882,7 +882,8 @@ fn show_parsed(u: &AppWindow, m: &Value) {
         name: a["name"].as_str().unwrap_or("attachment").into(), size: crate::human_size(a["size"].as_u64().unwrap_or(0)).into(), index: i as i32,
     }).collect();
     u.set_attachments(ModelRc::new(VecModel::from(rows)));
-    crate::CUR_MSG.with(|x| *x.borrow_mut() = Some((Arc::new(m.clone()), atts)));
+    crate::CUR_MSG.with(|x| *x.borrow_mut() = Some((Arc::new(m.clone()), atts.clone())));
+    if let Some(c) = ST.with(|s| s.borrow().client.clone()) { crate::tnef::expand(u, c, u.get_current_mail().as_str(), &atts); }
     show_message_body(u, m);
     ST.with(|s| s.borrow_mut().view = View::Eml { subject });
     refresh(u);
@@ -923,7 +924,7 @@ fn download_all(u: &AppWindow, st: &Shared) {
         let names = crate::zip::unique_names(&atts.iter().map(crate::attachments::save_name).collect::<Vec<_>>(), "attachment");
         let mut entries = vec![];
         for (a, name) in atts.iter().zip(names) {
-            if let Ok(data) = c.download(a["blobId"].as_str().unwrap_or(""), &name, a["type"].as_str().unwrap_or("")) {
+            if let Ok(data) = crate::tnef::fetch(&c, a) {
                 entries.push(crate::zip::Entry { name, data });
             }
         }
@@ -1167,8 +1168,11 @@ pub fn att_items(idx: &str) -> Vec<CtxItem> {
     let (files, loading) = ST.with(|s| (s.borrow().files.is_some(), s.borrow().files_loading));
     let i: usize = idx.parse().unwrap_or(0);
     let is_msg = crate::CUR_MSG.with(|x| x.borrow().as_ref().and_then(|(_, a)| a.get(i).map(is_message_attachment))).unwrap_or(false);
+    // a file decoded from a winmail.dat has no blob to file or to open as a message
+    let local = crate::CUR_MSG.with(|x| x.borrow().as_ref().and_then(|(_, a)| a.get(i).map(|a| a.get("tnef").is_some()))).unwrap_or(false);
+    let is_msg = is_msg && !local;
     let mut v = vec![];
-    if files || loading { v.push(sub(G_FOLDER, "Save to Files", "sub:rx-files")); }
+    if (files || loading) && !local { v.push(sub(G_FOLDER, "Save to Files", "sub:rx-files")); }
     let n_atts = crate::CUR_MSG.with(|x| x.borrow().as_ref().map(|(_, a)| a.len()).unwrap_or(0));
     if n_atts > 1 { v.push(it(G_ZIP, "Download all (.zip)", "rx:zip")); }
     if is_msg { v.insert(0, it(G_SOURCE, "Open message", "rx:open-eml")); }
