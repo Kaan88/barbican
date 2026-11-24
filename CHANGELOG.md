@@ -7,6 +7,8 @@ example "## 0.1.0 — 2026-12-01", and start a new "Unreleased" above it.
 
 ## Unreleased
 
+- Re-opening a saved draft that holds inline pictures now ties every picture to its own part by Content-ID, as Bulwark does, instead of by position: before, a draft whose pictures were stored in another order than they appear in the text could show them swapped, and a picture pasted as plain data could be given another picture's identity. Sending the draft again keeps each picture's cid and attachment, and real attachments stay attachments.
+
 ## 0.1.1 — 2026-11-24
 
 - The window reopens where you left it: its size, position and whether it was maximised are remembered on this computer (not synced with your settings). When the monitor it was on is gone or the screen changed so the window would be off screen, Barbican opens at the default size and place instead.

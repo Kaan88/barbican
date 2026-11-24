@@ -538,6 +538,38 @@ pub fn open_forward_as_attachment(u: &AppWindow, c: Arc<Client>, m: &Value, name
     true
 }
 
+/// What a saved draft is made of when it is re-opened: the body HTML with its original
+/// `cid:` image references, the inline parts those references name, and the other attachments.
+struct DraftBody {
+    html: String,
+    inline: Vec<(String, Attachment)>,
+    attachments: Vec<Attachment>,
+}
+
+/// Split a saved draft into body, inline images and attachments. The body keeps its `cid:`
+/// references (the reader's data: copy of it is not used), so every image is bound to its part
+/// by Content-ID, never by position (Bulwark email-composer.tsx:1245 keeps inline parts, cid and
+/// all, and tests them by `cid:` reference, not by order).
+fn draft_body(m: &Value) -> DraftBody {
+    let html = cid_html(m);
+    let html = if html.trim().is_empty() { crate::body_text(m).0 } else { html };
+    let inline = inline_parts(m, &html);
+    let attachments = m["attachments"].as_array().map(|all| all.iter().filter(|a| {
+        !a["cid"].as_str().is_some_and(|c| html.contains(&format!("cid:{}", c.trim_matches(['<', '>']))))
+    }).map(|a| Attachment {
+        blob_id: a["blobId"].as_str().unwrap_or("").into(), name: a["name"].as_str().unwrap_or("attachment").into(),
+        mime: a["type"].as_str().unwrap_or("application/octet-stream").into(), size: a["size"].as_u64().unwrap_or(0) as usize,
+    }).collect()).unwrap_or_default();
+    DraftBody { html, inline, attachments }
+}
+
+/// The inline images a message goes out with: those of the editor that have an uploaded blob, then
+/// the kept inline parts of a quoted original. Images still uploading have no blob and are left out.
+fn outgoing_inline(images: Vec<(String, Option<String>, String, String, usize)>, quoted: &[(String, Attachment)]) -> Vec<(String, Attachment)> {
+    images.into_iter().filter_map(|(cid, blob, mime, name, size)| Some((cid, Attachment { blob_id: blob?, name, mime, size })))
+        .chain(quoted.iter().cloned()).collect()
+}
+
 /// Re-open a saved draft for editing.
 pub fn open_draft(u: &AppWindow, c: Arc<Client>, m: &Value) {
     reset(u);
@@ -559,28 +591,18 @@ pub fn open_draft(u: &AppWindow, c: Arc<Client>, m: &Value) {
     u.set_c_show_cc(!join("cc").is_empty());
     u.set_c_show_bcc(!join("bcc").is_empty());
     u.set_c_subject(m["subject"].as_str().unwrap_or("").into());
-    let (html, _) = crate::body_text(m);
-    let blocks = if html.trim().is_empty() { rte::html::import_text(&text_of(m)) } else { rte::html::import_with_quotes(&rte::html::clean_quoted_html(&html)) };
+    let plan = draft_body(m);
+    let blocks = if plan.html.trim().is_empty() { rte::html::import_text(&text_of(m)) } else { rte::html::import_with_quotes(&rte::html::clean_quoted_html(&plan.html)) };
     rte::set_doc(u, Doc { blocks });
-    // inline images referenced by cid stay in the body (fetched for display), not in the attachment list
-    let all = m["attachments"].as_array().cloned().unwrap_or_default();
-    // the reader already turned cid: references into data: URIs, so inline parts are matched in order
-    let has_data_imgs = html.contains("src=\"data:image/");
-    let is_inline = |a: &Value| a["cid"].as_str().is_some_and(|c| html.contains(&format!("cid:{c}")))
-        || (has_data_imgs && a["cid"].is_string() && a["disposition"] == "inline" && a["type"].as_str().is_some_and(|t| t.starts_with("image/")));
-    let atts: Vec<Attachment> = all.iter().filter(|a| !is_inline(a)).map(|a| Attachment {
-        blob_id: a["blobId"].as_str().unwrap_or("").into(), name: a["name"].as_str().unwrap_or("attachment").into(),
-        mime: a["type"].as_str().unwrap_or("application/octet-stream").into(), size: a["size"].as_u64().unwrap_or(0) as usize,
-    }).collect();
-    for a in all.iter().filter(|a| is_inline(a)) {
-        let (cid, blob) = (a["cid"].as_str().unwrap_or("").to_string(), a["blobId"].as_str().unwrap_or("").to_string());
-        let (name, mime) = (a["name"].as_str().unwrap_or("image").to_string(), a["type"].as_str().unwrap_or("image/png").to_string());
-        if !html.contains(&format!("cid:{cid}")) { rte::adopt_data_image(&cid, &blob, &mime, &name); continue; }
-        rte::set_image_info(&cid, &blob, &mime, &name);
+    // inline images stay in the body under their own cid (Bulwark email-composer.tsx:1245 keeps the
+    // cid parts of a re-opened draft, cid and all); the bytes are fetched for display
+    let atts = plan.attachments;
+    for (cid, a) in plan.inline {
+        rte::set_image_info(&cid, &a.blob_id, &a.mime, &a.name);
         let Some(c2) = CLIENT.with(|x| x.borrow().clone()) else { continue };
         let w = u.as_weak();
         std::thread::spawn(move || {
-            let Ok(bytes) = c2.download(&blob, &name, &mime) else { return };
+            let Ok(bytes) = c2.download(&a.blob_id, &a.name, &a.mime) else { return };
             let _ = w.upgrade_in_event_loop(move |u| rte::set_image_bytes(&u, &cid, bytes));
         });
     }
@@ -611,10 +633,7 @@ fn outgoing(u: &AppWindow) -> Outgoing {
             subject: u.get_c_subject().to_string(),
             text: rte::to_text(),
             html: (!u.get_c_plain()).then(rte::to_html),
-            inline: if u.get_c_plain() { vec![] } else {
-                rte::inline_images().into_iter().filter_map(|(cid, blob, mime, name, size)| Some((cid, Attachment { blob_id: blob?, name, mime, size })))
-                    .chain(s.quoted_inline.iter().cloned()).collect()
-            },
+            inline: if u.get_c_plain() { vec![] } else { outgoing_inline(rte::inline_images(), &s.quoted_inline) },
             attachments: s.attachments.clone(),
             in_reply_to: s.in_reply_to.clone(),
             references: s.references.clone(),
@@ -1237,6 +1256,87 @@ mod tests {
         assert_eq!(p.len(), 1);
         assert_eq!(p[0].0, "i1@x");
         assert_eq!(p[0].1.blob_id, "B1");
+    }
+
+    /// A saved draft as the reader hands it over: the body shows data: copies of the images,
+    /// `__cidBodyValues` keeps the cid: original. The parts are listed in another order than the
+    /// body mentions them, so a match by position would swap the two images.
+    fn saved_draft() -> Value {
+        json!({"id": "D1", "htmlBody": [{"partId": "1"}],
+            "bodyValues": {"1": {"value": "<p>Hi</p><img src=\"data:image/png;base64,QkJC\"><img src=\"data:image/png;base64,QUFB\">"}},
+            "__cidBodyValues": {"1": "<p>Hi</p><img src=\"cid:b-2@example.test\"><img src=\"cid:a-1@example.test\">"},
+            "attachments": [
+                {"cid": "<a-1@example.test>", "blobId": "BLOB-A", "type": "image/png", "name": "a.png", "size": 3, "disposition": "inline"},
+                {"cid": "<b-2@example.test>", "blobId": "BLOB-B", "type": "image/png", "name": "b.png", "size": 3, "disposition": "inline"},
+                {"blobId": "BLOB-PDF", "type": "application/pdf", "name": "doc.pdf", "size": 10, "disposition": "attachment"}]})
+    }
+
+    fn reopen(m: &Value) -> (DraftBody, Doc) {
+        let plan = draft_body(m);
+        let doc = Doc { blocks: rte::html::import_with_quotes(&rte::html::clean_quoted_html(&plan.html)) };
+        rte::with(|e| e.load(doc.clone()));
+        for (cid, a) in &plan.inline { rte::set_image_info(cid, &a.blob_id, &a.mime, &a.name); }
+        (plan, doc)
+    }
+
+    #[test]
+    fn reopened_draft_restores_inline_images_by_cid() {
+        let (plan, _) = reopen(&saved_draft());
+        // the cid: references stay in the body, the inline parts are not listed as attachments
+        assert!(plan.html.contains("cid:a-1@example.test") && plan.html.contains("cid:b-2@example.test"));
+        assert!(!plan.html.contains("data:image"), "the data: copy is not what gets edited");
+        assert_eq!(plan.attachments.len(), 1);
+        assert_eq!(plan.attachments[0].blob_id, "BLOB-PDF");
+        // the editor holds both images, each bound to its own part, in body order
+        let imgs = rte::inline_images();
+        let got: Vec<(&str, Option<&str>, &str)> = imgs.iter().map(|(c, b, _, n, _)| (c.as_str(), b.as_deref(), n.as_str())).collect();
+        assert_eq!(got, vec![
+            ("b-2@example.test", Some("BLOB-B"), "b.png"),
+            ("a-1@example.test", Some("BLOB-A"), "a.png"),
+        ]);
+    }
+
+    #[test]
+    fn resending_a_reopened_draft_keeps_cid_and_attachment() {
+        let (plan, _) = reopen(&saved_draft());
+        let o = Outgoing {
+            from: "ann@example.test".into(), to: "bob@example.test".into(), subject: "Pics".into(), text: rte::to_text(),
+            html: Some(rte::to_html()), inline: outgoing_inline(rte::inline_images(), &[]), attachments: plan.attachments.clone(),
+            ..Default::default()
+        };
+        let html = o.html.clone().unwrap();
+        assert!(html.contains("src=\"cid:a-1@example.test\"") && html.contains("src=\"cid:b-2@example.test\""), "{html}");
+        let e = crate::jmap::build_email_object(&o, &json!({"id": "i1", "email": "ann@example.test"}), "MB", true, "ann@example.test").unwrap();
+        let related = &e["bodyStructure"]["subParts"][0]["subParts"][1];
+        assert_eq!(related["type"], "multipart/related");
+        let parts = related["subParts"].as_array().unwrap();
+        assert_eq!(parts.len(), 3, "the html part and both images");
+        let find = |cid: &str| parts.iter().find(|p| p["cid"] == cid).unwrap_or_else(|| panic!("part {cid} missing"));
+        assert_eq!((find("a-1@example.test")["blobId"].as_str(), find("a-1@example.test")["disposition"].as_str()), (Some("BLOB-A"), Some("inline")));
+        assert_eq!((find("b-2@example.test")["blobId"].as_str(), find("b-2@example.test")["name"].as_str()), (Some("BLOB-B"), Some("b.png")));
+        // the real attachment stays an attachment
+        assert_eq!(e["bodyStructure"]["type"], "multipart/mixed");
+        assert_eq!(e["bodyStructure"]["subParts"][1]["blobId"], "BLOB-PDF");
+        assert_eq!(e["bodyStructure"]["subParts"][1]["disposition"], "attachment");
+    }
+
+    #[test]
+    fn draft_with_raw_cid_body_and_plain_data_image() {
+        // a draft opened without the reader's rewrite (a cancelled send): cid: is already in the body
+        let m = json!({"htmlBody": [{"partId": "1"}],
+            "bodyValues": {"1": {"value": "<img src=\"cid:x@example.test\"><img src=\"data:image/png;base64,QUFB\">"}},
+            "attachments": [{"cid": "<x@example.test>", "blobId": "BX", "type": "image/png", "name": "x.png", "size": 1},
+                            {"cid": "<unused@example.test>", "blobId": "BU", "type": "image/png", "name": "u.png", "size": 1, "disposition": "inline"}]});
+        let (plan, doc) = reopen(&m);
+        assert_eq!(plan.inline.len(), 1);
+        assert_eq!(plan.inline[0].0, "x@example.test");
+        // a part the body no longer mentions stays an attachment; a pasted data: image is never given a stranger's cid
+        assert_eq!(plan.attachments.len(), 1);
+        assert_eq!(plan.attachments[0].blob_id, "BU");
+        let imgs: Vec<_> = doc.blocks.iter().filter_map(|b| match &b.kind { Kind::Image(i) => Some(i.clone()), _ => None }).collect();
+        assert_eq!(imgs.len(), 2);
+        assert_eq!(imgs[0].cid.as_deref(), Some("x@example.test"));
+        assert!(imgs[1].cid.is_none() && imgs[1].bytes.is_some());
     }
 
     fn ids() -> Vec<Value> {

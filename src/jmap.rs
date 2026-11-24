@@ -910,49 +910,7 @@ impl Client {
 
     /// Build the Email/set create object for a message.
     fn build_email(&self, o: &Outgoing, ident: &Value, mailbox: &str, draft: bool) -> R<Value> {
-        let addrs = |s: &str| -> Vec<Value> { parse_addresses(s) };
-        let mut kw = json!({"$seen": true});
-        if draft { kw["$draft"] = json!(true); }
-        for k in o.keywords.iter().filter(|k| valid_keyword(k)) { kw[k.to_lowercase().as_str()] = json!(true); }
-        let from = header_from(o, ident, &self.username);
-        let mut email = json!({
-            "mailboxIds": { mailbox: true },
-            "keywords": kw,
-            "from": [from.clone()],
-            "to": addrs(&o.to), "subject": o.subject,
-        });
-        if !o.cc.trim().is_empty() { email["cc"] = json!(addrs(&o.cc)); }
-        if !o.bcc.trim().is_empty() { email["bcc"] = json!(addrs(&o.bcc)); }
-        if let Some(rt) = ident["replyTo"].as_array().filter(|a| !a.is_empty()) { email["replyTo"] = json!(rt); }
-        if !o.in_reply_to.is_empty() { email["inReplyTo"] = json!(o.in_reply_to); }
-        if !o.references.is_empty() { email["references"] = json!(o.references); }
-        if o.read_receipt { email["header:Disposition-Notification-To:asAddresses"] = json!([{"email": from["email"]}]); }
-        let mut values = json!({"t": {"value": o.text}});
-        let text_part = json!({"partId": "t", "type": "text/plain"});
-        let body = if let Some(html) = &o.html {
-            values["h"] = json!({"value": html});
-            let html_part = json!({"partId": "h", "type": "text/html"});
-            let used: Vec<&(String, Attachment)> = o.inline.iter().filter(|(cid, _)| html.contains(&format!("cid:{cid}"))).collect();
-            let html_part = if used.is_empty() { html_part } else {
-                let mut parts = vec![html_part];
-                for (cid, a) in used {
-                    parts.push(json!({"blobId": a.blob_id, "type": a.mime, "name": a.name, "disposition": "inline", "cid": cid}));
-                }
-                json!({"type": "multipart/related", "subParts": parts})
-            };
-            json!({"type": "multipart/alternative", "subParts": [text_part, html_part]})
-        } else { text_part };
-        email["bodyValues"] = values;
-        if o.attachments.is_empty() {
-            email["bodyStructure"] = body;
-        } else {
-            let mut parts = vec![body];
-            for a in &o.attachments {
-                parts.push(json!({"blobId": a.blob_id, "type": a.mime, "name": a.name, "disposition": "attachment"}));
-            }
-            email["bodyStructure"] = json!({"type": "multipart/mixed", "subParts": parts});
-        }
-        Ok(email)
+        build_email_object(o, ident, mailbox, draft, &self.username)
     }
 
     /// The identity a message goes out through. With a From override (Bulwark
@@ -1269,6 +1227,53 @@ pub struct Outgoing {
     /// Bulwark's From override ("Edit sender…", or the catch-all reply rewrite): the header
     /// From as (name, email), sent through the identity `from`. Also asked for as MAIL FROM.
     pub from_override: Option<(String, String)>,
+}
+
+/// The Email/set create object for a message (a draft or a message to send).
+pub(crate) fn build_email_object(o: &Outgoing, ident: &Value, mailbox: &str, draft: bool, username: &str) -> R<Value> {
+    let addrs = |s: &str| -> Vec<Value> { parse_addresses(s) };
+    let mut kw = json!({"$seen": true});
+    if draft { kw["$draft"] = json!(true); }
+    for k in o.keywords.iter().filter(|k| valid_keyword(k)) { kw[k.to_lowercase().as_str()] = json!(true); }
+    let from = header_from(o, ident, username);
+    let mut email = json!({
+        "mailboxIds": { mailbox: true },
+        "keywords": kw,
+        "from": [from.clone()],
+        "to": addrs(&o.to), "subject": o.subject,
+    });
+    if !o.cc.trim().is_empty() { email["cc"] = json!(addrs(&o.cc)); }
+    if !o.bcc.trim().is_empty() { email["bcc"] = json!(addrs(&o.bcc)); }
+    if let Some(rt) = ident["replyTo"].as_array().filter(|a| !a.is_empty()) { email["replyTo"] = json!(rt); }
+    if !o.in_reply_to.is_empty() { email["inReplyTo"] = json!(o.in_reply_to); }
+    if !o.references.is_empty() { email["references"] = json!(o.references); }
+    if o.read_receipt { email["header:Disposition-Notification-To:asAddresses"] = json!([{"email": from["email"]}]); }
+    let mut values = json!({"t": {"value": o.text}});
+    let text_part = json!({"partId": "t", "type": "text/plain"});
+    let body = if let Some(html) = &o.html {
+        values["h"] = json!({"value": html});
+        let html_part = json!({"partId": "h", "type": "text/html"});
+        let used: Vec<&(String, Attachment)> = o.inline.iter().filter(|(cid, _)| html.contains(&format!("cid:{cid}"))).collect();
+        let html_part = if used.is_empty() { html_part } else {
+            let mut parts = vec![html_part];
+            for (cid, a) in used {
+                parts.push(json!({"blobId": a.blob_id, "type": a.mime, "name": a.name, "disposition": "inline", "cid": cid}));
+            }
+            json!({"type": "multipart/related", "subParts": parts})
+        };
+        json!({"type": "multipart/alternative", "subParts": [text_part, html_part]})
+    } else { text_part };
+    email["bodyValues"] = values;
+    if o.attachments.is_empty() {
+        email["bodyStructure"] = body;
+    } else {
+        let mut parts = vec![body];
+        for a in &o.attachments {
+            parts.push(json!({"blobId": a.blob_id, "type": a.mime, "name": a.name, "disposition": "attachment"}));
+        }
+        email["bodyStructure"] = json!({"type": "multipart/mixed", "subParts": parts});
+    }
+    Ok(email)
 }
 
 /// The header From of a message: the override when there is one, else the identity
