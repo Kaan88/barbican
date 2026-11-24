@@ -51,7 +51,7 @@ G-049,reader-safety,Turn links off in a reported phishing message,lib/phishing-l
 G-050,reader-safety,Phishing report,phishing-mark-banner.tsx; phishing-report*,done,"src/phish.rs, src/phishflow.rs, src/reader.rs, src/ctxmenu.rs (reader, list menu, selection bar; Undo)",G-050 (GAPS P1-12),2,M
 G-051,reader-safety,External sender chip,external-sender-chip.tsx,done,"src/trust.rs (message_external), src/msgload.rs, src/reader.rs",G-051 (GAPS P1-12),2,S/M
 G-052,reader-safety,BIMI verified badge,brand-verified-badge.tsx; lib/bimi,done,"src/bimi.rs, src/avatars.rs, src/auth.rs (assess); Windows only (DNS TXT)",G-052 (GAPS P1-12),2,S/M
-G-053,reader-safety,"Per-sender trust for remote content (trustedSenders, externalContentPolicy)",trusted-senders-modal.tsx,partial,"src/trust.rs, src/main.rs (allow_remote); no server Trusted Senders address book",G-053 (GAPS P1-12),2,M
+G-053,reader-safety,"Per-sender trust for remote content (trustedSenders, externalContentPolicy)",trusted-senders-modal.tsx,done,"src/trust.rs, src/trustbook.rs (server Trusted Senders address book), src/main.rs (allow_remote); reply recipients are not trusted on send",G-053 (GAPS P1-12),2,M
 G-054,composer,Confirm before sending to external recipients,external-recipient-confirm.tsx,done,"src/compose.rs (Stage::External, external_warning), src/trust.rs",G-054 (GAPS P1-12),2,S
 G-055,popout,Pop-out windows: message and composer in their own windows,popout/,missing,,G-055 (GAPS P1-13),6,M
 G-056,jmap,"Truncated bodies: a notice shows, but the full body is never fetched",lib/email (isTruncated),done,src/reader.rs; src/bodycache.rs (full-body refetch),G-056 (GAPS P1-14),1,S
