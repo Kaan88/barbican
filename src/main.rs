@@ -41,6 +41,9 @@ mod folders;
 mod copymsg;
 mod files;
 mod glance;
+mod identities;
+mod masked;
+mod subaddr;
 mod jmap;
 mod lite;
 mod mailview;
@@ -1159,9 +1162,12 @@ fn main() -> Result<(), slint::PlatformError> {
     };
     // rebuild the current settings page (or search results)
     let refresh_settings = {
-        let (w, pf, cf, acc, srv) = (ui.as_weak(), prefs.clone(), cfg.clone(), account_info.clone(), server_cache.clone());
+        let (w, pf, cf, acc, srv, stc) = (ui.as_weak(), prefs.clone(), cfg.clone(), account_info.clone(), server_cache.clone(), state.clone());
         Arc::new(move || {
             let u = w.unwrap();
+            // the page shows the signed-in account's identities and masked addresses only:
+            // another account's are dropped before anything is drawn
+            if let Some(c) = stc.lock().unwrap().clone() { server_settings::claim(&srv, &c.state_key(), &c.username, &c.base); }
             let p = pf.lock().unwrap();
             let c = cf.lock().unwrap().clone();
             let adv = u.get_show_advanced_settings();
@@ -1172,7 +1178,7 @@ fn main() -> Result<(), slint::PlatformError> {
                 u.set_settings_title(p.title(&tab).into());
                 let mut rows = p.rows(&tab, &c, &acc());
                 if let Some(extra) = server_settings::rows(&tab, &srv) {
-                    if tab == "account" || tab == "composing" { rows.extend(extra); } else { rows = extra; }
+                    if tab == "account" || tab == "composing" || tab == "security" { rows.extend(extra); } else { rows = extra; }
                 }
                 rows
             } else {
@@ -1936,6 +1942,7 @@ fn main() -> Result<(), slint::PlatformError> {
         tplflow::insert(&u, t);
     });
     tplflow::wire(&ui, state.clone());
+    subaddr::wire(&ui);
 
     // ---------------- mail actions ----------------
     let w = ui.as_weak();
@@ -2390,7 +2397,7 @@ fn finish_login(w: slint::Weak<AppWindow>, st: Shared, res: Result<jmap::Client,
             {
                 let (w3, c3) = (w2.clone(), c.clone());
                 std::thread::spawn(move || {
-                    let ids = c3.identities().unwrap_or_default();
+                    let ids = identities::ordered_for(&c3.identities().unwrap_or_default(), &c3.username, &c3.base);
                     let addrs: Vec<String> = ids.iter().filter_map(|i| i["email"].as_str().map(String::from)).collect();
                     let _ = w3.upgrade_in_event_loop(move |u| { MY_ADDRS.with(|a| *a.borrow_mut() = addrs); glance::set_name(&u, &ids); });
                 });

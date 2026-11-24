@@ -1016,6 +1016,8 @@ impl Client {
         }
         let ident = self.pick_identity_for(&o.from, o.from_override.as_ref().map(|f| f.1.as_str()))?;
         let ident_id = ident["id"].as_str().unwrap_or("").to_string();
+        // the identity's own Bcc goes with the send only, never into a saved draft (Bulwark)
+        let o = &Outgoing { bcc: crate::identities::with_identity_bcc(&o.bcc, &o.to, &o.cc, &ident), ..o.clone() };
         let roles = self.role_ids()?;
         let drafts = roles.get("drafts").ok_or("No Drafts folder.")?.clone();
         let sent = roles.get("sent").ok_or("No Sent folder.")?.clone();
@@ -1030,7 +1032,7 @@ impl Client {
         };
         // the MAIL FROM the server derives from the identity, and the one asked for: the From
         // override, so the Return-Path does not give the identity's address away (Bulwark #1009)
-        let identity_mail_from = header_from(&Outgoing { from_override: None, ..o.clone() }, &ident, &self.username)["email"].as_str().unwrap_or("").to_string();
+        let identity_mail_from = header_from(&Outgoing { from_override: None, sub_address: None, ..o.clone() }, &ident, &self.username)["email"].as_str().unwrap_or("").to_string();
         let mail_from = o.from_override.as_ref().map(|f| f.1.trim().to_string()).filter(|e| e.contains('@')).unwrap_or_else(|| identity_mail_from.clone());
         let submission = |email_id: &str, mail_from: &str| -> Value {
             let mut sub = json!({"emailId": email_id, "identityId": ident_id});
@@ -1316,6 +1318,9 @@ pub struct Outgoing {
     /// Bulwark's From override ("Edit sender…", or the catch-all reply rewrite): the header
     /// From as (name, email), sent through the identity `from`. Also asked for as MAIL FROM.
     pub from_override: Option<(String, String)>,
+    /// Bulwark's sub-address (`user+tag@domain` of the identity): the header From only, sent
+    /// through the identity; the server derives MAIL FROM from the identity as usual.
+    pub sub_address: Option<String>,
 }
 
 /// The Email/set create object for a message (a draft or a message to send).
@@ -1373,7 +1378,7 @@ pub fn header_from(o: &Outgoing, ident: &Value, username: &str) -> Value {
         return if name.is_empty() { json!({"email": email.trim()}) } else { json!({"name": name, "email": email.trim()}) };
     }
     let e = ident["email"].as_str().unwrap_or("");
-    let email = if e.contains('*') || !e.contains('@') { username } else { e };
+    let email = if e.contains('*') || !e.contains('@') { username } else { o.sub_address.as_deref().map(str::trim).filter(|a| a.contains('@')).unwrap_or(e) };
     match ident["name"].as_str().filter(|n| !n.trim().is_empty()) {
         Some(n) => json!({"name": n, "email": email}),
         None => json!({"email": email}),
@@ -1820,6 +1825,21 @@ mod tests {
         // the old time has passed (or is about to): straight back to Drafts
         assert_eq!(reschedule_fallbacks(Some(10_000), 10_000), vec![RestoreDraft]);
         assert_eq!(reschedule_fallbacks(None, 0), vec![RestoreDraft]);
+    }
+
+    #[test]
+    fn a_sub_address_changes_the_header_from_only() {
+        let ident = json!({"id": "1", "email": "ann@example.test", "name": "Ann"});
+        let o = Outgoing { from: "ann@example.test".into(), sub_address: Some("ann+shop@example.test".into()), ..Default::default() };
+        assert_eq!(header_from(&o, &ident, "ann@example.test"), json!({"name": "Ann", "email": "ann+shop@example.test"}));
+        // a typed sender wins; a wildcard identity still sends as the login
+        let o2 = Outgoing { from_override: Some(("".into(), "x@example.test".into())), ..o.clone() };
+        assert_eq!(header_from(&o2, &ident, "ann@example.test")["email"], "x@example.test");
+        assert_eq!(header_from(&o, &json!({"email": "*@example.test"}), "ann@example.test")["email"], "ann@example.test");
+        // the identity's own MAIL FROM is what the server derives: no envelope is asked for
+        let mail_from = header_from(&Outgoing { from_override: None, sub_address: None, ..o.clone() }, &ident, "ann@example.test")["email"].as_str().unwrap().to_string();
+        assert_eq!(mail_from, "ann@example.test");
+        assert!(submission_envelope(&mail_from, &mail_from, None, &["b@example.test".into()]).is_none());
     }
 
     #[test]
