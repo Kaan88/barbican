@@ -37,6 +37,7 @@ mod contact_merge;
 mod vcard;
 mod pim;
 mod ctxmenu;
+mod folders;
 mod copymsg;
 mod files;
 mod glance;
@@ -61,6 +62,7 @@ mod server_settings;
 mod settings;
 mod sieve;
 mod templates;
+mod tplflow;
 mod spam;
 // composer extras (p2-composer)
 mod autosave;
@@ -420,7 +422,7 @@ pub fn html_to_text(h: &str) -> String {
 thread_local! { pub(crate) static WV_UNAVAILABLE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
 thread_local! { static RESET_ARMED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
 thread_local! { static SERVER_DEBOUNCE: slint::Timer = slint::Timer::default(); }
-thread_local! { static TEMPLATES: std::cell::RefCell<Vec<Value>> = const { std::cell::RefCell::new(Vec::new()) }; }
+thread_local! { static TEMPLATES: std::cell::RefCell<(String, Vec<Value>)> = const { std::cell::RefCell::new((String::new(), Vec::new())) }; }
 thread_local! { static THREAD_ID: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) }; }
 
 /// Load the open message's conversation (unless threading is turned off, like Bulwark's disableThreading).
@@ -721,13 +723,14 @@ fn check_new_mail(c: Arc<jmap::Client>, w: Option<slint::Weak<AppWindow>>) {
     // folder except Junk, Trash, Sent and Drafts)
     let sound = prefs.bool("emailNotificationSound", true);
     let inbox_only = prefs.bool("pushNotifyInboxOnly", false);
+    let prefs_mutes = prefs.prefs.get(folders::KEY_MUTES).cloned();
     std::thread::spawn(move || {
         let Ok(roles) = c.role_ids() else { return };
         let Some(inbox) = roles.get("inbox") else { return };
         let place = if inbox_only {
             json!({"inMailbox": inbox})
         } else {
-            let skip: Vec<String> = ["junk", "trash", "sent", "drafts"].iter().filter_map(|r| roles.get(*r).cloned()).collect();
+            let skip: Vec<String> = ["junk", "trash", "sent", "drafts", "archive"].iter().filter_map(|r| roles.get(*r).cloned()).collect();
             json!({"inMailboxOtherThan": skip})
         };
         let Ok((list, _, _)) = c.list(json!({"operator": "AND", "conditions": [place, {"notKeyword": "$seen"}]}), 0, 10) else { return };
@@ -735,9 +738,14 @@ fn check_new_mail(c: Arc<jmap::Client>, w: Option<slint::Weak<AppWindow>>) {
         let first_run = guard.is_none();
         let seen = guard.get_or_insert_with(Default::default);
         let mut batch = vec![];
+        // per-folder notification mutes (Bulwark notificationMutes, lib/desktop/new-mail.ts:42-47)
+        let mutes = folders::Mutes::decode(prefs_mutes.as_ref());
+        let skip: Vec<String> = ["junk", "trash", "sent", "drafts", "archive"].iter().filter_map(|r| roles.get(*r).cloned()).collect();
         for m in list.iter().rev() {
             let id = m["id"].as_str().unwrap_or("").to_string();
-            if seen.insert(id.clone()) && !first_run {
+            // a muted message is still marked as told about: unmuting later must not replay it
+            let counted = folders::counted_mailboxes(&folders::mailbox_ids(m), inbox_only, inbox, &skip);
+            if seen.insert(id.clone()) && !first_run && !folders::silenced(&mutes, &c.account, &counted) {
                 batch.push(notify::NewMail {
                     id,
                     mailbox: gsearch::hit_folder(m, std::slice::from_ref(inbox)),
@@ -892,12 +900,12 @@ fn main() -> Result<(), slint::PlatformError> {
         PLUGIN_ERRORS.with(|e| *e.borrow_mut() = errors);
         plugins_synced();
         // plugins used to be on by default: tell upgraders once why theirs are off now
-        let mut st = settings::Settings::load();
+        let st = settings::Settings::load();
         if st.prefs.get("pluginsOffNoticeShown").is_none() {
             let en = enabled_plugins();
             if PLUGINS.with(|p| plugins::has_unenabled(&p.borrow(), &en)) {
                 mail::show_toast(&ui, "Plugins are now off until you switch them on in Settings > Add-ons.", false);
-                st.remember("pluginsOffNoticeShown", serde_json::json!(true));
+                settings::set_pref("pluginsOffNoticeShown", serde_json::json!(true));
             }
         }
     }
@@ -1942,12 +1950,23 @@ fn main() -> Result<(), slint::PlatformError> {
     // templates in the composer
     let (w, st) = (ui.as_weak(), state.clone());
     ui.on_tpl_refresh(move || {
-        let Some(c) = st.lock().unwrap().clone() else { return };
+        let Some(c) = compose_client(&st) else { return };
         let w = w.clone();
+        // the list on show belongs to another account (or none yet): empty it until this one's arrives
+        let key = format!("{}|{}", c.username, c.account);
+        if TEMPLATES.with(|t| t.borrow().0 != key) {
+            TEMPLATES.with(|t| *t.borrow_mut() = (String::new(), Vec::new()));
+            if let Some(u) = w.upgrade() { u.set_tpl_names(ModelRc::new(VecModel::from(vec![slint::SharedString::from("Insert template…")]))); u.set_tpl_index(0); }
+        }
+        if let Some(u) = w.upgrade() { if TEMPLATES.with(|t| t.borrow().0 != key) { u.set_tpl_note("Loading…".into()); } }
+        let st = st.clone();
         std::thread::spawn(move || {
-            let list = templates::list(&c).unwrap_or_default();
+            let list = match templates::list(&c) { Ok(l) => l, Err(e) => { let _ = w.upgrade_in_event_loop(move |u| u.set_tpl_note(format!("Could not load templates: {e}").into())); return; } };
             let _ = w.upgrade_in_event_loop(move |u| {
-                TEMPLATES.with(|t| *t.borrow_mut() = list.clone());
+                // results can arrive out of order: only the composing account's list is kept
+                if compose_client(&st).map(|c| format!("{}|{}", c.username, c.account)).as_deref() != Some(key.as_str()) { return; }
+                u.set_tpl_note("".into());
+                TEMPLATES.with(|t| *t.borrow_mut() = (key, list.clone()));
                 let mut names: Vec<slint::SharedString> = vec!["Insert template…".into()];
                 names.extend(list.iter().map(|t| t["name"].as_str().unwrap_or("(unnamed)").into()));
                 u.set_tpl_names(ModelRc::new(VecModel::from(names)));
@@ -1955,17 +1974,17 @@ fn main() -> Result<(), slint::PlatformError> {
             });
         });
     });
-    let w = ui.as_weak();
+    let (w, st) = (ui.as_weak(), state.clone());
     ui.on_tpl_insert(move |i| {
         let u = w.unwrap();
         if i <= 0 { return; }
-        let Some(t) = TEMPLATES.with(|x| x.borrow().get(i as usize - 1).cloned()) else { return };
-        if u.get_c_subject().trim().is_empty() { u.set_c_subject(t["subject"].as_str().unwrap_or("").into()); }
-        let body = t["body"].as_str().unwrap_or("");
-        let blocks = if t["isHTML"] == true { rte::html::import(body) } else { rte::html::import_text(body) };
-        rte::insert_blocks(&u, blocks);
+        // only a list loaded for the account the draft is written in
+        let key = compose_client(&st).map(|c| format!("{}|{}", c.username, c.account)).unwrap_or_default();
+        let Some(t) = TEMPLATES.with(|x| { let x = x.borrow(); if x.0 == key { x.1.get(i as usize - 1).cloned() } else { None } }) else { u.set_tpl_index(0); return };
         u.set_tpl_index(0);
+        tplflow::insert(&u, t);
     });
+    tplflow::wire(&ui, state.clone());
 
     // ---------------- mail actions ----------------
     let w = ui.as_weak();

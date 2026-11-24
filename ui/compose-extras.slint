@@ -8,9 +8,33 @@ export struct SPreset {
     when: string,
 }
 
+// One {{placeholder}} of a template being inserted (src/tplflow.rs).
+export struct TplField {
+    label: string,
+    hint: string,
+    value: string,
+}
+
 export global CompX {
     // "Saving…", "Draft saved 09:51", "Draft not saved"
     in-out property <string> saved;
+    // template placeholder dialog (Bulwark placeholder-fill-modal.tsx)
+    in-out property <bool> tpl-fill-open;
+    in-out property <string> tpl-fill-name;
+    in-out property <[TplField]> tpl-fields;
+    in-out property <string> tpl-preview;
+    callback tpl-fill-edit(int, string);
+    // true: insert with the values, false: insert as written
+    callback tpl-fill-confirm(bool);
+    in-out property <string> tpl-fill-warn;
+    callback tpl-fill-cancel();
+    // save the draft as a template (Bulwark quick-save-template-dialog.tsx)
+    in-out property <bool> tpl-save-open;
+    in-out property <string> tpl-save-name;
+    in-out property <string> tpl-save-error;
+    callback tpl-save-open-compose();
+    callback tpl-save-confirm();
+    callback tpl-save-cancel();
     // schedule dialog
     in-out property <bool> sched-open;
     in-out property <string> sched-title: "Schedule send";
@@ -65,6 +89,7 @@ component DialogField inherits Rectangle {
     in-out property <string> text;
     in property <bool> invalid;
     callback accepted();
+    callback edited(string);
     height: 36px;
     border-radius: 12px;
     background: CTheme.raised;
@@ -86,7 +111,122 @@ component DialogField inherits Rectangle {
         single-line: true;
         vertical-alignment: center;
         accepted => { root.accepted(); }
+        edited => { root.edited(self.text); }
     }
+}
+
+// Modal: fill in a template's placeholders, or insert it as written.
+export component TplFillDialog inherits Rectangle {
+    background: CTheme.scrim;
+    TouchArea { clicked => { CompX.tpl-fill-cancel(); } }
+    fs := FocusScope {
+        capture-key-pressed(e) => {
+            if e.text == Key.Escape { CompX.tpl-fill-cancel(); return accept; }
+            reject
+        }
+        Rectangle {
+            width: min(460px, root.width - 32px);
+            height: min(lay.preferred-height, root.height - 32px);
+            x: (root.width - self.width) / 2;
+            y: (root.height - self.height) / 2;
+            background: CTheme.popup;
+            border-radius: 24px;
+            border-width: 1px;
+            border-color: CTheme.line;
+            drop-shadow-blur: 30px;
+            drop-shadow-color: CTheme.shadow;
+            drop-shadow-offset-y: 12px;
+            TouchArea { }
+            lay := VerticalLayout {
+                padding: 20px;
+                spacing: 12px;
+                Text { text: "Fill in placeholders"; color: CTheme.text; font-size: 17px; font-weight: 700; }
+                Text { text: CompX.tpl-fill-name; color: CTheme.dim; font-size: 12.5px; overflow: elide; }
+                Flickable {
+                    content-height: fields.preferred-height;
+                    height: min(fields.preferred-height, 260px);
+                    fields := VerticalLayout {
+                        spacing: 10px;
+                        for f[i] in CompX.tpl-fields: VerticalLayout {
+                            spacing: 4px;
+                            HorizontalLayout {
+                                spacing: 8px;
+                                Text { text: f.label; color: CTheme.accent; font-size: 12px; font-weight: 600; }
+                                Text { text: f.hint; color: CTheme.dim; font-size: 12px; overflow: elide; horizontal-stretch: 1; }
+                            }
+                            DialogField {
+                                placeholder: "Enter a value";
+                                text: f.value;
+                                edited(t) => { CompX.tpl-fill-edit(i, t); }
+                                accepted => { CompX.tpl-fill-confirm(true); }
+                            }
+                        }
+                    }
+                }
+                if CompX.tpl-fill-warn != "": Text { text: CompX.tpl-fill-warn; color: CTheme.amber-fg; font-size: 12.5px; wrap: word-wrap; }
+                if CompX.tpl-preview != "": VerticalLayout {
+                    spacing: 4px;
+                    Rectangle { height: 1px; background: CTheme.line; }
+                    Text { text: "Preview"; color: CTheme.dim; font-size: 12px; }
+                    Text { text: CompX.tpl-preview; color: CTheme.text; font-size: 12.5px; wrap: word-wrap; max-height: 96px; overflow: elide; }
+                }
+                HorizontalLayout {
+                    alignment: end;
+                    spacing: 8px;
+                    PillButton { text: "Cancel"; clicked => { CompX.tpl-fill-cancel(); } }
+                    PillButton { text: "Insert as written"; clicked => { CompX.tpl-fill-confirm(false); } }
+                    PillButton { text: "Insert with values"; primary: true; clicked => { CompX.tpl-fill-confirm(true); } }
+                }
+            }
+        }
+    }
+    init => { fs.focus(); }
+}
+
+// Modal: a name for the draft saved as a template.
+export component TplSaveDialog inherits Rectangle {
+    background: CTheme.scrim;
+    TouchArea { clicked => { CompX.tpl-save-cancel(); } }
+    FocusScope {
+        capture-key-pressed(e) => {
+            if e.text == Key.Escape { CompX.tpl-save-cancel(); return accept; }
+            reject
+        }
+        Rectangle {
+            width: min(400px, root.width - 32px);
+            height: lay.preferred-height;
+            x: (root.width - self.width) / 2;
+            y: (root.height - self.height) / 2;
+            background: CTheme.popup;
+            border-radius: 24px;
+            border-width: 1px;
+            border-color: CTheme.line;
+            drop-shadow-blur: 30px;
+            drop-shadow-color: CTheme.shadow;
+            drop-shadow-offset-y: 12px;
+            TouchArea { }
+            lay := VerticalLayout {
+                padding: 20px;
+                spacing: 12px;
+                Text { text: "Save as template"; color: CTheme.text; font-size: 17px; font-weight: 700; }
+                Text { text: "The subject and message become a template you can insert from any new message. Category, recipients and more can be set in Settings."; color: CTheme.dim; font-size: 12.5px; wrap: word-wrap; }
+                name-field := DialogField {
+                    placeholder: "Template name";
+                    text <=> CompX.tpl-save-name;
+                    invalid: CompX.tpl-save-error != "";
+                    accepted => { CompX.tpl-save-confirm(); }
+                }
+                if CompX.tpl-save-error != "": Text { text: CompX.tpl-save-error; color: CTheme.amber-fg; font-size: 12.5px; wrap: word-wrap; }
+                HorizontalLayout {
+                    alignment: end;
+                    spacing: 8px;
+                    PillButton { text: "Cancel"; clicked => { CompX.tpl-save-cancel(); } }
+                    PillButton { text: "Save"; primary: true; clicked => { CompX.tpl-save-confirm(); } }
+                }
+            }
+        }
+    }
+    init => { name-field.focus-input(); }
 }
 
 // Modal: one click for the usual times, or any date and time typed below.
