@@ -7,8 +7,8 @@
 |---|---|---|---|---|
 | `hooks.csv` | 194 | 20 | 4 | 218 |
 | `slots.csv` | 19 | 37 | 2 | 58 |
-| `host-api.csv` | 144 | 28 | 14 | 186 |
-| **All** | **357** | **85** | **20** | **462** |
+| `host-api.csv` | 150 | 28 | 14 | 192 |
+| **All** | **363** | **85** | **20** | **468** |
 
 - Hooks skipped: Bulwark's phone layout (`onViewChange`, `onDeviceTypeChange`, `onMobileBack`) and theme CSS
   (`onThemeBeforeApply`). Adapted: payloads that carried DOM, React state or browser concepts (row patches instead of
@@ -18,6 +18,8 @@
 - Host API skipped: `http.post` and `proxy.*` (need Bulwark's server), `keystore.*`, WebAuthn and print themes.
   Adapted: UI calls that took components or callbacks (`ui.setPanel`, `ui.openDialog`, the composer checker), the
   privileged-tier raw calls, settings keys, OAuth redirect, plugin files.
+- Host API additions (adopt, not in Bulwark): `blob.create`, `blob.read`, `secrets.get/set/remove`,
+  `permissions.request`. Their reference columns say "Barbican addition".
 
 The reference vocabulary for Barbican's native (C ABI) plugin system (ROADMAP Phase 5, track B). Hook, slot and host-call
 names are borrowed from Bulwark 1.21.2 so that porting a Bulwark plugin means rewriting its logic, not inventing its API.
@@ -28,7 +30,7 @@ of truth; `src/plugin_catalog.rs` is generated from them.
 |---|---|---|
 | `hooks.csv` | 218 hooks in 27 groups | `<bulwark>/lib/plugin-hook-catalog.ts` |
 | `slots.csv` | 58 slots | `<bulwark>/lib/plugin-slot-catalog.ts` |
-| `host-api.csv` | 186 `api.*` host methods | `<bulwark>/lib/plugin-sandbox/host-api.ts` |
+| `host-api.csv` | 186 Bulwark `api.*` host methods plus 6 Barbican additions (`blob.*`, `secrets.*`, `permissions.request`) | `<bulwark>/lib/plugin-sandbox/host-api.ts` |
 
 ## hooks.csv columns
 `name, group, kind, permission, also_permission, payload, when, bulwark_ref, phase, rust_call_site, status, budget_ms, fail_closed, barbican_status, barbican_note`
@@ -42,7 +44,8 @@ of truth; `src/plugin_catalog.rs` is generated from them.
 - `budget_ms`: the time a handler gets (Bulwark `lib/plugin-hooks.ts:62-66`: 5 s, intercepts 60 s, takeovers 10 min).
 - `fail_closed`: true when a handler that fails or times out stops the action (the send takeover).
 - `barbican_status`: `adopt`, `adapt` or `skip` (B1, the same in all three files); `barbican_note` says why, and for adapt what changes.
-  A skipped row has `status` `n/a(...)`. A manifest may not name a skipped hook, slot or method.
+  A skipped row has `status` `n/a(...)`. Refusing a manifest that names a skipped hook, slot or method is planned for B2
+  (install checks); nothing enforces it yet.
 
 ## slots.csv columns
 `name, area, kind, permissions, props, where, bulwark_ref, phase, status, barbican_status, barbican_note`. `kind` is frame, action or data; `phase` is `5-B6`;
@@ -51,13 +54,14 @@ of truth; `src/plugin_catalog.rs` is generated from them.
 ## host-api.csv columns
 `method, base_permission, privileged_only, permission_reference, dispatch_reference, additional_gate_or_constraint, rust_candidate_and_gap, barbican_status, barbican_note`.
 `rust_candidate_and_gap` is empty until the Rust module that backs the method is chosen. The file is maintained by hand
-(the extractor does not produce it); the references are paths in a Bulwark checkout.
+(the extractor does not produce it); the references are paths in a Bulwark checkout, except for the Barbican additions,
+whose references are `n/a (Barbican addition, PLUGINS.md API v2)`.
 
 ## Tools and tests
 - `python tools/extract-plugin-catalogue.py <bulwark-root>` refreshes `hooks.csv` and `slots.csv` from a Bulwark checkout (keeps the edited columns, including `barbican_status`; a new row has none, and the generator refuses it until it is decided).
 - `python tools/gen-plugin-catalog.py` writes `src/plugin_catalog.rs` (hook, slot and host-API tables with their `Support`, `lookup_hook`, `lookup_host_method`, and the alias table
   from our old native hook names to Bulwark's); `--check` fails if it is stale.
-- `src/plugin_catalog_check.rs` (`cargo test plugin_catalog`) compares the generated tables with the CSVs and pins the counts (218 / 58 / 186) and the adopt/adapt/skip counts above.
+- `src/plugin_catalog_check.rs` (`cargo test plugin_catalog`) compares the generated tables with the CSVs and pins the counts (218 / 58 / 192) and the adopt/adapt/skip counts above.
 
 ## Aliases
 Native plugins written against API 1 use `email.details` and `compose.check`. They map to `onEmailOpen` and `onBeforeEmailSend`

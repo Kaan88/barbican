@@ -114,14 +114,15 @@ Host -> plugin (`barbican_plugin_handle`):
 
 ```json
 { "v": 2, "id": 1842, "type": "hook", "name": "onBeforeEmailSend", "account": "a1b2",
-  "deadline_ms": 60000, "payload": { "to": ["..."], "subject": "..." } }
+  "deadline_ms": 600000, "payload": { "to": ["..."], "subject": "..." } }
 ```
 
 | `type` | Sent when | Reply `result` |
 |---|---|---|
 | `hook` | a catalogued hook fires (`name`; `payload` as in `hooks.csv`, changed as its `barbican_note` says) | the hook's result; ignored for observers |
 | `render` | a frame-slot instance appears or its props change (`slot`, `instance`, `props`) | `{ "view": View }`, or null to draw nothing |
-| `action` | a button, menu entry, list row or form in a plugin view or action slot is used (`slot`, `instance`, `target`, `values`, `context`) | optional `{ "view": View }` to replace the view, or `{ "close": true }` for a dialog |
+| `action` | a button, menu entry, list row or form in a plugin view, dialog or action slot is used (`slot`, `instance`, `target`, `values`, `context`) | optional `{ "view": View }` to replace the view, or `{ "close": true }` to close a dialog |
+| `closed` | a dialog the plugin opened was closed by the user or the plugin (`slot`: `plugin-dialog`, `instance`: the dialog id) | none |
 | `check` | a registered composer checker should check text (`composer`, `text`, `revision`) | `{ "annotations": [{ "start", "end", "tone", "message", "replacements" }] }` |
 | `cancel` | a message passed its deadline or the user cancelled it (`ref`: that message's id) | none |
 | `settings` | one of the plugin's settings changed (`values`) | none |
@@ -143,7 +144,8 @@ Plugin -> host call (`host->call`):
 { "v": 2, "ok": true, "result": null }
 ```
 
-- `method` is the catalogue name from `host-api.csv`. `args` is a JSON array in **the same order as Bulwark's
+- `method` is the catalogue name from `host-api.csv` (Barbican's own additions are rows there too, noted "Barbican
+  addition"). `args` is a JSON array in **the same order as Bulwark's
   `api.<method>(...)` arguments**, so ported code keeps its argument lists. A skipped or unknown method answers
   `unsupported`.
 - `in` (optional) names the message being handled. Once that message is past its deadline or cancelled, calls made
@@ -152,7 +154,7 @@ Plugin -> host call (`host->call`):
 
 Error codes (`error.code`): `bad_request` (malformed JSON, invalid UTF-8, wrong arguments), `denied` (permission not
 granted, origin not allowed), `unsupported`, `not_found`, `quota`, `rate_limited`, `user_declined`, `timeout`,
-`cancelled`, `busy`, `offline`, `internal`. `message` is for logs; the host never shows it unasked.
+`cancelled`, `busy`, `offline`, `disabled` (the plugin was switched off), `internal`. `message` is for logs; the host never shows it unasked.
 
 ### Memory and ownership
 
@@ -172,21 +174,33 @@ granted, origin not allowed), `unsupported`, `not_found`, `quota`, `rate_limited
 
 - **One host thread per plugin** calls `init`, `handle` and `shutdown`, in order, never two at once and never
   re-entrantly, so those entry points need not be thread-safe. `host->call`, `post`, `free_str` and `log` are
-  thread-safe and may be used from any thread the plugin starts.
+  thread-safe and may be used from any thread the plugin starts. No host call ever waits for a message to the same
+  plugin: anything that needs the plugin's answer (a dialog's buttons, a slot's actions) arrives later as a message, so
+  a plugin blocked in `host->call` cannot deadlock its own queue.
 - A message's deadline is the hook's catalogue `budget_ms` (Bulwark `lib/plugin-hooks.ts:62-72`: 5 s, intercepts 60 s,
-  blob upload 15 min, takeovers 10 min); renders and actions get 5 s. Because the UI no longer waits, API 1's 10 s cap
-  goes. Time spent waiting for the user in a host dialog (`ui.confirm`, `ui.prompt`, `ui.openDialog`, a permission
+  the send intercept and takeovers 10 min, blob upload 15 min); renders and actions get 5 s. Because the UI no longer
+  waits, API 1's 10 s cap goes. **The deadline starts when the host calls `handle`, not when the message is queued.**
+  Time the plugin spends waiting for the user in a host dialog (`ui.alert`, `ui.confirm`, `ui.prompt`, a permission
   request) does not count, up to a hard 10 minutes per message (Bulwark `HELD_HOOK_DEADLINE_MS`,
   `lib/plugin-hooks.ts:79`). The user can cancel a long intercept from the UI; the plugin then gets `cancel`.
-- While a plugin is inside `handle`, its later messages wait in its queue (each still bound by its own deadline). A
-  plugin that wants concurrency answers `deferred` and works on its own threads.
+- While a plugin is inside `handle`, its later messages wait in its queue. A message that waits longer than its own
+  budget is dropped before it is delivered: its action goes on as on a timeout (below), but a dropped message does
+  **not** count toward the failure limit, because the plugin never saw it. A plugin that wants concurrency answers
+  `deferred` and works on its own threads.
 - A missed deadline, error, panic or invalid reply means: observers are ignored; intercepts count as "go on"; transforms
   keep the original value; takeovers and `fail_closed` hooks (`onBeforeEmailSend`, `onComposeSend`) stop the action
   and tell the user. Several plugins on one hook run in enable order: transforms chain, the first intercept that answers
   `false` stops the action.
-- The failure limit stays: 3 failures in a row switch the plugin off for the session (Bulwark: 3 errors in 60 s,
-  `lib/plugin-hooks.ts:13-14`). Host calls are rate-limited per plugin (50 per second by default: `rate_limited`).
-- Host-call timeouts follow Bulwark `lib/plugin-sandbox/api-timeouts.ts:3,9`: 30 s, network calls 120 s.
+- The failure limit stays: 3 failures in a row (a deadline missed after `handle` was called, an error, a panic, an
+  invalid reply) switch the plugin off for the session (Bulwark: 3 errors in 60 s, `lib/plugin-hooks.ts:13-14`). Host
+  calls are rate-limited per plugin (50 per second by default: `rate_limited`).
+- **Switching off** (by the user, the failure limit or app exit) takes effect at once: queued messages are dropped,
+  every later `host->call` returns `disabled`, `post` returns -3, and deferred results are ignored. `shutdown` is
+  called on the plugin thread once it is idle; the host never waits for it, so a plugin stuck in `handle` never gets
+  `shutdown` that session (its library stays loaded, as today).
+- Host-call timeouts follow Bulwark `lib/plugin-sandbox/api-timeouts.ts:3,9`: 30 s, network calls 120 s. Calls that wait
+  for the user (`ui.alert`, `ui.confirm`, `ui.prompt`, `permissions.request`) are exempt; they are bounded by the
+  10-minute hold cap of the message they are made in (10 minutes as well when made outside one).
 
 ### `init_json`
 
@@ -275,7 +289,7 @@ High-risk ones come first and are marked in the consent dialog; the wording star
 | `security:read` | same | the Phase 3 Security page |
 | `auth:observe`, `auth:emit`, `auth:impersonation-return` | same | never a token or password |
 | `account:read`, `directory:read` | same | |
-| `http:fetch` | same, high risk | only `httpOrigins`; https only; every redirect re-checked; private, loopback and link-local addresses refused after DNS; no cookies or credentials added |
+| `http:fetch` | same, high risk | https only, to `httpOrigins` only. The host resolves the name once, refuses it unless every address is public (no private, loopback, link-local, CGNAT or metadata address, in any spelling) and connects only to those checked addresses (no DNS rebinding). Every redirect (at most 5) is checked again against `httpOrigins` and the address rules. No system proxy, no cookies, no credentials added |
 | `http:post` | dropped | Bulwark's own `/api/*` routes; Barbican has no app server |
 | `http:proxy` | dropped | Bulwark's server-side credential vault; use a `secret` setting |
 | `crypto:full` | same, high risk | Stalwart public keys and encryption at rest (Phase 3); no execution tier attached, WebAuthn calls skipped |
@@ -320,7 +334,8 @@ Icon     = a name from the host icon set (Bulwark's Lucide names where one exist
 Id       = 1-64 characters of [A-Za-z0-9._-]
 ```
 
-Limits: depth 6, 200 nodes, 4 KiB of text per node, 256 KiB per view, images 256 KiB (PNG or JPEG; no SVG). A view
+Limits: depth 6, 200 nodes, 4 KiB of text per node, 256 KiB per view, images 256 KiB encoded and at most
+2048 x 2048 pixels, read from the PNG/JPEG header before anything is decoded (no SVG). A view
 over a limit is not drawn and counts as a failure. There is no HTML, Markdown, colour, font or size: tone and style are
 all a plugin chooses, and all text is plain. API 1's `email.details` rows are already `Row` nodes.
 
@@ -374,9 +389,14 @@ A use arrives as
 
 `search-results` is the other data slot: the result of `onProvideSearchResults`, already plain data.
 
-**Dialogs** (`ui.openDialog`, slot `plugin-dialog`) take a view and return when the dialog closes:
-`ui.openDialog({ "title": "Connect", "size": "small", "view": View })` returns `{ "closed": true }`, or the form values
-of the `action` the plugin answered with `{ "close": true }`.
+**Dialogs** (`ui.openDialog`, slot `plugin-dialog`) never block. `ui.openDialog({ "title": "Connect", "size":
+"small", "view": View })` shows the dialog and returns at once with `{ "dialog": "d-12" }`. Its buttons and form
+submits arrive as `action` messages with `slot` `plugin-dialog` and `instance` `d-12`; the plugin answers with a new
+`view`, or with `{ "close": true }` to close it. When the dialog closes, by the user (Esc, the close button) or by the
+plugin, a `closed` message follows. `ui.setPanel("plugin-dialog", view, "d-12")` replaces the view of an open dialog.
+Bulwark's `ui.openDialog` resolves when the dialog closes; a port moves the code after that `await` into the `closed`
+or `action` case. Only `ui.alert`, `ui.confirm` and `ui.prompt` block, because they need nothing from the plugin to
+finish.
 
 ### Consent and storage
 
@@ -385,8 +405,9 @@ of the `action` the plugin answered with `{ "close": true }`.
 - **Consent.** Switching it on shows name, author, version, the fixed native-code line, every permission in plain words
   (high-risk first) and every `httpOrigins` entry under `http:fetch` (as Bulwark `lib/plugin-sandbox/consent.ts`).
   Accepting records `{ id, path, sha256, granted, origins, at }` in a `pluginGrants` pref, which replaces API 1's
-  `pluginBindings`. A file with another hash is off until the user agrees again. An update that asks for nothing new
-  keeps its grant; one that asks for more shows only the additions.
+  `pluginBindings`. **A file with another hash is always off until the user says yes again**; only the permission set
+  carries over. The dialog for an update then says "Updated to version X, no new permissions", or lists just the
+  permissions and origins it adds.
 - **Optional permissions** are asked for at run time with `permissions.request([...])` (a consent dialog; the answer
   is remembered; a Barbican addition). Every grant can be revoked under Settings -> Add-ons, which restarts the plugin
   with the smaller set.
@@ -398,7 +419,8 @@ of the `action` the plugin answered with `{ "close": true }`.
 - **Account data** (`accountData.*`): the plugin's entry in the account's mailbox metadata, synced like the Phase 3
   settings and so shared by every device of the account.
 - **Secrets** (`secrets.get/set/remove`, a Barbican addition): one OS keyring entry per plugin and login, never written
-  to disk by Barbican, never in `init_json` or the log.
+  to disk by Barbican, never in `init_json` or the log. Wiped when the last profile signed in to that login signs out,
+  and for every login when the plugin is removed.
 
 ### Porting a Bulwark plugin
 
@@ -414,7 +436,8 @@ of the `action` the plugin answered with `{ "close": true }`.
 4. **Host calls.** `await api.x.y(a, b)` becomes `host->call({"v":2,"method":"x.y","args":[a,b]})`, which blocks the
    plugin's thread, not the app. Same names, same argument order. Skipped methods need another way: `http.post` and
    `proxy.*` become `http.fetch` to your own server with a `secret` setting; `keystore.*` and WebAuthn become the
-   plugin's own OS calls; print themes go.
+   plugin's own OS calls; print themes go. `ui.openDialog` no longer waits for the dialog to close: handle its
+   `action` and `closed` messages.
 5. **Manifest.** Keep `id`, `name`, `version`, `author`, `description`, `permissions`, `httpOrigins`, `locales`, and
    `settingsSchema` as `settings`. Add `"api": 2`, `library`, `hooks`, `slots`. Drop `entrypoint`, `type`, `tier`,
    `frameOrigins`, `apiPostPaths`, `credentials`.

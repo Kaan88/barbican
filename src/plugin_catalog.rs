@@ -331,7 +331,7 @@ pub const SLOTS: [Slot; 58] = [
 ];
 
 /// Every `api.*` host method, in catalogue order (spec/plugins/host-api.csv).
-pub const HOST_API: [HostMethod; 186] = [
+pub const HOST_API: [HostMethod; 192] = [
     HostMethod { name: "accountData.get", permission: "email:read", support: Support::Adopt },
     HostMethod { name: "accountData.set", permission: "email:write", support: Support::Adopt },
     HostMethod { name: "addressbook.create", permission: "contacts:write", support: Support::Adopt },
@@ -346,6 +346,8 @@ pub const HOST_API: [HostMethod; 186] = [
     HostMethod { name: "app.searchSettings", permission: "NO_STATIC_GATE", support: Support::Adapt },
     HostMethod { name: "app.setSettings", permission: "settings:change", support: Support::Adapt },
     HostMethod { name: "app.undoSettings", permission: "settings:change", support: Support::Adapt },
+    HostMethod { name: "blob.create", permission: "NO_STATIC_GATE", support: Support::Adopt },
+    HostMethod { name: "blob.read", permission: "NO_STATIC_GATE", support: Support::Adopt },
     HostMethod { name: "calendar.createEvent", permission: "calendar:write", support: Support::Adopt },
     HostMethod { name: "calendar.deleteEvent", permission: "calendar:write", support: Support::Adopt },
     HostMethod { name: "calendar.getEvent", permission: "calendar:read", support: Support::Adopt },
@@ -443,6 +445,7 @@ pub const HOST_API: [HostMethod; 186] = [
     HostMethod { name: "notifications.show", permission: "ui:notifications", support: Support::Adopt },
     HostMethod { name: "oauth.createState", permission: "http:fetch", support: Support::Adapt },
     HostMethod { name: "oauth.getRedirectUri", permission: "http:fetch", support: Support::Adapt },
+    HostMethod { name: "permissions.request", permission: "NO_STATIC_GATE", support: Support::Adopt },
     HostMethod { name: "plugin.getConfig", permission: "NO_STATIC_GATE", support: Support::Adopt },
     HostMethod { name: "proxy.accounts", permission: "http:proxy", support: Support::Skip },
     HostMethod { name: "proxy.cancel", permission: "http:proxy", support: Support::Skip },
@@ -451,6 +454,9 @@ pub const HOST_API: [HostMethod; 186] = [
     HostMethod { name: "proxy.fetch", permission: "http:proxy", support: Support::Skip },
     HostMethod { name: "search.clear", permission: "email:read", support: Support::Adopt },
     HostMethod { name: "search.run", permission: "email:read", support: Support::Adopt },
+    HostMethod { name: "secrets.get", permission: "NO_STATIC_GATE", support: Support::Adopt },
+    HostMethod { name: "secrets.remove", permission: "NO_STATIC_GATE", support: Support::Adopt },
+    HostMethod { name: "secrets.set", permission: "NO_STATIC_GATE", support: Support::Adopt },
     HostMethod { name: "sieve.getActiveScript", permission: "filters:read", support: Support::Adopt },
     HostMethod { name: "sieve.isSupported", permission: "filters:read", support: Support::Adopt },
     HostMethod { name: "sieve.regenerate", permission: "filters:write", support: Support::Adopt },

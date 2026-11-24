@@ -33,7 +33,7 @@ const API_CSV: &str = include_str!("../spec/plugins/host-api.csv");
 
 #[test]
 fn counts() {
-    assert_eq!((HOOKS.len(), SLOTS.len(), HOST_API.len()), (218, 58, 186));
+    assert_eq!((HOOKS.len(), SLOTS.len(), HOST_API.len()), (218, 58, 192));
 }
 
 fn support(s: Support) -> &'static str {
@@ -48,7 +48,7 @@ fn support_counts() {
     }
     assert_eq!(count(HOOKS.iter().map(|h| h.support)), (194, 20, 4), "hooks adopt/adapt/skip");
     assert_eq!(count(SLOTS.iter().map(|s| s.support)), (19, 37, 2), "slots adopt/adapt/skip");
-    assert_eq!(count(HOST_API.iter().map(|m| m.support)), (144, 28, 14), "host API adopt/adapt/skip");
+    assert_eq!(count(HOST_API.iter().map(|m| m.support)), (150, 28, 14), "host API adopt/adapt/skip");
 }
 
 #[test]
