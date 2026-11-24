@@ -9,6 +9,9 @@ export struct KeyRow { header: string, desc: string, keys: [string], off: bool }
 export struct PaletteRow { header: string, icon: string, label: string, hint: string, sub: string, action: string }
 export struct SuggestRow { header: string, icon: string, label: string, sub: string, removable: bool }
 export struct SearchChip { key: string, label: string, value: string }
+// a row of the folders of other accounts shown while a message is dragged: kind 0 account name,
+// 1 folder (id = login, unit separator, folder id), 2 a note (loading, none)
+export struct DndAcct { kind: int, id: string, label: string, depth: int }
 
 /// The Theme tokens these components draw with (app.slint binds them once, from Theme).
 export struct PTok {
@@ -92,6 +95,7 @@ export global Pd {
     in-out property <length> dnd-x;
     in-out property <length> dnd-y;
     in-out property <string> dnd-target;
+    in-out property <[DndAcct]> dnd-accts;
     callback dnd-start(string, string);
     callback dnd-drop();
     callback dnd-cancel();

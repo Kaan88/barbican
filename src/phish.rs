@@ -264,6 +264,24 @@ pub fn move_call(account: &str, id: &str, junk: &str) -> Value {
     json!([["Email/set", {"accountId": account, "update": { id: junk_patch(junk) }}, "m"]])
 }
 
+/// The folder a reported message was in, for Undo (Bulwark undoes to the folder the store cached,
+/// the first of the message's folders).
+pub fn origin_mailbox(m: &Value) -> Option<String> {
+    m["mailboxIds"].as_object()?.iter().find(|(_, v)| v.as_bool() == Some(true)).map(|(k, _)| k.clone())
+}
+
+/// The patch that takes a reported message back (Bulwark client.ts undoSpam with `$phishing` cleared):
+/// back to its folder, `$junk` off and `$notjunk` on (moving alone would leave it flagged as junk
+/// for every other client).
+pub fn undo_patch(origin: &str) -> Value {
+    json!({"mailboxIds": {origin: true}, "keywords/$junk": null, "keywords/$notjunk": true, "keywords/$phishing": null})
+}
+
+/// The request that moves the reported message `id` back to `origin`.
+pub fn undo_call(account: &str, id: &str, origin: &str) -> Value {
+    json!([["Email/set", {"accountId": account, "update": { id: undo_patch(origin) }}, "u"]])
+}
+
 /// What went wrong while reporting.
 #[derive(Debug, PartialEq)]
 pub enum Failure {
@@ -361,6 +379,23 @@ mod tests {
         for bad in ["", "   ", "nobody", "a@b", "Name <a@b.example>", "a@b.example, c@d.example", "a@b.example\r\nBcc: x@y.example", "a@b.example;c@d.example", "\"a b\"@c.example"] {
             assert_eq!(setup(bad, "forward"), None, "{bad:?}");
         }
+    }
+
+    #[test]
+    fn undo_goes_back_to_the_folder_and_clears_the_marks() {
+        let m = json!({"mailboxIds": {"gone": false, "inbox1": true}});
+        assert_eq!(origin_mailbox(&m).as_deref(), Some("inbox1"));
+        assert_eq!(origin_mailbox(&json!({})), None);
+        let patch = undo_patch("inbox1");
+        assert_eq!(patch["mailboxIds"], json!({"inbox1": true}));
+        assert!(patch["keywords/$junk"].is_null() && patch["keywords/$phishing"].is_null());
+        assert_eq!(patch["keywords/$notjunk"], json!(true));
+        // the reverse of what filing did: every key the report set is touched again
+        let filed = junk_patch("junk1");
+        for k in filed.as_object().unwrap().keys().filter(|k| k.starts_with("keywords/") && *k != "keywords/$seen") {
+            assert!(patch.get(k).is_some(), "{k} is not undone");
+        }
+        assert_eq!(undo_call("A", "M1", "inbox1")[0][1]["update"]["M1"], patch);
     }
 
     #[test]

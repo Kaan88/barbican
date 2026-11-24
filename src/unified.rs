@@ -490,7 +490,9 @@ pub fn watch(user: &str, w: slint::Weak<crate::AppWindow>) {
         // within half a minute
         let res = c.watch(&["Email", "Mailbox"], &mut |ev| {
             if !live() { return false; }
-            if let crate::jmap::PushEvent::State(_) = ev {
+            if let crate::jmap::PushEvent::State(v) = &ev {
+                // its folders changed: the copy and move pickers load them again
+                if crate::jmap::changed_types(v, &c.account).contains_key("Mailbox") { crate::ctxmenu::folders_changed(&user); }
                 let w3 = w2.clone();
                 std::thread::spawn(move || {
                     refresh_counts();

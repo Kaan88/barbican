@@ -710,8 +710,14 @@ fn report_phishing(u: &AppWindow) {
     let (c, mut m, id) = ST.with(|s| (s.borrow().client.clone(), s.borrow().msg.clone(), s.borrow().id.clone()));
     let (Some(c), Some(setup)) = (c, crate::phish::setup_from_settings()) else { return };
     let roles: Vec<String> = m["mailboxIds"].as_object().map(|o| o.keys().map(|k| mail::mailbox_role(k)).collect()).unwrap_or_default();
-    if mail::shared_account(&id).is_some() || !crate::phish::is_reportable(&m, &roles) { set_step(u, |s| s.phish_step = Step::Idle); return; }
+    if mail::shared_account(&id).is_some() {
+        set_step(u, |s| s.phish_step = Step::Idle);
+        mail::show_toast(u, &crate::phishflow::nothing_text(&crate::phishflow::Plan { ok: vec![], shared: 1, skipped: 0 }), false);
+        return;
+    }
+    if !crate::phish::is_reportable(&m, &roles) { set_step(u, |s| s.phish_step = Step::Idle); return; }
     set_step(u, |s| s.phish_step = Step::Busy);
+    let origin = crate::phish::origin_mailbox(&m);
     m["id"] = json!(crate::unified::real_id(&id));
     let w = u.as_weak();
     std::thread::spawn(move || {
@@ -724,8 +730,10 @@ fn report_phishing(u: &AppWindow) {
             match res {
                 Ok(()) => {
                     if is_open(&id) { set_step(&u, |s| { s.phish = true; s.phish_step = Step::Idle; }); }
-                    mail::phishing_filed(&u, c, &id);
-                    mail::show_toast(&u, &format!("Reported to {addr} and moved to Junk."), false);
+                    mail::phishing_filed(&u, c.clone(), &id);
+                    // Undo takes it back to the folder it was in (Bulwark phishing-report-host.tsx)
+                    let undo = origin.map(|origin| crate::phishflow::UndoItem { client: c, id: crate::unified::real_id(&id).to_string(), origin }).into_iter().collect();
+                    crate::phishflow::offer_undo(&u, &crate::phishflow::outcome_text(&addr, 1, &[], &[]), undo);
                 }
                 Err(crate::phish::Failure::NotMoved(e)) => {
                     if is_open(&id) {
@@ -742,6 +750,14 @@ fn report_phishing(u: &AppWindow) {
             }
         });
     });
+}
+
+/// A message reported from a list menu was only marked (its move to Junk failed): when it is the
+/// open one, its banner shows and its links go off now.
+pub fn phishing_reported(u: &AppWindow, id: &str) {
+    if !is_open(id) { return; }
+    set_step(u, |s| { s.phish = true; s.phish_step = Step::Idle; });
+    crate::links_off_now(u);
 }
 
 fn unsubscribe(u: &AppWindow, st: &Shared) {
@@ -1169,7 +1185,8 @@ pub fn menu(u: &AppWindow) -> Vec<CtxItem> {
     if !eml_view {
         v.push(sep());
         let roles: Vec<String> = m["mailboxIds"].as_object().map(|o| o.keys().map(|k| mail::mailbox_role(k)).collect()).unwrap_or_default();
-        let can = !shared && crate::phish::is_reportable(&m, &roles);
+        // a shared account's message stays clickable: the click says why it is not reported
+        let can = shared || crate::phish::is_reportable(&m, &roles);
         if crate::phish::setup_from_settings().is_some() { v.push(off(it(G_BLOCK, "Report phishing\u{2026}", "rx:phish"), can)); }
         else { v.push(hinted(off(it(G_BLOCK, "Report phishing\u{2026}", ""), false), "Set an address in Settings")); }
     }
@@ -1276,6 +1293,9 @@ pub fn pick(u: &AppWindow, st: &Shared, action: &str, target_id: &str) {
     let Some(a) = action.strip_prefix("rx:") else { return };
     match a {
         "source" => view_source(u),
+        "phish" if ST.with(|s| mail::shared_account(&s.borrow().id).is_some() || s.borrow().msg["__jmap"].is_string()) => {
+            mail::show_toast(u, &crate::phishflow::nothing_text(&crate::phishflow::Plan { ok: vec![], shared: 1, skipped: 0 }), false);
+        }
         "phish" => set_step(u, |s| if s.client.is_some() && !s.phish { s.phish_step = Step::Confirm; }),
         "eml" => save_eml(u, st),
         "zip" => download_all(u, st),
