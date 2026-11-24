@@ -7,6 +7,9 @@ example "## 0.1.0 — 2026-12-01", and start a new "Unreleased" above it.
 
 ## Unreleased
 
+- Importing a .ics file asks what to do with the reminders that are in it: when some events carry their own reminders, the import dialog shows "Keep the reminders from the file", switched on (as in Bulwark, which always keeps them), and switching it off imports those events without reminders (also for single occurrences of a series). Files without reminders show no question.
+- Calendar subscriptions (webcal://) no longer fetch from this computer or your own network: addresses like localhost, 127.0.0.1, 192.168.x.x, 10.x.x.x, 172.16-31.x.x, 169.254.x.x (including the cloud metadata address), fe80::/fc00::/::1 and 0.0.0.0, written in any form (2130706433, 0x7f000001, 0177.0.0.1, 127.1, IPv6 with an IPv4 address inside), and names such as localhost, *.local or *.internal, are refused with a message. A name is looked up once, every address it gives must be public, and the connection goes to those very addresses; every redirect (at most 5) is checked the same way, and a login in the address is only sent to the address it was typed for. A system proxy is not used for feeds. An unencrypted http:// address is still accepted, with a warning under the address field and in the message after subscribing.
+
 ## 0.1.1 — 2026-11-24
 
 - The window reopens where you left it: its size, position and whether it was maximised are remembered on this computer (not synced with your settings). When the monitor it was on is gone or the screen changed so the window would be off screen, Barbican opens at the default size and place instead.

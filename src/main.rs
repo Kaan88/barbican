@@ -18,6 +18,7 @@ mod bodycache;
 mod calendar;
 mod cal_editor;
 mod cal_extra;
+mod feed_guard;
 mod recurrence;
 mod reminders;
 mod capture;
