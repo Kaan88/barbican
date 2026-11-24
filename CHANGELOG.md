@@ -7,6 +7,8 @@ example "## 0.1.0 — 2026-12-01", and start a new "Unreleased" above it.
 
 ## Unreleased
 
+- Upgrading from 0.1.0 with SSO no longer asks you to sign in again on a later start; a failed automatic sign-in now says why and retries network errors. A restored sign-in never writes back an older token than the one it just used, a 0.1.0 entry and the new one for the same login become one account, and a token the server rotates while the saved sign-in is restored is stored at once. When the saved sign-in is turned down, the message names the account (or the server) and says that the saved entry stays until you sign in; when the server cannot be reached, Barbican keeps "Signing in…" and tries again (after 2, 5, 15 and 30 seconds), then shows the form with the reason and a "Try again" button. A saved sign-in that cannot be read says so instead of showing an unexplained form.
+
 ## 0.1.1 — 2026-11-24
 
 - The window reopens where you left it: its size, position and whether it was maximised are remembered on this computer (not synced with your settings). When the monitor it was on is gone or the screen changed so the window would be off screen, Barbican opens at the default size and place instead.

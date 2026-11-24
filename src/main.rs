@@ -41,6 +41,7 @@ mod unified;
 mod oauth;
 mod profile;
 mod redirect;
+mod restore;
 mod secrets;
 mod plugins;
 mod plugin_catalog;
@@ -854,13 +855,14 @@ fn main() -> Result<(), slint::PlatformError> {
         let (w, st) = (w.clone(), st.clone());
         let u = w.unwrap();
         u.set_busy(true);
+        u.set_retry_available(false);
         u.set_status("".into());
         let (server, user, pass, totp) = (server.to_string(), user.to_string(), pass.to_string(), totp.to_string());
         std::thread::spawn(move || {
             let res = jmap::Client::connect(&server, &user, &pass, &totp);
             // a 2FA code is single-use, so only the password itself can be remembered
             let rem = (remember && totp.trim().is_empty()).then(|| serde_json::json!({"kind": "password", "server": server, "user": user, "pass": pass}));
-            finish_login(w, st, res, server, user, rem);
+            finish_login(w, st, res, server, user, rem, oauth::Origin::SignIn);
         });
     });
 
@@ -871,6 +873,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let u = w.unwrap();
         if server.trim().is_empty() { u.set_status("Enter your server address first.".into()); return; }
         u.set_busy(true);
+        u.set_retry_available(false);
         u.set_status("Continue in your browser…".into());
         let client = u.get_client_id().trim().to_string();
         let client = if client.is_empty() { "barbican".to_string() } else { client };
@@ -878,7 +881,7 @@ fn main() -> Result<(), slint::PlatformError> {
         std::thread::spawn(move || {
             let base = jmap::normalize_base(&server);
             let res = oauth::sign_in(&base, &user, &client).and_then(|t| jmap::Client::connect_oauth(&base, t));
-            finish_login(w, st, res, server, user, remember.then(|| serde_json::json!({"kind": "oauth"})));
+            finish_login(w, st, res, server, user, remember.then(|| serde_json::json!({"kind": "oauth"})), oauth::Origin::SignIn);
         });
     });
 
@@ -925,11 +928,35 @@ fn main() -> Result<(), slint::PlatformError> {
         u.set_logged_in(false);
     });
 
+    // "Try again" on the login form after a restore that could not reach the server
+    let (w, st) = (ui.as_weak(), state.clone());
+    ui.on_retry_restore(move || {
+        let u = w.unwrap();
+        // the stored value as it is now (another window may have rotated it), else the one held
+        let v = match oauth::remembered_status() {
+            oauth::Remembered::Some(v) => Some(v),
+            _ => RESTORE_PENDING.lock().unwrap().clone(),
+        };
+        let Some(v) = v else { u.set_retry_available(false); return };
+        u.set_retry_available(false);
+        u.set_busy(true);
+        u.set_status("Signing in…".into());
+        restore_session(w.clone(), st.clone(), v, false, None);
+    });
+
     // restore a remembered session
-    if let Some(v) = oauth::remembered() {
-        ui.set_busy(true);
-        ui.set_status("Signing in…".into());
-        restore_session(ui.as_weak(), state.clone(), v, false);
+    match oauth::remembered_status_with_source() {
+        (oauth::Remembered::Some(v), source) => {
+            ui.set_busy(true);
+            ui.set_status("Signing in…".into());
+            restore_session(ui.as_weak(), state.clone(), v, false, Some(source));
+        }
+        (oauth::Remembered::Unreadable, source) => {
+            // kept as it is: only a new sign-in replaces it
+            restore::log(&restore::line(source.label(), "unknown", false, "unreadable"));
+            ui.set_status("Your saved sign-in could not be read; sign in again.".into());
+        }
+        (oauth::Remembered::Missing, source) => restore::log(&restore::line(source.label(), "none", false, "none")),
     }
     ui.set_accounts(accounts_model());
 
@@ -944,7 +971,7 @@ fn main() -> Result<(), slint::PlatformError> {
         u.set_show_settings(false);
         u.set_app(0);
         u.set_busy(true);
-        restore_session(w.clone(), st.clone(), v, true);
+        restore_session(w.clone(), st.clone(), v, true, None);
     });
     let (w, st) = (ui.as_weak(), state.clone());
     ui.on_add_account(move || {
@@ -2079,8 +2106,8 @@ fn display_chat(h: &[agent::Msg]) -> ModelRc<ChatMsg> {
 
 
 // ---------------- sign-in helpers ----------------
-/// `fresh`: a new sign-in (not a session restored from the store).
-fn remember_session(c: &jmap::Client, mut v: Value, server: &str, user: &str, fresh: bool) {
+/// `origin`: a new sign-in, or a session restored from the store (see `oauth::Origin`).
+fn remember_session(c: &jmap::Client, mut v: Value, server: &str, user: &str, origin: oauth::Origin) {
     v["server"] = serde_json::json!(server);
     v["user"] = serde_json::json!(user);
     if v["kind"] == "oauth" {
@@ -2091,7 +2118,7 @@ fn remember_session(c: &jmap::Client, mut v: Value, server: &str, user: &str, fr
         v["endpoint"] = serde_json::json!(t.token_endpoint);
         v["client"] = serde_json::json!(t.client_id);
     }
-    oauth::remember(&v, fresh);
+    oauth::remember(&v, origin);
 }
 
 fn accounts_model() -> ModelRc<SharedString> {
@@ -2100,50 +2127,92 @@ fn accounts_model() -> ModelRc<SharedString> {
 
 use jmap::auth_rejected;
 
+/// The stored session a start-up restore could not use for lack of a network: "Try again" runs it again.
+static RESTORE_PENDING: Mutex<Option<Value>> = Mutex::new(None);
+
 /// Sign in with a remembered session (startup and account switching).
 /// `switching`: an account switch from a running session, which a failure must not end.
-fn restore_session(w: slint::Weak<AppWindow>, st: Shared, v: Value, switching: bool) {
+/// `source`: at start-up, where the stored entry came from (for the one diagnostic line).
+/// A start-up failure that is not the server turning the sign-in down is retried with backoff
+/// (`restore::restore_outcome`) and then shown with "Try again"; whatever happens the stored
+/// entry stays until the user signs in again or out.
+fn restore_session(w: slint::Weak<AppWindow>, st: Shared, v: Value, switching: bool, source: Option<secrets::Source>) {
+    let gen = SESSION_GEN.load(std::sync::atomic::Ordering::SeqCst);
     std::thread::spawn(move || {
         let server = v["server"].as_str().unwrap_or("").to_string();
         let user = v["user"].as_str().unwrap_or("").to_string();
-        let mut res = if v["kind"] == "oauth" {
-            let t = oauth::Tokens {
-                access: String::new(),
-                refresh: v["refresh"].as_str().map(String::from),
-                expires: None,
-                token_endpoint: v["endpoint"].as_str().unwrap_or("").into(),
-                client_id: v["client"].as_str().unwrap_or("").into(),
-                user: user.clone(),
+        let kind = v["kind"].as_str().unwrap_or("").to_string();
+        let mut attempt = 0;
+        let res = loop {
+            let res = if v["kind"] == "oauth" {
+                let t = oauth::Tokens {
+                    access: String::new(),
+                    refresh: v["refresh"].as_str().map(String::from),
+                    expires: None,
+                    token_endpoint: v["endpoint"].as_str().unwrap_or("").into(),
+                    client_id: v["client"].as_str().unwrap_or("").into(),
+                    user: user.clone(),
+                };
+                jmap::Client::connect_oauth(&server, t)
+            } else {
+                jmap::Client::connect(&server, &user, v["pass"].as_str().unwrap_or(""), "")
             };
-            jmap::Client::connect_oauth(&server, t)
-        } else {
-            jmap::Client::connect(&server, &user, v["pass"].as_str().unwrap_or(""), "")
-        };
-        if let Err(e) = &res { if auth_rejected(e) {
-            res = Err(format!("{user} needs to sign in again. {e}"));
-        } }
-        if let Err(e) = &res {
-            // never drop stored credentials over a timeout or a server hiccup; when switching,
-            // the remembered session belongs to the account still in use
-            // an account the server turned down is only marked; the stored entry stays until
-            // the user signs out or signs in again
+            let e = match res {
+                Ok(c) => break Ok(c),
+                Err(e) => e,
+            };
             if switching {
-                let msg = format!("Could not switch to {user}: {e}");
+                let rejected = auth_rejected(&e);
+                break Err((if rejected { restore::turned_down(&restore::who(&user, &server), &e) } else { e }, rejected));
+            }
+            match restore::restore_outcome(&e, attempt, &user, &server) {
+                restore::RestoreOutcome::Retry(d) => {
+                    std::thread::sleep(d);
+                    // another sign-in or sign-out meanwhile: this one is over
+                    if SESSION_GEN.load(std::sync::atomic::Ordering::SeqCst) != gen { return; }
+                    attempt += 1;
+                }
+                restore::RestoreOutcome::ShowForm(msg) => break Err((msg, auth_rejected(&e))),
+            }
+        };
+        if let Some(source) = source {
+            let outcome = match &res { Ok(_) => "ok", Err((_, true)) => "rejected", Err(_) => "transient" };
+            restore::log(&restore::line(source.label(), &kind, user.is_empty(), outcome));
+        }
+        let res = match res {
+            Ok(c) => Ok(c),
+            Err((msg, rejected)) => {
+                // never drop stored credentials over a timeout or a server hiccup; when switching,
+                // the remembered session belongs to the account still in use; an account the
+                // server turned down is only marked, the stored entry stays until the user signs
+                // out or signs in again
+                if switching {
+                    let who = restore::who(&user, &server);
+                    let msg = format!("Could not switch to {who}: {msg}");
+                    let _ = w.upgrade_in_event_loop(move |u| {
+                        desktop::drop_pending();
+                        u.set_busy(false);
+                        u.set_accounts(accounts_model());
+                        mail::show_toast(&u, &msg, false);
+                    });
+                    return;
+                }
+                // start-up: the form with the reason, and "Try again" when the server was not asked
+                if !rejected { *RESTORE_PENDING.lock().unwrap() = Some(v.clone()); }
                 let _ = w.upgrade_in_event_loop(move |u| {
-                    desktop::drop_pending();
                     u.set_busy(false);
-                    u.set_accounts(accounts_model());
-                    mail::show_toast(&u, &msg, false);
+                    u.set_status(msg.into());
+                    u.set_retry_available(!rejected);
                 });
                 return;
             }
-        }
-        let kind = v["kind"].as_str().unwrap_or("").to_string();
-        finish_login(w, st, res, server, user, Some(serde_json::json!({"kind": kind, "pass": v["pass"], "fresh": false})));
+        };
+        let origin = oauth::Origin::Restore { read: v["refresh"].as_str().map(String::from) };
+        finish_login(w, st, res, server, user, Some(serde_json::json!({"kind": kind, "pass": v["pass"]})), origin);
     });
 }
 
-fn finish_login(w: slint::Weak<AppWindow>, st: Shared, res: Result<jmap::Client, String>, server: String, user: String, remember: Option<Value>) {
+fn finish_login(w: slint::Weak<AppWindow>, st: Shared, res: Result<jmap::Client, String>, server: String, user: String, remember: Option<Value>, origin: oauth::Origin) {
     match res {
         Ok(c) => {
             // an SSO sign-in may leave the user blank: the server's own name for the login then
@@ -2156,17 +2225,18 @@ fn finish_login(w: slint::Weak<AppWindow>, st: Shared, res: Result<jmap::Client,
             let p = config_path();
             let _ = std::fs::create_dir_all(p.parent().unwrap());
             let _ = std::fs::write(&p, format!("{server}\n{user}\n"));
-            if let Some(mut v) = remember { let fresh = v["fresh"] != false; if let Some(o) = v.as_object_mut() { o.remove("fresh"); } remember_session(&c, v, &server, &user, fresh); }
+            if let Some(v) = remember { remember_session(&c, v, &server, &user, origin); }
             let name = c.username.clone();
             *CHAT_USER.lock().unwrap() = name.clone();
             *LOGIN_USER.lock().unwrap() = user.clone();
             // host of the server URL for the admin nav subtitle
-            let host = server.trim().trim_start_matches("https://").trim_start_matches("http://").split(['/', ':']).next().unwrap_or("").to_string();
+            let host = restore::server_host(&server);
             let w2 = w.clone();
             let _ = w.upgrade_in_event_loop(move |u| {
                 u.invoke_chat_reload();
                 u.set_accounts(accounts_model());
                 u.set_busy(false);
+                u.set_retry_available(false);
                 u.set_status("".into());
                 // the password is not kept in the form once it has been used
                 u.set_login_password("".into());
