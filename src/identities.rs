@@ -40,7 +40,9 @@ pub fn url_hostname(server: &str) -> String {
     let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
     let host = authority.rsplit_once('@').map_or(authority, |(_, h)| h);
     if host.starts_with('[') {
-        return match host.find(']') { Some(i) => host[..=i].to_lowercase(), None => host.to_lowercase() };
+        let inner = match host.find(']') { Some(i) => &host[1..i], None => &host[1..] };
+        // the standard compressed form, as a URL parser writes it
+        return match inner.parse::<std::net::Ipv6Addr>() { Ok(a) => format!("[{a}]"), Err(_) => format!("[{}]", inner.to_lowercase()) };
     }
     let host = host.split(':').next().unwrap_or("").to_lowercase();
     idna::domain_to_ascii(&host).ok().filter(|h| !h.is_empty()).unwrap_or(host)
@@ -243,17 +245,47 @@ pub fn signature_fields(f: &Form) -> (Option<String>, Option<String>) {
     }
 }
 
-/// The form's errors (IdentityForm validate), joined; None when it can be saved. `editing`:
-/// the address is fixed and not checked again.
-pub fn validate(f: &Form, editing: bool) -> Option<String> {
+/// Whether the form's signature differs from the identity's as stored: its text, or the
+/// Formatted switch. Only an edited signature is sent, checked and measured again.
+pub fn signature_edited(old: &Value, f: &Form, plain_only: bool) -> bool {
+    let was = form_of(Some(old), plain_only);
+    f.signature != was.signature || f.html != was.html
+}
+
+/// The bytes the form's signature takes: as stored when it was not edited (it is not sent
+/// again), else as a save would send it (a formatted one after the sanitiser, whose output
+/// carries inline styling and so can be larger than what was typed).
+pub fn form_signature_bytes(f: &Form, old: Option<&Value>, plain_only: bool) -> usize {
+    match old {
+        Some(o) if !signature_edited(o, f, plain_only) => {
+            let text = o["textSignature"].as_str().unwrap_or("").len();
+            if plain_only { text } else { text.max(o["htmlSignature"].as_str().unwrap_or("").len()) }
+        }
+        _ if f.html => signature_bytes(&f.signature, &text_from_html(&f.signature), false),
+        _ => f.signature.len(),
+    }
+}
+
+/// The form's errors (IdentityForm validate), joined; None when it can be saved. `old`: the
+/// identity being edited (its address is fixed and not checked again, and a signature left as
+/// it is is not measured: it is not sent).
+pub fn validate(f: &Form, old: Option<&Value>, plain_only: bool) -> Option<String> {
     let mut errs: Vec<String> = vec![];
-    if !editing { if let Some(e) = email_error(f.email.trim()) { errs.push(e.into()); } }
+    if old.is_none() { if let Some(e) = email_error(f.email.trim()) { errs.push(e.into()); } }
     let bad = invalid_in_list(&f.reply_to);
     if !bad.is_empty() { errs.push(format!("Reply-to: these addresses are not valid: {}", bad.join(", "))); }
     let bad = invalid_in_list(&f.bcc);
     if !bad.is_empty() { errs.push(format!("Bcc: these addresses are not valid: {}", bad.join(", "))); }
-    let bytes = if f.html { signature_bytes(&f.signature, &text_from_html(&f.signature), false) } else { signature_bytes("", &f.signature, true) };
-    if bytes > SIGNATURE_MAX_BYTES { errs.push(format!("The signature is too long ({bytes} of {SIGNATURE_MAX_BYTES} bytes).")); }
+    if old.is_none_or(|o| signature_edited(o, f, plain_only)) {
+        let bytes = form_signature_bytes(f, None, plain_only);
+        if bytes > SIGNATURE_MAX_BYTES {
+            errs.push(if f.html {
+                format!("The signature is too long ({bytes} of {SIGNATURE_MAX_BYTES} bytes as it would be saved; the formatting adds some size).")
+            } else {
+                format!("The signature is too long ({bytes} of {SIGNATURE_MAX_BYTES} bytes).")
+            });
+        }
+    }
     if errs.is_empty() { None } else { Some(errs.join(" ")) }
 }
 
@@ -276,8 +308,7 @@ pub fn create_object(f: &Form) -> Value {
 /// two cannot disagree.
 pub fn update_patch(old: &Value, f: &Form, plain_only: bool) -> Value {
     let mut p = json!({"name": if f.name.trim().is_empty() { "" } else { f.name.as_str() }, "replyTo": parse_list(&f.reply_to), "bcc": parse_list(&f.bcc)});
-    let was = form_of(Some(old), plain_only);
-    if f.signature != was.signature || f.html != was.html {
+    if signature_edited(old, f, plain_only) {
         let (text, html) = signature_fields(f);
         p["textSignature"] = json!(text.unwrap_or_default());
         if !plain_only || f.html { p["htmlSignature"] = json!(html.unwrap_or_default()); }
@@ -513,6 +544,8 @@ mod tests {
         assert_eq!(url_hostname("https://user:pw@Mail.Example.test"), "mail.example.test");
         assert_eq!(url_hostname("https://Bücher.example/"), "xn--bcher-kva.example");
         assert_eq!(url_hostname("https://[2001:DB8::1]:443/jmap"), "[2001:db8::1]");
+        // IPv6 in its standard compressed form
+        assert_eq!(url_hostname("https://[2001:0DB8:0000:0000:0000:0000:0000:0001]/"), "[2001:db8::1]");
         assert_eq!(url_hostname("mail.example.test"), "mail.example.test");
         let v = encode_preferred(None, "a1", "b");
         let v = encode_preferred(Some(&v), "a2", "x");
@@ -597,6 +630,26 @@ mod tests {
     }
 
     #[test]
+    fn a_signature_left_as_it_is_is_not_measured_again() {
+        // made in Bulwark: under the limit as stored, over it once the sanitiser has styled it
+        let html: String = (0..190).map(|i| format!("<p>{}</p>", i % 10)).collect();
+        assert!(html.len() < SIGNATURE_MAX_BYTES && clean_signature_html(&html).len() > SIGNATURE_MAX_BYTES, "{} / {}", html.len(), clean_signature_html(&html).len());
+        let old = json!({"id": "i", "email": "a@example.test", "name": "Ann", "textSignature": "", "htmlSignature": html});
+        // a name change is accepted, and the size shown is the stored one
+        let f = Form { name: "Ann B".into(), ..form_of(Some(&old), false) };
+        assert_eq!(validate(&f, Some(&old), false), None);
+        assert_eq!(form_signature_bytes(&f, Some(&old), false), html.len());
+        // an edited one is measured as it would be saved
+        let f = Form { signature: format!("{html}<p>x</p>"), ..f };
+        let e = validate(&f, Some(&old), false).unwrap();
+        assert!(e.contains("too long") && e.contains("formatting adds"), "{e}");
+        assert!(form_signature_bytes(&f, Some(&old), false) > SIGNATURE_MAX_BYTES);
+        // the same for a new address
+        let f = Form { email: "b@example.test".into(), signature: html.clone(), html: true, ..Default::default() };
+        assert!(validate(&f, None, false).is_some());
+    }
+
+    #[test]
     fn a_missing_may_delete_is_not_deletable() {
         let a = json!({"id": "a", "email": "ann@example.test"});
         let b = json!({"id": "b", "email": "ann@example.test", "mayDelete": true});
@@ -622,14 +675,14 @@ mod tests {
     #[test]
     fn validation_and_the_size_limit() {
         let ok = Form { email: "a@example.test".into(), ..Default::default() };
-        assert_eq!(validate(&ok, false), None);
+        assert_eq!(validate(&ok, None, false), None);
         let bad = Form { email: "nope".into(), bcc: "x".into(), ..Default::default() };
-        let e = validate(&bad, false).unwrap();
+        let e = validate(&bad, None, false).unwrap();
         assert!(e.contains("valid email") && e.contains("Bcc"), "{e}");
         // editing: the fixed address is not checked
-        assert_eq!(validate(&Form { email: "whatever".into(), ..Default::default() }, true), None);
+        assert_eq!(validate(&Form { email: "whatever".into(), ..Default::default() }, Some(&json!({"email": "whatever"})), false), None);
         let long = Form { email: "a@example.test".into(), signature: "é".repeat(1100), ..Default::default() };
-        assert!(validate(&long, false).unwrap().contains("too long"));
+        assert!(validate(&long, None, false).unwrap().contains("too long"));
         assert_eq!(size_note(10), None);
         assert!(size_note(1900).unwrap().starts_with("1900 of 2047"));
         assert!(size_note(2048).unwrap().starts_with("Too long"));

@@ -82,6 +82,8 @@ pub struct Cache {
     /// An identity save or delete is on its way: no second one, and the form takes no input,
     /// until it is answered (a double click must not add the address twice).
     pub id_busy: bool,
+    /// The change on its way is a delete (the form, when open, says so).
+    pub id_deleting: bool,
     pub masked: Vec<crate::masked::Masked>,
     /// 0 loading, 1 ready, 2 forbidden, 3 unavailable, 4 the load failed.
     pub masked_state: u8,
@@ -142,6 +144,7 @@ pub fn claim(cache: &Shared, owner: &str, username: &str, server: &str) -> Strin
         k.id_form = None;
         k.id_gen += 1;
         k.id_busy = false;
+        k.id_deleting = false;
         k.confirm_delete.clear();
         reset_masked(&mut k);
     }
@@ -166,7 +169,7 @@ fn identity_form_rows(k: &Cache, out: &mut Vec<SRow>) {
         }
         let sig: String = (if x.f.html { crate::identities::text_from_html(&x.f.signature) } else { x.f.signature.clone() }).chars().take(300).collect();
         out.push(row("value", "", "Signature", &sig, "", false));
-        out.push(row("value", "", "Saving…", "", "", false));
+        out.push(row("value", "", if k.id_deleting { "Deleting…" } else { "Saving…" }, "", "", false));
         return;
     }
     let plain = plain_only();
@@ -189,7 +192,7 @@ fn identity_form_rows(k: &Cache, out: &mut Vec<SRow>) {
         let t: String = crate::identities::text_from_html(&x.f.signature).chars().take(300).collect();
         out.push(row("value", "", "Plain-text version", &t, "", false));
     }
-    let bytes = if x.f.html { crate::identities::signature_bytes(&x.f.signature, &crate::identities::text_from_html(&x.f.signature), false) } else { x.f.signature.len() };
+    let bytes = crate::identities::form_signature_bytes(&x.f, x.old.as_ref(), plain);
     if let Some(n) = crate::identities::size_note(bytes) { out.push(row("value", "", "Signature size", &n, "", false)); }
     if !x.error.is_empty() { out.push(row("value", "", "Not saved", &x.error, "", false)); }
     out.push(row("button", "server.ident.save", "", "", if editing { "Save changes" } else { "Add address" }, false));
@@ -807,10 +810,13 @@ pub fn edit(key: &str, value: &Value, cache: &Shared) -> Option<Box<dyn FnOnce(&
 /// A save or delete of an identity was answered (or refused before it went out). Only the page
 /// of the account it was made for is touched: it takes input again, a saved form closes (so a
 /// second Save cannot add the address again), a refused one shows why. `closes`: the identity
-/// whose form a delete closes.
-pub fn identity_done(g: &mut Cache, owner: &str, r: &Result<(), String>, save: bool, closes: Option<&str>) {
-    if g.owner != owner { return; }
+/// whose form a delete closes. `generation`: the page's `id_gen` when the change went out; a
+/// late answer of an older one (the account was left and opened again meanwhile, so another
+/// form or another change may be on the page) changes nothing.
+pub fn identity_done(g: &mut Cache, owner: &str, generation: u64, r: &Result<(), String>, save: bool, closes: Option<&str>) {
+    if g.owner != owner || g.id_gen != generation { return; }
     g.id_busy = false;
+    g.id_deleting = false;
     match r {
         Ok(()) => {
             if save || g.id_form.as_ref().is_some_and(|x| Some(x.id.as_str()) == closes) { g.id_form = None; g.id_gen += 1; }
@@ -846,14 +852,14 @@ fn identity_button(key: &str, cache: &Shared) -> Option<Option<Job>> {
         return Some(noop());
     }
     if key == "server.ident.save" {
-        let (owner, form, plain) = {
+        let (owner, form, plain, generation) = {
             let mut k = cache.lock().unwrap();
             let plain = plain_only();
             let Some(x) = k.id_form.as_mut() else { return Some(None) };
-            if let Some(e) = ids::validate(&x.f, !x.id.is_empty()) { x.error = e; return Some(noop()); }
+            if let Some(e) = ids::validate(&x.f, x.old.as_ref().filter(|_| !x.id.is_empty()), plain) { x.error = e; return Some(noop()); }
             x.error.clear();
             k.id_busy = true;
-            (k.owner.clone(), k.id_form.clone().unwrap(), plain)
+            (k.owner.clone(), k.id_form.clone().unwrap(), plain, k.id_gen)
         };
         return Some(Some(Box::new(move |c: &Client, k: &Shared| {
             let r = if c.state_key() != owner { Err(ACCOUNT_CHANGED.to_string()) } else {
@@ -863,7 +869,7 @@ fn identity_button(key: &str, cache: &Shared) -> Option<Option<Job>> {
                     None => Err("This address is no longer in the list; reload and try again.".into()),
                 }
             };
-            identity_done(&mut k.lock().unwrap(), &owner, &r, true, None);
+            identity_done(&mut k.lock().unwrap(), &owner, generation, &r, true, None);
             r
         })));
     }
@@ -876,11 +882,11 @@ fn identity_button(key: &str, cache: &Shared) -> Option<Option<Job>> {
         let ask = format!("ident:{id}");
         if k.confirm_delete != ask { k.confirm_delete = ask; return Some(noop()); }
         k.confirm_delete.clear();
-        k.id_busy = true;
-        let owner = k.owner.clone();
+        (k.id_busy, k.id_deleting) = (true, true);
+        let (owner, generation) = (k.owner.clone(), k.id_gen);
         return Some(Some(Box::new(move |c: &Client, k: &Shared| {
             let r = if c.state_key() != owner { Err(ACCOUNT_CHANGED.to_string()) } else { ids::destroy(c, &id) };
-            identity_done(&mut k.lock().unwrap(), &owner, &r, false, Some(&id));
+            identity_done(&mut k.lock().unwrap(), &owner, generation, &r, false, Some(&id));
             r
         })));
     }
@@ -1271,21 +1277,24 @@ mod tests {
         assert!(r.iter().any(|x| x.label.as_str() == "Saving…"));
         assert!(!r.iter().any(|x| x.key.starts_with("server.ident.f.") || x.key.as_str() == "server.ident.save" || x.key.starts_with("server.ident.delete:")));
         // an answer for another account's page changes nothing here
-        identity_done(&mut c.lock().unwrap(), "B", &Ok(()), true, None);
+        let g0 = c.lock().unwrap().id_gen;
+        identity_done(&mut c.lock().unwrap(), "B", g0, &Ok(()), true, None);
         assert!(c.lock().unwrap().id_busy);
         // a refused save gives the form back with the reason
-        identity_done(&mut c.lock().unwrap(), "A", &Err("You are not authorized to send from this email address.".into()), true, None);
+        identity_done(&mut c.lock().unwrap(), "A", g0, &Err("You are not authorized to send from this email address.".into()), true, None);
         { let k = c.lock().unwrap(); assert!(!k.id_busy); assert!(k.id_form.as_ref().unwrap().error.contains("not authorized")); }
         // a saved one closes the form: Save cannot add it again
         assert!(button("server.ident.save", &c).is_some());
-        identity_done(&mut c.lock().unwrap(), "A", &Ok(()), true, None);
+        let g1 = c.lock().unwrap().id_gen;
+        identity_done(&mut c.lock().unwrap(), "A", g1, &Ok(()), true, None);
         { let k = c.lock().unwrap(); assert!(!k.id_busy && k.id_form.is_none()); }
         assert!(button("server.ident.save", &c).is_none());
         // the account changed while it was out: the page takes input again
         button("server.ident.new", &c);
         edit("server.ident.f.email", &json!("x@example.test"), &c);
         button("server.ident.save", &c);
-        identity_done(&mut c.lock().unwrap(), "A", &Err(ACCOUNT_CHANGED.into()), true, None);
+        let g2 = c.lock().unwrap().id_gen;
+        identity_done(&mut c.lock().unwrap(), "A", g2, &Err(ACCOUNT_CHANGED.into()), true, None);
         assert!(!c.lock().unwrap().id_busy);
         // switching account clears it as well
         c.lock().unwrap().id_busy = true;
@@ -1308,8 +1317,45 @@ mod tests {
         assert!(button("server.ident.delete:alias", &c).is_some());
         assert!(c.lock().unwrap().id_busy);
         assert!(rows("account", &c).unwrap().iter().any(|x| x.label.as_str() == "Deleting…"));
-        identity_done(&mut c.lock().unwrap(), "A", &Ok(()), false, Some("alias"));
-        assert!(!c.lock().unwrap().id_busy);
+        let g = c.lock().unwrap().id_gen;
+        identity_done(&mut c.lock().unwrap(), "A", g, &Ok(()), false, Some("alias"));
+        assert!(!c.lock().unwrap().id_busy && !c.lock().unwrap().id_deleting);
+        // a delete with the form open: the form says Deleting…, not Saving…
+        button("server.ident.edit:team", &c);
+        button("server.ident.delete:alias", &c);
+        button("server.ident.delete:alias", &c);
+        let r = rows("account", &c).unwrap();
+        assert!(r.iter().any(|x| x.label.as_str() == "Deleting…") && !r.iter().any(|x| x.label.as_str() == "Saving…"));
+    }
+
+    #[test]
+    fn a_late_answer_of_an_older_change_leaves_the_page_alone() {
+        let c = identities_page();
+        button("server.ident.new", &c);
+        edit("server.ident.f.email", &json!("first@example.test"), &c);
+        assert!(button("server.ident.save", &c).is_some());
+        let first = c.lock().unwrap().id_gen;
+        // to another account and back before the answer, then a new form and its own save
+        claim(&c, "B", "bob@example.test", "https://other.example.test");
+        claim(&c, "A", "ann@example.test", "https://mail.example.test");
+        c.lock().unwrap().identities = identities_page().lock().unwrap().identities.clone();
+        button("server.ident.new", &c);
+        edit("server.ident.f.email", &json!("second@example.test"), &c);
+        assert!(button("server.ident.save", &c).is_some());
+        let second = c.lock().unwrap().id_gen;
+        assert_ne!(first, second);
+        // the first save's late answer, whatever it says: the second keeps its busy page and form
+        identity_done(&mut c.lock().unwrap(), "A", first, &Ok(()), true, None);
+        identity_done(&mut c.lock().unwrap(), "A", first, &Err("refused".into()), true, None);
+        {
+            let k = c.lock().unwrap();
+            assert!(k.id_busy);
+            let x = k.id_form.as_ref().unwrap();
+            assert_eq!((x.f.email.as_str(), x.error.as_str()), ("second@example.test", ""));
+        }
+        identity_done(&mut c.lock().unwrap(), "A", second, &Ok(()), true, None);
+        let k = c.lock().unwrap();
+        assert!(!k.id_busy && k.id_form.is_none());
     }
 
     #[test]
