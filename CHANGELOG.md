@@ -7,6 +7,8 @@ example "## 0.1.0 — 2026-12-01", and start a new "Unreleased" above it.
 
 ## Unreleased
 
+- Settings > Password & sign-in now manages your Stalwart account's security (the page shows only on an account whose server offers it): change the password (the app signs in with the new one at once, and updates the remembered sign-in if you chose to remember it), turn two-step sign-in on (a secret key and setup link to type or copy into an authenticator app, checked with a code before it is switched on) and off, and create and delete app passwords. With "Show advanced settings" it also lists API keys and, for encryption at rest, public keys with the option to turn encryption on with a key (AES-128 or AES-256) or off. A new app password or API key is shown once, with a Copy button; nothing you type here is saved or logged, and it is forgotten when you leave the page. There is no QR code yet: use the secret key or the link.
+
 ## 0.2.1 — 2026-11-24
 
 - Updates through Hub or the installer now close a Barbican that is running in the tray (it saves an open draft first) instead of stopping with "Setup could not close Barbican". The update to this version still needs Barbican to be quit by hand once (tray icon, Quit), because the older version does not listen for the signal.

@@ -144,6 +144,13 @@ pub fn problem_message(status: u16, v: &Value) -> String {
     }
 }
 
+/// The user and password inside a `Basic` Authorization header.
+fn basic_credentials(header: &str) -> Option<(String, String)> {
+    let raw = base64::engine::general_purpose::STANDARD.decode(header.strip_prefix("Basic ")?).ok()?;
+    let (u, p) = String::from_utf8(raw).ok()?.split_once(':').map(|(u, p)| (u.to_string(), p.to_string()))?;
+    Some((u, p))
+}
+
 impl Client {
     /// Password (or app password) sign-in. `totp` is appended Stalwart-style as `password$code`.
     pub fn connect(server: &str, user: &str, pass: &str, totp: &str) -> R<Client> {
@@ -257,6 +264,21 @@ impl Client {
     }
 
     fn auth_header(&self) -> String { self.auth.lock().unwrap().clone() }
+
+    /// The user name of a password (Basic) sign-in, as the server was given it.
+    pub fn basic_user(&self) -> Option<String> {
+        basic_credentials(&self.auth_header()).map(|(u, _)| u)
+    }
+
+    /// After a password change: sign the following requests with the new password. `false` (and
+    /// nothing changed) for a single-sign-on session, which has no password.
+    pub fn set_basic_password(&self, pass: &str) -> bool {
+        if self.oauth.is_some() { return false; }
+        let mut h = self.auth.lock().unwrap();
+        let Some((user, _)) = basic_credentials(&h) else { return false };
+        *h = format!("Basic {}", base64::engine::general_purpose::STANDARD.encode(format!("{user}:{pass}")));
+        true
+    }
 
     pub fn has(&self, cap: &str) -> bool {
         self.caps.iter().any(|c| c == cap)
@@ -1756,6 +1778,14 @@ pub const BODY_PROPERTIES: [&str; 9] = ["partId", "blobId", "size", "name", "typ
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn basic_header_is_read_back() {
+        let h = format!("Basic {}", base64::engine::general_purpose::STANDARD.encode("ann@example.test:pa:ss$123456"));
+        assert_eq!(basic_credentials(&h), Some(("ann@example.test".into(), "pa:ss$123456".into())));
+        assert_eq!(basic_credentials("Bearer abc"), None);
+        assert_eq!(basic_credentials("Basic !!!"), None);
+    }
 
     #[test]
     fn reschedule_fallback_order() {

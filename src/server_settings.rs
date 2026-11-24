@@ -44,6 +44,8 @@ pub struct Cache {
     pub books: Vec<Value>,
     pub new_cal: String,
     pub new_book: String,
+    /// Settings > Password & sign-in (src/security.rs).
+    pub sec: crate::security::State,
 }
 
 /// Bulwark's calendar colour presets (lib/shared-calendar-colors.ts CALENDAR_COLORS).
@@ -111,6 +113,8 @@ fn quota_rows(list: &[Value]) -> Vec<SRow> {
 
 /// Fetch what a page needs. Runs on a background thread.
 pub fn load(tab: &str, c: &Client, cache: &Shared) {
+    // typed passwords, codes and a secret just created are kept only while their page is open
+    if tab != "security" { cache.lock().unwrap().sec.forget_secrets(); }
     let res: Result<(), String> = (|| {
         match tab {
             "vacation" => {
@@ -185,6 +189,7 @@ pub fn load(tab: &str, c: &Client, cache: &Shared) {
                 k.quota = quota;
                 k.identities = ids;
             }
+            "security" => { crate::security::load(c, cache)?; }
             "composing" => {
                 let ids = c.identities()?;
                 let tpls = crate::templates::list(c).unwrap_or_default();
@@ -206,6 +211,8 @@ pub fn rows(tab: &str, cache: &Shared) -> Option<Vec<SRow>> {
     if !k.error.is_empty() { out.push(row("value", "", "Could not load from the server", &k.error, "", false)); }
     let quota = if tab == "account" { quota_rows(&k.quota) } else { vec![] };
     match tab {
+        // hidden (None) for an account without Stalwart's management capability
+        "security" => return crate::security::rows(&k.sec).map(|mut r| { r.splice(0..0, out); r }),
         "vacation" => {
             out.push(row("section", "", "Out of office", "Sends an automatic reply to people who write to you while you are away.", "", false));
             let Some(v) = k.vacation.as_ref() else { out.push(row("value", "", "Loading…", "", "", false)); return Some(out) };
@@ -343,6 +350,10 @@ pub fn rows(tab: &str, cache: &Shared) -> Option<Vec<SRow>> {
 /// Apply an edit locally (instant) and return a server write to run in the background.
 pub fn edit(key: &str, value: &Value, cache: &Shared) -> Option<Box<dyn FnOnce(&Client) -> Result<(), String> + Send>> {
     let mut k = cache.lock().unwrap();
+    if let Some(field) = key.strip_prefix("server.sec.") {
+        crate::security::edit(&mut k.sec, field, value);
+        return None;
+    }
     if let Some(field) = key.strip_prefix("server.vacation.") {
         let f = field.to_string();
         let mut v = value.clone();
@@ -425,6 +436,7 @@ pub fn edit(key: &str, value: &Value, cache: &Shared) -> Option<Box<dyn FnOnce(&
 
 /// Button actions on server pages. Returns true when the page should reload from the server.
 pub fn button(key: &str, cache: &Shared) -> Option<Box<dyn FnOnce(&Client, &Shared) -> Result<(), String> + Send>> {
+    if let Some(what) = key.strip_prefix("server.sec.") { return crate::security::button(&mut cache.lock().unwrap().sec, what); }
     if key == "server.folder.create" {
         let name = cache.lock().unwrap().new_folder.trim().to_string();
         if name.is_empty() { return None; }

@@ -56,6 +56,7 @@ mod plugins;
 mod plugin_catalog;
 #[cfg(test)]
 mod plugin_catalog_check;
+mod security;
 mod server_settings;
 mod settings;
 mod sieve;
@@ -1163,8 +1164,14 @@ fn main() -> Result<(), slint::PlatformError> {
                 let tab = u.get_settings_tab().to_string();
                 u.set_settings_title(p.title(&tab).into());
                 let mut rows = p.rows(&tab, &c, &acc());
+                if tab == "security" { srv.lock().unwrap().sec.advanced = adv; }
                 if let Some(extra) = server_settings::rows(&tab, &srv) {
-                    if tab == "account" || tab == "composing" { rows.extend(extra); } else { rows = extra; }
+                    if tab == "account" || tab == "composing" { rows.extend(extra); }
+                    else if tab == "security" {
+                        // the server's account security replaces the schema's empty headings it covers
+                        rows.retain(|r| !(r.kind == "section" && matches!(r.label.as_str(), "Account security" | "Encryption")));
+                        rows.splice(0..0, extra);
+                    } else { rows = extra; }
                 }
                 rows
             } else {
