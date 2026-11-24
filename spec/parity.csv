@@ -1,16 +1,16 @@
 id,area,feature,bulwark_ref,rust_status,rust_call_site,csharp_spec,phase,size
-G-001,calendar,Invitations: applying a counter-proposal,components/calendar invitation banner (ical counter),missing,,G-001 (GAPS P0-1 (remaining)),1,S
-G-002,calendar,Invitations: remove cancelled event from the banner,calendar invitation banner,missing,,G-002 (GAPS P0-1 (remaining)),1,S
-G-003,calendar,Event editor: all-day strip in day and week header has no height cap,calendar day/week header,missing,,G-003 (GAPS P0-2),1,S
-G-004,calendar,Import: .ics alerts kept from the file without asking first (D-M4-09: the prompt defaults to keep as Bulwark),ical-import-modal.tsx,missing,,G-004 (GAPS P0-2),1,S
-G-005,calendar,Reminders: an event's own alert set more than 8 days ahead is missed when the calendar defaults do not reach that far,use-calendar-alerts.ts,missing,,G-005 (GAPS P0-3),1,S
-G-006,calendar,Webcal: feeds on localhost or LAN hosts not blocked; plain http accepted with a warning,calendar-subscription-sync.ts,missing,,G-006 (GAPS P0-4),1,S
+G-001,calendar,Invitations: applying a counter-proposal,components/calendar invitation banner (ical counter),partial,"src/invite.rs (counter_target, proposal_patch)",G-001 (GAPS P0-1 (remaining)),1,S
+G-002,calendar,Invitations: remove cancelled event from the banner,calendar invitation banner,done,src/invite.rs (plan_cancellation),G-002 (GAPS P0-1 (remaining)),1,S
+G-003,calendar,Event editor: all-day strip in day and week header has no height cap,calendar day/week header,done,src/allday.rs,G-003 (GAPS P0-2),1,S
+G-004,calendar,Import: .ics alerts kept from the file without asking first (D-M4-09: the prompt defaults to keep as Bulwark),ical-import-modal.tsx,done,src/cal_extra.rs (ics import alerts),G-004 (GAPS P0-2),1,S
+G-005,calendar,Reminders: an event's own alert set more than 8 days ahead is missed when the calendar defaults do not reach that far,use-calendar-alerts.ts,done,src/reminders.rs,G-005 (GAPS P0-3),1,S
+G-006,calendar,Webcal: feeds on localhost or LAN hosts not blocked; plain http accepted with a warning,calendar-subscription-sync.ts,done,src/feed_guard.rs,G-006 (GAPS P0-4),1,S
 G-007,platform,Mailto on Linux: .desktop registration code never compiled,n/a (platform),unverified,,G-007 (GAPS P0-5),1,S
 G-008,calendar,Calendar print,calendar-print.tsx,missing,,G-008 (GAPS P1-1),6,S/M
 G-009,calendar,"Find a time depends on Principal/getAvailability, which Stalwart may not support",find-a-time.tsx,partial,,G-009 (GAPS P1-1),6,S/M
 G-010,contacts,Contact print,contact-print.ts,missing,,G-010 (GAPS P1-2),6,S/M
 G-011,contacts,Contact activity and related people,contact-activity.tsx,missing,,G-011 (GAPS P1-2),6,S/M
-G-012,contacts,"Security review of contacts input: vCard parsing of untrusted files, photo data URI size, export paths",vcard.ts,missing,,G-012 (GAPS P1-2 (review)),1,S/M
+G-012,contacts,"Security review of contacts input: vCard parsing of untrusted files, photo data URI size, export paths",vcard.ts,done,src/vcard.rs; src/contacts_x.rs,G-012 (GAPS P1-2 (review)),1,S/M
 G-013,files,In-app preview (files open externally today),file-preview-modal.tsx; image-preview-modal.tsx; eml-preview.tsx,missing,,G-013 (GAPS P1-3),4,M
 G-014,files,Details panel,file-details-panel.tsx,missing,,G-014 (GAPS P1-3),4,M
 G-015,files,"Grid and list views, sort, search, thumbnails (Show files as, Default sort, thumbnails, hidden files)",file-views.tsx,missing,,G-015 (GAPS P1-3),4,M
@@ -18,7 +18,7 @@ G-016,files,Upload conflict dialog,upload-conflict-dialog.tsx,missing,,G-016 (GA
 G-017,files,Zip download,lib/files-zip.ts,missing,,G-017 (GAPS P1-3),4,M
 G-018,files,New text file,new-file-dialog.tsx,missing,,G-018 (GAPS P1-3),4,M
 G-019,files,"Filename download rules (filenameSpaceReplacement and siblings, postExportAction)",files-settings.ts,missing,,G-019 (GAPS P1-3),4,M
-G-020,sieve,Filters: 'reject' offered even when the server does not list the reject extension,filter-rule-modal.tsx,missing,,G-020 (GAPS P1-4),1,S
+G-020,sieve,Filters: 'reject' offered even when the server does not list the reject extension,filter-rule-modal.tsx,done,src/sieve.rs action_offered; src/filters_x.rs,G-020 (GAPS P1-4),1,S
 G-021,sieve,"Vacation UI: reply-to audience, forward while away, keep in inbox, HTML body, templates",vacation-settings.tsx; vacation-template-picker.tsx; lib/vacation-audience.ts; vacation-forward.ts,missing,,G-021 (GAPS P1-5),3,S/M
 G-022,sieve,Vacation: calendar out-of-office block (vacationBlockCalendar),vacation-calendar-block.tsx,missing,,G-022 (GAPS P1-5),3,S/M
 G-023,identities,Identities: create and delete; Bcc,identity-manager-modal.tsx; identity-form.tsx,partial,,G-023 (GAPS P1-6),3,M
@@ -54,9 +54,9 @@ G-052,reader-safety,BIMI verified badge,brand-verified-badge.tsx; lib/bimi,missi
 G-053,reader-safety,"Per-sender trust for remote content (trustedSenders, externalContentPolicy)",trusted-senders-modal.tsx,missing,,G-053 (GAPS P1-12),2,M
 G-054,composer,Confirm before sending to external recipients,external-recipient-confirm.tsx,missing,,G-054 (GAPS P1-12),2,S
 G-055,popout,Pop-out windows: message and composer in their own windows,popout/,missing,,G-055 (GAPS P1-13),6,M
-G-056,jmap,"Truncated bodies: a notice shows, but the full body is never fetched",lib/email (isTruncated),missing,,G-056 (GAPS P1-14),1,S
-G-057,jmap,Quota is fetched but not shown (storage usage on the Account page),Account page,missing,,G-057 (GAPS P1-14),1,S
-G-058,composer,"cid: images in a re-opened draft: ROADMAP says placeholders, commit b9b3e99 says restored; re-check",composer draft reopen,unverified,,G-058 (GAPS P1-14),1,S
+G-056,jmap,"Truncated bodies: a notice shows, but the full body is never fetched",lib/email (isTruncated),done,src/reader.rs; src/bodycache.rs (full-body refetch),G-056 (GAPS P1-14),1,S
+G-057,jmap,Quota is fetched but not shown (storage usage on the Account page),Account page,done,src/quota.rs; src/server_settings.rs,G-057 (GAPS P1-14),1,S
+G-058,composer,"cid: images in a re-opened draft: ROADMAP says placeholders, commit b9b3e99 says restored; re-check",composer draft reopen,done,src/compose.rs (draft cid restore),G-058 (GAPS P1-14),1,S
 G-059,settings-unwired,"Unwired: notificationSoundChoice, pushRelayUrl",settings-store.ts,missing,,G-059 (GAPS P2-1),6,S
 G-060,settings-unwired,Unwired: dateLocale (showOnboardingOnNewDevices wired by G-085),settings-store.ts,missing,,G-060 (GAPS P2-1),6,S
 G-061,settings-unwired,"Unwired: toolbarPosition, sidebarAccountSwitcher, showSharedMailAccounts, compactSharedMailboxes, keepAppsLoaded",settings-store.ts,missing,,G-061 (GAPS P2-1),6,M
