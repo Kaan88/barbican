@@ -120,3 +120,24 @@ All nine P0 items are implemented (see above). What is left of them:
 - ROADMAP.md was rewritten on 2026-11-23 around 1:1 Bulwark parity, plugins included.
 
 Files read: `C:/Users/user/Downloads/webmail-main/desktop/ROADMAP.md`, `C:/Users/user/Downloads/webmail-main/desktop/JMAP-COMPLIANCE.md`, `C:/Users/user/Downloads/webmail-main/desktop/src/settings.rs`, `C:/Users/user/Downloads/webmail-main/desktop/src/server_settings.rs`, `C:/Users/user/Downloads/webmail-main/desktop/src/main.rs`, `C:/Users/user/Downloads/webmail-main/desktop/src/ctxmenu.rs`, `C:/Users/user/Downloads/webmail-main/desktop/ui/app.slint`, `C:/Users/user/Downloads/webmail-main/desktop/ui/settings-schema.json`, `C:/Users/user/Downloads/webmail-main/stores/settings-store.ts`, `C:/Users/user/Downloads/webmail-main/lib/keyboard-shortcuts/`.
+
+## Recorded 2026-11-24 (after 0.2.1)
+
+Open items found while reviewing the 0.2 and early 0.3 branches. Each needs a decision or a small follow-up.
+- **Settings sync:** Bulwark's settings live on its web server, not on Stalwart, so Barbican cannot share them (ROADMAP Phase 3). Barbican syncs its own settings, and only templates and shared tags are shared.
+- **Trusted senders address book:**
+  - A session that is not remembered never files this computer's list into the book. Bulwark always files it.
+  - A server address typed in a different spelling skips the migration.
+  - In the unified inbox, "Trust sender" files into the active account's book.
+  - Reply recipients are not trusted on send.
+  - With the setting off, the Settings text box adds untagged entries.
+- **Notifications:**
+  - Only the active login notifies. Other signed-in logins update their counts but never notify, while Bulwark notifies for every login (lib/desktop/new-mail.ts).
+  - There is no account-level mute, and no "Reset folder notifications".
+- **Templates:**
+  - No browser-storage fallback for servers without metadata.
+  - No team or per-account templates.
+  - No plugin onTemplateRender hook.
+  - Auto-fill dates are English only.
+- **Folders:** subscribe/unsubscribe and pinned folders are Barbican's own (Bulwark has neither). Custom folder icons draw only in the Bento theme.
+- **Installer and Hub:** the quit signal (0.2.1) is not yet verified end to end through a Hub update. The update from 0.2.0 or older still needs a manual Quit.
