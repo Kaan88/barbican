@@ -890,6 +890,7 @@ fn main() -> Result<(), slint::PlatformError> {
     ui.on_sign_out(move || {
         let u = w.unwrap();
         SESSION_GEN.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        *RESTORE_PENDING.lock().unwrap() = None;
         let account = u.get_account().to_string();
         let mut owner = None;
         let mut server = String::new();
@@ -933,9 +934,12 @@ fn main() -> Result<(), slint::PlatformError> {
     ui.on_retry_restore(move || {
         let u = w.unwrap();
         // the stored value as it is now (another window may have rotated it), else the one held
+        // (a stored entry that is gone was signed out, perhaps by another window: it is not
+        // brought back from the copy held here)
         let v = match oauth::remembered_status() {
             oauth::Remembered::Some(v) => Some(v),
-            _ => RESTORE_PENDING.lock().unwrap().clone(),
+            oauth::Remembered::Unreadable => RESTORE_PENDING.lock().unwrap().clone(),
+            oauth::Remembered::Missing => { *RESTORE_PENDING.lock().unwrap() = None; None }
         };
         let Some(v) = v else { u.set_retry_available(false); return };
         u.set_retry_available(false);
@@ -2142,6 +2146,9 @@ fn restore_session(w: slint::Weak<AppWindow>, st: Shared, v: Value, switching: b
         let server = v["server"].as_str().unwrap_or("").to_string();
         let user = v["user"].as_str().unwrap_or("").to_string();
         let kind = v["kind"].as_str().unwrap_or("").to_string();
+        // the stored value the current attempt uses: a retry starts from the store as it is
+        // then, because an attempt that refreshed and failed afterwards has rotated the token
+        let mut v = v;
         let mut attempt = 0;
         let res = loop {
             let res = if v["kind"] == "oauth" {
@@ -2170,6 +2177,7 @@ fn restore_session(w: slint::Weak<AppWindow>, st: Shared, v: Value, switching: b
                     std::thread::sleep(d);
                     // another sign-in or sign-out meanwhile: this one is over
                     if SESSION_GEN.load(std::sync::atomic::Ordering::SeqCst) != gen { return; }
+                    v = restore::retry_value(&v, &oauth::remembered_status());
                     attempt += 1;
                 }
                 restore::RestoreOutcome::ShowForm(msg) => break Err((msg, auth_rejected(&e))),
@@ -2188,7 +2196,8 @@ fn restore_session(w: slint::Weak<AppWindow>, st: Shared, v: Value, switching: b
                 // out or signs in again
                 if switching {
                     let who = restore::who(&user, &server);
-                    let msg = format!("Could not switch to {who}: {msg}");
+                    // a turned-down message already names the account
+                    let msg = if rejected { format!("Could not switch. {msg}") } else { format!("Could not switch to {who}: {msg}") };
                     let _ = w.upgrade_in_event_loop(move |u| {
                         desktop::drop_pending();
                         u.set_busy(false);
@@ -2219,6 +2228,7 @@ fn finish_login(w: slint::Weak<AppWindow>, st: Shared, res: Result<jmap::Client,
             // ties the remembered session (and its rotated tokens) to one account entry
             let user = if user.trim().is_empty() { c.username.clone() } else { user };
             let c = Arc::new(c);
+            *RESTORE_PENDING.lock().unwrap() = None;
             *st.lock().unwrap() = Some(c.clone());
             unified::set_active(&user, c.clone());
             if unified::enabled() { unified::warm_up(Some(w.clone())); }

@@ -1,7 +1,9 @@
 //! What happens when the saved sign-in cannot be used at start-up: told apart (the server turned
 //! it down, or it could not be asked), retried when it is only the network, always said out loud,
 //! and never dropped from the store. Pure functions; `restore_session` in main.rs uses them.
-use crate::jmap::auth_rejected;
+use crate::jmap::{auth_rejected, normalize_base};
+use crate::oauth::Remembered;
+use serde_json::Value;
 use std::time::Duration;
 
 /// Seconds to wait before retry 1, 2, 3 and 4 of a restore at start-up that failed for a
@@ -46,6 +48,24 @@ pub fn restore_outcome(err: &str, attempt: usize, user: &str, server: &str) -> R
             let host = if host.is_empty() { "the server".to_string() } else { host };
             RestoreOutcome::ShowForm(format!("Could not reach {host} to restore your sign-in: {err} Your saved sign-in is kept; try again, or sign in."))
         }
+    }
+}
+
+/// The stored session to try on a retry of a start-up restore. A failed attempt may already have
+/// refreshed: the server rotated the token, the new one went into the store, and only the call
+/// after the refresh (the session discovery) failed. The token this restore was started with is
+/// then dead, so each retry starts from the store as it is now, when it is still the same session
+/// (oauth, same token endpoint, same account, same server). Anything else (nothing stored, an
+/// unreadable entry, another account) keeps `v` as it is.
+pub fn retry_value(v: &Value, stored: &Remembered) -> Value {
+    let Remembered::Some(s) = stored else { return v.clone() };
+    let ep = v["endpoint"].as_str().unwrap_or("");
+    let same = v["kind"] == "oauth" && s["kind"] == "oauth" && !ep.is_empty() && s["endpoint"].as_str() == Some(ep)
+        && s["user"].as_str().unwrap_or("").eq_ignore_ascii_case(v["user"].as_str().unwrap_or(""))
+        && normalize_base(s["server"].as_str().unwrap_or("")) == normalize_base(v["server"].as_str().unwrap_or(""));
+    match s["refresh"].as_str().filter(|r| !r.is_empty()) {
+        Some(r) if same => { let mut n = v.clone(); n["refresh"] = Value::String(r.to_string()); n }
+        _ => v.clone(),
     }
 }
 
@@ -98,6 +118,30 @@ mod tests {
             let RestoreOutcome::ShowForm(m) = restore_outcome(e, 4, "ann@example.test", "https://mail.example.test") else { panic!("{e}") };
             assert!(m.starts_with("Could not reach mail.example.test to restore your sign-in:") && m.contains(e), "{m}");
             assert!(!m.contains("turned down"));
+        }
+    }
+
+    fn session(user: &str, server: &str, refresh: &str) -> Value {
+        serde_json::json!({"kind": "oauth", "server": server, "user": user, "refresh": refresh, "endpoint": "https://mail.example.test/auth/token", "client": "c"})
+    }
+
+    #[test]
+    fn a_retry_starts_from_the_token_the_store_holds_now() {
+        let v = session("", "https://mail.example.test", "r_cur");
+        let stored = Remembered::Some(session("", "mail.example.test/", "r_new1"));
+        assert_eq!(retry_value(&v, &stored)["refresh"], "r_new1");
+        let named = session("Ann@Example.test", "https://mail.example.test", "a");
+        assert_eq!(retry_value(&named, &Remembered::Some(session("ann@example.test", "https://mail.example.test", "b")))["refresh"], "b");
+        // other account, other server, other endpoint, nothing or something unreadable: as it was
+        for other in [
+            Remembered::Some(session("bob@example.test", "https://mail.example.test", "b")),
+            Remembered::Some(session("", "https://other.example.test", "b")),
+            Remembered::Some({ let mut o = session("", "https://mail.example.test", "b"); o["endpoint"] = "https://other.example.test/t".into(); o }),
+            Remembered::Some(session("", "https://mail.example.test", "")),
+            Remembered::Some(serde_json::json!({"kind": "password", "server": "https://mail.example.test", "user": "", "pass": "p"})),
+            Remembered::Missing, Remembered::Unreadable,
+        ] {
+            assert_eq!(retry_value(&v, &other), v);
         }
     }
 

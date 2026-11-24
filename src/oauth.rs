@@ -1075,4 +1075,38 @@ mod tests {
         assert_eq!(remembered_in(&b, P).unwrap()["refresh"], "r_cur");
         assert_eq!(accounts_in(&b, P).len(), 1);
     }
+
+    /// The start-up retry loop of restore_session, one attempt after the other against a store
+    /// and a server: the first attempt refreshes (the server rotates, the store keeps the new
+    /// token) and then fails after the refresh (session discovery timed out); `retry_from_store`
+    /// says whether the next attempt starts from the store (the fix) or from the value read first.
+    fn attempts(b: &Fake, srv: &FakeServer, retry_from_store: bool) -> Result<(), String> {
+        let first = match remembered_status_in(b, P).0 { Remembered::Some(v) => v, other => panic!("{other:?}") };
+        let tokens = |v: &Value| Tokens {
+            access: String::new(), refresh: v["refresh"].as_str().map(String::from), expires: None,
+            token_endpoint: v["endpoint"].as_str().unwrap().into(), client_id: "c".into(), user: v["user"].as_str().unwrap().into(),
+        };
+        // attempt 0: refreshed fine, then the connection failed
+        refresh_in(b, P, srv, &tokens(&first)).expect("the first refresh works");
+        // attempt 1
+        let v = if retry_from_store { crate::restore::retry_value(&first, &remembered_status_in(b, P).0) } else { first.clone() };
+        refresh_in(b, P, srv, &tokens(&v)).map(|_| ())
+    }
+
+    #[test]
+    fn a_retry_after_a_refresh_that_rotated_uses_the_rotated_token() {
+        // a 0.1.0 SSO store (blank user) on a server that rotates its refresh tokens
+        let b = legacy_store(Some(U));
+        let srv = FakeServer::new(true, &["r_orig"]);
+        attempts(&b, &srv, true).expect("the retry presents the token the first refresh stored");
+        // the session and the list hold the token of the second refresh
+        assert_eq!(remembered_in(&b, P).unwrap()["refresh"], "r_new2");
+        // the next start still works
+        start(&b, &srv, U).unwrap();
+        // the value read first is dead after the first refresh: the old loop ended in the form
+        let b = legacy_store(Some(U));
+        let srv = FakeServer::new(true, &["r_orig"]);
+        let err = attempts(&b, &srv, false).unwrap_err();
+        assert!(crate::jmap::auth_rejected(&err), "{err}");
+    }
 }
