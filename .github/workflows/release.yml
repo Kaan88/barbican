@@ -54,7 +54,7 @@ jobs:
     # Fails in seconds, before any build, when the tag has no CHANGELOG.md entry.
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Entry for the tag, and the release tools' tests
         shell: pwsh
         run: |
@@ -71,7 +71,7 @@ jobs:
     env:
       HAS_CERT: ${{ secrets.WINDOWS_CERT_PFX_BASE64 != '' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Version from the tag
@@ -168,7 +168,7 @@ jobs:
     if: ${{ vars.BARBICAN_BUILD_LINUX == 'true' }}
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Build dependencies
@@ -213,7 +213,7 @@ jobs:
     env:
       HAS_GPG: ${{ secrets.GPG_PRIVATE_KEY != '' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: actions/download-artifact@v4
         with:
