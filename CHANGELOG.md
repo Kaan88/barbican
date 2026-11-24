@@ -7,6 +7,8 @@ example "## 0.1.0 — 2026-12-01", and start a new "Unreleased" above it.
 
 ## Unreleased
 
+- Folders: the folder menu (right-click a folder) now has Pin to top, Mute notifications, Subscribe / Unsubscribe, Counter (default, unread only, unread and total, none), Icon (the same 18 icons as Bulwark), Use as standard folder (Inbox, Drafts, Sent, Trash, Spam, Archive: one folder per role, the old holder loses it first) and, for a folder with subfolders, "Mark folder and subfolders as read" (batched to your server's limit). Icons, counters and mutes are kept under Bulwark's own setting names (`folderIcons`, `folderCountModes`, `notificationMutes`), so a settings export moves between the apps; pins are Barbican's own (`pinnedFolders`) and sort first among their sibling folders. New-mail notifications stay quiet for a muted folder (mail also filed in an unmuted folder still notifies). Unsubscribed folders are still listed, dimmed, as in Bulwark; pins, mutes and icons are kept on this computer, not on the server.
+
 ## 0.2.0 — 2026-11-24
 
 - Plugins: API v2 decisions recorded in PLUGINS.md (for plugin authors, nothing changes in the app yet): web access to a private, loopback or LAN host needs that exact host named in the manifest and the user's separate consent (https only, never a wildcard); API 1 plugins keep loading until 1.0; a slow pre-send check shows a pending state and can be cancelled without skipping it; Barbican's own host calls, `crypto:full` and the package layout are kept, phone-layout hooks and WebAuthn stay out.

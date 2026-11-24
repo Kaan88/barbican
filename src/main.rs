@@ -37,6 +37,7 @@ mod contact_merge;
 mod vcard;
 mod pim;
 mod ctxmenu;
+mod folders;
 mod copymsg;
 mod files;
 mod glance;
@@ -720,6 +721,7 @@ fn check_new_mail(c: Arc<jmap::Client>, w: Option<slint::Weak<AppWindow>>) {
     // folder except Junk, Trash, Sent and Drafts)
     let sound = prefs.bool("emailNotificationSound", true);
     let inbox_only = prefs.bool("pushNotifyInboxOnly", false);
+    let prefs_mutes = prefs.prefs.get(folders::KEY_MUTES).cloned();
     std::thread::spawn(move || {
         let Ok(roles) = c.role_ids() else { return };
         let Some(inbox) = roles.get("inbox") else { return };
@@ -734,9 +736,14 @@ fn check_new_mail(c: Arc<jmap::Client>, w: Option<slint::Weak<AppWindow>>) {
         let first_run = guard.is_none();
         let seen = guard.get_or_insert_with(Default::default);
         let mut batch = vec![];
+        // per-folder notification mutes (Bulwark notificationMutes, lib/desktop/new-mail.ts:42-47)
+        let mutes = folders::Mutes::decode(prefs_mutes.as_ref());
+        let skip: Vec<String> = ["junk", "trash", "sent", "drafts"].iter().filter_map(|r| roles.get(*r).cloned()).collect();
         for m in list.iter().rev() {
             let id = m["id"].as_str().unwrap_or("").to_string();
-            if seen.insert(id.clone()) && !first_run {
+            // a muted message is still marked as told about: unmuting later must not replay it
+            let counted = folders::counted_mailboxes(&folders::mailbox_ids(m), inbox_only, inbox, &skip);
+            if seen.insert(id.clone()) && !first_run && !folders::silenced(&mutes, &c.account, &counted) {
                 batch.push(notify::NewMail {
                     id,
                     mailbox: gsearch::hit_folder(m, std::slice::from_ref(inbox)),

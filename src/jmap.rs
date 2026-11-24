@@ -550,6 +550,46 @@ impl Client {
         }
     }
 
+    /// Subscribe or unsubscribe a folder (Mailbox isSubscribed, RFC 8621 2).
+    pub fn set_mailbox_subscribed(&self, id: &str, on: bool) -> R<()> {
+        let (_, bad) = self.update("Mailbox/set", &self.account, vec![(id.into(), json!({"isSubscribed": on}))])?;
+        if bad.is_empty() { Ok(()) } else { Err(bad.join("; ")) }
+    }
+
+    /// Give a folder a standard role (None removes its role), taking the role off the folder that
+    /// held it first: one request per update, in order (Bulwark setMailboxRole).
+    pub fn set_mailbox_role(&self, list: &[Value], id: &str, role: Option<&str>) -> R<()> {
+        let patches = crate::folders::role_patches(list, id, role);
+        let result = patches.into_iter().try_for_each(|p| {
+            let (_, bad) = self.update("Mailbox/set", &self.account, vec![p])?;
+            if bad.is_empty() { Ok(()) } else { Err(bad.join("; ")) }
+        });
+        self.roles.lock().unwrap().take();
+        result
+    }
+
+    /// Mark every unread message of these folders read: the unread ids of all of them are read
+    /// first (a message in two folders once), then set in groups of at most maxObjectsInSet.
+    /// Returns (marked, failures).
+    pub fn mark_folders_read(&self, folders: &[String]) -> R<(usize, Vec<String>)> {
+        let mut ids: Vec<String> = vec![];
+        let mut seen = std::collections::HashSet::new();
+        for f in folders {
+            let found = self.query_all("Email/query", &self.account, json!({"filter": {"inMailbox": f, "notKeyword": "$seen"}, "limit": self.max_set()}))?;
+            for id in found.iter().filter_map(|v| v.as_str()) {
+                if seen.insert(id.to_string()) { ids.push(id.to_string()); }
+            }
+        }
+        let mut marked = 0;
+        let mut failed = vec![];
+        for group in crate::folders::batches(&ids, self.max_set()) {
+            let (ok, bad) = self.set_keyword(group, "$seen", true)?;
+            marked += ok;
+            failed.extend(bad);
+        }
+        Ok((marked, failed))
+    }
+
     /// Empty a folder (Trash / Junk): destroys every message in it.
     pub fn empty_mailbox(&self, id: &str) -> R<usize> {
         let mut n = 0;
