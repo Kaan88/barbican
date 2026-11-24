@@ -221,12 +221,12 @@ fn still_shown(then: &str, now: Option<&str>) -> bool { now == Some(then) }
 /// Word CSS and &nbsp; with no text.
 pub fn html_effectively_empty(html: &str) -> bool {
     use std::sync::OnceLock;
-    static RE: OnceLock<(regex::Regex, regex::Regex)> = OnceLock::new();
-    let (style, tag) = RE.get_or_init(|| (regex::Regex::new(r"(?is)<style[^>]*>.*?</style>").unwrap(), regex::Regex::new(r"<[^>]+>").unwrap()));
+    static RE: OnceLock<(regex::Regex, regex::Regex, regex::Regex)> = OnceLock::new();
+    let (style, tag, nbsp) = RE.get_or_init(|| (regex::Regex::new(r"(?is)<style[^>]*>.*?</style>").unwrap(), regex::Regex::new(r"<[^>]+>").unwrap(), regex::Regex::new(r"(?i)&nbsp;").unwrap()));
     let t = style.replace_all(html, "");
     let t = tag.replace_all(&t, "");
     let t = t.replace("&#160;", " ");
-    let t = regex::Regex::new(r"(?i)&nbsp;").unwrap().replace_all(&t, " ").into_owned();
+    let t = nbsp.replace_all(&t, " ").into_owned();
     t.chars().all(char::is_whitespace)
 }
 
@@ -316,6 +316,14 @@ pub fn expand(u: &crate::AppWindow, c: std::sync::Arc<Client>, id: &str, atts: &
     });
 }
 
+/// Whether the body on screen is no real body, so the winmail.dat's may replace it. Under RFC 8621
+/// a message with no text/plain lists its HTML part in textBody too, so the text of an Outlook
+/// boilerplate message is that boilerplate: both are tested the same way. A "View source" page has
+/// content and is left alone.
+fn body_replaceable(html: Option<&str>, text: &str) -> bool {
+    html.map_or(true, html_effectively_empty) && html_effectively_empty(text)
+}
+
 /// Put the winmail.dat's body on screen through the normal render path (sanitiser, remote-content
 /// policy, links-off for phishing). Only replaces a body that is empty: the message's own, not a
 /// "View source" page.
@@ -323,7 +331,7 @@ fn show_body(u: &crate::AppWindow, b: Shown) {
     let replaced = crate::CUR.with(|c| {
         let mut c = c.borrow_mut();
         let Some(cur) = c.as_mut() else { return false };
-        if !(cur.html.as_deref().map_or(true, html_effectively_empty) && cur.text.trim().is_empty()) { return false; }
+        if !body_replaceable(cur.html.as_deref(), &cur.text) { return false; }
         match b {
             Shown::Html(h) => { cur.remote = crate::has_remote_images(&h); cur.html = Some(h); }
             Shown::Text(t) => { cur.remote = false; cur.html = None; cur.text = t; }
@@ -529,5 +537,19 @@ mod tests {
         assert!(!has_real_html_body(&m("  ")));
         assert!(has_real_html_body(&m("<p>x</p>")));
         assert!(!has_real_html_body(&json!({})));
+    }
+
+    #[test]
+    fn only_an_empty_body_is_replaced() {
+        let word = "<html><style>p{x:y}</style><body><p>&nbsp;</p></body></html>";
+        // the forwarded HTML-only Outlook message: its text is the same boilerplate
+        assert!(body_replaceable(Some(word), word));
+        assert!(body_replaceable(None, ""));
+        assert!(body_replaceable(None, "  
+"));
+        // a real body, or the View source page, stays
+        assert!(!body_replaceable(Some("<p>Hello</p>"), "Hello"));
+        assert!(!body_replaceable(None, "Hello"));
+        assert!(!body_replaceable(Some("<pre>Subject: x</pre>"), "Subject: x"));
     }
 }

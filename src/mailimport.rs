@@ -460,7 +460,13 @@ pub fn start(u: &crate::AppWindow, c: std::sync::Arc<Client>, mailbox: &str, kee
         let found = std::cell::Cell::new(0usize);
         let mut acc = Outcome::default();
         // the folders under the chosen one, read once (only when a file can need its own)
-        let mut boxes: Vec<Value> = if keep_folders { c.mailboxes().unwrap_or_default() } else { vec![] };
+        // (a failed listing ends the import: an empty list would make a second copy of every folder)
+        let mut boxes: Vec<Value> = if keep_folders {
+            match c.mailboxes() {
+                Ok(b) => b,
+                Err(e) => { let _ = w.upgrade_in_event_loop(move |u| crate::mail::show_toast(&u, &format!("Could not read the folders: {e}"), false)); return; }
+            }
+        } else { vec![] };
         for f in &files {
             let name = f.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
             let Ok(file) = std::fs::File::open(f) else { unreadable += 1; continue };
@@ -484,7 +490,7 @@ pub fn start(u: &crate::AppWindow, c: std::sync::Arc<Client>, mailbox: &str, kee
             acc.already += o.already;
             acc.errors.extend(o.errors);
         }
-        if found.get() == 0 && unreadable + too_big == 0 {
+        if found.get() == 0 && unreadable + too_big == 0 && acc.errors.is_empty() {
             let _ = w.upgrade_in_event_loop(|u| crate::mail::show_toast(&u, "No messages found in those files.", false));
             return;
         }

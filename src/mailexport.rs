@@ -257,8 +257,11 @@ fn plan_visit(parent: &str, path: &[String], by_parent: &ByParent, out: &mut Vec
         let base = folder_component(m["name"].as_str().unwrap_or(""));
         let mut name = base.clone();
         let mut n = 2;
-        while used.contains(&name.to_lowercase()) { name = format!("{base} ({n})"); n += 1; }
+        // a folder takes `name` and `name.mbox` together, so "Inbox" and "Inbox.mbox" cannot meet
+        let taken = |s: &str, used: &std::collections::HashSet<String>| used.contains(&s.to_lowercase()) || used.contains(&format!("{s}.mbox").to_lowercase());
+        while taken(&name, &used) { name = format!("{base} ({n})"); n += 1; }
         used.insert(name.to_lowercase());
+        used.insert(format!("{name}.mbox").to_lowercase());
         let mut p = path.to_vec();
         p.push(name);
         let id = m["id"].as_str().unwrap_or("");
@@ -339,8 +342,11 @@ pub fn start_all(u: &crate::AppWindow, c: std::sync::Arc<Client>, mbox: bool) {
     std::thread::spawn(move || {
         let _running = RunningGuard;
         let mut shown = String::new();
+        let mut skipped = 0usize;
         let res = (|| -> Result<Outcome, String> {
-            let plan = folder_plan(&c.mailboxes()?);
+            let boxes = c.mailboxes()?;
+            let plan = folder_plan(&boxes);
+            skipped = boxes.len().saturating_sub(plan.len());
             let mut listed = Vec::with_capacity(plan.len());
             for f in plan {
                 if CANCEL.load(Ordering::Relaxed) { return Ok(Outcome { cancelled: true, ..Default::default() }); }
@@ -365,6 +371,7 @@ pub fn start_all(u: &crate::AppWindow, c: std::sync::Arc<Client>, mbox: bool) {
             r
         })();
         let msg = match res {
+            Ok(o) if skipped > 0 && !o.cancelled => format!("{}; {skipped} folders left out (nested too deep or in a loop)", summary(&o, &shown)),
             Ok(o) => summary(&o, &shown),
             Err(e) => format!("Could not export: {e}"),
         };
@@ -749,5 +756,12 @@ y
         assert!(o.cancelled);
         assert!(!root.join("One.mbox").exists() && !root.join("One.mbox.part").exists() && !root.join("Two.mbox").exists());
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_folder_named_like_another_ones_mbox_file_is_renamed() {
+        let p = folder_plan(&[mb("1", "Inbox", None, None, 0), mb("2", "Inbox.mbox", None, None, 1)]);
+        assert_eq!(p[0].path, ["Inbox"]);
+        assert_eq!(p[1].path, ["Inbox.mbox (2)"]);
     }
 }
