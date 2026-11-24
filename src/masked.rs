@@ -25,10 +25,21 @@ pub struct Masked {
 /// A failure: the JMAP error or SetError type (or one of Bulwark's own: invalidResponse,
 /// ownershipMismatch, listChanged, deleteUnconfirmed, transport) and its description.
 #[derive(Clone, Debug, PartialEq)]
-pub struct MErr { pub kind: String, pub desc: String }
+pub struct MErr {
+    pub kind: String,
+    pub desc: String,
+    /// A SetError for the object itself (notCreated / notUpdated / notDestroyed): the server
+    /// answered and did not make the change.
+    pub set: bool,
+}
 
 impl MErr {
-    pub fn new(kind: &str, desc: &str) -> MErr { MErr { kind: kind.into(), desc: desc.into() } }
+    pub fn new(kind: &str, desc: &str) -> MErr { MErr { kind: kind.into(), desc: desc.into(), set: false } }
+    pub fn set_error(e: &Value) -> MErr { MErr { set: true, ..MErr::new(e["type"].as_str().unwrap_or("error"), e["description"].as_str().unwrap_or("")) } }
+    /// A request the server turned down at the HTTP level (`status`), or one that failed on the way.
+    pub fn http(status: Option<u16>, desc: &str) -> MErr {
+        match status { Some(403) => MErr::new("forbidden", desc), Some(401) => MErr::new("unauthorized", desc), _ => MErr::new("transport", desc) }
+    }
     /// maskedEmailUnavailable: not supported, or Stalwart Community's enterprise-only answer.
     pub fn unavailable(&self) -> bool {
         matches!(self.kind.as_str(), "unknownMethod" | "unknownCapability" | "notImplemented" | "unsupported")
@@ -130,7 +141,7 @@ pub fn create_args(account: &str, prop: &str, description: &str, website: &str) 
 /// The answer to a create: the new id.
 pub fn created(resp: &[Value], account: &str) -> Result<String, MErr> {
     let r = result(resp, "x:MaskedEmail/set", account)?;
-    if let Some(e) = r["notCreated"].get("new") { return Err(MErr::new(e["type"].as_str().unwrap_or("error"), e["description"].as_str().unwrap_or(""))); }
+    if let Some(e) = r["notCreated"].get("new") { return Err(MErr::set_error(e)); }
     r["created"]["new"]["id"].as_str().map(String::from).ok_or_else(|| MErr::new("invalidResponse", ""))
 }
 
@@ -145,7 +156,7 @@ pub fn update_args(account: &str, prop: &str, id: &str, description: Option<&str
 
 pub fn updated(resp: &[Value], account: &str, id: &str) -> Result<(), MErr> {
     let r = result(resp, "x:MaskedEmail/set", account)?;
-    if let Some(e) = r["notUpdated"].get(id) { return Err(MErr::new(e["type"].as_str().unwrap_or("error"), e["description"].as_str().unwrap_or(""))); }
+    if let Some(e) = r["notUpdated"].get(id) { return Err(MErr::set_error(e)); }
     if r["updated"].get(id).is_none() { return Err(MErr::new("invalidResponse", "")); }
     Ok(())
 }
@@ -160,9 +171,9 @@ pub fn destroyed(resp: &[Value], account: &str, id: &str) -> Result<(), MErr> {
         let Some(o) = nd.as_object() else { return Err(MErr::new("invalidResponse", "")) };
         if o.keys().any(|k| k != id) { return Err(MErr::new("invalidResponse", "")); }
         if let Some(e) = o.get(id) {
-            let Some(t) = e["type"].as_str() else { return Err(MErr::new("invalidResponse", "")) };
+            if !e["type"].is_string() { return Err(MErr::new("invalidResponse", "")); }
             if d.and_then(Value::as_array).is_some_and(|a| !a.is_empty()) { return Err(MErr::new("invalidResponse", "")); }
-            return Err(MErr::new(t, e["description"].as_str().unwrap_or("")));
+            return Err(MErr::set_error(e));
         }
     }
     if d.and_then(Value::as_array).is_none_or(|a| a.len() != 1) { return Err(MErr::new("invalidResponse", "")); }
@@ -176,7 +187,7 @@ pub fn context(c: &Client) -> Option<(String, &'static str)> {
 }
 
 fn send(c: &Client, cap: &str, calls: Value) -> Result<Vec<Value>, MErr> {
-    c.request_using(&["urn:ietf:params:jmap:core", cap], calls).map_err(|e| MErr::new("transport", &e))
+    c.request_using_status(&["urn:ietf:params:jmap:core", cap], calls).map_err(|(status, e)| MErr::http(status, &e))
 }
 
 pub fn list(c: &Client) -> Result<Vec<Masked>, MErr> {
@@ -202,9 +213,17 @@ pub fn update(c: &Client, id: &str, description: Option<&str>, enabled: Option<b
 pub fn destroy(c: &Client, id: &str) -> Result<(), MErr> {
     let (acc, cap) = context(c).ok_or_else(|| MErr::new("unsupported", ""))?;
     let r = send(c, cap, json!([["x:MaskedEmail/set", {"accountId": acc, "destroy": [id]}, "masked"]]));
-    match r.and_then(|r| destroyed(&r, &acc, id)) {
+    destroy_outcome(r.and_then(|r| destroyed(&r, &acc, id)))
+}
+
+/// What a delete's failure means (masked-email.ts:224-232): the server's SetError, a 401 or 403,
+/// `forbidden` or "not supported" are definite (nothing was deleted); anything else (a method
+/// error such as serverFail, a lost connection, an answer that does not say) may have deleted
+/// it, so it is `deleteUnconfirmed` and is not retried.
+pub fn destroy_outcome(r: Result<(), MErr>) -> Result<(), MErr> {
+    match r {
         Ok(()) => Ok(()),
-        Err(e) if e.forbidden() || e.unavailable() || !matches!(e.kind.as_str(), "transport" | "invalidResponse" | "ownershipMismatch" | "error") => Err(e),
+        Err(e) if e.set || e.kind == "forbidden" || e.kind == "unauthorized" || e.unavailable() => Err(e),
         Err(_) => Err(MErr::new("deleteUnconfirmed", "")),
     }
 }
@@ -338,6 +357,28 @@ mod tests {
         assert!(e.forbidden());
         assert!(notice("destroy", &e).contains("not allowed to delete"));
         assert!(notice("destroy", &MErr::new("deleteUnconfirmed", "")).contains("will not be retried"));
+        // a SetError other than forbidden is definite too
+        let nf = destroyed(&[json!(["x:MaskedEmail/set", {"accountId": ACC, "notDestroyed": {"m1": {"type": "notFound"}}}, "m"])], ACC, "m1");
+        assert_eq!(destroy_outcome(nf).unwrap_err().kind, "notFound");
+    }
+
+    #[test]
+    fn a_failed_delete_is_unconfirmed_unless_the_answer_is_definite() {
+        let kind = |r: Result<(), MErr>| destroy_outcome(r).unwrap_err().kind;
+        // method errors: the server may have done it
+        for t in ["serverFail", "serverPartialFail", "invalidArguments"] {
+            let e = result(&[json!(["error", {"type": t}, "m"])], "x:MaskedEmail/set", ACC).unwrap_err();
+            assert_eq!(kind(Err(e)), "deleteUnconfirmed", "{t}");
+        }
+        assert_eq!(kind(Err(MErr::http(None, "connection reset"))), "deleteUnconfirmed");
+        assert_eq!(kind(Err(MErr::http(Some(500), "server error"))), "deleteUnconfirmed");
+        assert_eq!(kind(Err(MErr::new("invalidResponse", ""))), "deleteUnconfirmed");
+        // turned down before anything was done
+        assert_eq!(kind(Err(MErr::http(Some(401), "signed out"))), "unauthorized");
+        assert_eq!(kind(Err(MErr::http(Some(403), "no"))), "forbidden");
+        assert_eq!(kind(Err(MErr::new("forbidden", "no"))), "forbidden");
+        assert_eq!(kind(Err(MErr::new("unknownMethod", ""))), "unknownMethod");
+        assert!(destroy_outcome(Ok(())).is_ok());
         assert!(notice("create", &MErr::new("rateLimit", "")).contains("rate limit"));
     }
 }

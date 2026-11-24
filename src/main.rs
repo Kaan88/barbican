@@ -1320,8 +1320,9 @@ fn main() -> Result<(), slint::PlatformError> {
     ui.on_settings_button(move |key| {
         let u = w.unwrap();
         if key.starts_with("server.") {
-            let Some(job) = server_settings::button(&key, &srv) else { return };
+            // the client first: a job that marks the page busy must also run and clear it
             let Some(c) = st.lock().unwrap().clone() else { return };
+            let Some(job) = server_settings::button(&key, &srv) else { return };
             let (w2, srv2, lsp2, tab) = (w.clone(), srv.clone(), lsp.clone(), u.get_settings_tab().to_string());
             u.invoke_settings_search(u.get_settings_query());
             std::thread::spawn(move || {

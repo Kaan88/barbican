@@ -79,6 +79,9 @@ pub struct Cache {
     /// Bumped whenever the form opens, closes or is typed in, so a save that finishes later
     /// closes only the form it was started from.
     pub id_gen: u64,
+    /// An identity save or delete is on its way: no second one, and the form takes no input,
+    /// until it is answered (a double click must not add the address twice).
+    pub id_busy: bool,
     pub masked: Vec<crate::masked::Masked>,
     /// 0 loading, 1 ready, 2 forbidden, 3 unavailable, 4 the load failed.
     pub masked_state: u8,
@@ -138,6 +141,7 @@ pub fn claim(cache: &Shared, owner: &str, username: &str, server: &str) -> Strin
         k.ids_loaded = false;
         k.id_form = None;
         k.id_gen += 1;
+        k.id_busy = false;
         k.confirm_delete.clear();
         reset_masked(&mut k);
     }
@@ -153,8 +157,19 @@ fn ordered_identities(k: &Cache) -> Vec<Value> {
 
 fn identity_form_rows(k: &Cache, out: &mut Vec<SRow>) {
     let Some(x) = k.id_form.as_ref() else { return };
-    let plain = plain_only();
     let editing = !x.id.is_empty();
+    if k.id_busy {
+        // while it is saved the form is shown, not editable
+        out.push(row("section", "", if editing { "Edit address" } else { "Add address" }, "", "", false));
+        for (label, v) in [("Your name", &x.f.name), ("Email address", &x.f.email), ("Reply-to", &x.f.reply_to), ("Bcc", &x.f.bcc)] {
+            out.push(row("value", "", label, "", v, false));
+        }
+        let sig: String = (if x.f.html { crate::identities::text_from_html(&x.f.signature) } else { x.f.signature.clone() }).chars().take(300).collect();
+        out.push(row("value", "", "Signature", &sig, "", false));
+        out.push(row("value", "", "Saving…", "", "", false));
+        return;
+    }
+    let plain = plain_only();
     out.push(row("section", "", if editing { "Edit address" } else { "Add address" }, "", "", false));
     out.push(row("text", "server.ident.f.name", "Your name", "The name recipients see. It may be left empty.", &x.f.name, false));
     if editing {
@@ -614,15 +629,16 @@ pub fn rows(tab: &str, cache: &Shared) -> Option<Vec<SRow>> {
                     let email = i["email"].as_str().unwrap_or("");
                     let title = i["name"].as_str().filter(|x| !x.trim().is_empty()).unwrap_or(email);
                     out.push(row("button", &format!("server.ident.edit:{id}"), title, &crate::identities::summary(i, n == 0), edit_label(id), false));
-                    if n > 0 && list.len() > 1 {
+                    if n > 0 && list.len() > 1 && !k.id_busy {
                         out.push(row("button", &format!("server.ident.primary:{id}"), "", "", "Set as primary", false));
                     }
                     // not the primary address (mail goes out from it), nor one the server keeps
-                    if n > 0 && i["mayDelete"] != false {
+                    if n > 0 && crate::identities::may_delete(i) && !k.id_busy {
                         out.push(row("button", &format!("server.ident.delete:{id}"), "", "", if k.confirm_delete == format!("ident:{id}") { "Click again to delete" } else { "Delete" }, false));
                     }
                 }
-                if k.id_form.is_none() { out.push(row("button", "server.ident.new", "", "", "Add address", false)); }
+                if k.id_busy && k.id_form.is_none() { out.push(row("value", "", "Deleting…", "", "", false)); }
+                if k.id_form.is_none() && !k.id_busy { out.push(row("button", "server.ident.new", "", "", "Add address", false)); }
                 identity_form_rows(&k, &mut out);
             }
             if tab == "composing" && !list.is_empty() {
@@ -753,7 +769,9 @@ pub fn edit(key: &str, value: &Value, cache: &Shared) -> Option<Box<dyn FnOnce(&
         return Some(Box::new(move |c: &Client| c.rename_mailbox(&id, &name)));
     }
     if let Some(field) = key.strip_prefix("server.ident.f.") {
-        // the form is typed into locally; Save writes it (Bulwark identity-form.tsx)
+        // the form is typed into locally; Save writes it (Bulwark identity-form.tsx). While a
+        // save is on its way it takes no input (Bulwark disables it while submitting).
+        if k.id_busy { return None; }
         let text = value.as_str().unwrap_or("").to_string();
         let mut next = k.id_gen;
         if let Some(x) = k.id_form.as_mut() {
@@ -786,9 +804,26 @@ pub fn edit(key: &str, value: &Value, cache: &Shared) -> Option<Box<dyn FnOnce(&
     None
 }
 
+/// A save or delete of an identity was answered (or refused before it went out). Only the page
+/// of the account it was made for is touched: it takes input again, a saved form closes (so a
+/// second Save cannot add the address again), a refused one shows why. `closes`: the identity
+/// whose form a delete closes.
+pub fn identity_done(g: &mut Cache, owner: &str, r: &Result<(), String>, save: bool, closes: Option<&str>) {
+    if g.owner != owner { return; }
+    g.id_busy = false;
+    match r {
+        Ok(()) => {
+            if save || g.id_form.as_ref().is_some_and(|x| Some(x.id.as_str()) == closes) { g.id_form = None; g.id_gen += 1; }
+        }
+        Err(e) => { if save { if let Some(x) = g.id_form.as_mut() { x.error = e.clone(); } } }
+    }
+}
+
 /// The identity and masked-address buttons. None: not one of them.
 fn identity_button(key: &str, cache: &Shared) -> Option<Option<Job>> {
     use crate::identities as ids;
+    // one identity change at a time: nothing else of the identities while one is on its way
+    if key.starts_with("server.ident.") && cache.lock().unwrap().id_busy { return Some(None); }
     if key == "server.ident.new" || key == "server.ident.cancel" {
         let mut k = cache.lock().unwrap();
         // what is half typed is not thrown away by one click (Bulwark confirmDiscard)
@@ -811,27 +846,25 @@ fn identity_button(key: &str, cache: &Shared) -> Option<Option<Job>> {
         return Some(noop());
     }
     if key == "server.ident.save" {
-        let (owner, form, generation, plain) = {
+        let (owner, form, plain) = {
             let mut k = cache.lock().unwrap();
             let plain = plain_only();
             let Some(x) = k.id_form.as_mut() else { return Some(None) };
             if let Some(e) = ids::validate(&x.f, !x.id.is_empty()) { x.error = e; return Some(noop()); }
-            (k.owner.clone(), k.id_form.clone().unwrap(), k.id_gen, plain)
+            x.error.clear();
+            k.id_busy = true;
+            (k.owner.clone(), k.id_form.clone().unwrap(), plain)
         };
         return Some(Some(Box::new(move |c: &Client, k: &Shared| {
-            if c.state_key() != owner { return Err(ACCOUNT_CHANGED.into()); }
-            let r = match form.old.as_ref().filter(|_| !form.id.is_empty()) {
-                Some(old) => ids::update(c, &form.id, ids::update_patch(old, &form.f, plain)),
-                None if form.id.is_empty() => ids::create(c, &form.f).map(|_| ()),
-                None => Err("This address is no longer in the list; reload and try again.".into()),
+            let r = if c.state_key() != owner { Err(ACCOUNT_CHANGED.to_string()) } else {
+                match form.old.as_ref().filter(|_| !form.id.is_empty()) {
+                    Some(old) => ids::update(c, &form.id, ids::update_patch(old, &form.f, plain)),
+                    None if form.id.is_empty() => ids::create(c, &form.f).map(|_| ()),
+                    None => Err("This address is no longer in the list; reload and try again.".into()),
+                }
             };
-            let mut g = k.lock().unwrap();
-            // only the form the save was started from, for the account it was typed for
-            let same = g.owner == owner && g.id_gen == generation;
-            match r {
-                Ok(()) => { if same { g.id_form = None; g.id_gen += 1; } Ok(()) }
-                Err(e) => { if same { if let Some(x) = g.id_form.as_mut() { x.error = e.clone(); } } Err(e) }
-            }
+            identity_done(&mut k.lock().unwrap(), &owner, &r, true, None);
+            r
         })));
     }
     if let Some(id) = key.strip_prefix("server.ident.delete:") {
@@ -839,17 +872,16 @@ fn identity_button(key: &str, cache: &Shared) -> Option<Option<Job>> {
         let mut k = cache.lock().unwrap();
         let list = ordered_identities(&k);
         let Some(pos) = list.iter().position(|i| i["id"] == id.as_str()) else { return Some(noop()) };
-        if pos == 0 || list[pos]["mayDelete"] == false { return Some(Some(Box::new(|_, _| Err("This identity cannot be deleted".into())))); }
+        if pos == 0 || !ids::may_delete(&list[pos]) { return Some(Some(Box::new(|_, _| Err("This identity cannot be deleted".into())))); }
         let ask = format!("ident:{id}");
         if k.confirm_delete != ask { k.confirm_delete = ask; return Some(noop()); }
         k.confirm_delete.clear();
+        k.id_busy = true;
         let owner = k.owner.clone();
         return Some(Some(Box::new(move |c: &Client, k: &Shared| {
-            if c.state_key() != owner { return Err(ACCOUNT_CHANGED.into()); }
-            ids::destroy(c, &id)?;
-            let mut g = k.lock().unwrap();
-            if g.owner == owner && g.id_form.as_ref().is_some_and(|x| x.id == id) { g.id_form = None; g.id_gen += 1; }
-            Ok(())
+            let r = if c.state_key() != owner { Err(ACCOUNT_CHANGED.to_string()) } else { ids::destroy(c, &id) };
+            identity_done(&mut k.lock().unwrap(), &owner, &r, false, Some(&id));
+            r
         })));
     }
     if let Some(id) = key.strip_prefix("server.ident.primary:") {
@@ -1220,6 +1252,64 @@ mod tests {
         let k = c.lock().unwrap();
         let x = k.id_form.as_ref().unwrap();
         assert_eq!((x.id.as_str(), x.f.email.as_str(), x.f.bcc.as_str()), ("alias", "sales@example.test", "copy@example.test"));
+    }
+
+    #[test]
+    fn a_second_save_waits_for_the_first() {
+        let c = identities_page();
+        button("server.ident.new", &c);
+        edit("server.ident.f.email", &json!("new@example.test"), &c);
+        // the first Save goes out and the page waits for it
+        assert!(button("server.ident.save", &c).is_some());
+        assert!(c.lock().unwrap().id_busy);
+        // a double click, typing, another form or a delete do nothing meanwhile
+        assert!(button("server.ident.save", &c).is_none());
+        edit("server.ident.f.email", &json!("other@example.test"), &c);
+        assert_eq!(c.lock().unwrap().id_form.as_ref().unwrap().f.email, "new@example.test");
+        assert!(button("server.ident.cancel", &c).is_none() && button("server.ident.edit:alias", &c).is_none() && button("server.ident.delete:alias", &c).is_none());
+        let r = rows("account", &c).unwrap();
+        assert!(r.iter().any(|x| x.label.as_str() == "Saving…"));
+        assert!(!r.iter().any(|x| x.key.starts_with("server.ident.f.") || x.key.as_str() == "server.ident.save" || x.key.starts_with("server.ident.delete:")));
+        // an answer for another account's page changes nothing here
+        identity_done(&mut c.lock().unwrap(), "B", &Ok(()), true, None);
+        assert!(c.lock().unwrap().id_busy);
+        // a refused save gives the form back with the reason
+        identity_done(&mut c.lock().unwrap(), "A", &Err("You are not authorized to send from this email address.".into()), true, None);
+        { let k = c.lock().unwrap(); assert!(!k.id_busy); assert!(k.id_form.as_ref().unwrap().error.contains("not authorized")); }
+        // a saved one closes the form: Save cannot add it again
+        assert!(button("server.ident.save", &c).is_some());
+        identity_done(&mut c.lock().unwrap(), "A", &Ok(()), true, None);
+        { let k = c.lock().unwrap(); assert!(!k.id_busy && k.id_form.is_none()); }
+        assert!(button("server.ident.save", &c).is_none());
+        // the account changed while it was out: the page takes input again
+        button("server.ident.new", &c);
+        edit("server.ident.f.email", &json!("x@example.test"), &c);
+        button("server.ident.save", &c);
+        identity_done(&mut c.lock().unwrap(), "A", &Err(ACCOUNT_CHANGED.into()), true, None);
+        assert!(!c.lock().unwrap().id_busy);
+        // switching account clears it as well
+        c.lock().unwrap().id_busy = true;
+        claim(&c, "B", "bob@example.test", "https://other.example.test");
+        assert!(!c.lock().unwrap().id_busy);
+    }
+
+    #[test]
+    fn a_delete_waits_too_and_a_missing_may_delete_is_kept() {
+        let c = identities_page();
+        c.lock().unwrap().identities.push(json!({"id": "nokey", "email": "old@example.test", "name": ""}));
+        let b = keys(&rows("account", &c).unwrap());
+        assert!(!b.iter().any(|x| x.starts_with("server.ident.delete:nokey")), "{b:?}");
+        assert!(rows("account", &c).unwrap().iter().any(|x| x.key.as_str() == "server.ident.edit:nokey" && x.desc.as_str().contains("cannot be deleted")));
+        // refused before anything is sent
+        c.lock().unwrap().confirm_delete = "ident:nokey".into();
+        assert!(button("server.ident.delete:nokey", &c).is_some());
+        assert!(!c.lock().unwrap().id_busy);
+        button("server.ident.delete:alias", &c);
+        assert!(button("server.ident.delete:alias", &c).is_some());
+        assert!(c.lock().unwrap().id_busy);
+        assert!(rows("account", &c).unwrap().iter().any(|x| x.label.as_str() == "Deleting…"));
+        identity_done(&mut c.lock().unwrap(), "A", &Ok(()), false, Some("alias"));
+        assert!(!c.lock().unwrap().id_busy);
     }
 
     #[test]

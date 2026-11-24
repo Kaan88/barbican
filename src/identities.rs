@@ -25,9 +25,25 @@ pub const SIGNATURE_SHOW_SIZE_FROM: usize = SIGNATURE_MAX_BYTES * 9 / 10;
 
 // ---------------- the account key and the order ----------------
 
-/// Bulwark's account id (generateAccountId): the login and the server's host name.
+/// Bulwark's account id (generateAccountId): the login and the server's host name, as
+/// `new URL(serverUrl).hostname` gives it.
 pub fn account_key(username: &str, server: &str) -> String {
-    format!("{username}@{}", crate::restore::server_host(server))
+    format!("{username}@{}", url_hostname(server))
+}
+
+/// The host name of a server address as a URL parser gives it (`URL.hostname`): no scheme,
+/// user, port or path; lower case; a Unicode domain in its ASCII (`xn--`) form; an IPv6 address
+/// kept in its brackets.
+pub fn url_hostname(server: &str) -> String {
+    let t = server.trim();
+    let rest = match t.find("://") { Some(i) => &t[i + 3..], None => t };
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+    let host = authority.rsplit_once('@').map_or(authority, |(_, h)| h);
+    if host.starts_with('[') {
+        return match host.find(']') { Some(i) => host[..=i].to_lowercase(), None => host.to_lowercase() };
+    }
+    let host = host.split(':').next().unwrap_or("").to_lowercase();
+    idna::domain_to_ascii(&host).ok().filter(|h| !h.is_empty()).unwrap_or(host)
 }
 
 fn comparable(address: &str) -> String {
@@ -53,10 +69,14 @@ pub fn sort_identities(ids: &[Value], username: &str) -> Vec<Value> {
     // a stable sort on (not the login's, may be deleted) keeps the server's order otherwise
     v.sort_by_key(|i| {
         let mine = email_matches_login(i["email"].as_str().unwrap_or(""), username);
-        (!mine, mine && i["mayDelete"] != false)
+        (!mine, mine && may_delete(i))
     });
     v
 }
+
+/// Whether the server lets the identity be deleted (Bulwark checks `!identity.mayDelete`, so a
+/// missing value is no).
+pub fn may_delete(i: &Value) -> bool { i["mayDelete"] == true }
 
 /// The order the composer and the settings offer: sorted, with the default sender (when it is
 /// still one of them) in front. The first one is the default From.
@@ -247,14 +267,21 @@ pub fn create_object(f: &Form) -> Value {
     o
 }
 
-/// The Identity/set update patch (updateIdentity) for an edited identity. A cleared signature
-/// is "" (the property is a String). With plain text only the formatted signature is kept as it
-/// is; a plain signature otherwise clears the formatted one, so the two cannot disagree.
+/// The Identity/set update patch (updateIdentity) for an edited identity. The signature goes
+/// out only when it was edited (its text or the Formatted switch): the stored HTML is not run
+/// through the sanitiser again and a hand-written plain-text version is not rebuilt from it
+/// (Bulwark makes the text part only when the HTML is edited, signature-editor.tsx editHtml).
+/// A cleared signature is "" (the property is a String). With plain text only the formatted
+/// signature is kept as it is; a plain signature otherwise clears the formatted one, so the
+/// two cannot disagree.
 pub fn update_patch(old: &Value, f: &Form, plain_only: bool) -> Value {
-    let (text, html) = signature_fields(f);
     let mut p = json!({"name": if f.name.trim().is_empty() { "" } else { f.name.as_str() }, "replyTo": parse_list(&f.reply_to), "bcc": parse_list(&f.bcc)});
-    p["textSignature"] = json!(text.unwrap_or_default());
-    if !plain_only || f.html { p["htmlSignature"] = json!(html.unwrap_or_default()); }
+    let was = form_of(Some(old), plain_only);
+    if f.signature != was.signature || f.html != was.html {
+        let (text, html) = signature_fields(f);
+        p["textSignature"] = json!(text.unwrap_or_default());
+        if !plain_only || f.html { p["htmlSignature"] = json!(html.unwrap_or_default()); }
+    }
     // only what changed goes out
     if let Some(o) = p.as_object_mut() {
         o.retain(|k, v| {
@@ -281,7 +308,7 @@ pub fn summary(i: &Value, primary: bool) -> String {
         let line: String = sig.lines().next().unwrap_or("").chars().take(60).collect();
         parts.push(format!("Signature: {line}{}", if sig.lines().count() > 1 || sig.chars().count() > 60 { "…" } else { "" }));
     }
-    if i["mayDelete"] == false { parts.push("This identity cannot be deleted".into()); }
+    if !may_delete(i) { parts.push("This identity cannot be deleted".into()); }
     parts.join(" · ")
 }
 
@@ -336,18 +363,18 @@ pub fn destroy(c: &crate::jmap::Client, id: &str) -> Result<(), String> {
 
 // ---------------- the automatic Bcc (RFC 8621 Identity.bcc) ----------------
 
-/// The Bcc of a message being sent with the identity's own Bcc added (email-composer.tsx:4245):
-/// the server does not add them, and only the send carries them, so a saved draft does not
-/// pick up a copy each time it is reopened. An address already on the message is not added again.
-pub fn with_identity_bcc(bcc: &str, to: &str, cc: &str, ident: &Value) -> String {
+/// The identity's own Bcc addresses a send adds (email-composer.tsx:4245): each once, and none
+/// already on the message. The server does not add them. Barbican puts them in the submission's
+/// envelope only, never in the message, so no copy in Drafts (a saved draft, the draft an undone
+/// send brings back, or one whose submission failed) carries them.
+pub fn identity_bcc_extra(to: &str, cc: &str, bcc: &str, ident: &Value) -> Vec<String> {
     let have: Vec<String> = crate::jmap::parse_addresses(&format!("{to},{cc},{bcc}")).iter()
         .filter_map(|a| a["email"].as_str().map(|e| e.trim().to_lowercase())).collect();
     let mut add: Vec<String> = vec![];
     for e in ident["bcc"].as_array().into_iter().flatten().filter_map(|a| a["email"].as_str()).map(str::trim) {
         if e.contains('@') && !have.contains(&e.to_lowercase()) && !add.iter().any(|x| x.eq_ignore_ascii_case(e)) { add.push(e.to_string()); }
     }
-    if add.is_empty() { return bcc.to_string(); }
-    if bcc.trim().is_empty() { add.join(", ") } else { format!("{}, {}", bcc.trim().trim_end_matches(','), add.join(", ")) }
+    add
 }
 
 // ---------------- sub-addressing (lib/sub-addressing.ts) ----------------
@@ -481,6 +508,12 @@ mod tests {
         // a default that is gone changes nothing
         assert_eq!(ordered(&ids, "ann@example.test", Some("gone"))[0]["id"], "main");
         assert_eq!(account_key("ann@example.test", "https://mail.example.test/jmap"), "ann@example.test@mail.example.test");
+        // as URL.hostname: lower case, no port or user, xn-- form, IPv6 in brackets
+        assert_eq!(account_key("ann", "HTTPS://Mail.Example.test:8443/jmap/session"), "ann@mail.example.test");
+        assert_eq!(url_hostname("https://user:pw@Mail.Example.test"), "mail.example.test");
+        assert_eq!(url_hostname("https://Bücher.example/"), "xn--bcher-kva.example");
+        assert_eq!(url_hostname("https://[2001:DB8::1]:443/jmap"), "[2001:db8::1]");
+        assert_eq!(url_hostname("mail.example.test"), "mail.example.test");
         let v = encode_preferred(None, "a1", "b");
         let v = encode_preferred(Some(&v), "a2", "x");
         assert_eq!(decode_preferred(Some(&v), "a1").as_deref(), Some("b"));
@@ -548,6 +581,34 @@ mod tests {
     }
 
     #[test]
+    fn editing_the_name_leaves_the_signatures_as_they_are() {
+        // a formatted signature the editor model cannot hold (a picture in a table) and a
+        // hand-written text version: a name change sends neither
+        let old = json!({"id": "i", "email": "a@example.test", "name": "Ann", "replyTo": null, "bcc": null,
+            "textSignature": "Ann - written by hand", "htmlSignature": "<table><tr><td><img src=\"https://example.test/logo.png\"></td><td>Ann</td></tr></table>"});
+        for plain in [false, true] {
+            let f = crate::identities::Form { name: "Ann B".into(), ..form_of(Some(&old), plain) };
+            assert_eq!(update_patch(&old, &f, plain), json!({"name": "Ann B"}), "plain only: {plain}");
+        }
+        // switching the format is an edit: both fields go out
+        let f = Form { html: false, ..form_of(Some(&old), false) };
+        let p = update_patch(&old, &f, false);
+        assert!(p.get("textSignature").is_some() && p["htmlSignature"] == "");
+    }
+
+    #[test]
+    fn a_missing_may_delete_is_not_deletable() {
+        let a = json!({"id": "a", "email": "ann@example.test"});
+        let b = json!({"id": "b", "email": "ann@example.test", "mayDelete": true});
+        let c = json!({"id": "c", "email": "ann@example.test", "mayDelete": false});
+        assert!(!may_delete(&a) && may_delete(&b) && !may_delete(&c));
+        // it sorts with the ones that cannot be deleted, ahead of the aliases
+        let v: Vec<String> = sort_identities(&[b.clone(), a.clone(), c.clone()], "ann@example.test").iter().map(|i| i["id"].as_str().unwrap().to_string()).collect();
+        assert_eq!(v, ["a", "c", "b"]);
+        assert!(summary(&a, false).contains("cannot be deleted"));
+    }
+
+    #[test]
     fn the_form_starts_from_the_identity() {
         let i = json!({"name": "Ann", "email": "a@example.test", "replyTo": [{"email": "r@example.test"}], "bcc": [{"email": "b@example.test"}], "textSignature": "T", "htmlSignature": "<p>H</p>"});
         let f = form_of(Some(&i), false);
@@ -578,10 +639,10 @@ mod tests {
     #[test]
     fn identity_bcc_is_added_once_and_only_to_the_send() {
         let i = json!({"bcc": [{"email": "archive@example.test"}, {"email": "Boss@example.test"}, {"email": "archive@example.test"}]});
-        assert_eq!(with_identity_bcc("", "to@example.test", "", &i), "archive@example.test, Boss@example.test");
+        assert_eq!(identity_bcc_extra("to@example.test", "", "", &i), ["archive@example.test", "Boss@example.test"]);
         // already a recipient: not again
-        assert_eq!(with_identity_bcc("x@example.test", "", "boss@example.test", &i), "x@example.test, archive@example.test");
-        assert_eq!(with_identity_bcc("x@example.test", "", "", &json!({"bcc": null})), "x@example.test");
+        assert_eq!(identity_bcc_extra("", "boss@example.test", "x@example.test", &i), ["archive@example.test"]);
+        assert!(identity_bcc_extra("", "", "x@example.test", &json!({"bcc": null})).is_empty());
     }
 
     #[test]
