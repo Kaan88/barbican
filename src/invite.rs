@@ -382,7 +382,7 @@ pub fn cancel_notice(p: &CancelPlan, trusted: bool, sender: &str) -> Option<Stri
 /// them as always changed.
 pub fn stored_props() -> Vec<&'static str> {
     let mut v = crate::calendar::EVENT_PROPS.to_vec();
-    for k in ["descriptionContentType", "recurrenceIdTimeZone"] { if !v.contains(&k) { v.push(k); } }
+    for k in ["descriptionContentType", "recurrenceIdTimeZone", "links", "categories", "locale"] { if !v.contains(&k) { v.push(k); } }
     v
 }
 
@@ -470,6 +470,12 @@ pub fn proposal_patch(cur: &Value, prop: &Value) -> serde_json::Map<String, Valu
     p
 }
 
+/// The first meeting link: a virtual location's uri (or name).
+fn meeting_link(ev: &Value) -> String {
+    ev["virtualLocations"].as_object().and_then(|o| o.values().find_map(|l| l["uri"].as_str().or(l["name"].as_str()).filter(|s| !s.trim().is_empty())))
+        .map(|s| s.trim().to_string()).unwrap_or_default()
+}
+
 /// The changes as the banner lists them: (label, before, after) (Bulwark buildInvitationChangeItems).
 pub fn proposal_changes(cur: &Value, prop: &Value, zone: &str) -> Vec<(String, String, String)> {
     let mut v = vec![];
@@ -482,6 +488,11 @@ pub fn proposal_changes(cur: &Value, prop: &Value, zone: &str) -> Vec<(String, S
     }
     let (la, lb) = (location(cur), location(prop));
     if la != lb && !lb.is_empty() { v.push(("Location".into(), or_empty(la), lb)); }
+    else if lb.is_empty() && !la.is_empty() && prop["locations"] != cur["locations"] { v.push(("Location".into(), la, "(none)".into())); }
+    // a proposal that carries no meeting link removes it (proposal_patch writes null)
+    let (ka, kb) = (meeting_link(cur), meeting_link(prop));
+    if ka != kb && !kb.is_empty() { v.push(("Meeting link".into(), or_empty(ka), kb)); }
+    else if kb.is_empty() && !ka.is_empty() && prop["virtualLocations"] != cur["virtualLocations"] { v.push(("Meeting link".into(), ka, "(none)".into())); }
     let (da, db) = (crate::cal_editor::description_text(cur), crate::cal_editor::description_text(prop));
     if da != db && !db.is_empty() { v.push(("Description".into(), or_empty(da), db)); }
     v
@@ -551,9 +562,11 @@ impl Proposal {
         p
     }
 
-    /// Whether the change to a new override goes out in two steps (Bulwark reachesOnlyUnanswered,
-    /// calendar-store.ts:389): Stalwart sends a new override only to attendees who have not
-    /// answered, so an attendee who answered and is not asked again would not hear of it.
+    /// Whether the change to a new override goes out in two steps: Stalwart sends a new override
+    /// only to attendees who have not answered, so an attendee who answered and is not asked
+    /// again would not hear of it. Bulwark's scope editor does this write (recurrence-scope-edit.ts:1054,
+    /// decided by reachesOnlyUnanswered, calendar-store.ts:389); its banner does not (one write,
+    /// handleApplyProposal passes no asOrganizer), so this follows the editor, not the banner.
     pub fn two_step(&self) -> bool {
         let Some(w) = &self.occurrence else { return false };
         if w.existing.is_some() { return false; }
@@ -620,7 +633,7 @@ fn apply_override(view: &mut Value, entry: &serde_json::Map<String, Value>) {
     }
 }
 
-/// The proposal as the occurrence's own: the proposed time in the occurrence's zone, so that the
+/// The proposal as the stored event's (or occurrence's) own: the proposed time in the occurrence's zone, so that the
 /// same moment in another zone (or UTC) is no change and a time that moves does not move the
 /// occurrence's zone with it; a proposal without a zone is read in the occurrence's. All-day
 /// occurrences and zones that cannot be read are left as they are.
@@ -695,6 +708,12 @@ fn occurrence_view(series: &Value, key: &str, entry: Option<&serde_json::Map<Str
 /// NEW_OVERRIDE_COPIED_KEYS and NEW_OVERRIDE_SERIES_KEYS, recurrence-instances.ts:615-640).
 const NEW_OVERRIDE_COPIED: [&str; 15] = ["title", "description", "descriptionContentType", "locations", "virtualLocations", "links", "keywords",
     "categories", "color", "locale", "status", "freeBusyStatus", "alerts", "participants", "sequence"];
+/// Series keys and per-event metadata that are not an occurrence's own (Bulwark SERIES_KEYS and
+/// EVENT_METADATA_KEYS, recurrence-instances.ts:58-95).
+const NOT_PER_OCCURRENCE: [&str; 28] = ["@type", "method", "organizerCalendarAddress", "privacy", "prodId", "recurrenceId", "recurrenceIdTimeZone",
+    "sentBy", "uid", "recurrenceOverrides", "recurrenceRule", "recurrenceRules", "excludedRecurrenceRule", "excludedRecurrenceRules",
+    "id", "baseEventId", "calendarIds", "isDraft", "isOrigin", "utcStart", "utcEnd", "useDefaultAlerts", "mayInviteSelf", "mayInviteOthers",
+    "hideAttendees", "excludedRecurrenceIds", "updated", "excluded"];
 const NEW_OVERRIDE_SERIES: [&str; 2] = ["privacy", "organizerCalendarAddress"];
 
 /// The override entry to write: the occurrence's stored entry (or, for a new one, its start,
@@ -702,7 +721,23 @@ const NEW_OVERRIDE_SERIES: [&str; 2] = ["privacy", "organizerCalendarAddress"];
 /// the series' privacy and organizer when false, which Stalwart 1.0 refuses inside an override.
 fn override_entry(w: &OccurrenceWrite, patch: Option<&serde_json::Map<String, Value>>, series_keys: bool) -> serde_json::Map<String, Value> {
     let mut e = match &w.existing {
-        Some(x) => { let mut x = x.clone(); x.remove("updated"); x }
+        Some(x) => {
+            let mut x = x.clone();
+            x.remove("updated");
+            if !series_keys {
+                // Stalwart 1.0 refuses the series' and the event's own keys inside an override
+                // (Bulwark withoutOverrideSeriesKeys / buildOccurrencePatch)
+                x.retain(|k, _| {
+                    let first = k.split('/').next().unwrap_or("");
+                    !NOT_PER_OCCURRENCE.contains(&first) && !(k.starts_with("participants/") && k.ends_with("/calendarAddress"))
+                });
+            } else if !x.contains_key("organizerCalendarAddress") && !w.view["organizerCalendarAddress"].is_null() {
+                // an existing override names the series' organizer (Bulwark withOverrideOrganizer):
+                // 0.16.19 refuses an override without one
+                x.insert("organizerCalendarAddress".into(), w.view["organizerCalendarAddress"].clone());
+            }
+            x
+        }
         None => {
             let mut x = serde_json::Map::new();
             x.insert("start".into(), w.view["start"].clone());
@@ -726,6 +761,8 @@ pub fn proposal(stored: &[Value], counter: &Value, sender: Option<&str>, mine: &
     let s = sender.map(norm_addr).filter(|s| !s.is_empty());
     let from = |target: &Value| s.as_ref().is_some_and(|s| target["participants"].as_object().is_some_and(|o| o.values().any(|p| participant_email(p).as_deref() == Some(s.as_str()))));
     if let Some(target) = counter_target(stored, counter) {
+        // a proposal without a zone is read in the event's own, as for an occurrence of a series
+        let counter = &in_occurrence_zone(&target, counter);
         return Some(Proposal {
             id: target["id"].as_str()?.to_string(),
             patch: proposal_patch(&target, counter),
@@ -1381,5 +1418,76 @@ mod tests {
         set_pointer(&mut v, "d/e", &json!(3));
         set_pointer(&mut v, "x/y/z", &Value::Null);
         assert_eq!(v, json!({"a": {"c": 2}, "d": {"e": 3}}));
+    }
+
+    #[test]
+    fn a_new_override_keeps_links_categories_and_locale() {
+        for k in ["links", "categories", "locale"] { assert!(stored_props().contains(&k), "{k} is fetched"); }
+        let mut s = series();
+        s["links"] = json!({"k1": {"href": "https://example.test/agenda", "rel": "describedby"}});
+        s["categories"] = json!({"work": true});
+        s["locale"] = json!("en");
+        let c = one("2026-11-24T10:00:00", "2026-11-24T14:00:00");
+        let p = occ_proposal(&[s], &c).unwrap();
+        let e = &proposal_request("acc", &p)[0][1]["update"]["s1"]["recurrenceOverrides"]["2026-11-24T10:00:00"];
+        assert_eq!(e["links"]["k1"]["href"], "https://example.test/agenda");
+        assert_eq!(e["categories"]["work"], true);
+        assert_eq!(e["locale"], "en");
+    }
+
+    #[test]
+    fn an_existing_override_is_cleaned_or_given_the_organizer() {
+        let mut s = series();
+        s["recurrenceOverrides"] = json!({"2026-11-24T10:00:00": {"title": "Moved", "privacy": "private", "participants/a/calendarAddress": "mailto:ann@example.test"}});
+        let mut c = one("2026-11-24T10:00:00", "2026-11-24T10:00:00");
+        c["title"] = json!("Moved");
+        c["locations"] = json!({"l2": {"name": "Cafe"}});
+        let p = occ_proposal(&[s], &c).unwrap();
+        let key = "recurrenceOverrides/2026-11-24T10:00:00";
+        let with = &proposal_request_with("acc", &p, true)[0][1]["update"]["s1"][key];
+        assert_eq!(with["organizerCalendarAddress"], "mailto:me@x.org", "an override with none names the series' organizer");
+        assert_eq!(with["privacy"], "private");
+        let without = &proposal_request_with("acc", &p, false)[0][1]["update"]["s1"][key];
+        assert!(without.get("organizerCalendarAddress").is_none() && without.get("privacy").is_none());
+        assert!(without.get("participants/a/calendarAddress").is_none());
+        assert_eq!(without["title"], "Moved");
+        assert_eq!(without["locations"]["l2"]["name"], "Cafe");
+    }
+
+    #[test]
+    fn a_proposal_that_removes_the_place_or_the_link_says_so() {
+        let mut cur = ev();
+        cur["virtualLocations"] = json!({"v1": {"uri": "https://meet.example.test/x"}});
+        let mut prop = counter();
+        prop["start"] = cur["start"].clone();
+        prop.as_object_mut().unwrap().remove("locations");
+        let ch = proposal_changes(&cur, &prop, "Europe/Berlin");
+        assert_eq!(ch, vec![
+            ("Location".to_string(), "Room 4".to_string(), "(none)".to_string()),
+            ("Meeting link".to_string(), "https://meet.example.test/x".to_string(), "(none)".to_string())]);
+        // a link that is replaced shows both
+        prop["virtualLocations"] = json!({"v2": {"uri": "https://meet.example.test/y"}});
+        let ch = proposal_changes(&cur, &prop, "Europe/Berlin");
+        assert_eq!(ch[1], ("Meeting link".to_string(), "https://meet.example.test/x".to_string(), "https://meet.example.test/y".to_string()));
+        // nothing removed when nothing differs
+        assert!(proposal_changes(&cur, &cur, "Europe/Berlin").is_empty());
+    }
+
+    #[test]
+    fn a_whole_event_proposal_without_a_zone_is_read_in_the_events_zone() {
+        let mut target = series();
+        target.as_object_mut().unwrap().remove("recurrenceRules");
+        target["id"] = json!("e1");
+        let mut c = counter();
+        c.as_object_mut().unwrap().remove("timeZone");
+        c["start"] = json!("2026-11-17T15:00:00");
+        let p = occ_proposal(&[target.clone()], &c).unwrap();
+        assert_eq!(Value::Object(p.patch.clone()), json!({"start": "2026-11-17T15:00:00"}), "no timeZone: null");
+        // the same moment in UTC is no change; a start in UTC is moved into the event's zone
+        c["timeZone"] = json!("UTC");
+        c["start"] = json!("2026-11-17T09:00:00");
+        assert!(occ_proposal(&[target.clone()], &c).unwrap().patch.is_empty());
+        c["start"] = json!("2026-11-17T13:00:00");
+        assert_eq!(occ_proposal(&[target], &c).unwrap().patch["start"], "2026-11-17T14:00:00");
     }
 }
