@@ -964,9 +964,14 @@ fn main() -> Result<(), slint::PlatformError> {
         });
     });
 
+    // what the settings pages cached (the account security page holds secrets): reset when Settings
+    // closes and on sign-out, sign-in and account switches
+    let server_cache: server_settings::Shared = Default::default();
     let w = ui.as_weak();
     let st = state.clone();
+    let srv_out = server_cache.clone();
     ui.on_sign_out(move || {
+        server_settings::reset(&srv_out);
         let u = w.unwrap();
         SESSION_GEN.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         *RESTORE_PENDING.lock().unwrap() = None;
@@ -1048,8 +1053,9 @@ fn main() -> Result<(), slint::PlatformError> {
     ui.set_accounts(accounts_model());
 
     // account switcher (Bulwark's account menu)
-    let (w, st) = (ui.as_weak(), state.clone());
+    let (w, st, srv_sw) = (ui.as_weak(), state.clone(), server_cache.clone());
     ui.on_switch_account(move |user| {
+        server_settings::reset(&srv_sw);
         let Some(v) = oauth::accounts().into_iter().find(|a| a["user"].as_str() == Some(user.as_str())) else { return };
         let u = w.unwrap();
         // the current session (and its push stream) stays until the new one is up: a failed
@@ -1060,8 +1066,9 @@ fn main() -> Result<(), slint::PlatformError> {
         u.set_busy(true);
         restore_session(w.clone(), st.clone(), v, true, None);
     });
-    let (w, st) = (ui.as_weak(), state.clone());
+    let (w, st, srv_add) = (ui.as_weak(), state.clone(), server_cache.clone());
     ui.on_add_account(move || {
+        server_settings::reset(&srv_add);
         let u = w.unwrap();
         SESSION_GEN.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         *st.lock().unwrap() = None;
@@ -1137,7 +1144,6 @@ fn main() -> Result<(), slint::PlatformError> {
         }
     };
     let account_info = Arc::new(account_info);
-    let server_cache: server_settings::Shared = Default::default();
     // load a server-backed settings page in the background, then redraw
     let load_server_page = {
         let (w, st, srv) = (ui.as_weak(), state.clone(), server_cache.clone());
@@ -1195,8 +1201,11 @@ fn main() -> Result<(), slint::PlatformError> {
         let reload: filters_x::Reload = Arc::new(move |tab: String| lsp(tab));
         filters_x::wire(&ui, state.clone(), server_cache.clone(), reload);
     }
-    let (w, rs, lsp) = (ui.as_weak(), refresh_settings.clone(), load_server_page.clone());
+    let srv_closed = server_cache.clone();
+    ui.on_settings_closed(move || server_settings::reset(&srv_closed));
+    let (w, rs, lsp, srv_open) = (ui.as_weak(), refresh_settings.clone(), load_server_page.clone(), server_cache.clone());
     ui.on_open_settings(move || {
+        server_settings::reset(&srv_open);
         let u = w.unwrap();
         u.set_settings_query("".into());
         rs();

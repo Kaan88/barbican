@@ -1785,6 +1785,8 @@ export component AppWindow inherits Window {
     callback refresh();
     callback compose-new();
     callback open-settings();
+    // Settings was closed (the app forgets what its pages cached, such as a new app password)
+    callback settings-closed();
     callback save-settings();
     callback ai-reader(string);
     callback ai-compose(string);
@@ -2231,6 +2233,7 @@ export component AppWindow inherits Window {
     callback send-mail(string, string, string);
     in-out property <bool> composing: false;
     changed composing => { if composing { app = 0; show-settings = false; } else { c-ai-closed = false; } }
+    changed show-settings => { if !show-settings { root.settings-closed(); } }
     in property <bool> sending: false;
     in-out property <string> c-to;
     // recipient chips follow the field text (src/chips.rs)

@@ -96,6 +96,16 @@ const ARCHIVE_USING: [&str; 2] = ["urn:ietf:params:jmap:core", "urn:stalwart:jma
 
 pub type Shared = Arc<Mutex<Cache>>;
 
+/// Forget everything the pages cached, secrets first: Settings was closed, or the account signed
+/// out or changed. The security page's epoch moves on, so a job or load still running for the old
+/// account drops its answer instead of writing it into the next page.
+pub fn reset(cache: &Shared) {
+    let mut g = cache.lock().unwrap();
+    let epoch = g.sec.epoch + 1;
+    *g = Cache::default();
+    g.sec.epoch = epoch;
+}
+
 fn s(v: &str) -> SharedString { SharedString::from(v) }
 fn row(kind: &str, key: &str, label: &str, desc: &str, text: &str, on: bool) -> SRow {
     SRow { kind: s(kind), key: s(key), label: s(label), desc: s(desc), options: ModelRc::new(VecModel::from(Vec::<SharedString>::new())), index: 0, on, text: s(text) }

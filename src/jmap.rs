@@ -144,6 +144,10 @@ pub fn problem_message(status: u16, v: &Value) -> String {
     }
 }
 
+/// A 401 for a request sent with `sent` is worth one more try when the session's header has changed
+/// since (a password change switched it while the request was in flight).
+pub fn retry_after_401(sent: &str, current: &str) -> bool { sent != current }
+
 /// The user and password inside a `Basic` Authorization header.
 fn basic_credentials(header: &str) -> Option<(String, String)> {
     let raw = base64::engine::general_purpose::STANDARD.decode(header.strip_prefix("Basic ")?).ok()?;
@@ -270,6 +274,15 @@ impl Client {
         basic_credentials(&self.auth_header()).map(|(u, _)| u)
     }
 
+    /// The password of a Basic sign-in (typed password, `password$code`, or an app password).
+    pub fn basic_password(&self) -> Option<String> {
+        basic_credentials(&self.auth_header()).map(|(_, p)| p)
+    }
+
+    /// The server no longer accepts this sign-in (the password was changed and the session cannot
+    /// follow): no further request goes out, and the app asks to sign in again.
+    pub fn end_session(&self) { self.reject(); }
+
     /// After a password change: sign the following requests with the new password. `false` (and
     /// nothing changed) for a single-sign-on session, which has no password.
     pub fn set_basic_password(&self, pass: &str) -> bool {
@@ -312,14 +325,20 @@ impl Client {
         }
         self.renew_if_due()?;
         let api = absolute(&self.base, self.live.read().unwrap()["apiUrl"].as_str().unwrap_or(""));
-        let send = || {
+        // the header this request goes out with: a password change may swap it while we wait
+        let send_with = |auth: String| {
             let _p = self.requests.enter();
-            crate::redirect::send(&api, false, |u| self.http.post(u).header("Authorization", self.auth_header())
+            crate::redirect::send(&api, false, |u| self.http.post(u).header("Authorization", auth.clone())
                 .header("Content-Type", "application/json").header("Accept", "application/json").body(body.clone()))
         };
-        let mut resp = send()?;
+        let sent = self.auth_header();
+        let send = || send_with(self.auth_header());
+        let mut resp = send_with(sent.clone())?;
         if resp.status() == 401 && self.oauth.is_some() {
             self.renew()?;
+            resp = send()?;
+        } else if resp.status() == 401 && retry_after_401(&sent, &self.auth_header()) {
+            // answered 401 for the old password while the new one was being set: not a dead session
             resp = send()?;
         }
         if matches!(resp.status().as_u16(), 429 | 503) && read_only(calls) {
@@ -1778,6 +1797,12 @@ pub const BODY_PROPERTIES: [&str; 9] = ["partId", "blobId", "size", "name", "typ
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_401_is_retried_only_when_the_header_changed() {
+        assert!(retry_after_401("Basic old", "Basic new"));
+        assert!(!retry_after_401("Basic same", "Basic same"));
+    }
 
     #[test]
     fn basic_header_is_read_back() {

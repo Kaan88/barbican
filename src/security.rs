@@ -348,14 +348,24 @@ impl Totp {
 
 // ---------------------------------------------------------------- remembered sign-in
 
-/// The stored password sign-in of this user on this server, as it is to be stored after a password
-/// change; `None` when the session was not remembered (then nothing is written).
-pub fn remembered_with_password(accounts: &[Value], user: &str, base: &str, new_password: &str) -> Option<Value> {
+/// The remembered password sign-in of this user on this server; `None` when the session was not
+/// remembered (then nothing is written or removed).
+pub fn remembered_password_entry(accounts: &[Value], user: &str, base: &str) -> Option<Value> {
     let base = crate::jmap::normalize_base(base);
     accounts.iter().find(|a| a["kind"] == "password" && a["user"].as_str().is_some_and(|u| u.eq_ignore_ascii_case(user))
-        && crate::jmap::normalize_base(a["server"].as_str().unwrap_or("")).eq_ignore_ascii_case(&base))
-        .map(|a| json!({"kind": "password", "server": a["server"], "user": a["user"], "pass": new_password}))
+        && crate::jmap::normalize_base(a["server"].as_str().unwrap_or("")).eq_ignore_ascii_case(&base)).cloned()
 }
+
+/// The entry as it is to be stored after a password change: only when it holds exactly the password
+/// that was just replaced (a remembered app password stays what it is).
+pub fn remembered_with_password(accounts: &[Value], user: &str, base: &str, old_password: &str, new_password: &str) -> Option<Value> {
+    let a = remembered_password_entry(accounts, user, base)?;
+    (a["pass"] == old_password).then(|| json!({"kind": "password", "server": a["server"], "user": a["user"], "pass": new_password}))
+}
+
+/// What the authenticator app lists the entry under (Bulwark totp-issuer.ts: a stock install names
+/// the account's server).
+pub const TOTP_ISSUER: &str = "Stalwart";
 
 // ---------------------------------------------------------------- page state
 
@@ -366,6 +376,12 @@ pub struct Shown { pub label: String, pub secret: String, pub kind: Kind }
 pub struct State {
     /// The page has been loaded for this account at least once.
     pub checked: bool,
+    /// Page session: bumped by `reset`. `owner` is the account's `state_key`.
+    pub epoch: u64,
+    pub owner: String,
+    /// A server job is running (one at a time).
+    pub busy: bool,
+    pub confirm_at: Option<std::time::Instant>,
     pub cap: Option<&'static str>,
     /// The account's name as the server reports it (the label of the authenticator entry).
     pub account: String,
@@ -397,6 +413,15 @@ impl State {
     pub fn available(&self) -> bool { self.cap.is_some() }
 
     /// Drop everything typed or shown: passwords, codes, the new secret, the TOTP secret.
+    /// Everything of this page session goes: the account it was for, what was typed, the secrets and
+    /// the lists. The epoch moves on, so a job or load still running for the old page cannot write
+    /// into the new one.
+    pub fn reset(&mut self) {
+        let epoch = self.epoch + 1;
+        *self = State::default();
+        self.epoch = epoch;
+    }
+
     pub fn forget_secrets(&mut self) {
         self.pw_cur.clear(); self.pw_new.clear(); self.pw_confirm.clear(); self.pw_otp.clear();
         self.totp = None; self.totp_pw.clear(); self.totp_code.clear();
@@ -522,7 +547,7 @@ fn crypto_rows(out: &mut Vec<SRow>, st: &State) {
         out.push(r);
         out.push(row("toggle", "server.sec.enc.append", "Encrypt new emails on upload", "", "", st.enc_append));
         out.push(row("toggle", "server.sec.enc.spam", "Allow spam training before encrypting emails", "", "", st.enc_spam));
-        out.push(row("button", "server.sec.enc.enable", "", "", "Turn on", false));
+        out.push(row("button", "server.sec.enc.enable", "", "", if st.confirm == "server.sec.enc.enable" { "Click again to turn on" } else { "Turn on" }, false));
         out.push(row("button", "server.sec.enc.cancel", "", "", "Cancel", false));
     }
     out.push(row("text", "server.sec.pk.desc", "Public key name", "e.g. My Key", &st.pk_desc, false));
@@ -559,6 +584,11 @@ pub fn edit(st: &mut State, field: &str, value: &Value) {
 }
 
 pub type Job = Box<dyn FnOnce(&Client, &Shared) -> Result<(), String> + Send>;
+/// What a finished job changes on the page; dropped when the page was reset while it ran.
+type Update = Box<dyn FnOnce(&mut State) + Send>;
+
+/// A confirming press counts only this long after the first one, so a double click is not a confirm.
+const CONFIRM_DELAY: std::time::Duration = std::time::Duration::from_millis(500);
 
 fn noop() -> Option<Job> { Some(Box::new(|_, _| Ok(()))) }
 fn refuse(st: &mut State, msg: &str) -> Option<Job> { st.status = msg.to_string(); noop() }
@@ -573,36 +603,95 @@ fn send(c: &Client, calls: Value) -> Result<Vec<Value>, String> {
     c.request_using(&using(cap), calls)
 }
 
+/// Server work of the page: one job at a time (a second press while one runs is refused, so a
+/// double click cannot create two credentials or race a password switch), and only for the account
+/// and page session it was started on. Its update of the page is applied only if that page session
+/// is still the current one (a reset by closing Settings, signing out or switching accounts bumps
+/// the epoch), so a late answer never writes a secret into another account's page.
+fn run(st: &mut State, work: impl FnOnce(&Client) -> Result<Update, String> + Send + 'static) -> Option<Job> {
+    if st.busy { st.status = "Wait for the previous action to finish.".into(); return noop(); }
+    st.busy = true;
+    let (epoch, owner) = (st.epoch, st.owner.clone());
+    Some(Box::new(move |c: &Client, k: &Shared| {
+        if !owns(&k.lock().unwrap().sec, epoch, &owner, &c.state_key()) {
+            return Err("The account changed. Open the page again.".into());
+        }
+        let r = work(c);
+        let mut g = k.lock().unwrap();
+        if g.sec.epoch != epoch { return r.map(|_| ()); }
+        g.sec.busy = false;
+        match r { Ok(update) => { update(&mut g.sec); Ok(()) } Err(e) => Err(e) }
+    }))
+}
+
+/// Whether the page state still belongs to the page session and account a job started on.
+fn owns(st: &State, epoch: u64, owner: &str, key: &str) -> bool { st.epoch == epoch && !owner.is_empty() && st.owner == owner && owner == key }
+
+/// What to do with the running session after the password changed (`header_pass` is the password
+/// the session signs in with: the typed one, `typed$code` for a session started with a two-step
+/// code, or something else, such as an app password).
+#[derive(Debug, PartialEq)]
+pub enum Followup { Switch, EndSession, Keep }
+
+pub fn classify_session(header_pass: &str, typed_current: &str, otp_on: bool) -> Followup {
+    if header_pass == typed_current { return if otp_on { Followup::EndSession } else { Followup::Switch }; }
+    // a session signed in with "password$code": there is no code to send with the new password
+    if header_pass.strip_prefix(typed_current).is_some_and(|rest| rest.starts_with('$')) { return Followup::EndSession; }
+    Followup::Keep
+}
+
+/// The message when the key was in use: encryption is already off, the key is still there.
+pub fn key_not_deleted(err: &str) -> String { format!("Encryption was turned off, but the key was not deleted: {err}") }
+
+const ENCRYPT_WARNING: &str = "Mail stored encrypted can only be read with your private key, and Barbican cannot show encrypted messages. Without the key the mail is lost. Press the button again to turn encryption on.";
+
 /// A button on the page (`what` is the key after `server.sec.`). Validation problems are written to
 /// the page's status line right away; the job does the server work on a background thread.
-pub fn button(st: &mut State, what: &str) -> Option<Job> {
-    // a second press within the same page confirms; any other press cancels a pending confirmation
+pub fn button(st: &mut State, what: &str) -> Option<Job> { button_at(st, what, std::time::Instant::now()) }
+
+fn button_at(st: &mut State, what: &str, now: std::time::Instant) -> Option<Job> {
+    // a second press confirms, but not within a double click; any other press cancels the wait
+    let key = format!("server.sec.{what}");
     let pending = std::mem::take(&mut st.confirm);
-    let confirmed = pending == format!("server.sec.{what}");
+    let armed = st.confirm_at.take();
+    let confirmed = pending == key && armed.is_some_and(|t| now.saturating_duration_since(t) >= CONFIRM_DELAY);
+    if pending == key && !confirmed { st.confirm = pending; st.confirm_at = armed; return noop(); }
+    let arm = |st: &mut State| { st.confirm = key.clone(); st.confirm_at = Some(now); };
     st.status.clear();
+    let epoch = st.epoch;
     match what {
         "pw.change" => {
             if st.pw_cur.is_empty() { return refuse(st, "Enter your current password."); }
             if let Err(e) = check_new_password(&st.pw_new, &st.pw_confirm) { return refuse(st, &e); }
             if st.otp_enabled && st.pw_otp.trim().is_empty() { return refuse(st, "Enter a verification code."); }
             let (cur, new, otp, otp_on) = (st.pw_cur.clone(), st.pw_new.clone(), st.pw_otp.clone(), st.otp_enabled);
-            Some(Box::new(move |c: &Client, k: &Shared| {
+            run(st, move |c| {
                 let r = send(c, change_password_calls(&c.account, &cur, &new, otp_on.then_some(otp.as_str())))?;
                 check_singleton_set(&r, "x:AccountPassword/set", "Failed to change password")?;
-                // the session still authenticates with the old password: switch it to the new one
-                let switched = c.set_basic_password(&new);
-                if switched { if let Some(user) = c.basic_user() {
-                    if let Some(v) = remembered_with_password(&crate::oauth::accounts(), &user, &c.base, &new) { crate::oauth::remember(&v, crate::oauth::Origin::SignIn); }
-                } }
-                let mut g = k.lock().unwrap();
-                g.sec.pw_cur.clear(); g.sec.pw_new.clear(); g.sec.pw_confirm.clear(); g.sec.pw_otp.clear();
-                g.sec.status = if otp_on || !switched { "Password changed. Sign in again with your new password.".into() } else { "Password changed.".into() };
-                Ok(())
-            }))
+                let follow = c.basic_password().map_or(Followup::Keep, |p| classify_session(&p, &cur, otp_on));
+                let note = match follow {
+                    Followup::Switch => {
+                        c.set_basic_password(&new);
+                        // a remembered sign-in is rewritten only when it holds the password just replaced
+                        if let Some(user) = c.basic_user() {
+                            if let Some(v) = remembered_with_password(&crate::oauth::accounts(), &user, &c.base, &cur, &new) {
+                                crate::oauth::remember(&v, crate::oauth::Origin::SignIn);
+                            }
+                        }
+                        "Password changed.".to_string()
+                    }
+                    Followup::EndSession => { c.end_session(); "Password changed. Sign in again with your new password.".to_string() }
+                    Followup::Keep => "Password changed. This session signs in with something else (an app password), which still works.".to_string(),
+                };
+                Ok(Box::new(move |s: &mut State| {
+                    s.pw_cur.clear(); s.pw_new.clear(); s.pw_confirm.clear(); s.pw_otp.clear();
+                    s.status = note;
+                }) as Update)
+            })
         }
         "totp.start" => {
             st.totp_pw.clear(); st.totp_code.clear();
-            match Totp::generate(&st.account, "Barbican") {
+            match Totp::generate(&st.account, TOTP_ISSUER) {
                 Ok(t) => { st.totp = Some(t); noop() }
                 Err(e) => refuse(st, &e),
             }
@@ -611,7 +700,9 @@ pub fn button(st: &mut State, what: &str) -> Option<Job> {
         "totp.copy" => {
             let uri = st.totp.as_ref()?.uri.clone();
             Some(Box::new(move |_, k: &Shared| {
-                k.lock().unwrap().sec.status = if crate::mail::copy_to_clipboard(&uri) { "Link copied.".into() } else { "Could not copy the link.".into() };
+                let ok = crate::platform::copy_secret(&uri);
+                let mut g = k.lock().unwrap();
+                if g.sec.epoch == epoch { g.sec.status = if ok { "Link copied.".into() } else { "Could not copy the link.".into() }; }
                 Ok(())
             }))
         }
@@ -621,27 +712,30 @@ pub fn button(st: &mut State, what: &str) -> Option<Job> {
             if st.totp_code.trim().is_empty() { return refuse(st, "Verification code is required"); }
             if !totp_valid(&t.secret, &st.totp_code, now_unix()) { return refuse(st, "Invalid verification code. Check your authenticator app and try again."); }
             let (pw, code, url) = (st.totp_pw.clone(), st.totp_code.trim().to_string(), t.uri.clone());
-            Some(Box::new(move |c: &Client, k: &Shared| {
+            run(st, move |c| {
                 let r = send(c, enable_totp_calls(&c.account, &pw, &url, &code))?;
                 check_singleton_set(&r, "x:AccountPassword/set", "Failed to enable 2FA")?;
-                let mut g = k.lock().unwrap();
-                g.sec.totp = None; g.sec.totp_pw.clear(); g.sec.totp_code.clear(); g.sec.otp_enabled = true;
-                g.sec.status = "Two-step sign-in is on.".into();
-                Ok(())
-            }))
+                // a remembered password has no code: every start would fail and count as a bad login
+                let forgot = forget_remembered_password(c);
+                Ok(Box::new(move |s: &mut State| {
+                    s.totp = None; s.totp_pw.clear(); s.totp_code.clear(); s.otp_enabled = true;
+                    s.status = if forgot { "Two-step sign-in is on. Barbican forgot your remembered password: sign in with your password and a code from now on.".into() }
+                        else { "Two-step sign-in is on.".into() };
+                }) as Update)
+            })
         }
         "totp.disable" => {
             if st.totp_pw.is_empty() { return refuse(st, "Password is required"); }
             if st.totp_code.trim().is_empty() { return refuse(st, "Verification code is required"); }
             let (pw, code) = (st.totp_pw.clone(), st.totp_code.clone());
-            Some(Box::new(move |c: &Client, k: &Shared| {
+            run(st, move |c| {
                 let r = send(c, disable_totp_calls(&c.account, &pw, Some(&code)))?;
                 check_singleton_set(&r, "x:AccountPassword/set", "Failed to disable 2FA")?;
-                let mut g = k.lock().unwrap();
-                g.sec.totp_pw.clear(); g.sec.totp_code.clear(); g.sec.otp_enabled = false;
-                g.sec.status = "Two-step sign-in is off.".into();
-                Ok(())
-            }))
+                Ok(Box::new(|s: &mut State| {
+                    s.totp_pw.clear(); s.totp_code.clear(); s.otp_enabled = false;
+                    s.status = "Two-step sign-in is off.".into();
+                }) as Update)
+            })
         }
         "app.create" | "key.create" => {
             let kind = if what == "app.create" { Kind::AppPassword } else { Kind::ApiKey };
@@ -649,105 +743,113 @@ pub fn button(st: &mut State, what: &str) -> Option<Job> {
             if desc.trim().is_empty() { return refuse(st, &format!("Give the {} a name.", kind.noun())); }
             let expires_at = match expiry_from_date(exp) { Ok(e) => e, Err(e) => return refuse(st, &e) };
             let input = CredentialInput { description: desc.trim().to_string(), expires_at, allowed_ips: parse_ip_list(ips) };
-            Some(Box::new(move |c: &Client, k: &Shared| {
+            run(st, move |c| {
                 let r = send(c, create_credential_calls(&c.account, kind, &input))?;
                 let (_id, secret) = parse_created_credential(&r, kind)?;
-                let mut g = k.lock().unwrap();
-                if kind == Kind::AppPassword { g.sec.app_desc.clear(); g.sec.app_expires.clear(); g.sec.app_ips.clear(); }
-                else { g.sec.key_desc.clear(); g.sec.key_expires.clear(); g.sec.key_ips.clear(); }
-                g.sec.shown = Some(Shown { label: input.description.clone(), secret, kind });
-                g.sec.status = format!("The {} was created.", kind.noun());
-                Ok(())
-            }))
+                Ok(Box::new(move |s: &mut State| {
+                    if kind == Kind::AppPassword { s.app_desc.clear(); s.app_expires.clear(); s.app_ips.clear(); }
+                    else { s.key_desc.clear(); s.key_expires.clear(); s.key_ips.clear(); }
+                    s.shown = Some(Shown { label: input.description.clone(), secret, kind });
+                    s.status = format!("The {} was created.", kind.noun());
+                }) as Update)
+            })
         }
         "secret.copy" => {
             let secret = st.shown.as_ref()?.secret.clone();
             Some(Box::new(move |_, k: &Shared| {
-                k.lock().unwrap().sec.status = if crate::mail::copy_to_clipboard(&secret) { "Copied.".into() } else { "Could not copy.".into() };
+                let ok = crate::platform::copy_secret(&secret);
+                let mut g = k.lock().unwrap();
+                if g.sec.epoch == epoch { g.sec.status = if ok { "Copied.".into() } else { "Could not copy.".into() }; }
                 Ok(())
             }))
         }
         "secret.done" => { st.shown = None; noop() }
         w if w.starts_with("revoke.app:") || w.starts_with("revoke.key:") => {
-            if !confirmed { st.confirm = format!("server.sec.{what}"); return noop(); }
+            if !confirmed { arm(st); return noop(); }
             let kind = if w.starts_with("revoke.app:") { Kind::AppPassword } else { Kind::ApiKey };
             let id = w.split_once(':')?.1.to_string();
-            Some(Box::new(move |c: &Client, k: &Shared| {
+            run(st, move |c| {
                 let r = send(c, destroy_calls(&c.account, kind.set_method(), &id))?;
                 check_destroyed(&r, kind.set_method(), &id)?;
-                k.lock().unwrap().sec.status = format!("The {} was deleted.", kind.noun());
-                Ok(())
-            }))
+                Ok(Box::new(move |s: &mut State| s.status = format!("The {} was deleted.", kind.noun())) as Update)
+            })
         }
         "pk.add" => {
             if st.pk_desc.trim().is_empty() || st.pk_key.trim().is_empty() { return refuse(st, "Give the key a name and paste the public key."); }
             let (d, key) = (st.pk_desc.trim().to_string(), st.pk_key.trim().to_string());
-            Some(Box::new(move |c: &Client, k: &Shared| {
+            run(st, move |c| {
                 let r = send(c, create_public_key_calls(&c.account, &d, &key, &[], None))?;
                 check_created_public_key(&r)?;
-                let mut g = k.lock().unwrap();
-                g.sec.pk_desc.clear(); g.sec.pk_key.clear();
-                g.sec.status = "Public key added.".into();
-                Ok(())
-            }))
+                Ok(Box::new(|s: &mut State| { s.pk_desc.clear(); s.pk_key.clear(); s.status = "Public key added.".into(); }) as Update)
+            })
         }
         w if w.starts_with("pk.remove:") => {
-            if !confirmed { st.confirm = format!("server.sec.{what}"); return noop(); }
+            if !confirmed { arm(st); return noop(); }
             let id = w.split_once(':')?.1.to_string();
             // a key that encrypts the mail is not pulled out from under it: encryption goes off first
             let in_use = st.encryption.enabled() && st.encryption.public_key.as_deref() == Some(&id);
-            Some(Box::new(move |c: &Client, k: &Shared| {
+            run(st, move |c| {
                 if in_use {
                     let off = update_encryption_calls(&c.account, "Disabled", None, false, false)?;
                     check_singleton_set(&send(c, off)?, "x:AccountSettings/set", "Failed to update encryption settings")?;
                 }
-                let r = send(c, destroy_calls(&c.account, "x:PublicKey/set", &id))?;
-                check_destroyed(&r, "x:PublicKey/set", &id)?;
-                k.lock().unwrap().sec.status = "Public key deleted.".into();
-                Ok(())
-            }))
+                let deleted = send(c, destroy_calls(&c.account, "x:PublicKey/set", &id)).and_then(|r| check_destroyed(&r, "x:PublicKey/set", &id));
+                if let Err(e) = deleted { return Err(if in_use { key_not_deleted(&e) } else { e }); }
+                Ok(Box::new(|s: &mut State| s.status = "Public key deleted.".into()) as Update)
+            })
         }
         w if w.starts_with("enc.pick:") => { st.enc_pick = Some(w.split_once(':')?.1.to_string()); st.enc_algo = 0; st.enc_append = false; st.enc_spam = false; noop() }
         "enc.cancel" => { st.enc_pick = None; noop() }
         "enc.enable" => {
             let key = st.enc_pick.clone()?;
+            if !confirmed { arm(st); st.status = ENCRYPT_WARNING.into(); return noop(); }
             let kind = ALGOS[st.enc_algo.clamp(0, ALGOS.len() as i32 - 1) as usize].0;
             let (a, sp) = (st.enc_append, st.enc_spam);
-            Some(Box::new(move |c: &Client, k: &Shared| {
+            run(st, move |c| {
                 let calls = update_encryption_calls(&c.account, kind, Some(&key), a, sp)?;
                 check_singleton_set(&send(c, calls)?, "x:AccountSettings/set", "Failed to update encryption settings")?;
-                let mut g = k.lock().unwrap();
-                g.sec.enc_pick = None;
-                g.sec.status = "Encryption at rest is on.".into();
-                Ok(())
-            }))
+                Ok(Box::new(|s: &mut State| { s.enc_pick = None; s.status = "Encryption at rest is on.".into(); }) as Update)
+            })
         }
         "enc.disable" => {
-            if !confirmed { st.confirm = "server.sec.enc.disable".into(); return noop(); }
-            Some(Box::new(move |c: &Client, k: &Shared| {
+            if !confirmed { arm(st); return noop(); }
+            run(st, move |c| {
                 let calls = update_encryption_calls(&c.account, "Disabled", None, false, false)?;
                 check_singleton_set(&send(c, calls)?, "x:AccountSettings/set", "Failed to update encryption settings")?;
-                k.lock().unwrap().sec.status = "Encryption at rest is off.".into();
-                Ok(())
-            }))
+                Ok(Box::new(|s: &mut State| s.status = "Encryption at rest is off.".into()) as Update)
+            })
         }
         _ => None,
     }
 }
 
+/// Forget the remembered password sign-in of this account (see [`remembered_password_entry`]).
+fn forget_remembered_password(c: &Client) -> bool {
+    let Some(user) = c.basic_user() else { return false };
+    let Some(e) = remembered_password_entry(&crate::oauth::accounts(), &user, &c.base) else { return false };
+    crate::oauth::forget_account(&[e["user"].as_str().unwrap_or("")], e["server"].as_str().unwrap_or(""));
+    true
+}
+
 // ---------------------------------------------------------------- loading
 
 /// Read what the page shows. Runs on a background thread; the error, if any, is the page's.
+/// Its result is dropped when the page was reset (another account, Settings closed) while it ran.
 pub fn load(c: &Client, cache: &Shared) -> Result<(), String> {
     let cap = management_capability(&c.session, &c.account);
     let password_session = c.tokens().is_none();
-    {
+    let key = c.state_key();
+    let epoch = {
         let mut g = cache.lock().unwrap();
+        // another account than the one this page state was made for: nothing of it stays
+        if !g.sec.owner.is_empty() && g.sec.owner != key { g.sec.reset(); }
         g.sec.checked = true;
         g.sec.cap = cap;
         g.sec.password_session = password_session;
         g.sec.account = c.username.clone();
-    }
+        g.sec.owner = key;
+        g.sec.epoch
+    };
     let Some(cap) = cap else { return Ok(()) };
     let u = using(cap);
     let r = c.request_using(&u, auth_info_calls(&c.account))?;
@@ -772,6 +874,7 @@ pub fn load(c: &Client, cache: &Shared) -> Result<(), String> {
         Ok((enc, list))
     })();
     let mut g = cache.lock().unwrap();
+    if g.sec.epoch != epoch { return Ok(()); }
     g.sec.otp_enabled = info.otp_enabled;
     g.sec.app_passwords = apps;
     g.sec.api_keys = keys;
@@ -942,7 +1045,7 @@ mod tests {
         assert_eq!(base32(b"foobar"), "MZXW6YTBOI");
         let uri = Totp::uri(b"foobar", "ann@example.test", "Barbican");
         assert_eq!(uri, "otpauth://totp/Barbican:ann%40example.test?issuer=Barbican&secret=MZXW6YTBOI&algorithm=SHA1&digits=6&period=30");
-        let t = Totp::generate("ann@example.test", "Barbican").unwrap();
+        let t = Totp::generate("ann@example.test", TOTP_ISSUER).unwrap();
         assert_eq!(t.secret.len(), 20);
         assert!(t.uri.contains(&format!("secret={}", base32(&t.secret))));
         assert_eq!(t.grouped().replace(' ', ""), base32(&t.secret));
@@ -950,16 +1053,98 @@ mod tests {
     }
 
     #[test]
-    fn remembered_sign_in_is_rewritten_only_when_there_is_one() {
+    fn remembered_sign_in_is_rewritten_only_when_it_holds_the_replaced_password() {
         let accounts = vec![
             json!({"kind": "oauth", "server": "https://mail.example.test", "user": "ann@example.test"}),
             json!({"kind": "password", "server": "mail.example.test", "user": "Ann@example.test", "pass": "old"}),
         ];
-        let v = remembered_with_password(&accounts, "ann@example.test", "https://mail.example.test", "new-pass").unwrap();
+        let base = "https://mail.example.test";
+        let v = remembered_with_password(&accounts, "ann@example.test", base, "old", "new-pass").unwrap();
         assert_eq!(v, json!({"kind": "password", "server": "mail.example.test", "user": "Ann@example.test", "pass": "new-pass"}));
-        assert!(remembered_with_password(&accounts, "bob@example.test", "https://mail.example.test", "x").is_none());
-        assert!(remembered_with_password(&accounts, "ann@example.test", "https://other.example.test", "x").is_none());
-        assert!(remembered_with_password(&[], "ann@example.test", "https://mail.example.test", "x").is_none());
+        // a remembered app password (not what was typed as the current password) stays
+        assert!(remembered_with_password(&accounts, "ann@example.test", base, "typed-other", "new-pass").is_none());
+        assert!(remembered_with_password(&accounts, "bob@example.test", base, "old", "x").is_none());
+        assert!(remembered_with_password(&accounts, "ann@example.test", "https://other.example.test", "old", "x").is_none());
+        assert!(remembered_with_password(&[], "ann@example.test", base, "old", "x").is_none());
+        // the entry the TOTP switch-on forgets
+        assert_eq!(remembered_password_entry(&accounts, "ann@example.test", base).unwrap()["user"], "Ann@example.test");
+        assert!(remembered_password_entry(&accounts[..1], "ann@example.test", base).is_none(), "an oauth entry has no password");
+    }
+
+    #[test]
+    fn session_follows_a_password_change_only_when_it_used_that_password() {
+        assert_eq!(classify_session("old-pass", "old-pass", false), Followup::Switch);
+        // two-step sign-in is on: the new password has no code to go with it
+        assert_eq!(classify_session("old-pass", "old-pass", true), Followup::EndSession);
+        assert_eq!(classify_session("old-pass$123456", "old-pass", true), Followup::EndSession);
+        assert_eq!(classify_session("old-pass$123456", "old-pass", false), Followup::EndSession);
+        // an app password session keeps its own secret
+        assert_eq!(classify_session("app-secret", "old-pass", false), Followup::Keep);
+        assert_eq!(classify_session("old-passX", "old-pass", false), Followup::Keep);
+    }
+
+    #[test]
+    fn issuer_is_the_servers_name_like_bulwark() {
+        assert_eq!(TOTP_ISSUER, "Stalwart");
+        assert!(key_not_deleted("forbidden").starts_with("Encryption was turned off, but the key was not deleted: forbidden"));
+    }
+
+    #[test]
+    fn a_reset_page_belongs_to_nobody() {
+        let mut st = page();
+        st.owner = "acct-a".into();
+        st.shown = Some(Shown { label: "Phone".into(), secret: "s3cret".into(), kind: Kind::AppPassword });
+        st.busy = true;
+        let epoch = st.epoch;
+        assert!(owns(&st, epoch, "acct-a", "acct-a"));
+        assert!(!owns(&st, epoch, "acct-a", "acct-b"), "the client is another account's");
+        st.reset();
+        assert!(st.shown.is_none() && !st.busy && st.owner.is_empty() && st.cap.is_none() && st.totp.is_none());
+        assert_eq!(st.epoch, epoch + 1);
+        assert!(!owns(&st, epoch, "acct-a", "acct-a"), "a job of the old page may not write into the new one");
+        assert!(rows(&st).is_none());
+    }
+
+    #[test]
+    fn one_server_job_at_a_time() {
+        let mut st = page();
+        edit(&mut st, "app.desc", &json!("Phone"));
+        assert!(button(&mut st, "app.create").is_some());
+        assert!(st.busy);
+        // a double click: the second press only says to wait
+        assert!(button(&mut st, "app.create").is_some());
+        assert_eq!(st.status, "Wait for the previous action to finish.");
+        assert!(st.shown.is_none());
+    }
+
+    #[test]
+    fn confirming_press_is_refused_inside_a_double_click() {
+        let mut st = page();
+        let t0 = std::time::Instant::now();
+        let key = "revoke.app:p1";
+        assert!(button_at(&mut st, key, t0).is_some());
+        assert_eq!(st.confirm, "server.sec.revoke.app:p1");
+        // 100 ms later: still waiting, nothing started
+        assert!(button_at(&mut st, key, t0 + std::time::Duration::from_millis(100)).is_some());
+        assert!(!st.busy);
+        assert_eq!(st.confirm, "server.sec.revoke.app:p1");
+        // a real second click starts the job
+        assert!(button_at(&mut st, key, t0 + std::time::Duration::from_millis(600)).is_some());
+        assert!(st.busy && st.confirm.is_empty());
+    }
+
+    #[test]
+    fn turning_encryption_on_warns_and_needs_a_second_press() {
+        let mut st = page();
+        st.enc_pick = Some("k1".into());
+        let t0 = std::time::Instant::now();
+        assert!(button_at(&mut st, "enc.enable", t0).is_some());
+        assert!(!st.busy);
+        assert!(st.status.contains("private key") && st.status.contains("cannot show encrypted messages"));
+        let r = rows(&st).unwrap();
+        assert_eq!(r.iter().find(|x| x.key == "server.sec.enc.enable").unwrap().text.as_str(), "Click again to turn on");
+        assert!(button_at(&mut st, "enc.enable", t0 + std::time::Duration::from_millis(700)).is_some());
+        assert!(st.busy);
     }
 
     fn page() -> State {
