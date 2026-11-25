@@ -33,7 +33,9 @@ See `plugins/spam-score` for a complete Rust example (port of Bulwark's Spam Sco
 
 ## API v2 (design, ROADMAP Phase 5 step B1)
 
-Status: design only. Nothing below is built yet; steps B2-B7 build it. API 1 (above) keeps loading until Barbican
+Status: B2 is built (the manifest checks, the consent dialog and `pluginGrants`, package install and uninstall:
+`src/plugins.rs`, `src/plugin_package.rs`); the rest is design, and steps B3-B7 build it. Until B3/B4 an installed API 2
+plugin is listed and consented to but not loaded. API 1 (above) keeps loading until Barbican
 1.0 and is dropped at 1.0 (decided; see "Decisions" below), so API 1 plugins have until then to move to v2.
 
 Bulwark 1.21.2 is the reference vocabulary, not a compatibility target. Hook, slot, host-method and permission names
@@ -414,10 +416,34 @@ finish.
   (high-risk first) and every `httpOrigins` entry under `http:fetch` (as Bulwark `lib/plugin-sandbox/consent.ts`);
   entries that are private, loopback or LAN hosts are listed apart, under their own heading, because they let the
   plugin reach machines inside the user's network.
-  Accepting records `{ id, path, sha256, granted, origins, at }` in a `pluginGrants` pref, which replaces API 1's
-  `pluginBindings`. **A file with another hash is always off until the user says yes again**; only the permission set
-  carries over. The dialog for an update then says "Updated to version X, no new permissions", or lists just the
-  permissions and origins it adds.
+  Accepting records `{ id, path, sha256, granted, origins, privateHosts, author, version, at }` in a `pluginGrants`
+  pref, which replaces API 1's `pluginBindings`. For an installed package `sha256` covers the whole package (every
+  file's path, size and bytes, in path order, at most 64 MB in all; a larger folder is not listed), not only its
+  library. **A package with another hash is always off until the user says yes again.** Any file that appears in the
+  package folder later (a plugin writing next to its library, Explorer's `desktop.ini`) changes the hash too, so a
+  plugin writes only to `plugin-data\<id>\`. The hash is read again without any cache before the consent dialog and
+  before the library is loaded (a file swapped between that read and the load is not caught); a package folder that is
+  a link or junction, or holds an entry that is neither a file nor a folder, is not listed.
+  Nothing of an old grant carries over to a package by another author, when either names no author, or when the
+  grant does not record its author (written by Barbican 0.2.0 or an API 1 binding): the dialog lists everything, as
+  for a first install, and says that what was accepted before does not count. For an update by the same (named) author
+  the dialog names the old and new version and says "it asks for the same permissions as before" only when it asks for
+  exactly the accepted set; otherwise (more, fewer or other) it lists everything it asks for and marks what is new,
+  never just the difference.
+  An install never replaces anything but a package with the same id, asks first when the new package's author differs
+  from the installed one or either names none (and then forgets the old grant), refuses an id that a library dropped
+  into the plugins folder already uses, and ids that end in `.dll`, `.so`, `.dylib` or `.json` are refused.
+  Uninstalling removes the package's folder, its data and its update backups, and forgets only the grant that pins a
+  file inside the package's own folder. Leftover staging folders are removed when the first Barbican of the profile
+  starts; when an update stopped between its two renames, the newest backup that holds a readable manifest of that id
+  is put back then and the other backups of it are removed.
+  Text in an API 2 manifest with control, direction or zero-width characters is refused (the zero-width non-joiner
+  and joiner, which Persian and Indic writing and joined emoji need, are allowed). An API 1 manifest (a sidecar or the
+  library's own) is read as Barbican 0.2.0 read it, so a plugin that loaded then keeps loading: its text is cleaned
+  and shortened for display instead, a number given as the version counts as text, and hooks that are not plain names
+  are left out. Error texts are cut to 300 characters.
+  An API 1 grant pins the library file (path and SHA-256) but not its sidecar manifest: a sidecar that is edited later
+  can change the name and the hooks shown, not the code that runs.
 - **Optional permissions** are asked for at run time with `permissions.request([...])` (a consent dialog; the answer
   is remembered; a Barbican addition). Every grant can be revoked under Settings -> Add-ons, which restarts the plugin
   with the smaller set.

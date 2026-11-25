@@ -58,6 +58,7 @@ mod redirect;
 mod restore;
 mod secrets;
 mod plugins;
+mod plugin_package;
 mod plugin_catalog;
 #[cfg(test)]
 mod plugin_catalog_check;
@@ -563,10 +564,10 @@ pub fn enabled_plugins() -> Vec<String> {
     p.prefs.get("enabledPlugins").and_then(|v| v.as_array()).map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect()).unwrap_or_default()
 }
 
-/// The allow-list as it counts: switched on AND still bound to the file it was enabled for.
+/// The allow-list as it counts: switched on AND its grant still covers the file and what it asks for.
 fn effective_plugins() -> Vec<String> {
-    let bindings = settings::Settings::load().prefs.get("pluginBindings").cloned().unwrap_or_default();
-    PLUGINS.with(|p| plugins::bound_enabled(&p.borrow(), &enabled_plugins(), &bindings))
+    let grants = plugins::grants_from_prefs(&settings::Settings::load().prefs);
+    PLUGINS.with(|p| plugins::granted_enabled(&p.borrow(), &enabled_plugins(), &grants))
 }
 
 /// Load what was switched on, unload what was switched off; returns the effective allow-list.
@@ -580,9 +581,214 @@ fn plugins_synced() -> Vec<String> {
 /// A plugin was switched on or off in Settings.
 pub fn plugin_toggled() { plugins_synced(); }
 
-/// What enabling a plugin pins (its file path and hash).
-pub fn plugin_binding(key: &str) -> Option<String> {
-    PLUGINS.with(|p| p.borrow().iter().find(|x| x.key == key).map(|x| x.binding()))
+thread_local! {
+    /// The grant the user just accepted in the consent dialog, until Settings records it.
+    static PENDING_GRANT: std::cell::RefCell<Option<plugins::Grant>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Switching a plugin on: show the consent dialog when its grant does not cover it (PLUGINS.md "Consent").
+/// Returns whether the user said yes; the grant to record is then waiting in [`take_plugin_grant`].
+pub fn plugin_consent(u: &AppWindow, key: &str) -> bool {
+    // the files are hashed again without the cache: the user accepts what is on disk now, not what was there when
+    // the folder was last read
+    let Some(unchanged) = PLUGINS.with(|p| p.borrow().iter().find(|x| x.key == key).map(plugins::unchanged_on_disk)) else { return false };
+    match unchanged {
+        Ok(true) => {}
+        Ok(false) => {
+            plugins::forget_cached_hashes();
+            refresh_plugins();
+            mail::show_toast(u, "This plugin's files changed since the list was read. Switch it on again to review it.", false);
+            return false;
+        }
+        Err(e) => {
+            mail::show_toast(u, &format!("Could not read this plugin's files, so it stays off: {}", plugins::shown(&e, plugins::MAX_SHOWN)), false);
+            return false;
+        }
+    }
+    let grants = plugins::grants_from_prefs(&settings::Settings::load().prefs);
+    let at = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    let Some(consent) = PLUGINS.with(|p| p.borrow().iter().find(|x| x.key == key).map(|x| x.consent(&grants))) else { return false };
+    if consent == plugins::Consent::Granted {
+        let grant = PLUGINS.with(|p| p.borrow().iter().find(|x| x.key == key)
+            .map(|x| grants.iter().find(|g| g.id == key).cloned().unwrap_or_else(|| x.grant(vec![], &at))));
+        PENDING_GRANT.with(|g| *g.borrow_mut() = grant);
+        return true;
+    }
+    // a dialog will be shown: only now are the hosts looked up, all at the same time under one 2 s deadline, with
+    // PLUGINS released meanwhile
+    let hosts: Vec<String> = PLUGINS.with(|p| p.borrow().iter().find(|x| x.key == key)
+        .map(|x| x.requested().1.iter().map(|o| plugins::origin_host(o).to_string()).filter(|h| !h.starts_with("*.")).collect()).unwrap_or_default());
+    let private_hosts = plugins::resolve_private_many(&hosts, std::time::Duration::from_secs(2));
+    // the dialog text is built first and PLUGINS released: the dialog runs a nested event loop
+    let ask = PLUGINS.with(|p| {
+        let list = p.borrow();
+        let x = list.iter().find(|x| x.key == key)?;
+        let (title, body, private) = x.consent_dialog(&consent, &grants, &|h: &str| private_hosts.contains(h) || plugins::is_private_name(h));
+        Some((title, body, x.grant(private, &at)))
+    });
+    let Some((title, body, grant)) = ask else { return false };
+    let yes = rfd::MessageDialog::new().set_parent(&u.window().window_handle()).set_level(rfd::MessageLevel::Warning).set_title(title.as_str())
+        .set_description(body.as_str()).set_buttons(rfd::MessageButtons::YesNo).show();
+    if yes != rfd::MessageDialogResult::Yes { return false; }
+    PENDING_GRANT.with(|g| *g.borrow_mut() = Some(grant));
+    true
+}
+
+/// The grant accepted for `key` by [`plugin_consent`], as the `pluginGrants` entry.
+pub fn take_plugin_grant(key: &str) -> Option<serde_json::Value> {
+    PENDING_GRANT.with(|g| g.borrow_mut().take()).filter(|g| g.id == key).map(|g| g.to_json())
+}
+
+/// Settings > Add-ons > Install plugin: pick a ZIP (or a folder); it is read, checked and unpacked on a worker thread
+/// (a package can be 32 MB), then the Add-ons page is refreshed on the UI thread.
+/// `prefs` are the app's settings: replacing a package by another author's forgets the old grant.
+fn plugin_install(u: &AppWindow, folder: bool, prefs: SharedPrefs) {
+    // one install or uninstall at a time; the flag stays up until the outcome is shown (or the window is gone)
+    let Some(busy) = PluginFolderBusy::take() else {
+        mail::show_toast(u, "A plugin is still being installed or removed. Try again when it is done.", false);
+        return;
+    };
+    let picked = if folder { rfd::FileDialog::new().pick_folder() } else { rfd::FileDialog::new().add_filter("Plugin package", &["zip"]).pick_file() };
+    let Some(src) = picked else { return };
+    mail::show_toast(u, "Checking the plugin package...", false);
+    let weak = u.as_weak();
+    // a failed spawn drops the closure, and the busy flag with it
+    let spawned = std::thread::Builder::new().name("barbican-plugin-install".into()).spawn(move || {
+        let dir = plugins::dir();
+        match plugin_package::prepare(&src, plugin_package::LIMITS) {
+            Err(e) => plugin_install_done(weak, Err(e), busy, None),
+            Ok(pkg) => {
+                let replaces = pkg.replaces(&dir);
+                // the question is asked on the UI thread, owned by the main window
+                let _ = weak.upgrade_in_event_loop(move |u| plugin_install_confirm(&u, pkg, replaces, busy, prefs));
+            }
+        }
+    });
+    if let Err(e) = spawned { mail::show_toast(u, &format!("Could not start the install: {e}"), false); }
+}
+
+/// The app's settings and AI config, as the settings callbacks hold them.
+type SharedPrefs = (Arc<Mutex<settings::Settings>>, Arc<Mutex<ai::Config>>);
+
+/// Install and uninstall are refused while one of them runs (the worker thread, the replace question): a second
+/// one would race the first one's staging and backup folders. Cleared when the guard is dropped, on every path.
+static PLUGIN_FOLDER_BUSY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+struct PluginFolderBusy;
+
+impl PluginFolderBusy {
+    fn take() -> Option<Self> {
+        use std::sync::atomic::Ordering;
+        PLUGIN_FOLDER_BUSY.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).ok().map(|_| Self)
+    }
+}
+
+impl Drop for PluginFolderBusy {
+    fn drop(&mut self) { PLUGIN_FOLDER_BUSY.store(false, std::sync::atomic::Ordering::SeqCst); }
+}
+
+#[cfg(test)]
+mod plugin_busy_tests {
+    #[test]
+    fn one_install_or_uninstall_at_a_time() {
+        let first = super::PluginFolderBusy::take().expect("free at first");
+        assert!(super::PluginFolderBusy::take().is_none(), "a second one is refused while the first runs");
+        drop(first);
+        assert!(super::PluginFolderBusy::take().is_some(), "free again once the first ended");
+    }
+}
+
+/// UI thread: ask before replacing a package by another author's, then unpack it on a worker thread.
+fn plugin_install_confirm(u: &AppWindow, pkg: plugin_package::Prepared, replaces: Option<(String, String)>, busy: PluginFolderBusy, prefs: SharedPrefs) {
+    // a library dropped into the plugins folder that goes by this id (from its sidecar or, once loaded, its own
+    // manifest) would be hidden by the package, and uninstalling the package would forget its grant
+    if PLUGINS.with(|p| p.borrow().iter().any(|x| x.decl.package.is_none() && (x.key == pkg.id || x.id == pkg.id))) {
+        mail::show_toast(u, &format!("Could not install the plugin: a plugin dropped into the plugins folder already uses the id \"{}\". Remove that plugin first.", pkg.id), false);
+        return;
+    }
+    // another author, or one of them names none (then nobody can tell): ask, and forget the old grant afterwards
+    let other_author = |a: &str| a != pkg.author || a.is_empty() || pkg.author.is_empty();
+    let author_changed = replaces.as_ref().is_some_and(|(_, a)| other_author(a));
+    if let Some((old_name, old_author)) = replaces.filter(|(_, a)| other_author(a)) {
+        let text = if old_author.is_empty() || pkg.author.is_empty() {
+            format!("This replaces {old_name} with {} {}. Barbican cannot tell whether both are by the same author, so what you accepted \
+                for the old one does not carry over. The new plugin is switched off until you accept what it asks for.", pkg.name, pkg.version)
+        } else {
+            format!("This replaces {old_name} by {old_author} with {} {} by {}. What you accepted for the old one does not carry over. \
+                The new plugin is switched off until you accept what it asks for.", pkg.name, pkg.version, pkg.author)
+        };
+        let yes = rfd::MessageDialog::new().set_parent(&u.window().window_handle()).set_level(rfd::MessageLevel::Warning)
+            .set_title("Replace an installed plugin?")
+            .set_description(text.as_str())
+            .set_buttons(rfd::MessageButtons::YesNo).show();
+        if yes != rfd::MessageDialogResult::Yes {
+            mail::show_toast(u, "Nothing was installed.", false);
+            return;
+        }
+    }
+    let weak = u.as_weak();
+    let spawned = std::thread::Builder::new().name("barbican-plugin-install".into())
+        .spawn(move || plugin_install_done(weak, plugin_package::commit(pkg, &plugins::dir()), busy, author_changed.then_some(prefs)));
+    if let Err(e) = spawned { mail::show_toast(u, &format!("Could not start the install: {e}"), false); }
+}
+
+/// Worker thread: show how an install ended (UI thread), then clear the busy flag.
+/// `forget` (another author's package replaced) drops the grant of the package that was replaced.
+fn plugin_install_done(weak: slint::Weak<AppWindow>, outcome: Result<plugin_package::Installed, String>, busy: PluginFolderBusy, forget: Option<SharedPrefs>) {
+    let _ = weak.upgrade_in_event_loop(move |u| {
+        let _busy = busy;
+        if let (Ok(r), Some((pf, cf))) = (&outcome, &forget) {
+            let dir = plugins::dir().join(&r.id).display().to_string();
+            pf.lock().unwrap().set(&format!("pluginForget:{}", r.id), json!(dir), &mut cf.lock().unwrap());
+        }
+        refresh_plugins();
+        let msg = match outcome {
+            Err(e) => format!("Could not install the plugin: {}", plugins::shown(&e, plugins::MAX_SHOWN)),
+            Ok(r) if !r.updated => format!("Installed {} {}. It stays off until you switch it on.", r.name, r.version),
+            Ok(r) => {
+                // the wording follows what the consent check now says about the new files
+                let grants = plugins::grants_from_prefs(&settings::Settings::load().prefs);
+                let c = PLUGINS.with(|p| p.borrow().iter().find(|x| x.key == r.id).map(|x| x.consent(&grants)));
+                match c {
+                    Some(plugins::Consent::Granted) => format!("Updated {} to {}. It is the package you already accepted.", r.name, r.version),
+                    Some(plugins::Consent::SamePermissions) =>
+                        format!("Updated {} to {}. It asks for the same permissions as before, but its files changed: switch it on again to accept the update.", r.name, r.version),
+                    Some(plugins::Consent::Ask { update: true, .. }) =>
+                        format!("Updated {} to {}. What it asks for changed: switch it on again to review it.", r.name, r.version),
+                    _ => format!("Installed {} {} in place of the earlier plugin with this id. It stays off until you switch it on and accept everything it asks for.", r.name, r.version),
+                }
+            }
+        };
+        mail::show_toast(&u, &msg, false);
+        u.invoke_settings_search(u.get_settings_query());
+    });
+}
+
+/// Settings > Add-ons > Uninstall: after a confirm, remove `plugins\<id>\` and `plugin-data\<id>\`.
+/// Returns true when it was removed (the caller then forgets its grant).
+fn plugin_uninstall(u: &AppWindow, key: &str) -> bool {
+    let name = PLUGINS.with(|p| p.borrow().iter().find(|x| x.key == key && x.decl.package.is_some()).map(|x| x.name.clone()));
+    let Some(name) = name else { return false };
+    let Some(_busy) = PluginFolderBusy::take() else {
+        mail::show_toast(u, "A plugin is still being installed or removed. Try again when it is done.", false);
+        return false;
+    };
+    let yes = rfd::MessageDialog::new().set_parent(&u.window().window_handle()).set_level(rfd::MessageLevel::Warning).set_title(format!("Uninstall {name}?").as_str())
+        .set_description(format!("This deletes the plugin and everything it stored on this computer. It cannot be undone.
+
+{}
+{}",
+            plugins::dir().join(key).display(), plugins::data_dir().join(key).display()).as_str())
+        .set_buttons(rfd::MessageButtons::YesNo).show();
+    if yes != rfd::MessageDialogResult::Yes { return false; }
+    let r = plugin_package::uninstall(key, &plugins::dir(), &plugins::data_dir());
+    match &r {
+        Ok(()) => mail::show_toast(u, &format!("{name} was uninstalled."), false),
+        Err(e) => mail::show_toast(u, &format!("Could not uninstall {name}: {e}"), false),
+    }
+    refresh_plugins();
+    // the package folder is gone even when a later step failed: its grant goes too
+    r.is_ok() || std::fs::symlink_metadata(plugins::dir().join(key)).is_err()
 }
 
 /// Re-read the plugins folder (Settings → Add-ons opened).
@@ -615,7 +821,7 @@ pub fn plugin_list() -> Vec<serde_json::Value> {
         let was_on = raw.contains(&x.key);
         d["enabled"] = (was_on && eff.contains(&x.key)).into();
         if was_on && !eff.contains(&x.key) {
-            d["description"] = format!("{} The file changed since you switched it on: switch it off and on again.", d["description"].as_str().unwrap_or("")).into();
+            d["description"] = format!("{} It changed since you switched it on: switch it on again to review its permissions.", d["description"].as_str().unwrap_or("")).into();
         }
         d
     }).collect())
@@ -624,7 +830,8 @@ pub fn plugin_list() -> Vec<serde_json::Value> {
 pub fn plugin_errors() -> Vec<String> {
     let mut v = PLUGIN_ERRORS.with(|e| e.borrow().clone());
     v.extend(PLUGIN_LOAD_ERRORS.with(|e| e.borrow().clone()));
-    v
+    // the text comes from manifests and libraries: one line each, of a bounded length
+    v.iter().map(|e| plugins::shown(e, plugins::MAX_SHOWN)).collect()
 }
 
 pub fn plugin_compose_check(draft: &serde_json::Value) -> Option<String> {
@@ -905,6 +1112,9 @@ fn main() -> Result<(), slint::PlatformError> {
     chips::wire(&ui);
     {
         // listed, not loaded: a plugin runs only after the user switches it on
+        // not while another Barbican of this profile runs: the folder lock is per process, so its install's staging
+        // folder or backup could be taken for a crash's leftover
+        if first_of_profile { plugin_package::sweep_leftovers(&plugins::dir()); }
         let (found, errors) = plugins::discover();
         PLUGINS.with(|p| *p.borrow_mut() = found);
         PLUGIN_ERRORS.with(|e| *e.borrow_mut() = errors);
@@ -1330,6 +1540,8 @@ fn main() -> Result<(), slint::PlatformError> {
 
     let (pf, cf, rs, srv, sw, wt, stg) = (prefs.clone(), cfg.clone(), refresh_settings.clone(), server_cache.clone(), server_write.clone(), ui.as_weak(), state.clone());
     ui.on_settings_set_toggle(move |key, on| {
+        // switching a plugin on asks for consent first; a no leaves it off
+        if let Some(id) = key.strip_prefix("plugin:") { if on && !wt.upgrade().is_some_and(|u| plugin_consent(&u, id)) { rs(); return; } }
         if key.starts_with("server.") {
             if let Some(job) = server_settings::edit(&key, &serde_json::json!(on), &srv) { sw(&key, job, 10); }
             rs();
@@ -1447,6 +1659,19 @@ fn main() -> Result<(), slint::PlatformError> {
             u.invoke_settings_search(u.get_settings_query());
         }
         if key == "plugins.folder" { oauth::open_browser(&plugins::dir().to_string_lossy()); }
+        if key == "plugins.install" || key == "plugins.installFolder" {
+            plugin_install(&u, key == "plugins.installFolder", (pf2.clone(), cf2.clone()));
+            return;
+        }
+        if let Some(id) = key.strip_prefix("plugin-uninstall:") {
+            if plugin_uninstall(&u, id) {
+                let dir = plugins::dir().join(id).display().to_string();
+                pf2.lock().unwrap().set(&format!("pluginForget:{id}"), json!(dir), &mut cf2.lock().unwrap());
+            }
+            plugins_synced();
+            u.invoke_settings_search(u.get_settings_query());
+            return;
+        }
         if key == "avatars.refresh" { avatars::refresh(); mail::refresh_avatars(&u); mail::show_toast(&u, "Sender icons will be fetched again", false); }
         if key == "backup.export" {
             if let Some(path) = rfd::FileDialog::new().set_file_name("barbican-settings.json").add_filter("JSON", &["json"]).save_file() {
