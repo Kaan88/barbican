@@ -2,9 +2,9 @@
 
 **Method.** Read-only audit, Nov 2026. Each Bulwark component in `components/` (and `lib/keyboard-shortcuts/`) was read for every user interaction (click, right-click, double-click, hover, drag, keys, passive display that the user acts on). For each one, the Barbican main checkout (`desktop/ui/app.slint`, `src/main.rs`, `src/ctxmenu.rs`, `src/mail.rs`, `src/settings.rs`, `ui/settings-schema.json` and siblings) was searched for an equivalent. Nothing was built or run, so "done" means the code path exists, not that it was clicked through.
 
-Cut since the audit (docs/FEATURE-CUT.md, removed from the code): the app lock, sharing mail folders, calendars and address books (the Files share stays), all printing, and find a time with the guests' free/busy. Their rows are kept as audited and are not planned.
+Cut since the audit (docs/FEATURE-CUT.md, removed from the code): the plugin platform, the app lock, sharing mail folders, calendars and address books (the Files share stays), all printing, and find a time with the guests' free/busy. Their rows are marked N and are not planned.
 
-Status: **D** done, **P** partial (exists but narrower, or a setting that is saved but not read), **M** missing, **N** n/a (phone/touch/browser-only). Rows that bundle several closely related Bulwark interactions are grouped into one line.
+Status: **D** done, **P** partial (exists but narrower, or a setting that is saved but not read), **M** missing, **N** n/a (phone/touch/browser-only, or cut: docs/FEATURE-CUT.md). Rows that bundle several closely related Bulwark interactions are grouped into one line.
 
 Cross-cutting causes behind many rows:
 - `src/main.rs:1446` returns early when `app != 0`, so Calendar, Contacts and Files get no keyboard shortcuts at all, and Ctrl+A always selects mail.
@@ -30,10 +30,10 @@ Counts are table rows (grouped interactions), not single Bulwark handlers.
 | Calendar and tasks | 8 | 14 | 27 | 0 |
 | Contacts | 7 | 6 | 12 | 1 |
 | Files, sync, file drop | 6 | 5 | 13 | 0 |
-| Settings, notifications, accessibility, protocol | 17 | 13 | 28 | 0 |
+| Settings, notifications, accessibility, protocol | 16 | 12 | 27 | 3 |
 | Command palette, global search, shortcuts help | 0 | 2 | 4 | 0 |
-| Admin, connector, plugins, Pro shell | 2 | 5 | 6 | 0 |
-| **Total** | **84** | **119** | **256** | **12** |
+| Admin, connector, plugins, Pro shell | 1 | 4 | 5 | 3 |
+| **Total** | **82** | **117** | **254** | **18** |
 
 
 ## Missing and partial, ranked by everyday importance
@@ -601,9 +601,9 @@ Bulwark paths are under `components/` unless noted; Barbican paths are under `de
 | D | Contacts settings; address book management | contacts-settings.tsx | — |
 | M | Contacts import/export; book share; category rename/delete | — | — |
 | M | Files settings; download filenames; desktop sync | files-settings.tsx etc. | — |
-| P | Plugins install | plugins-settings.tsx:140 | Open folder only |
-| D | Plugin enable | plugins-settings.tsx:185 | settings.rs |
-| M | Plugin details, settings, remove | plugins-settings.tsx | — |
+| N | Plugins install | plugins-settings.tsx:140 | cut, plugins removed |
+| N | Plugin enable | plugins-settings.tsx:185 | cut, plugins removed |
+| N | Plugin details, settings, remove | plugins-settings.tsx | cut, plugins removed |
 | M | Debug categories; devtools; about links; refresh cache; Spam Siege | debug-settings.tsx etc. | — |
 | D | Export / import / reset settings | about-data-settings.tsx | main.rs:1056-1074 |
 | M | Desktop: start at login, tray, global shortcuts, updates | desktop-os-settings.tsx etc. | — |
@@ -631,9 +631,9 @@ Bulwark paths are under `components/` unless noted; Barbican paths are under `de
 | M | Org policy pages | admin/org/* | — |
 | M | User settings policy; tag defaults | admin/policy/* | — |
 | M | Connector deep links | connector/* | — |
-| M | Plugin panels, actions, dialogs, consent, iframe UI, pages | plugins/* | native rows only |
-| P | Turn off plugin | plugin-dialog-host.tsx:606 | Settings toggle |
-| D | Native plugin toggle / folder / compose.check | — | settings.rs:284, compose.rs:629 |
+| N | Plugin panels, actions, dialogs, consent, iframe UI, pages | plugins/* | cut, plugins removed |
+| N | Turn off plugin | plugin-dialog-host.tsx:606 | cut, plugins removed |
+| N | Native plugin toggle / folder / compose.check | — | cut, plugins removed |
 | P | proInterface setting | pro-interface-redirect.tsx | inert |
 | M | Pro tab shell (tabs, drag, split panes, compose tabs) | pro/* | — |
 | P | Pro tab reader actions | pro/* | main reader only |

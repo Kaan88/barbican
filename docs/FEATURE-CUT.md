@@ -60,7 +60,7 @@ a rough measure of the porting work.
 | Rich signature editor | partial (HTML source editor) | M | **Later** | | G-024 | - |
 | Command palette and Search everything, schedule send, read receipts | done or unverified | ~2,100 | **Keep all** | | G-095, G-103, G-104 | - |
 | At-a-glance mail header | done (Barbican's own) | ~260 + UI | **Keep** | | - | - |
-| Mail layout: reading pane position, toolbar position, Compose placement | missing / unverified | S each | **Keep** | | S-mailLayout, S-toolbarPosition, S-composePlacement | - |
+| Mail layout: reading pane position, toolbar position, Compose placement | missing / unverified | S each | **Keep**, but the reading pane at the bottom is cut (owner, later on 2026-11-25): right and off only | Out of scope. | S-mailLayout, S-toolbarPosition, S-composePlacement | - |
 
 ### Calendar and contacts
 

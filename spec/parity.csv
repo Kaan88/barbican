@@ -146,7 +146,7 @@ S-enableUnifiedMailbox,settings-appearance,Unified mailbox,stores/settings-store
 S-includeGroupInUnified,settings-appearance,Include group inboxes,stores/settings-store.ts: includeGroupInUnified,done,src/main.rs:1013,S-includeGroupInUnified,0,S
 S-interfaceLayout,settings-appearance,Interface layout,stores/settings-store.ts: interfaceLayout,done,src/mail.rs:584,S-interfaceLayout,0,S
 S-keepAppsLoaded,settings-appearance,Keep apps loaded,stores/settings-store.ts: keepAppsLoaded,wont-do,cut 2026-11-25 (docs/FEATURE-CUT.md): web tab memory setting; cut,S-keepAppsLoaded,6,S
-S-mailLayout,settings-appearance,Mail layout,stores/settings-store.ts: mailLayout,missing,,S-mailLayout,6,S
+S-mailLayout,settings-appearance,Mail layout,stores/settings-store.ts: mailLayout,missing,reading pane right (split) and off (focus) only; bottom (horizontal) cut by the owner 2026-11-25,S-mailLayout,6,S
 S-proInterface,settings-appearance,Pro interface (experimental),stores/settings-store.ts: proInterface,wont-do,cut 2026-11-25 (docs/FEATURE-CUT.md): Pro interface cut,S-proInterface,7,S
 S-showFolderTotalCount,settings-appearance,Show total message count,stores/settings-store.ts: showFolderTotalCount,done,src/mail.rs:118,S-showFolderTotalCount,0,S
 S-showRailAccountList,settings-appearance,Show account avatars on the navigation rail,stores/settings-store.ts: showRailAccountList,missing,,S-showRailAccountList,6,S

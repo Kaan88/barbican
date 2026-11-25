@@ -30,7 +30,7 @@ This order replaces the release table below wherever they disagree. Phases 0-4 a
       - **Looks off against Bulwark:** spacing, sizes, icons, colours.
       Fix them worst first.
    2. **Mail layout:**
-      - `mailLayout` (reading pane right, bottom or off, S-mailLayout);
+      - `mailLayout` (reading pane right or off, S-mailLayout; bottom cut 2026-11-25);
       - `toolbarPosition` (S-toolbarPosition);
       - list columns (S-listColumns, G-062);
       - density checked against Bulwark;

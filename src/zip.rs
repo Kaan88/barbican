@@ -250,7 +250,7 @@ impl<W: std::io::Write> StreamZip<W> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     fn rd16(b: &[u8], i: usize) -> u16 { u16::from_le_bytes([b[i], b[i + 1]]) }
@@ -299,7 +299,7 @@ mod tests {
     }
 
     /// Read a zip back the way an unzip tool does (central directory, then each entry).
-    fn read_back(z: &[u8]) -> Vec<(String, Vec<u8>)> {
+    pub(crate) fn read_back(z: &[u8]) -> Vec<(String, Vec<u8>)> {
         let eocd = z.len() - 22;
         assert_eq!(rd32(z, eocd), 0x0605_4b50);
         let n = rd16(z, eocd + 10) as usize;

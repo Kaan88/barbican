@@ -1,8 +1,8 @@
 //! Settings > About > "Refresh cached data" (Bulwark lib/clear-cached-data.ts and
 //! components/settings/about-data-settings.tsx:273-293, S-keyless-063): drop what Barbican keeps
 //! only to be faster, then load the view again from the server. Nothing the user made goes:
-//! settings, credentials, drafts and the outbox (both on the server), plugin storage, other
-//! profiles and the app lock are never touched.
+//! settings, credentials, drafts and the outbox (both on the server), other profiles and the app
+//! lock are never touched.
 //!
 //! What a refresh clears, each a cache Barbican can rebuild by itself:
 //! - `<config>/avatars/`: sender pictures (avatars.rs: "Answers are kept on disk (config dir
@@ -19,9 +19,9 @@
 //! - `calendar.json` is also a deliberate difference from Bulwark, whose refresh drops the
 //!   calendar store including its notification state (events already reminded about would fire
 //!   again): Barbican keeps what it has already rung about.
-//! - `plugins/` and `plugin-data/`: installed plugins and what they stored.
 //! - `profiles/`: other profiles (the default profile's config folder holds them).
-//! - the sign-in session (src/secretstore): losing it would make the user sign in again.
+//! - the app lock's files (applock.rs) and the sign-in session (src/secretstore): losing them
+//!   would lock the user out or make them sign in again.
 //! - the WebView profile (`platform::webview_dir()`): cookies and cache of the mail view, held
 //!   open by the running view; signing out empties it (signout.rs). Deleting it under a live
 //!   view is what the sign-out path avoids for the same reason.
@@ -121,8 +121,6 @@ mod tests {
         for f in keep {
             std::fs::write(config.join(f), b"x").unwrap();
         }
-        std::fs::create_dir_all(config.join("plugin-data").join("dev.example.demo")).unwrap();
-        std::fs::write(config.join("plugin-data").join("dev.example.demo").join("stored.json"), b"{}").unwrap();
         // another profile keeps its own pictures
         std::fs::create_dir_all(config.join("profiles").join("work").join("avatars")).unwrap();
         std::fs::write(config.join("profiles").join("work").join("avatars").join("bimi:acme.test"), b"png").unwrap();
@@ -142,7 +140,6 @@ mod tests {
         for f in ["prefs.json", "settings.json", "login.txt", "pending-delete.txt", "chat-ann@x.test.json", "lock.json"] {
             assert!(config.join(f).is_file(), "{f} was deleted");
         }
-        assert!(config.join("plugin-data").join("dev.example.demo").join("stored.json").is_file());
         assert!(config.join("profiles").join("work").join("avatars").join("bimi:acme.test").is_file());
         // nothing left to clear: nothing reported either way
         assert_eq!(clear_in(&config), Report::default());

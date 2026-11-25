@@ -58,7 +58,7 @@ impl Center {
         id
     }
     /// Bulwark marks one entry read when a plugin's entry is clicked (notification-center.tsx:54-59);
-    /// app entries are not clickable, and plugin notifications are not supported here yet.
+    /// Barbican has no plugins and its entries are not clickable.
     #[allow(dead_code)]
     pub fn mark_read(&mut self, id: &str) { for e in self.entries.iter_mut().filter(|e| e.id == id) { e.read = true; } }
     pub fn mark_all_read(&mut self) { for e in &mut self.entries { e.read = true; } }
