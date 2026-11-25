@@ -1346,7 +1346,6 @@ mod tests {
 
     #[test]
     fn retire_removes_an_entry_that_does_not_read_and_keeps_a_bare_key() {
-        use crate::secrets::Backend;
         /// The lock's entry is there but reads as nothing (not text, say): only a remove reaches it.
         struct Unreadable(Fake);
         impl crate::secrets::Backend for Unreadable {
