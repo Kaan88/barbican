@@ -165,23 +165,6 @@ pub struct Settings {
     pub memory: bool,
     /// Barbican: the assistant panel and quick actions are hidden (`ai.visible` off)
     pub hidden: bool,
-    /// The OpenAI-compatible key as it was loaded, and the origin it is bound to (none for no
-    /// stored key): see [`key_check`]
-    pub openai_binding: Option<Binding>,
-    pub anthropic_binding: Option<Binding>,
-}
-
-/// A stored key and the origin (`scheme://host[:port]`) of the address it was saved with.
-#[derive(Clone, PartialEq, Eq)]
-pub struct Binding {
-    pub key: String,
-    pub origin: String,
-}
-
-impl std::fmt::Debug for Binding {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Binding {{ origin: {:?} }}", self.origin)
-    }
 }
 
 /// The origin of an address (`scheme://host[:port]`), empty when it does not parse.
@@ -189,10 +172,90 @@ pub fn origin_of(base_url: &str) -> String {
     reqwest::Url::parse(&trim_url(base_url)).map(|u| u.origin().ascii_serialization()).unwrap_or_default()
 }
 
-/// The binding of a key loaded or migrated for `base_url`; none for no key.
-fn bind(key: &str, origin: Option<String>, base_url: &str) -> Option<Binding> {
+// ---------------------------------------------------------------- keys bound to their origin
+//
+// Every key entry is `{"key", "origin"}`: the key and the origin (`scheme://host[:port]`) of the
+// address it was saved with. The keystore entry is the only record of that binding: a settings
+// file (imported, edited, or migrated from) can change an address but never the origin a key is
+// bound to, so it can never send a stored key somewhere else.
+
+/// A keystore entry by name: the key (trimmed, never empty) and its origin, none for an entry an
+/// earlier build wrote.
+fn read_entry(name: &str) -> Option<(String, Option<String>)> {
+    let (key, origin) = entry_of(&crate::secrets::get(name)?);
+    let key = key.trim().to_string();
+    (!key.is_empty()).then_some((key, origin))
+}
+
+fn write_entry(name: &str, key: &str, origin: &str) -> bool {
+    crate::secrets::set(name, &json!({"key": key, "origin": origin}).to_string())
+}
+
+/// Trust on first use: binds each key entry that has no origin yet (an earlier build wrote it) to
+/// the address `file` (`settings.json` as it is now) uses it with. Called by every load, the
+/// first of them at startup, before a settings file can be imported.
+pub(crate) fn bind_unbound_keys(file: &Value) {
+    let a = &file["assistant"];
+    // as `ai::Config::load` reads the earlier settings
+    let old_default = if file["provider"].as_i64().unwrap_or(0) >= 1 { DEFAULT_ANTHROPIC_URL } else { OLD_OPENAI_URL };
+    let slots = [
+        (OLD_SECRET, file["base"].as_str().unwrap_or(old_default)),
+        (OPENAI_SECRET, a["openaiBaseUrl"].as_str().unwrap_or("")),
+        (ANTHROPIC_SECRET, a["anthropicBaseUrl"].as_str().unwrap_or(DEFAULT_ANTHROPIC_URL)),
+    ];
+    for (name, base) in slots {
+        if let Some((key, None)) = read_entry(name) {
+            write_entry(name, &key, &origin_of(base));
+        }
+    }
+}
+
+/// The origin `key` is stored with, when it is the key of the slot's entry or of the earlier
+/// entry (a migrated key): `Some(None)` for a stored key without one; none for a key not stored
+/// (typed since).
+fn stored_origin(slot: &str, key: &str) -> Option<Option<String>> {
+    [slot, OLD_SECRET].into_iter().filter_map(read_entry).find(|(k, _)| k == key).map(|(_, o)| o)
+}
+
+/// Whether `key` may go to `base_url`: refused when it is a stored key saved for another origin
+/// (or for none); a key not stored is the one just typed.
+fn check_stored(slot: &str, key: &str, base_url: &str, kind: Kind) -> Result<(), String> {
     let key = key.trim();
-    (!key.is_empty()).then(|| Binding { key: key.to_string(), origin: origin.unwrap_or_else(|| origin_of(base_url)) })
+    let to = origin_of(base_url);
+    match stored_origin(slot, key) {
+        Some(Some(o)) if o == to => Ok(()),
+        Some(o) if !key.is_empty() => Err(format!(
+            "The {} API key was saved for {}, not for {to}. Enter the key again in the settings to use it with this address.",
+            kind.label(),
+            o.filter(|o| !o.is_empty()).unwrap_or_else(|| "another address".into()),
+        )),
+        _ => Ok(()),
+    }
+}
+
+/// [`key_check`] for the earlier settings' key (`ai.rs`, entry [`OLD_SECRET`]).
+pub(crate) fn check_old_key(key: &str, base_url: &str, kind: Kind) -> Result<(), String> {
+    check_stored(OLD_SECRET, key, base_url, kind)
+}
+
+/// Saves `key` into `slot` (a blank key removes the entry). A key already stored keeps the origin
+/// it is bound to; only a key that differs from the stored one is bound to `base_url` now.
+fn save_key(slot: &str, key: &str, base_url: &str) -> bool {
+    let key = key.trim();
+    if key.is_empty() {
+        crate::secrets::delete(slot);
+        return true;
+    }
+    let origin = match stored_origin(slot, key) {
+        Some(o) => o.unwrap_or_default(),
+        None => origin_of(base_url),
+    };
+    write_entry(slot, key, &origin)
+}
+
+/// [`save_key`] for the earlier settings' key (`ai.rs`, entry [`OLD_SECRET`]).
+pub(crate) fn save_old_key(key: &str, base_url: &str) -> bool {
+    save_key(OLD_SECRET, key, base_url)
 }
 
 impl Default for Settings {
@@ -218,8 +281,6 @@ impl Default for Settings {
             translate_to: "English".into(),
             memory: true,
             hidden: false,
-            openai_binding: None,
-            anthropic_binding: None,
         }
     }
 }
@@ -287,8 +348,6 @@ impl Settings {
             translate_to: text(o, "translateTo", &d.translate_to),
             memory: flag(o, "memory", d.memory),
             hidden: flag(o, "hidden", d.hidden),
-            openai_binding: None,
-            anthropic_binding: None,
         }
     }
 
@@ -321,24 +380,17 @@ impl Settings {
     /// object yet) the migration from the earlier settings.
     pub fn load() -> Settings {
         let file = read_file().unwrap_or(json!({}));
+        bind_unbound_keys(&file);
         Settings::load_from(&file, &|name| crate::secrets::get(name))
     }
 
-    /// [`load`](Settings::load) over a given file and keystore.
-    /// A key entry without an origin (written by hand, or by an earlier build) is bound to the
-    /// address loaded with it.
+    /// [`load`](Settings::load) over a given file and keystore (the keys only: the origins they
+    /// are bound to stay in the keystore, see [`key_check`]).
     pub fn load_from(file: &Value, secret: &dyn Fn(&str) -> Option<String>) -> Settings {
-        let entry = |name: &str| secret(name).map(|s| entry_of(&s)).unwrap_or_default();
+        let key = |name: &str| secret(name).map(|s| entry_of(&s).0).unwrap_or_default();
         match file.get("assistant").filter(|a| a.is_object()) {
-            Some(a) => {
-                let (ok, oo) = entry(OPENAI_SECRET);
-                let (ak, ao) = entry(ANTHROPIC_SECRET);
-                let mut s = Settings::from_value(a, &ok, &ak);
-                s.openai_binding = bind(&ok, oo, &s.openai_base_url);
-                s.anthropic_binding = bind(&ak, ao, &s.anthropic_base_url);
-                s
-            }
-            None => migrate(file, &entry(OLD_SECRET).0),
+            Some(a) => Settings::from_value(a, &key(OPENAI_SECRET), &key(ANTHROPIC_SECRET)),
+            None => migrate(file, &key(OLD_SECRET)),
         }
     }
 
@@ -346,9 +398,10 @@ impl Settings {
     /// the keystore (a blank key removes its entry). Refuses to write over a `settings.json` that
     /// does not parse, so a damaged file is never replaced by one holding only this object.
     ///
-    /// A key keeps the origin it is bound to while it stays the same; a key typed since is bound
-    /// to its slot's address now. So changing only the address does not move a stored key to it:
-    /// the key has to be entered again.
+    /// A key keeps the origin its keystore entry is bound to while it stays the same (a migrated
+    /// key, the one of the earlier entry); only a key that differs from the stored one is bound to
+    /// its slot's address now. So changing only the address does not move a stored key to it: the
+    /// key has to be cleared and entered again.
     pub fn save(&mut self) -> Result<(), String> {
         let mut file = read_file()?;
         if !file.is_object() {
@@ -356,45 +409,29 @@ impl Settings {
         }
         file["assistant"] = self.to_value();
         write_file(&file)?;
-        let slots = [
-            (OPENAI_SECRET, self.openai_key.trim().to_string(), self.openai_base_url.clone(), &mut self.openai_binding),
-            (ANTHROPIC_SECRET, self.anthropic_key.trim().to_string(), self.anthropic_base_url.clone(), &mut self.anthropic_binding),
-        ];
-        for (name, key, base, binding) in slots {
-            if key.is_empty() {
-                crate::secrets::delete(name);
-                *binding = None;
-                continue;
-            }
-            let origin = binding.as_ref().filter(|b| b.key == key).map(|b| b.origin.clone()).unwrap_or_else(|| origin_of(&base));
-            if !crate::secrets::set(name, &json!({"key": key, "origin": origin}).to_string()) {
+        for (name, key, base) in [
+            (OPENAI_SECRET, &self.openai_key, &self.openai_base_url),
+            (ANTHROPIC_SECRET, &self.anthropic_key, &self.anthropic_base_url),
+        ] {
+            if !save_key(name, key, base) {
                 return Err(format!("The key could not be saved in {}.", crate::platform::keystore_name()));
             }
-            *binding = Some(Binding { key, origin });
         }
         Ok(())
     }
 }
 
-/// Whether the settings' key for `kind` may go to `base_url`: refused when it is the stored key
-/// and was saved for another origin (an imported or edited settings file points the slot
-/// elsewhere). A key typed since it was loaded is not bound yet.
+/// Whether the settings' key for `kind` may go to `base_url`, read from the keystore: refused
+/// when it is a stored key (its slot's, or the earlier entry's) saved for another origin (an
+/// imported or edited settings file points the slot elsewhere). A key not stored is the one just
+/// typed, and may go where it is tested.
 pub fn key_check(s: &Settings, kind: Kind, base_url: &str) -> Result<(), ProviderError> {
-    let (key, binding) = match kind {
-        Kind::OpenAi => (&s.openai_key, &s.openai_binding),
-        Kind::Anthropic => (&s.anthropic_key, &s.anthropic_binding),
+    let (slot, key) = match kind {
+        Kind::OpenAi => (OPENAI_SECRET, &s.openai_key),
+        Kind::Anthropic => (ANTHROPIC_SECRET, &s.anthropic_key),
         Kind::Claude => return Ok(()),
     };
-    let key = key.trim();
-    match binding {
-        Some(b) if !key.is_empty() && b.key == key && b.origin != origin_of(base_url) => Err(ProviderError::new(format!(
-            "The {} API key was saved for {}, not for {}. Enter the key again in the settings to use it with this address.",
-            kind.label(),
-            b.origin,
-            origin_of(base_url)
-        ))),
-        _ => Ok(()),
-    }
+    check_stored(slot, key, base_url, kind).map_err(ProviderError::new)
 }
 
 /// A keystore entry: `{"key", "origin"}`, `{"key"}`, or an older bare key.
@@ -448,7 +485,7 @@ const OLD_OPENAI_MODEL: &str = "gpt-4o-mini";
 /// | `memory`, `hidden` | as they are (Barbican's extras) |
 /// | `showCleanSpam`, `renderMode`, `remoteImages` | none: reader settings, left where they are |
 ///
-/// The key is bound to the origin of the address it is migrated with.
+/// The key keeps the origin its entry is bound to (never one from the file): see [`key_check`].
 pub fn migrate(old: &Value, old_key: &str) -> Settings {
     let mut s = Settings::default();
     let o = old.as_object().cloned().unwrap_or_default();
@@ -460,7 +497,6 @@ pub fn migrate(old: &Value, old_key: &str) -> Settings {
         s.default_provider = Kind::Anthropic;
         s.anthropic_base_url = trim_url(&base(DEFAULT_ANTHROPIC_URL));
         s.anthropic_model = model(DEFAULT_ANTHROPIC_MODEL);
-        s.anthropic_binding = bind(&key, None, &s.anthropic_base_url);
         s.anthropic_key = key;
     } else {
         s.default_provider = Kind::OpenAi;
@@ -468,7 +504,6 @@ pub fn migrate(old: &Value, old_key: &str) -> Settings {
         if !key.is_empty() || url != OLD_OPENAI_URL {
             s.openai_base_url = url;
             s.openai_model = model(OLD_OPENAI_MODEL);
-            s.openai_binding = bind(&key, None, &s.openai_base_url);
             s.openai_key = key;
         }
     }
@@ -750,7 +785,6 @@ mod tests {
         // a round trip keeps everything, and the stored form has no key
         let back = Settings::from_value(&s.to_value(), &s.openai_key, &s.anthropic_key);
         assert_eq!(back, s);
-        assert!(!format!("{:?}", Binding { key: "sk-secret".into(), origin: "https://h".into() }).contains("sk-secret"));
         let stored = s.to_value();
         assert!(stored.get("openaiKey").is_none() && stored.get("anthropicKey").is_none());
         assert!(!stored.to_string().contains("sk-"));
@@ -822,12 +856,13 @@ mod tests {
     #[test]
     fn save_and_load_through_the_file_and_the_test_keystore() {
         let _files = crate::settings::TEST_FILES.lock().unwrap_or_else(|e| e.into_inner());
+        clean_store();
         let old = json!({"provider": 0, "base": "http://old/v1", "model": "m", "renderMode": 2});
         std::fs::create_dir_all(crate::config_dir()).unwrap();
         std::fs::write(path(), old.to_string()).unwrap();
         let mut s = Settings::load();
         s.openai_key = "sk-test-openai".into();
-        s.anthropic_key = "  sk-ant-test  ".into();
+        s.anthropic_key = "  sk-ant-saved  ".into();
         s.claude_local = true;
         s.save().unwrap();
         let file: Value = serde_json::from_str(&std::fs::read_to_string(path()).unwrap()).unwrap();
@@ -836,7 +871,7 @@ mod tests {
         assert!(!file.to_string().contains("sk-"), "no key in the file");
         assert_eq!(crate::secrets::get(OPENAI_SECRET).as_deref(), Some(r#"{"key":"sk-test-openai","origin":"http://old"}"#));
         let back = Settings::load();
-        assert_eq!(back.anthropic_key, "sk-ant-test");
+        assert_eq!(back.anthropic_key, "sk-ant-saved");
         assert!(back.claude_local);
         // the earlier settings page saving again keeps the new object
         crate::ai::Config::load().save();
@@ -997,8 +1032,7 @@ mod tests {
     #[test]
     fn a_stored_key_goes_only_to_the_origin_it_was_saved_for() {
         let _files = crate::settings::TEST_FILES.lock().unwrap_or_else(|e| e.into_inner());
-        let _ = std::fs::remove_file(path());
-        let answer = || Reply::stream(200, vec![b"data: {\"choices\":[{\"delta\":{\"content\":\"OK\"}}]}\n\ndata: [DONE]\n\n".to_vec()]);
+        clean_store();
         let home = FakeServer::start(vec![answer()]);
         let elsewhere = FakeServer::start(vec![answer()]);
         let mut s = Settings { openai_base_url: format!("{}/v1", home.base), openai_model: "m".into(), openai_key: "sk-test-bound".into(), ..Settings::default() };
@@ -1038,31 +1072,153 @@ mod tests {
         crate::secrets::delete(OPENAI_SECRET);
     }
 
+    /// Under `TEST_FILES`: no settings file and none of the three key entries.
+    fn clean_store() {
+        let _ = std::fs::remove_file(path());
+        for name in [OLD_SECRET, OPENAI_SECRET, ANTHROPIC_SECRET] {
+            crate::secrets::delete(name);
+        }
+    }
+
+    fn origin_in_store(name: &str) -> Option<String> {
+        read_entry(name).and_then(|(_, o)| o)
+    }
+
+    fn refusal(label: &str, from: &str, to: &str) -> String {
+        format!("The {label} API key was saved for {from}, not for {to}. Enter the key again in the settings to use it with this address.")
+    }
+
+    fn answer() -> Reply {
+        Reply::stream(200, vec![b"data: {\"choices\":[{\"delta\":{\"content\":\"OK\"}}]}\n\ndata: [DONE]\n\n".to_vec()])
+    }
+
     #[test]
-    fn keys_without_an_origin_are_bound_to_the_address_they_came_with() {
-        // an entry without an origin: the address loaded with it
-        let file = json!({"assistant": {"anthropicBaseUrl": "https://gateway.example.test/v1"}});
-        let s = Settings::load_from(&file, &secrets(&[(ANTHROPIC_SECRET, r#"{"key":"sk-ant-x"}"#)]));
-        assert_eq!(s.anthropic_binding.as_ref().map(|b| b.origin.as_str()), Some("https://gateway.example.test"));
-        assert!(key_check(&s, Kind::Anthropic, "https://gateway.example.test/v2").is_ok());
-        assert!(key_check(&s, Kind::Anthropic, DEFAULT_ANTHROPIC_URL).is_err());
-        // a bare older key the same way
-        let s = Settings::load_from(&file, &secrets(&[(ANTHROPIC_SECRET, "sk-ant-bare")]));
-        assert_eq!(s.anthropic_key, "sk-ant-bare");
-        assert!(key_check(&s, Kind::Anthropic, DEFAULT_ANTHROPIC_URL).is_err());
-        // migrated keys: the migrated address
-        let s = Settings::load_from(&json!({"provider": 0, "base": "http://localhost:11434/v1"}), &secrets(&[(OLD_SECRET, "sk-old")]));
-        assert_eq!(s.openai_binding.as_ref().map(|b| b.origin.as_str()), Some("http://localhost:11434"));
-        assert!(key_check(&s, Kind::OpenAi, "https://api.openai.com/v1").is_err());
-        let s = Settings::load_from(&json!({"provider": 1}), &secrets(&[(OLD_SECRET, "sk-ant-old")]));
-        assert_eq!(s.anthropic_binding.as_ref().map(|b| b.origin.as_str()), Some("https://api.anthropic.com"));
+    fn a_crafted_import_before_the_first_save_cannot_move_the_earlier_key() {
+        let _files = crate::settings::TEST_FILES.lock().unwrap_or_else(|e| e.into_inner());
+        clean_store();
+        let home = FakeServer::start(vec![answer()]);
+        let elsewhere = FakeServer::start(vec![answer(), answer()]);
+        std::fs::create_dir_all(crate::config_dir()).unwrap();
+        std::fs::write(path(), json!({"provider": 0, "base": format!("{}/v1", home.base), "model": "m"}).to_string()).unwrap();
+        // an earlier build wrote the key without its origin
+        assert!(crate::secrets::set(OLD_SECRET, r#"{"key":"sk-stored-old"}"#));
+        // startup binds it to the address it is used with now
+        let _ = crate::ai::Config::load();
+        assert_eq!(origin_in_store(OLD_SECRET).as_deref(), Some(home.base.as_str()));
+        // an imported earlier-style file points it elsewhere; the load after the import keeps the origin
+        std::fs::write(path(), json!({"provider": 0, "base": format!("{}/v1", elsewhere.base), "model": "m"}).to_string()).unwrap();
+        let _ = crate::ai::Config::load();
+        assert_eq!(origin_in_store(OLD_SECRET).as_deref(), Some(home.base.as_str()));
+        // the migration takes the key, never an origin from the file
+        let mut moved = Settings::load();
+        assert_eq!(moved.openai_key, "sk-stored-old");
+        assert_eq!(test_connection(&moved, Kind::OpenAi, &Cancel::new()), (refusal("OpenAI-compatible", &home.base, &elsewhere.base), false));
+        assert_eq!(
+            check_old_key("sk-stored-old", &format!("{}/v1", elsewhere.base), Kind::OpenAi),
+            Err(refusal("OpenAI-compatible", &home.base, &elsewhere.base))
+        );
+        // the earlier settings page saving it keeps the origin too
+        crate::ai::Config::load().save();
+        assert_eq!(origin_in_store(OLD_SECRET).as_deref(), Some(home.base.as_str()));
+        // switching the provider in the import moves it to the Anthropic slot, refused the same way
+        std::fs::write(path(), json!({"provider": 1, "base": format!("{}/v1", elsewhere.base)}).to_string()).unwrap();
+        let s = Settings::load();
+        assert_eq!(s.anthropic_key, "sk-stored-old");
+        assert_eq!(key_check(&s, Kind::Anthropic, &s.anthropic_base_url).unwrap_err().message, refusal("Anthropic", &home.base, &elsewhere.base));
+        // the first save of the new settings carries the stored origin into the new slot
+        std::fs::write(path(), json!({"provider": 0, "base": format!("{}/v1", elsewhere.base), "model": "m"}).to_string()).unwrap();
+        moved.save().unwrap();
+        assert_eq!(origin_in_store(OPENAI_SECRET).as_deref(), Some(home.base.as_str()));
+        assert!(!test_connection(&Settings::load(), Kind::OpenAi, &Cancel::new()).1);
+        assert!(elsewhere.requests().is_empty());
+        // on its own address it still works
+        let back = Settings { openai_base_url: format!("{}/v1", home.base), ..Settings::load() };
+        assert_eq!(test_connection(&back, Kind::OpenAi, &Cancel::new()), ("Works (m said: OK).".into(), true));
+        clean_store();
+    }
+
+    #[test]
+    fn a_crafted_import_after_the_first_save_cannot_move_a_key() {
+        let _files = crate::settings::TEST_FILES.lock().unwrap_or_else(|e| e.into_inner());
+        clean_store();
+        let (home, elsewhere) = ("https://home.example.test", "https://elsewhere.example.test");
+        let mut s = Settings { openai_base_url: format!("{home}/v1"), openai_key: "sk-stored-first".into(), ..Settings::default() };
+        s.save().unwrap();
+        assert_eq!(origin_in_store(OPENAI_SECRET).as_deref(), Some(home));
+        // an import with an "assistant" object pointing the slot elsewhere
+        let mut file = read_file().unwrap();
+        file["assistant"]["openaiBaseUrl"] = json!(format!("{elsewhere}/v1"));
+        write_file(&file).unwrap();
+        assert_eq!(
+            key_check(&Settings::load(), Kind::OpenAi, &format!("{elsewhere}/v1")).unwrap_err().message,
+            refusal("OpenAI-compatible", home, elsewhere)
+        );
+        // an import without one: the migration of the earlier key, bound by the earlier page
+        crate::secrets::delete(OPENAI_SECRET);
+        assert!(save_old_key("sk-stored-earlier", &format!("{home}/v1")));
+        write_file(&json!({"provider": 0, "base": format!("{elsewhere}/v1")})).unwrap();
+        let s = Settings::load();
+        assert_eq!(s.openai_key, "sk-stored-earlier");
+        assert_eq!(key_check(&s, Kind::OpenAi, &s.openai_base_url).unwrap_err().message, refusal("OpenAI-compatible", home, elsewhere));
+        clean_store();
+    }
+
+    #[test]
+    fn a_new_slot_entry_without_an_origin_is_bound_on_load() {
+        let _files = crate::settings::TEST_FILES.lock().unwrap_or_else(|e| e.into_inner());
+        clean_store();
+        let gateway = "https://gateway.example.test";
+        write_file(&json!({"assistant": {"anthropicBaseUrl": format!("{gateway}/v1"), "openaiBaseUrl": "http://localhost:11434/v1"}})).unwrap();
+        assert!(crate::secrets::set(ANTHROPIC_SECRET, r#"{"key":"sk-stored-ant"}"#));
+        assert!(crate::secrets::set(OPENAI_SECRET, "sk-stored-bare"));
+        let s = Settings::load();
+        assert_eq!((s.anthropic_key.as_str(), s.openai_key.as_str()), ("sk-stored-ant", "sk-stored-bare"));
+        assert_eq!(origin_in_store(ANTHROPIC_SECRET).as_deref(), Some(gateway));
+        assert_eq!(origin_in_store(OPENAI_SECRET).as_deref(), Some("http://localhost:11434"));
+        assert!(key_check(&s, Kind::Anthropic, &format!("{gateway}/v2")).is_ok(), "another path on the same origin");
+        // an import then points both elsewhere
+        write_file(&json!({"assistant": {"openaiBaseUrl": "https://api.openai.com/v1"}})).unwrap();
+        let mut s = Settings::load();
+        assert_eq!(origin_in_store(ANTHROPIC_SECRET).as_deref(), Some(gateway), "a load never rebinds");
+        assert!(key_check(&s, Kind::OpenAi, &s.openai_base_url).is_err());
+        assert!(key_check(&s, Kind::Anthropic, &s.anthropic_base_url).is_err());
         // the refresh of the model list checks it too, before anything is sent
-        let mut s = Settings { anthropic_base_url: "https://elsewhere.example.test/v1".into(), ..s };
         let (text, ok) = refresh_models(&mut s, &Cancel::new());
-        assert!(!ok && text.starts_with("The Anthropic API key was saved for https://api.anthropic.com"), "{text}");
-        // no key, no binding, nothing to refuse
-        let s = Settings::load_from(&json!({"assistant": {}}), &secrets(&[]));
-        assert!(s.openai_binding.is_none() && key_check(&s, Kind::OpenAi, "http://any/v1").is_ok());
+        assert!(!ok && text == refusal("Anthropic", gateway, "https://api.anthropic.com"), "{text}");
+        clean_store();
+    }
+
+    #[test]
+    fn the_keystore_decides_for_settings_built_anywhere() {
+        let _files = crate::settings::TEST_FILES.lock().unwrap_or_else(|e| e.into_inner());
+        clean_store();
+        let (home, imported) = ("https://home.example.test", "https://imported.example.test");
+        assert!(save_key(OPENAI_SECRET, "sk-stored-truth", &format!("{home}/v1")));
+        // built from a value or the defaults, with the stored key and an imported address
+        let mut s = Settings::from_value(&json!({"openaiBaseUrl": format!("{imported}/v1")}), "sk-stored-truth", "");
+        assert_eq!(key_check(&s, Kind::OpenAi, &s.openai_base_url).unwrap_err().message, refusal("OpenAI-compatible", home, imported));
+        let d = Settings { openai_base_url: format!("{imported}/v1"), openai_key: " sk-stored-truth ".into(), ..Settings::default() };
+        assert!(key_check(&d, Kind::OpenAi, &d.openai_base_url).is_err());
+        // saving it keeps the old origin
+        s.save().unwrap();
+        assert_eq!(origin_in_store(OPENAI_SECRET).as_deref(), Some(home));
+        assert!(key_check(&s, Kind::OpenAi, &s.openai_base_url).is_err());
+        // an entry with no origin at all refuses every address
+        assert!(crate::secrets::set(ANTHROPIC_SECRET, r#"{"key":"sk-stored-none","origin":""}"#));
+        let a = with_anthropic("sk-stored-none");
+        assert_eq!(
+            key_check(&a, Kind::Anthropic, DEFAULT_ANTHROPIC_URL).unwrap_err().message,
+            refusal("Anthropic", "another address", "https://api.anthropic.com")
+        );
+        // only a key that differs from the stored one binds to the current address
+        s.openai_key = "sk-stored-retyped".into();
+        assert!(key_check(&s, Kind::OpenAi, &s.openai_base_url).is_ok(), "a typed key is not stored yet");
+        s.save().unwrap();
+        assert_eq!(origin_in_store(OPENAI_SECRET).as_deref(), Some(imported));
+        assert!(key_check(&s, Kind::OpenAi, &format!("{home}/v1")).is_err());
+        // no key, nothing to refuse
+        assert!(key_check(&Settings::default(), Kind::OpenAi, "http://any/v1").is_ok());
+        clean_store();
     }
 
     #[test]

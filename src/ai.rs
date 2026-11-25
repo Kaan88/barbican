@@ -38,6 +38,9 @@ fn key_of(text: &str) -> String {
 impl Config {
     pub fn load() -> Config {
         let v: Value = std::fs::read_to_string(path()).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or(json!({}));
+        // the first load is at startup, before a settings file can be imported: a key entry an
+        // earlier build wrote without its origin is bound to the address it is used with now
+        crate::assistant::config::bind_unbound_keys(&v);
         let provider = (v["provider"].as_i64().unwrap_or(0) as i32).clamp(0, 1);
         let d = DEFAULTS[provider as usize];
         Config {
@@ -75,9 +78,10 @@ impl Config {
             }
             Err(e) => eprintln!("{e}"),
         }
-        if self.key.is_empty() { crate::secrets::delete(SECRET); } else {
-            crate::secrets::set(SECRET, &json!({"key": self.key}).to_string());
-        }
+        // {"key", "origin"}: the stored key keeps the origin it is bound to, a changed key is
+        // bound to this address (src/assistant/config.rs). Failures only print, as the file's do:
+        // returning them is left to M12, when the new settings page replaces this one.
+        if !crate::assistant::config::save_old_key(&self.key, &self.base) { eprintln!("The AI key could not be saved."); }
     }
 
     pub fn memory() -> String {
@@ -104,6 +108,10 @@ impl Config {
         if self.key.is_empty() {
             return Err("Add an API key in Settings → AI assistant first.".into());
         }
+        // the stored key goes only to the origin it was saved for (an imported settings file can
+        // change the address, not where the key may go)
+        let kind = if self.provider == 1 { crate::assistant::config::Kind::Anthropic } else { crate::assistant::config::Kind::OpenAi };
+        crate::assistant::config::check_old_key(&self.key, &self.base, kind)?;
         let http = reqwest::blocking::Client::builder().timeout(std::time::Duration::from_secs(90))
             .redirect(reqwest::redirect::Policy::none()).build().map_err(|e| e.to_string())?;
         let base = self.base.trim_end_matches('/');
@@ -266,6 +274,29 @@ mod save_tests {
         std::fs::write(path(), "{\"provider\": 1, oops").unwrap();
         Config { model: "x".into(), ..Config::default() }.save();
         assert_eq!(std::fs::read_to_string(path()).unwrap(), "{\"provider\": 1, oops");
+        let _ = std::fs::remove_file(path());
+    }
+
+    #[test]
+    fn the_stored_key_is_sent_only_to_its_origin() {
+        let _files = crate::settings::TEST_FILES.lock().unwrap_or_else(|e| e.into_inner());
+        let _ = std::fs::remove_file(path());
+        // saved for one address; an imported file then points the earlier settings elsewhere
+        let c = Config { base: "https://home.example.test/v1".into(), key: "sk-stored-ai".into(), ..Config::default() };
+        c.save();
+        let v: Value = serde_json::from_str(&crate::secrets::get(SECRET).unwrap()).unwrap();
+        assert_eq!(v, json!({"key": "sk-stored-ai", "origin": "https://home.example.test"}));
+        let moved = Config { base: "https://elsewhere.example.test/v1".into(), ..c.clone() };
+        assert_eq!(
+            moved.post(json!({})).unwrap_err(),
+            "The OpenAI-compatible API key was saved for https://home.example.test, not for https://elsewhere.example.test. Enter the key again in the settings to use it with this address."
+        );
+        // saving it there keeps the origin; only a changed key binds to the new address
+        moved.save();
+        assert!(crate::secrets::get(SECRET).unwrap().contains("\"origin\":\"https://home.example.test\""));
+        Config { key: "sk-stored-ai2".into(), ..moved.clone() }.save();
+        assert!(crate::secrets::get(SECRET).unwrap().contains("\"origin\":\"https://elsewhere.example.test\""));
+        crate::secrets::delete(SECRET);
         let _ = std::fs::remove_file(path());
     }
 }
