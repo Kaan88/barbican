@@ -5,6 +5,100 @@
 //! main.rs installs, on the UI thread.
 use std::sync::Mutex;
 
+/// Bulwark's notification tones (its `notificationSoundChoice`, lib/notification-sound.ts:8-14):
+/// four mp3 files it ships plus a synthesized beep. Barbican bundles no audio, so each tone maps
+/// to the Windows toast sound (`ms-winsoundevent:Notification.*`) that comes closest:
+///
+/// - Beep (`default`): Bulwark plays no file, an 800 Hz enveloped sine beep
+///   (notification-sound.ts:16-42). `Notification.Default` is Windows' plain generic chime.
+/// - Cheerful (`cheerful-527.mp3`, bright and rising): `Notification.IM`, the bright two-note ping.
+/// - Involved (`involved-notification.mp3`, Bulwark's default and the fallback for any unknown
+///   value): `Notification.Mail`, the new-mail chime Barbican's mail toast has always played, so
+///   the default sounds as it did before the choice existed.
+/// - Swift (`notification-tone-swift-gesture.mp3`, one short note): `Notification.SMS`, the
+///   shortest of the five Windows sounds.
+/// - Relax (`relax-message-tone.mp3`, a slow soft bell): `Notification.Reminder`, two soft notes.
+///
+/// On Linux the same order picks freedesktop sound names ([`Tone::freedesktop_name`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Tone {
+    Beep,
+    Cheerful,
+    #[default]
+    Involved,
+    Swift,
+    Relax,
+}
+
+/// The setting the choice is kept in, spelled as Bulwark spells it.
+pub const TONE_KEY: &str = "notificationSoundChoice";
+
+impl Tone {
+    /// In Bulwark's order (NOTIFICATION_SOUNDS), which is the order the select lists them in.
+    pub const ALL: [Tone; 5] = [Tone::Beep, Tone::Cheerful, Tone::Involved, Tone::Swift, Tone::Relax];
+
+    /// Bulwark's id, which is what is stored in the settings.
+    pub fn id(self) -> &'static str {
+        match self {
+            Tone::Beep => "default",
+            Tone::Cheerful => "cheerful",
+            Tone::Involved => "involved",
+            Tone::Swift => "swift",
+            Tone::Relax => "relax",
+        }
+    }
+
+    /// Bulwark's label (locales/en/common.json: `sounds.*`).
+    pub fn label(self) -> &'static str {
+        match self {
+            Tone::Beep => "Beep",
+            Tone::Cheerful => "Cheerful",
+            Tone::Involved => "Involved",
+            Tone::Swift => "Swift Gesture",
+            Tone::Relax => "Relax",
+        }
+    }
+
+    /// A stored id back to its tone. Anything else (a value from a newer Bulwark, a hand-edited
+    /// file) is Bulwark's own fallback: `playNotificationSound` plays "involved" for an unknown
+    /// choice.
+    pub fn from_id(id: &str) -> Tone {
+        Tone::ALL.into_iter().find(|t| t.id() == id).unwrap_or(Tone::Involved)
+    }
+
+    /// The Windows system sound event, as the toast XML and notify-rust name it.
+    pub fn win_name(self) -> &'static str {
+        match self {
+            Tone::Beep => "Default",
+            Tone::Cheerful => "IM",
+            Tone::Involved => "Mail",
+            Tone::Swift => "SMS",
+            Tone::Relax => "Reminder",
+        }
+    }
+
+    /// The `<audio src>` of a toast.
+    pub fn audio_src(self) -> String {
+        format!("ms-winsoundevent:Notification.{}", self.win_name())
+    }
+
+    /// The freedesktop sound name (Linux notifications) closest to the tone.
+    pub fn freedesktop_name(self) -> &'static str {
+        match self {
+            Tone::Beep => "bell",
+            Tone::Cheerful => "message-new-instant",
+            Tone::Involved => "message-new-email",
+            Tone::Swift => "complete",
+            Tone::Relax => "alarm-clock-elapsed",
+        }
+    }
+}
+
+/// The tone the user chose (Bulwark `notificationSoundChoice`, "involved" by default).
+pub fn chosen_tone(prefs: &crate::settings::Settings) -> Tone {
+    Tone::from_id(&prefs.str(TONE_KEY, Tone::Involved.id()))
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Note {
     /// Tag: showing the same id again replaces the earlier one.
@@ -21,6 +115,9 @@ pub struct Note {
     /// (action id, label)
     pub actions: Vec<(String, String)>,
     pub sound: bool,
+    /// The tone its audio plays (the user's `notificationSoundChoice`); ignored when `sound` is
+    /// false.
+    pub tone: Tone,
 }
 
 /// What the user did with a notification.
@@ -229,6 +326,7 @@ pub fn mail_note(batch: &[NewMail], account: &str, sound: bool, archive: bool) -
         context: String::new(),
         actions: vec![],
         sound,
+        tone: Tone::default(),
     };
     if batch.len() > 1 {
         return Some(Note {
@@ -267,6 +365,7 @@ pub fn reminder_note(event_id: &str, fire_ms: i64, title: &str, when: &str, soun
         context: format!("event:{event_id}"),
         actions,
         sound,
+        tone: Tone::default(),
     }
 }
 
@@ -377,7 +476,7 @@ mod sys {
         std::thread::spawn(move || {
             let mut x = notify_rust::Notification::new();
             x.appname("Barbican").summary(&n.title).body(&n.body).icon("barbican");
-            if n.sound { x.sound_name("message-new-email"); }
+            if n.sound { x.sound_name(n.tone.freedesktop_name()); }
             if n.group.starts_with("mail:") { x.hint(notify_rust::Hint::Category("email.arrived".into())); }
             // "default" is a click on the notification itself
             x.action("default", "Open");
@@ -401,9 +500,7 @@ pub fn toast_xml(n: &Note) -> String {
     for line in n.body.lines().filter(|l| !l.trim().is_empty()).take(2) { body.push_str(&format!("<text>{}</text>", x(line))); }
     let actions: String = n.actions.iter().map(|(id, label)| format!("<action content=\"{}\" arguments=\"{}\" activationType=\"foreground\"/>", x(label), x(&encode(id, &n.context)))).collect();
     let audio = if !n.sound { "<audio silent=\"true\"/>".to_string() }
-        else if n.group.starts_with("mail:") { "<audio src=\"ms-winsoundevent:Notification.Mail\"/>".to_string() }
-        else if n.group == "reminders" { "<audio src=\"ms-winsoundevent:Notification.Reminder\"/>".to_string() }
-        else { String::new() };
+        else { format!("<audio src=\"{}\"/>", n.tone.audio_src()) };
     let scenario = if n.group == "reminders" { " scenario=\"reminder\"" } else { "" };
     format!("<toast launch=\"{}\" activationType=\"foreground\"{scenario}><visual><binding template=\"ToastGeneric\"><text>{}</text>{body}</binding></visual>{}{audio}</toast>",
         x(&encode("open", &n.context)), x(&n.title), if actions.is_empty() { String::new() } else { format!("<actions>{actions}</actions>") })
@@ -686,5 +783,69 @@ mod tests {
         let r = reminder_note("ev1", 1000, "Call", "In 10 min", true);
         let x = toast_xml(&r);
         assert!(x.contains("scenario=\"reminder\"") && x.contains("snooze-5|event:ev1"), "{x}");
+    }
+
+    #[test]
+    fn tones_keep_bulwarks_ids_and_labels() {
+        // Bulwark NOTIFICATION_SOUNDS (lib/notification-sound.ts:8-14) and locales/en sounds.*
+        let ids: Vec<&str> = Tone::ALL.iter().map(|t| t.id()).collect();
+        assert_eq!(ids, ["default", "cheerful", "involved", "swift", "relax"]);
+        let labels: Vec<&str> = Tone::ALL.iter().map(|t| t.label()).collect();
+        assert_eq!(labels, ["Beep", "Cheerful", "Involved", "Swift Gesture", "Relax"]);
+        for t in Tone::ALL {
+            assert_eq!(Tone::from_id(t.id()), t);
+        }
+        // a value this Barbican does not know falls back to Bulwark's default
+        assert_eq!(Tone::from_id("chime"), Tone::Involved);
+        assert_eq!(Tone::from_id(""), Tone::Involved);
+        assert_eq!(Tone::default(), Tone::Involved);
+    }
+
+    #[test]
+    fn tones_map_to_windows_sounds() {
+        // the closest Windows toast sound for each Bulwark tone (see the mapping on `Tone`)
+        let win: Vec<&str> = Tone::ALL.iter().map(|t| t.win_name()).collect();
+        assert_eq!(win, ["Default", "IM", "Mail", "SMS", "Reminder"]);
+        assert_eq!(Tone::Cheerful.audio_src(), "ms-winsoundevent:Notification.IM");
+        assert_eq!(Tone::Involved.audio_src(), "ms-winsoundevent:Notification.Mail");
+        assert_eq!(Tone::Swift.audio_src(), "ms-winsoundevent:Notification.SMS");
+        assert_eq!(Tone::Relax.audio_src(), "ms-winsoundevent:Notification.Reminder");
+        assert_eq!(Tone::Beep.audio_src(), "ms-winsoundevent:Notification.Default");
+        // each tone a distinct sound, and the Linux names differ too
+        let mut names: Vec<&str> = Tone::ALL.iter().map(|t| t.freedesktop_name()).collect();
+        names.sort();
+        names.dedup();
+        assert_eq!(names.len(), 5);
+        // the default keeps the mail sound Barbican played before the choice existed
+        assert_eq!(Tone::Involved.freedesktop_name(), "message-new-email");
+    }
+
+    #[test]
+    fn toast_plays_the_chosen_tone() {
+        let n = mail_note(&[m("e1", "Ada", "Plans")], "acc", true, true).unwrap();
+        // the default: as before
+        assert!(toast_xml(&n).contains("<audio src=\"ms-winsoundevent:Notification.Mail\"/>"));
+        for t in Tone::ALL {
+            let x = toast_xml(&Note { tone: t, ..n.clone() });
+            assert!(x.contains(&format!("<audio src=\"{}\"/>", t.audio_src())), "{t:?}: {x}");
+        }
+        // a calendar reminder plays the chosen tone too (not always Reminder)
+        let r = reminder_note("ev1", 1000, "Call", "In 10 min", true);
+        let x = toast_xml(&Note { tone: Tone::Swift, ..r.clone() });
+        assert!(x.contains("<audio src=\"ms-winsoundevent:Notification.SMS\"/>"), "{x}");
+        // sound off: silent, whatever the tone
+        let x = toast_xml(&Note { sound: false, tone: Tone::Relax, ..r });
+        assert!(x.contains("<audio silent=\"true\"/>") && !x.contains("ms-winsoundevent"), "{x}");
+    }
+
+    #[test]
+    fn the_choice_is_read_from_the_settings() {
+        let mut prefs = serde_json::Map::new();
+        // nothing stored: Bulwark's default
+        assert_eq!(chosen_tone(&crate::settings::Settings::with_prefs(prefs.clone())), Tone::Involved);
+        prefs.insert(TONE_KEY.into(), serde_json::json!("relax"));
+        assert_eq!(chosen_tone(&crate::settings::Settings::with_prefs(prefs.clone())), Tone::Relax);
+        prefs.insert(TONE_KEY.into(), serde_json::json!("nonsense"));
+        assert_eq!(chosen_tone(&crate::settings::Settings::with_prefs(prefs)), Tone::Involved);
     }
 }

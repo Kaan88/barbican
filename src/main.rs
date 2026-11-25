@@ -23,6 +23,7 @@ mod otp;
 mod agent;
 mod ai;
 mod bodycache;
+mod cachedata;
 mod allday;
 mod calendar;
 mod cal_editor;
@@ -434,6 +435,7 @@ pub fn html_to_text(h: &str) -> String {
 
 thread_local! { pub(crate) static WV_UNAVAILABLE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
 thread_local! { static RESET_ARMED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
+thread_local! { static CACHE_ARMED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
 thread_local! { static SERVER_DEBOUNCE: slint::Timer = slint::Timer::default(); }
 /// The server writes the debounce timer runs, one per slot (server_settings::job_slot).
 type ServerJob = (Arc<jmap::Client>, Box<dyn FnOnce(&jmap::Client) -> Result<(), String> + Send>);
@@ -968,6 +970,8 @@ fn check_new_mail(c: Arc<jmap::Client>, w: Option<slint::Weak<AppWindow>>) {
     // Bulwark emailNotificationSound (default on) and pushNotifyInboxOnly (default off: every
     // folder except Junk, Trash, Sent and Drafts)
     let sound = prefs.bool("emailNotificationSound", true);
+    // Bulwark notificationSoundChoice: which tone the toast plays (lib/notification-sound.ts)
+    let tone = notify::chosen_tone(&prefs);
     let inbox_only = prefs.bool("pushNotifyInboxOnly", false);
     let prefs_mutes = prefs.prefs.get(folders::KEY_MUTES).cloned();
     std::thread::spawn(move || {
@@ -1005,7 +1009,7 @@ fn check_new_mail(c: Arc<jmap::Client>, w: Option<slint::Weak<AppWindow>>) {
         let arrived = !batch.is_empty();
         batch.reverse();
         if !dnd {
-            if let Some(n) = notify::mail_note(&batch, &unified::login_of(&c), sound, roles.contains_key("archive")) { notify::show(n); }
+            if let Some(mut n) = notify::mail_note(&batch, &unified::login_of(&c), sound, roles.contains_key("archive")) { n.tone = tone; notify::show(n); }
         }
         // Settings > Accessibility > Visual alerts: flash the taskbar button
         if arrived && a11y::A11y::load().visual_alerts {
@@ -1767,6 +1771,26 @@ fn main() -> Result<(), slint::PlatformError> {
                     Ok(()) => { *cf2.lock().unwrap() = ai::Config::load(); apply_theme(&u); mail::show_toast(&u, "Settings imported", false); u.invoke_settings_search(u.get_settings_query()); }
                     Err(e) => mail::show_toast(&u, &format!("Import failed: {e}"), false),
                 }
+            }
+        }
+        // Settings > About > Refresh cached data (Bulwark clearCachedData, S-keyless-063): the
+        // rebuildable answers go, then the view is loaded again from the server
+        if key == "cache.refresh" {
+            if CACHE_ARMED.with(|x| x.replace(false)) {
+                let report = cachedata::refresh();
+                if let Some(c) = st.lock().unwrap().clone() {
+                    let folder = u.get_current_folder().to_string();
+                    mail::load_mailboxes(w.clone(), c.clone(), false);
+                    if !folder.is_empty() { load_folder(w.clone(), c.clone(), Some(folder), None); }
+                    crate::contacts::load(w.clone(), c.clone());
+                    crate::calendar::load(w.clone(), c);
+                }
+                mail::refresh_avatars(&u);
+                mail::show_toast(&u, &report.summary(), false);
+                u.invoke_settings_search(u.get_settings_query());
+            } else {
+                CACHE_ARMED.with(|x| x.set(true));
+                mail::show_toast(&u, "Press Refresh again to load your pictures, contacts, calendars and folders from the server.", false);
             }
         }
         if key == "backup.reset" {

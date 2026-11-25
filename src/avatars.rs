@@ -182,10 +182,16 @@ pub fn cancel_pending() {
 
 /// "Refresh sender icons": forget every answer (memory and disk) so they are fetched again.
 pub fn refresh() {
+    forget_memory();
+    let _ = std::fs::remove_dir_all(crate::config_dir().join("avatars"));
+}
+
+/// Forget this session's pictures (the disk folder is left alone: "Refresh cached data" clears
+/// that, src/cachedata.rs). Answers still being fetched are dropped when they arrive.
+pub fn forget_memory() {
     GEN.fetch_add(1, Ordering::SeqCst);
     work().0.clear();
     SLOTS.with(|s| s.borrow_mut().clear());
-    let _ = std::fs::remove_dir_all(crate::config_dir().join("avatars"));
 }
 
 /// The window to redraw when pictures arrive.
