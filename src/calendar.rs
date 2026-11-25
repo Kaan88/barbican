@@ -277,30 +277,26 @@ pub fn load(w: slint::Weak<AppWindow>, c: Arc<Client>) {
     std::thread::spawn(move || {
         let tz = crate::agent::local_tz();
         let primary = c.account_for(CAL);
+        let owner = c.state_key();
+        let mut states: Vec<(String, String, String)> = vec![];
         let res: Result<(Vec<Value>, Vec<Value>), String> = (|| {
             let mut cals = vec![];
             let mut events = vec![];
             let colors = crate::settings::Settings::load().prefs.get("sharedCalendarColors").cloned().unwrap_or(json!({}));
             for (acc, name, is_primary) in calendar_accounts(&c) {
-                let r = c.request(json!([["Calendar/get", {"accountId": acc, "ids": null, "properties": ["id", "name", "color", "isDefault", "isVisible", "sortOrder", "myRights",
-                    "defaultAlertsWithTime", "defaultAlertsWithoutTime", "isSubscribed", "includeInAvailability"]}, "c"]]))?;
+                let r = c.request(json!([["Calendar/get", {"accountId": acc, "ids": null, "properties": CAL_PROPS}, "c"]]))?;
                 if r.first().is_none_or(|x| x[0] == "error") {
                     if is_primary { return Err(crate::jmap::method_error(&r.first().map(|x| x[1].clone()).unwrap_or(json!({})))); }
                     continue;
                 }
                 let mut list = r[0][1]["list"].as_array().cloned().unwrap_or_default();
                 list.sort_by_key(|x| (x["sortOrder"].as_i64().unwrap_or(0), x["name"].as_str().unwrap_or("").to_lowercase()));
-                for mut cal in list {
-                    let raw = cal["id"].as_str().unwrap_or("").to_string();
-                    cal["_rid"] = json!(raw);
-                    cal["_acc"] = json!(acc);
-                    cal["id"] = json!(ns(&primary, &acc, &raw));
-                    if !is_primary {
-                        cal["_shared"] = json!(true);
-                        cal["_owner"] = json!(name);
-                        if let Some(col) = colors[shared_color_key(&c.username, &acc, &raw)].as_str() { cal["_color"] = json!(col); }
-                    }
-                    cals.push(cal);
+                for cal in list { cals.push(prepare_calendar(cal, &c, &primary, &acc, (!is_primary).then_some(name.as_str()), &colors)); }
+                // live updates (livesync): the states the view is read at, the events' before the read
+                let ev_state = crate::livesync::state_of(&c, "CalendarEvent", &acc);
+                if let (Some(cs), Some(es)) = (r[0][1]["state"].as_str(), ev_state) {
+                    states.push(("Calendar".to_string(), acc.clone(), cs.to_string()));
+                    states.push(("CalendarEvent".to_string(), acc.clone(), es));
                 }
                 // every id (paged), then the events in maxObjectsInGet chunks: one back-referenced
                 // CalendarEvent/get of 5000 ids is over Stalwart's limit (requestTooLarge)
@@ -328,6 +324,7 @@ pub fn load(w: slint::Weak<AppWindow>, c: Arc<Client>) {
         let _ = w.upgrade_in_event_loop(move |u| match res {
             Ok((cals, events)) => {
                 if let Some(p) = people { crate::cal_extra::set_people(p); }
+                crate::livesync::loaded(crate::livesync::View::Calendar, &owner, &states);
                 ST.with(|s| s.borrow_mut().calendars = cals);
                 RAW.with(|r| *r.borrow_mut() = events);
                 rebuild(&u);
@@ -337,6 +334,49 @@ pub fn load(w: slint::Weak<AppWindow>, c: Arc<Client>) {
             Err(e) => crate::mail::show_toast(&u, &format!("Calendar: {e}"), false),
         });
     });
+}
+
+/// The calendar properties the view loads (and a live delta fetches).
+pub const CAL_PROPS: [&str; 11] = ["id", "name", "color", "isDefault", "isVisible", "sortOrder", "myRights",
+    "defaultAlertsWithTime", "defaultAlertsWithoutTime", "isSubscribed", "includeInAvailability"];
+
+/// A calendar of `acc` as the view holds it: namespaced id, its account, and for a shared one
+/// (`owner` is the account's name) the per-viewer colour.
+fn prepare_calendar(mut cal: Value, c: &Client, primary: &str, acc: &str, owner: Option<&str>, colors: &Value) -> Value {
+    let raw = cal["id"].as_str().unwrap_or("").to_string();
+    cal["_rid"] = json!(raw);
+    cal["_acc"] = json!(acc);
+    cal["id"] = json!(ns(primary, acc, &raw));
+    if let Some(name) = owner {
+        cal["_shared"] = json!(true);
+        cal["_owner"] = json!(name);
+        if let Some(col) = colors[shared_color_key(&c.username, acc, &raw)].as_str() { cal["_color"] = json!(col); }
+    }
+    cal
+}
+
+/// Live update (livesync): apply Calendar and CalendarEvent deltas of each account to the loaded
+/// calendars and events, then redraw. Calendars keep their account order and are sorted in it.
+pub fn apply_live(u: &AppWindow, c: &Client, ds: &[(String, String, String, crate::livesync::Delta)]) {
+    let primary = c.account_for(CAL);
+    let colors = crate::settings::Settings::load().prefs.get("sharedCalendarColors").cloned().unwrap_or(json!({}));
+    let accounts = calendar_accounts(c);
+    let ident = |x: &Value| (x["_acc"].as_str().unwrap_or("").to_string(), x["_rid"].as_str().unwrap_or("").to_string());
+    for (ty, acc, _, d) in ds {
+        if ty == "Calendar" {
+            let owner = accounts.iter().find(|a| a.0 == *acc && !a.2).map(|a| a.1.clone());
+            ST.with(|s| {
+                let mut s = s.borrow_mut();
+                crate::livesync::apply(&mut s.calendars, acc, d, ident, |v| prepare_calendar(v, c, &primary, acc, owner.as_deref(), &colors));
+                s.calendars.sort_by_key(|x| (accounts.iter().position(|a| x["_acc"] == a.0.as_str()).unwrap_or(usize::MAX),
+                    x["sortOrder"].as_i64().unwrap_or(0), x["name"].as_str().unwrap_or("").to_lowercase()));
+            });
+        } else {
+            RAW.with(|r| crate::livesync::apply(&mut r.borrow_mut(), acc, d, ident, |mut e| { namespace_event(&mut e, &primary, acc); e }));
+        }
+    }
+    rebuild(u);
+    render_tasks(u);
 }
 
 /// Give an event of another account namespaced ids (its own and its calendars').

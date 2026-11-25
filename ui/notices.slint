@@ -1,0 +1,132 @@
+// The notification centre (G-045, src/notices.rs): the bell in the rail with the unread count,
+// and its panel beside it (Bulwark components/notifications/notification-center.tsx).
+import { Theme, Icons, SIcon, Prefs, Motion, Ease, PopIn } from "theme.slint";
+import { ListView } from "std-widgets.slint";
+
+export struct NoticeRow {
+    id: string,
+    title: string,
+    body: string,
+    when: string,
+    // 0 info, 1 warning, 2 error
+    level: int,
+    unread: bool,
+}
+
+export global Notices {
+    in property <int> unread;
+    in property <string> badge;
+    in property <[NoticeRow]> rows;
+    callback opened();
+    callback mark-all-read();
+    callback clear();
+}
+
+component PanelAction inherits Rectangle {
+    in property <string> icon;
+    in property <string> label;
+    in property <bool> enabled: true;
+    callback clicked;
+    height: Prefs.large-targets ? 32px : 26px;
+    width: al.preferred-width + 16px;
+    border-radius: Theme.nordic ? self.height / 2 : 8px;
+    background: enabled && ta.has-hover ? Theme.hover : transparent;
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-enabled: root.enabled;
+    accessible-action-default => { if root.enabled { root.clicked(); } }
+    ta := TouchArea { enabled: root.enabled; clicked => { root.clicked(); } }
+    al := HorizontalLayout {
+        x: 8px;
+        spacing: 4px;
+        VerticalLayout { alignment: center; SIcon { commands: root.icon; size: 14px; weight: 2; tint: root.enabled ? Theme.dim : Theme.faint; } }
+        Text { text: root.label; color: root.enabled ? Theme.dim : Theme.faint; font-size: 12px * Prefs.fs; vertical-alignment: center; }
+    }
+}
+
+/// The bell: opens the panel beside it (the rail's `side` placement), bottom edges aligned.
+export component NotificationBell inherits Rectangle {
+    width: Prefs.large-targets ? 48px : (Theme.nordic ? 46px : 42px);
+    height: self.width;
+    border-radius: Theme.nordic ? self.height / 2 : 14px;
+    background: ta.has-hover ? Theme.tile2 : transparent;
+    animate background { duration: Motion.fast; easing: Ease.enter; }
+    accessible-role: button;
+    accessible-label: Notices.unread > 0 ? "Notifications (" + Notices.unread + " unread)" : "Notifications";
+    accessible-action-default => { Notices.opened(); pop.show(); }
+    ta := TouchArea { clicked => { Notices.opened(); pop.show(); } }
+    SIcon {
+        commands: Icons.bell;
+        size: Theme.nordic ? 21px : 20px;
+        weight: Theme.nordic ? 1.6 : 1.7;
+        tint: ta.has-hover ? Theme.text : Theme.faint;
+    }
+    if Notices.unread > 0: Rectangle {
+        x: parent.width - self.width - 2px;
+        y: 2px;
+        height: 16px;
+        width: max(16px, bt.preferred-width + 8px);
+        border-radius: 8px;
+        background: #dc2626;
+        bt := Text { text: Notices.badge; color: #ffffff; font-size: 10px; font-weight: 700; }
+    }
+    pop := PopupWindow {
+        x: parent.width + 10px;
+        y: parent.height - 440px;
+        width: 352px;
+        height: 440px;
+        close-policy: close-on-click-outside;
+        PopIn {
+            transform-origin: { x: 0, y: self.height };
+            background: Theme.popup; border-radius: 14px; border-width: 1px; border-color: Theme.line;
+            drop-shadow-blur: 16px; drop-shadow-color: #00000055;
+            clip: true;
+            VerticalLayout {
+                HorizontalLayout {
+                    padding-left: 14px; padding-right: 8px; height: 46px; spacing: 2px;
+                    Text { text: "Notifications"; color: Theme.text; font-size: 13.5px * Prefs.fs; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
+                    VerticalLayout { alignment: center; PanelAction { icon: Icons.check; label: "Mark all read"; enabled: Notices.unread > 0; clicked => { Notices.mark-all-read(); } } }
+                    VerticalLayout { alignment: center; PanelAction { icon: Icons.trash; label: "Clear"; enabled: Notices.rows.length > 0; clicked => { Notices.clear(); } } }
+                }
+                Rectangle { height: 1px; background: Theme.line; }
+                if Notices.rows.length == 0: Text {
+                    text: "No notifications"; color: Theme.dim; font-size: 12.5px * Prefs.fs;
+                    horizontal-alignment: center; vertical-alignment: center; vertical-stretch: 1;
+                }
+                if Notices.rows.length > 0: ListView {
+                    vertical-stretch: 1;
+                    for r in Notices.rows: HorizontalLayout {
+                        padding-left: 12px; padding-right: 12px; padding-top: 8px; padding-bottom: 8px; spacing: 10px;
+                        accessible-role: list-item;
+                        accessible-label: (r.level == 2 ? "Error: " : r.level == 1 ? "Warning: " : "") + r.title + (r.unread ? ", unread" : "");
+                        VerticalLayout {
+                            alignment: start;
+                            SIcon {
+                                commands: r.level == 0 ? Icons.bell : Icons.alert;
+                                size: 16px; weight: 1.9;
+                                tint: r.level == 2 ? Theme.rose-fg : r.level == 1 ? Theme.amber-fg : Theme.faint;
+                            }
+                        }
+                        VerticalLayout {
+                            horizontal-stretch: 1;
+                            spacing: 2px;
+                            HorizontalLayout {
+                                spacing: 8px;
+                                Text { text: r.title; color: Theme.text; font-size: 12.5px * Prefs.fs; font-weight: r.unread ? 700 : 400; wrap: word-wrap; horizontal-stretch: 1; }
+                                Text { text: r.when; color: Theme.dim; font-size: 11px * Prefs.fs; }
+                            }
+                            if r.body != "": Text { text: r.body; color: Theme.dim; font-size: 12px * Prefs.fs; wrap: word-wrap; }
+                            Text { text: "Barbican"; color: Theme.faint; font-size: 11px * Prefs.fs; }
+                        }
+                        VerticalLayout {
+                            alignment: start;
+                            padding-top: 5px;
+                            width: 8px;
+                            if r.unread: Rectangle { width: 8px; height: 8px; border-radius: 4px; background: Theme.accent; }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

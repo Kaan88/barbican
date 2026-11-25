@@ -33,7 +33,7 @@ struct State {
 
 thread_local! { static ST: RefCell<State> = RefCell::new(State::default()); }
 
-const PROPS: [&str; 13] = ["id", "parentId", "name", "type", "blobId", "size", "created", "modified", "nodeType", "@type", "mediaType", "shareWith", "myRights"];
+pub const PROPS: [&str; 13] = ["id", "parentId", "name", "type", "blobId", "size", "created", "modified", "nodeType", "@type", "mediaType", "shareWith", "myRights"];
 
 fn is_dir(n: &Value) -> bool {
     match n["nodeType"].as_str().or(n["@type"].as_str().map(|t| match t { "Directory" => "directory", "File" => "file", _ => "other" })) {
@@ -182,16 +182,52 @@ fn note_recent(k: &str) {
     set_prefs_list("filesRecent", &v);
 }
 
+/// The accounts whose files are listed: the primary one first, then those shared with the user.
+pub fn accounts(c: &Client) -> Vec<String> {
+    let primary = c.account_for(CAP);
+    let mut accounts = vec![primary.clone()];
+    if let Some(o) = c.session["accounts"].as_object() {
+        for (id, a) in o { if *id != primary && a["accountCapabilities"].get(CAP).is_some() { accounts.push(id.clone()); } }
+    }
+    accounts
+}
+
+/// A node of `acc` as the view holds it: its account, and its key (`account|id` when shared).
+fn prepare(mut n: Value, acc: &str, shared: bool) -> Value {
+    let id = raw_id(&n);
+    n["_acc"] = json!(acc);
+    n["_shared"] = json!(shared);
+    n["_key"] = json!(if shared { format!("{acc}|{id}") } else { id });
+    n
+}
+
+/// Read the folder on screen again.
+pub fn reload(u: &AppWindow, c: Arc<Client>) {
+    let cwd = ST.with(|s| s.borrow().cwd.clone());
+    open(u, c, &cwd);
+}
+
+/// Live update (livesync): apply FileNode deltas of each account, then redraw.
+pub fn apply_live(u: &AppWindow, ds: &[(String, String, String, crate::livesync::Delta)]) {
+    ST.with(|s| {
+        let mut s = s.borrow_mut();
+        let primary = s.primary.clone();
+        for (_, acc, _, d) in ds {
+            crate::livesync::apply(&mut s.nodes, acc, d, |n| (acc_of(n), raw_id(n)), |n| prepare(n, acc, *acc != primary));
+        }
+    });
+    render(u);
+}
+
 pub fn open(u: &AppWindow, c: Arc<Client>, folder: &str) {
     ST.with(|s| s.borrow_mut().cwd = folder.to_string());
     if !c.has(CAP) { crate::mail::show_toast(u, "This server has no file storage.", false); return; }
     let w = u.as_weak();
     std::thread::spawn(move || {
         let primary = c.account_for(CAP);
-        let mut accounts = vec![primary.clone()];
-        if let Some(o) = c.session["accounts"].as_object() {
-            for (id, a) in o { if *id != primary && a["accountCapabilities"].get(CAP).is_some() { accounts.push(id.clone()); } }
-        }
+        let accounts = accounts(&c);
+        let owner = c.state_key();
+        let mut states: Vec<(String, String, String)> = vec![];
         // Stalwart 1.0 (File Storage draft 18) lists supportedNodeTypes and wants @type on create (Bulwark usesDraftFileNodeCreate)
         let draft_cap = c.session["accounts"][&primary]["accountCapabilities"][CAP].get("supportedNodeTypes").is_some()
             || c.session["capabilities"][CAP].get("supportedNodeTypes").is_some();
@@ -204,22 +240,19 @@ pub fn open(u: &AppWindow, c: Arc<Client>, folder: &str) {
         let res: Result<Vec<Value>, String> = (|| {
             let mut nodes = vec![];
             for (i, acc) in accounts.iter().enumerate() {
+                // live updates (livesync): the state the view is read at, taken before the read
+                if let Some(s) = crate::livesync::state_of(&c, "FileNode", acc) { states.push(("FileNode".into(), acc.clone(), s)); }
                 let ids = match c.query_all("FileNode/query", acc, json!({})) { Ok(q) => q, Err(e) if i == 0 => return Err(e), Err(_) => continue };
                 for chunk in ids.chunks(c.max_get()) {
                     let g = c.call(json!([["FileNode/get", {"accountId": acc, "ids": chunk, "properties": PROPS}, "g"]]))?;
-                    for mut n in g[0][1]["list"].as_array().cloned().unwrap_or_default() {
-                        let id = raw_id(&n);
-                        n["_acc"] = json!(acc);
-                        n["_shared"] = json!(i > 0);
-                        n["_key"] = json!(if i == 0 { id } else { format!("{acc}|{id}") });
-                        nodes.push(n);
-                    }
+                    for n in g[0][1]["list"].as_array().cloned().unwrap_or_default() { nodes.push(prepare(n, acc, i > 0)); }
                 }
             }
             Ok(nodes)
         })();
         let _ = w.upgrade_in_event_loop(move |u| match res {
             Ok(nodes) => {
+                crate::livesync::loaded(crate::livesync::View::Files, &owner, &states);
                 let draft = draft_cap || nodes.iter().any(|n| n["@type"].is_string());
                 ST.with(|s| { let mut s = s.borrow_mut(); s.nodes = nodes; s.draft18 = draft; s.primary = primary; s.legacy = legacy; });
                 render(&u);

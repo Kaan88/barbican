@@ -27,6 +27,9 @@ export { PimTheme, CtX, CtLine, CtField, CtDupe, FilterX, FCond, FAct }
 // mail extras (p2-mailextras): attachment cards, From override, reply under the message
 import { MxTok, AttCard, FromOverride, AttCards, ReplyDockBar, ReplyDockHandle } from "mailextras.slint";
 export { AttCard }
+// the notification centre: bell in the rail (src/notices.rs)
+import { Notices, NoticeRow, NotificationBell } from "notices.slint";
+export { Notices, NoticeRow }
 
 export struct Folder {
     id: string,
@@ -2425,6 +2428,7 @@ export component AppWindow inherits Window {
                 if !root.ai-hidden: HorizontalLayout { alignment: center; RailButton { icon: Icons.spark; tip: "Assistant"; active: root.chat-shown && root.app == 0 && !root.show-settings; clicked => { if root.app != 0 || root.show-settings { root.show-settings = false; root.app = 0; root.chat-open = true; root.c-ai-closed = false; } else if root.chat-shown { root.chat-open = false; if root.composing { root.c-ai-closed = true; } } else { root.chat-open = true; root.c-ai-closed = false; } } } }
                 if root.admin-enabled: HorizontalLayout { alignment: center; RailButton { icon: Icons.shield; tip: "Admin"; active: root.app == 4 && !root.show-settings; clicked => { root.show-settings = false; root.app = 4; root.app-changed(4); } } }
                 Rectangle { vertical-stretch: 1; }
+                HorizontalLayout { alignment: center; NotificationBell { } }
                 HorizontalLayout { alignment: center; RailButton { icon: Icons.settings; tip: "Settings"; active: root.show-settings; clicked => { root.open-settings(); } } }
                 HorizontalLayout {
                     alignment: center;

@@ -108,29 +108,51 @@ fn all(c: &Value, map: &str, field: &str) -> Vec<String> {
     c[map].as_object().map(|o| o.values().filter_map(|v| v[field].as_str().map(String::from)).collect()).unwrap_or_default()
 }
 
+/// Hold these books and cards (groups split off, both sorted by name) and redraw.
+fn install(u: &AppWindow, books: Vec<Value>, mut cards: Vec<Value>) {
+    let mut groups: Vec<Value> = cards.iter().filter(|x| x["kind"].as_str() == Some("group")).cloned().collect();
+    groups.sort_by_key(|x| full_name(x).to_lowercase());
+    cards.retain(|x| x["kind"].as_str() != Some("group"));
+    cards.sort_by_key(|x| full_name(x).to_lowercase());
+    ST.with(|s| { let mut s = s.borrow_mut(); s.books = books; s.cards = cards; s.groups = groups; });
+    render(u);
+    if current_filter() == "dupes:" { crate::contacts_x::render_dupes(u); }
+}
+
+/// Live update (livesync): apply AddressBook and ContactCard deltas, then redraw.
+pub fn apply_live(u: &AppWindow, ds: &[(String, String, String, crate::livesync::Delta)]) {
+    let (mut books, mut all) = ST.with(|s| { let s = s.borrow(); (s.books.clone(), s.cards.iter().chain(s.groups.iter()).cloned().collect::<Vec<_>>()) });
+    for (ty, acc, _, d) in ds {
+        let ident = |x: &Value| (acc.clone(), x["id"].as_str().unwrap_or("").to_string());
+        crate::livesync::apply(if ty == "AddressBook" { &mut books } else { &mut all }, acc, d, ident, |v| v);
+    }
+    install(u, books, all);
+}
+
 pub fn load(w: slint::Weak<AppWindow>, c: Arc<Client>) {
     if !c.has("urn:ietf:params:jmap:contacts") { return; }
     crate::contacts_x::set_has_principals(c.has("urn:ietf:params:jmap:principals"));
     CLIENT.with(|x| *x.borrow_mut() = Some(c.clone()));
     std::thread::spawn(move || {
         let acc = c.account_for("urn:ietf:params:jmap:contacts");
+        let owner = c.state_key();
+        let mut states: Vec<(String, String, String)> = vec![];
         let res: Result<(Vec<Value>, Vec<Value>), String> = (|| {
             let r = c.call(json!([["AddressBook/get", {"accountId": acc, "ids": null}, "a"]]))?;
             let books = r[0][1]["list"].as_array().cloned().unwrap_or_default();
+            // live updates (livesync): the states the view is read at, the cards' before the read
+            if let (Some(bs), Some(cs)) = (r[0][1]["state"].as_str(), crate::livesync::state_of(&c, "ContactCard", &acc)) {
+                states = vec![("AddressBook".into(), acc.clone(), bs.into()), ("ContactCard".into(), acc.clone(), cs)];
+            }
             // every card, paged past the server's query cap, fetched in maxObjectsInGet chunks
             let ids = c.query_all("ContactCard/query", &acc, json!({}))?;
             let cards = c.get_all("ContactCard/get", &acc, &ids, None)?;
             Ok((books, cards))
         })();
         let _ = w.upgrade_in_event_loop(move |u| match res {
-            Ok((books, mut cards)) => {
-                let mut groups: Vec<Value> = cards.iter().filter(|x| x["kind"].as_str() == Some("group")).cloned().collect();
-                groups.sort_by_key(|x| full_name(x).to_lowercase());
-                cards.retain(|x| x["kind"].as_str() != Some("group"));
-                cards.sort_by_key(|x| full_name(x).to_lowercase());
-                ST.with(|s| { let mut s = s.borrow_mut(); s.books = books; s.cards = cards; s.groups = groups; });
-                render(&u);
-                if current_filter() == "dupes:" { crate::contacts_x::render_dupes(&u); }
+            Ok((books, cards)) => {
+                crate::livesync::loaded(crate::livesync::View::Contacts, &owner, &states);
+                install(&u, books, cards);
                 for f in THEN.with(|t| std::mem::take(&mut *t.borrow_mut())) { f(&u); }
             }
             Err(e) => crate::mail::show_toast(&u, &format!("Contacts: {e}"), false),
