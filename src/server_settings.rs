@@ -675,6 +675,15 @@ pub fn load(tab: &str, c: &Client, cache: &Shared) {
     k.error = res.err().unwrap_or_default();
 }
 
+/// Password & sign-in has nothing of the server's to show, and the server has said so: the
+/// account security load answered with no management capability (`sec.checked`, set by
+/// security::load) and the masked addresses' load answered with nothing to show. Before both
+/// answered the page stays empty rather than say "Nothing to manage on this server."
+pub fn security_answered_empty(cache: &Shared) -> bool {
+    let k = cache.lock().unwrap_or_else(|e| e.into_inner());
+    k.sec.checked && k.masked_state != 0 && k.sec.cap.is_none() && !k.masked_shown
+}
+
 /// Rows for server-backed pages; `None` for pages this module doesn't own. `prefs` are the
 /// settings the caller holds: nothing here takes their lock again.
 pub fn rows(tab: &str, cache: &Shared, prefs: &crate::settings::Settings) -> Option<Vec<SRow>> {
@@ -1757,6 +1766,29 @@ pub fn default_collection(c: &Client, book: bool, id: &str) -> Result<(), String
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn nothing_to_manage_only_once_the_server_answered() {
+        use super::{security_answered_empty as empty, Shared};
+        let c = Shared::default();
+        // the page just opened: nothing has answered yet, so no note
+        assert!(!empty(&c));
+        // the account security answered (no management) but the masked addresses have not
+        c.lock().unwrap().sec.checked = true;
+        assert!(!empty(&c));
+        // both answered, nothing to show: the note
+        c.lock().unwrap().masked_state = 3;
+        assert!(empty(&c));
+        // a server with account security, or masked addresses to list, has something to show
+        c.lock().unwrap().sec.cap = Some("urn:stalwart:jmap");
+        assert!(!empty(&c));
+        c.lock().unwrap().sec.cap = None;
+        c.lock().unwrap().masked_shown = true;
+        assert!(!empty(&c));
+        // reset (another account, Settings closed): loading again, no note
+        super::reset(&c);
+        assert!(!empty(&c));
+    }
+
     use super::*;
 
     fn cache_with(quota: Vec<Value>, identities: Vec<Value>) -> Shared {

@@ -448,8 +448,10 @@ fn toggle(key: &str, label: &str, desc: &str, on: bool) -> SRow {
 
 /// Password & sign-in on a server without account management: the schema has nothing to show
 /// there any more (the app lock's rows are gone), so the page says so instead of staying blank.
-pub fn security_or_note(rows: Vec<SRow>) -> Vec<SRow> {
-    if !rows.is_empty() { return rows; }
+/// Only once the server answered (`answered`, server_settings::security_answered_empty): while
+/// it loads, a server that does have account security must not say it has none.
+pub fn security_or_note(rows: Vec<SRow>, answered: bool) -> Vec<SRow> {
+    if !rows.is_empty() || !answered { return rows; }
     vec![text("value", "", "Nothing to manage on this server.", "", "")]
 }
 
@@ -776,7 +778,7 @@ impl Settings {
                 }
                 if tab == "reading" {
                     out.push(row("section", "", "Rendering", "How the content of an email is drawn."));
-                    out.push(select("desktop.renderMode", "Show email content with", "WebView2 uses the Edge engine. Blitz is a light native Rust engine that never loads anything from the network.", &["WebView2 (full HTML)", "Blitz (light, native)", "Plain text"], cfg.render_mode));
+                    out.push(select("desktop.renderMode", "Show email content with", "WebView2 uses the Edge engine. Plain text shows only the text of a message, with nothing loaded from the network.", &["WebView2 (full HTML)", "Plain text"], crate::ai::render_choice(cfg.render_mode)));
                 }
                 // Desktop app page, and Updates under About (src/desktop.rs)
                 out.extend(crate::desktop::settings_rows(tab, self));
@@ -860,7 +862,7 @@ impl Settings {
             "admin.key" => { crate::admin::set_key(value.as_str().unwrap_or("")); return; }
             "ai.lang" => cfg.lang = value.as_str().unwrap_or("").into(),
             "spam.showClean" => cfg.show_clean_spam = value.as_bool().unwrap_or(true),
-            "desktop.renderMode" => cfg.render_mode = value.as_i64().unwrap_or(0) as i32,
+            "desktop.renderMode" => cfg.render_mode = crate::ai::render_mode_of(value.as_i64().unwrap_or(0)),
             // Bulwark's list is an array of lower-cased addresses; the page edits it as text
             "trustedSenders" => {
                 let list = crate::trust::parse_list(value.as_str().unwrap_or(""));
@@ -943,6 +945,8 @@ impl Settings {
 
     /// Value to store for a select row's chosen index.
     pub fn select_value(&self, key: &str, index: i32) -> Value {
+        // the row's choices are WebView2 and Plain text; the stored numbers are 0 and 2 (ai.rs)
+        if key == "desktop.renderMode" { return json!(crate::ai::render_mode_for_choice(index)); }
         if key.starts_with("ai.") || key.starts_with("desktop.") { return json!(index); }
         if key == crate::trust::POLICY_KEY { return crate::trust::ContentPolicy::ALL.get(index as usize).map_or(Value::Null, |p| json!(p.as_str())); }
         if let Some(o) = option_override(key) { return o.get(index as usize).map(|x| x.0.clone()).unwrap_or(Value::Null); }
@@ -993,11 +997,14 @@ mod tests {
     fn password_and_sign_in_is_never_blank() {
         // without the server's account security rows the page has no rows of its own
         assert!(Settings::with_prefs(Map::new()).schema_rows("security").is_empty());
-        let r = security_or_note(vec![]);
+        let r = security_or_note(vec![], true);
         assert_eq!((r.len(), r[0].label.as_str()), (1, "Nothing to manage on this server."));
+        // still loading: no note yet (the server may well have account security)
+        assert!(security_or_note(vec![], false).is_empty());
         let some = vec![row("section", "", "Account security", "")];
-        assert_eq!(security_or_note(some.clone()).len(), 1);
-        assert_eq!(security_or_note(some)[0].label.as_str(), "Account security");
+        assert_eq!(security_or_note(some.clone(), true).len(), 1);
+        assert_eq!(security_or_note(some.clone(), false).len(), 1);
+        assert_eq!(security_or_note(some, true)[0].label.as_str(), "Account security");
     }
 
     #[test]

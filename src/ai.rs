@@ -15,9 +15,18 @@ pub struct Config {
     pub prompts: String, // "Name: what to ask" per line
     pub memory_on: bool,
     pub hidden: bool,
-    pub render_mode: i32, // 0 WebView2, 1 Blitz, 2 plain text
+    pub render_mode: i32, // 0 WebView2, 2 plain text (see [`render_mode_of`])
     pub remote_images: bool,
 }
+
+/// "Show email content with" as stored (`renderMode`): 0 WebView2, 2 plain text. 1 was the light
+/// renderer (Blitz), which is gone: a file that still says 1 (or anything else) gets WebView2.
+/// The numbers stay as they were, so a settings file reads the same in older builds.
+pub fn render_mode_of(stored: i64) -> i32 { if stored == 2 { 2 } else { 0 } }
+
+/// The settings row's choice (0 WebView2, 1 Plain text) for a mode, and the mode for a choice.
+pub fn render_choice(mode: i32) -> i32 { if mode == 2 { 1 } else { 0 } }
+pub fn render_mode_for_choice(choice: i32) -> i32 { if choice == 1 { 2 } else { 0 } }
 
 pub const DEFAULTS: [(&str, &str); 2] = [
     ("https://api.openai.com/v1", "gpt-4o-mini"),
@@ -52,7 +61,7 @@ impl Config {
             prompts: v["prompts"].as_str().unwrap_or("").into(),
             memory_on: v["memory"].as_bool().unwrap_or(true),
             hidden: v["hidden"].as_bool().unwrap_or(false),
-            render_mode: (v["renderMode"].as_i64().unwrap_or(0) as i32).clamp(0, 2),
+            render_mode: render_mode_of(v["renderMode"].as_i64().unwrap_or(0)),
             remote_images: v["remoteImages"].as_bool().unwrap_or(false),
         }
     }
@@ -224,4 +233,22 @@ pub fn compose_prompt(action: &str, draft: &str, lang: &str) -> String {
         if action == "Translate" { "" } else { " and language" },
         clip(draft, 30000)
     )
+}
+
+#[cfg(test)]
+mod render_mode_tests {
+    use super::*;
+
+    #[test]
+    fn the_light_renderer_setting_reads_as_webview2() {
+        assert_eq!(render_mode_of(0), 0);
+        assert_eq!(render_mode_of(1), 0, "the removed light renderer falls back to WebView2");
+        assert_eq!(render_mode_of(2), 2);
+        assert_eq!(render_mode_of(-4), 0);
+        assert_eq!(render_mode_of(9), 0);
+        // the row has two choices and keeps the stored numbers
+        assert_eq!((render_choice(0), render_choice(2)), (0, 1));
+        assert_eq!((render_mode_for_choice(0), render_mode_for_choice(1)), (0, 2));
+        assert_eq!(render_choice(render_mode_of(1)), 0);
+    }
 }

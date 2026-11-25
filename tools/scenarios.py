@@ -39,7 +39,6 @@ SCENARIOS = {
     "star_toggle":    (READ, ["type s", "sleep 0.9", "type s"], 2200),
     "list_refresh":   (READ, ["type G"], 2000),
     "images_toggle":  (READ, ["load-images"], 1500),
-    "light_switch":   (BASE + ["render-mode 1", ROW(0), "sleep 1.6"], ["key j"], 1800),
 }
 
 
@@ -68,7 +67,6 @@ def bento():
         "star_toggle":    (read, ["type s", "sleep 0.9", "type s"], 2200),
         "list_refresh":   (read, ["type G"], 2000),
         "images_toggle":  (read, ["load-images"], 1500),
-        "light_switch":   (base + ["render-mode 1", row(0), "sleep 1.6"], ["key j"], 1800),
     }
 
 

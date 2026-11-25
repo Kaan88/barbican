@@ -38,7 +38,7 @@
 //!   load-images          (the reader's "Load images" button: re-render the open message)
 //!   discard-composer     (close the composer without saving, like its Discard button)
 //!   resize W H           (resize the window, logical px)
-//!   render-mode N        (0 WebView, 1 light renderer, 2 plain text; in memory only)
+//!   render-mode N        (0 WebView, 2 plain text; in memory only)
 //!   probe-start          (frame probe: from now on record every rendered frame's start/end time
 //!                        and the time each command is dispatched; nothing is captured or copied)
 //!   probe-stop           (stop and return one JSON line: {"frames":[[start,end],…],"events":[[t,cmd],…]},
@@ -458,7 +458,7 @@ fn run_cmd(u: &AppWindow, line: &str) -> String {
         }
         "load-images" => { u.invoke_load_images(); "ok".into() }
         "discard-composer" => { u.invoke_discard_draft(); "ok".into() }
-        "render-mode" => { u.set_render_mode(pos(&args, 0) as i32); u.invoke_rerender(); "ok".into() }
+        "render-mode" => { u.set_render_mode(crate::ai::render_mode_of(pos(&args, 0) as i64)); u.invoke_rerender(); "ok".into() }
         "theme" => { crate::set_theme_dark(u, args.first().copied() != Some("light")); "ok".into() }
         // flip the motion tokens in memory only: reduce|normal (Motion.reduce), rapid|calm (Motion.rapid)
         "motion" => {

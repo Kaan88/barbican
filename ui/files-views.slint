@@ -80,8 +80,6 @@ export global FilesV {
     in-out property <image> p-image;
     in-out property <string> p-text;
     in-out property <string> p-note;
-    in-out property <image> p-doc;
-    in-out property <float> p-doc-height;
     in-out property <bool> p-eml;
     in-out property <string> p-from;
     in-out property <string> p-to;
@@ -91,10 +89,12 @@ export global FilesV {
     in-out property <string> p-atts;
     in-out property <bool> p-has-prev;
     in-out property <bool> p-has-next;
-    // the width a document was drawn for, in logical px (it is shown at that size, never
-    // stretched); the body area says when it changes size and Rust draws it again (debounced)
-    in-out property <float> p-doc-width: 760;
-    callback p-resized();
+    // "doc": the mail view's WebView2 shows the page over the document area (src/mailview.rs
+    // show_file); a capture of it shows there while something covers it
+    in-out property <image> p-snap;
+    in-out property <bool> p-snap-on;
+    // a scrolling key for the page on show: Up, Down, PageUp, PageDown, Home, End
+    callback p-doc-key(string);
     // a scrolling key (Up, Down, Page Up, Page Down, Home, End) for the text or document on show
     in-out property <string> p-key;
     in-out property <int> p-key-tick;
@@ -377,8 +377,14 @@ export component FileDetails inherits Rectangle {
 
 /// The in-app preview over the window: the name, previous / next, Open in another app,
 /// Download, Close; Escape closes and the arrow keys go through the folder's files (the
-/// window's key handler, ui/app.slint).
+/// window's key handler, ui/app.slint; with the keyboard in a page, the mail view's shell
+/// sends them back). Always there, shown while open: the window reads the document area's
+/// place for the WebView (doc-x/y/w/h).
 export component FilePreview inherits Rectangle {
+    out property <length> doc-x: wv.absolute-position.x;
+    out property <length> doc-y: wv.absolute-position.y;
+    out property <length> doc-w: wv.width;
+    out property <length> doc-h: wv.height;
     background: #000000e6;
     TouchArea { clicked => { FilesV.p-close(); } }
     VerticalLayout {
@@ -407,7 +413,6 @@ export component FilePreview inherits Rectangle {
         // body
         area := Rectangle {
             vertical-stretch: 1;
-            changed width => { FilesV.p-resized(); }
             if FilesV.p-state == "loading": Text { text: "Loading…"; color: #ffffffcc; font-size: 13px * Prefs.fs; }
             if FilesV.p-state == "error" || FilesV.p-state == "none": Rectangle {
                 width: min(420px, parent.width - 32px);
@@ -471,16 +476,19 @@ export component FilePreview inherits Rectangle {
                     }
                 }
             }
-            if FilesV.p-state == "doc": Rectangle {
+            Rectangle {
+                visible: FilesV.p-state == "doc";
                 x: (parent.width - self.width) / 2;
                 y: 16px;
-                width: min(FilesV.p-doc-width * 1px, parent.width - 32px);
+                width: min(1100px, parent.width - 32px);
                 height: parent.height - 32px;
                 border-radius: 14px;
                 background: #ffffff;
                 clip: true;
                 TouchArea { }
                 VerticalLayout {
+                    // an HTML file has no header: its rounded top corners stay clear of the view
+                    if !FilesV.p-eml: Rectangle { height: 12px; }
                     // an .eml's header (Bulwark EmlPreview)
                     if FilesV.p-eml: Rectangle {
                         background: Theme.tile;
@@ -496,15 +504,21 @@ export component FilePreview inherits Rectangle {
                             if FilesV.p-atts != "": Text { text: "Attachments: " + FilesV.p-atts; color: Theme.dim; font-size: 12px * Prefs.fs; wrap: word-wrap; }
                         }
                     }
-                    ScrollView {
-                        property <int> tick: FilesV.p-key-tick;
-                        changed tick => { self.content-y = FilesV.scrolled(self.content-y, self.visible-height, self.content-height); }
+                    // the page: the WebView is placed over this (src/mailview.rs target), and it
+                    // scrolls and lays itself out at any width
+                    wv := Rectangle {
                         vertical-stretch: 1;
-                        // drawn at this width: a narrower window scrolls sideways instead of squeezing it
-                        content-width: max(self.visible-width, FilesV.p-doc-width * 1px);
-                        content-height: FilesV.p-doc-height * 1px;
-                        Image { x: 0; y: 0; width: FilesV.p-doc-width * 1px; height: FilesV.p-doc-height * 1px; source: FilesV.p-doc; image-fit: fill; }
+                        background: #ffffff;
+                        property <int> tick: FilesV.p-key-tick;
+                        changed tick => {
+                            if FilesV.p-state == "doc" {
+                                FilesV.p-doc-key(FilesV.p-key == Key.UpArrow ? "Up" : FilesV.p-key == Key.DownArrow ? "Down" : FilesV.p-key == Key.PageUp ? "PageUp" : FilesV.p-key == Key.PageDown ? "PageDown" : FilesV.p-key == Key.Home ? "Home" : "End");
+                            }
+                        }
+                        if FilesV.p-snap-on: Image { x: 0; y: 0; width: parent.width; height: parent.height; source: FilesV.p-snap; image-fit: fill; }
                     }
+                    // the rounded corners stay below the (square) view
+                    Rectangle { height: 12px; }
                 }
             }
         }
