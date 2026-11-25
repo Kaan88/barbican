@@ -561,6 +561,8 @@ pub fn open(u: &AppWindow, c: Arc<Client>, kind: ComposeKind, m: Option<&Value>)
     if m.is_some() { rte::focus(u); } else { u.set_rte_focus_on_open(false); }
     u.set_composing(true);
     crate::autosave::start(u, false);
+    let mode = match kind { ComposeKind::New => "new", ComposeKind::Reply => "reply", ComposeKind::ReplyAll => "reply-all", ComposeKind::Forward => "forward" };
+    crate::plugin_hooks::composer_opened(mode, m.and_then(|m| m["id"].as_str()), m.and_then(|m| m["subject"].as_str()));
 }
 
 /// Forward `m` as a message/rfc822 attachment (Bulwark lib/forward-as-attachment.ts): the
@@ -669,6 +671,7 @@ pub fn open_draft(u: &AppWindow, c: Arc<Client>, m: &Value) {
     rte::focus(u);
     u.set_composing(true);
     crate::autosave::start(u, true);
+    crate::plugin_hooks::composer_opened("new", None, None);
 }
 
 fn outgoing(u: &AppWindow) -> Outgoing {
@@ -980,6 +983,11 @@ fn acknowledged(fp: u64, intent: Intent) -> bool {
 
 fn send_at(u: &AppWindow, c: Arc<Client>, prefs: &crate::settings::Settings, at: Option<i64>) {
     let intent = at.map_or(Intent::Send, Intent::Schedule);
+    if send_checking() {
+        // Send is greyed out meanwhile; a shortcut still lands here
+        u.set_c_status("Your plugins are still checking this message.".into());
+        return;
+    }
     if crate::autosave::in_flight() {
         // the draft is being saved: send once it is, so the send replaces that draft
         crate::autosave::queue(match at { Some(t) => crate::autosave::Queued::Schedule(t), None => crate::autosave::Queued::Send });
@@ -1010,10 +1018,11 @@ fn send_at(u: &AppWindow, c: Arc<Client>, prefs: &crate::settings::Settings, at:
         return;
     }
     o.read_receipt = o.read_receipt || prefs.bool("requestReadReceiptDefault", false);
-    let draft = serde_json::json!({"to": o.to, "cc": o.cc, "bcc": o.bcc, "subject": o.subject, "text": o.text,
-        "attachments": o.attachments.iter().map(|a| a.name.clone()).collect::<Vec<_>>()});
-    let verdict = gate(HELD.with(|h| h.get()), fp, intent, || pre_send_warning(&o, prefs, intent), || external_warning(&o, prefs, intent, &crate::own_addresses()), || {
-        let w = crate::plugin_compose_check(&draft);
+    let held = HELD.with(|h| h.get());
+    // a warning of the plugin stage (or a later one) was seen for exactly this draft and action
+    let plugin_acked = held.is_some_and(|(f, a, st)| f == fp && a == intent && st >= Stage::Plugin);
+    let verdict = gate(held, fp, intent, || pre_send_warning(&o, prefs, intent), || external_warning(&o, prefs, intent, &crate::own_addresses()), || {
+        let w = crate::plugin_compose_check(&api1_draft(&o));
         crate::plugin_notices(u);
         w.map(|w| format!("{w} {}", retry_advice(intent)))
     });
@@ -1022,8 +1031,190 @@ fn send_at(u: &AppWindow, c: Arc<Client>, prefs: &crate::settings::Settings, at:
         u.set_c_status(w.into());
         return;
     }
-    HELD.with(|h| h.set(None));
     let delay = prefs.prefs.get("sendDelaySeconds").and_then(|v| v.as_u64()).unwrap_or(5);
+    if crate::plugin_hooks::send_hooked() {
+        // API 2 plugins check (and may change) the message; the UI does not wait for them
+        plugin_send(u, SendJob { c, o, fp, intent, at, delay, acked: plugin_acked, gen: 0 });
+        return;
+    }
+    HELD.with(|h| h.set(None));
+    submit(u, c, o, at, delay);
+}
+
+/// API 1's `compose.check` input.
+fn api1_draft(o: &Outgoing) -> Value {
+    serde_json::json!({"to": o.to, "cc": o.cc, "bcc": o.bcc, "subject": o.subject, "text": o.text,
+        "attachments": o.attachments.iter().map(|a| a.name.clone()).collect::<Vec<_>>()})
+}
+
+/// A send waiting for the API 2 plugins' check and transforms (PLUGINS.md "What B4 built").
+struct SendJob {
+    c: Arc<Client>,
+    o: Outgoing,
+    /// the draft as Send was pressed: the check counts only while the composer still holds it
+    fp: u64,
+    intent: Intent,
+    at: Option<i64>,
+    delay: u64,
+    /// the user already saw a plugin warning for this draft: warnings do not hold it again (refusals still do)
+    acked: bool,
+    gen: u64,
+}
+
+thread_local! {
+    /// The plugins' send check in progress: its number and what cancels it.
+    static CHECK: RefCell<Option<(u64, crate::plugin_hooks::Pending)>> = const { RefCell::new(None) };
+    static CHECK_SEQ: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// The plugins are checking a message (Send waits).
+pub fn send_checking() -> bool { CHECK.with(|c| c.borrow().is_some()) }
+
+/// Stop the plugins' check (the Cancel button, the composer closed): nothing is sent, the message stays. `tell`:
+/// say so in the composer. Pressing Send again runs the check again (PLUGINS.md "Decisions").
+pub fn cancel_send_check(u: &AppWindow, tell: bool) {
+    let Some((_, p)) = CHECK.with(|c| c.borrow_mut().take()) else { return };
+    p.cancel();
+    u.set_c_checking(false);
+    if tell { u.set_c_status("Not sent: you stopped the plugins' check. Press Send to check the message again.".into()); }
+}
+
+/// `onDraftChange`'s payload for one plugin (src/plugin_hooks.rs `draft_view`).
+pub fn draft_payload(u: &AppWindow, c: &crate::plugin_host::HostCtx) -> Value {
+    let identity = ST.with(|s| s.borrow().identity_ids.get(u.get_c_from_index() as usize).cloned().unwrap_or_default());
+    crate::plugin_hooks::draft_view(&outgoing(u), &identity, &|p| c.holds_permission(p))
+}
+
+/// The open composer's saved draft, if any.
+pub fn current_draft_id() -> Option<String> { ST.with(|s| s.borrow().draft_id.clone()) }
+
+/// What the plugins get besides the message.
+fn send_context(u: &AppWindow, o: &Outgoing) -> crate::plugin_hooks::SendContext {
+    let (mode, identity_id) = ST.with(|s| {
+        let s = s.borrow();
+        let mode = if s.forwarding { "forward" } else if s.answering.is_some() || !s.in_reply_to.is_empty() { "reply" } else { "compose" };
+        (mode.to_string(), s.identity_ids.get(u.get_c_from_index() as usize).cloned().unwrap_or_default())
+    });
+    let internal = crate::trust::own_domains(&crate::own_addresses());
+    crate::plugin_hooks::SendContext {
+        mode, identity_id,
+        authored_text: o.text.lines().filter(|l| !l.starts_with('>')).collect::<Vec<_>>().join("\n"),
+        external: crate::trust::external_recipients(&o.to, &o.cc, &o.bcc, &internal).into_iter().map(|r| r.address.to_lowercase()).collect(),
+        composer_id: crate::plugin_hooks::composer_id(),
+    }
+}
+
+/// Start the plugins' send check (`onBeforeEmailSend`); its answers come back on the UI thread.
+fn plugin_send(u: &AppWindow, mut job: SendJob) {
+    job.gen = CHECK_SEQ.with(|s| { s.set(s.get() + 1); s.get() });
+    let gen = job.gen;
+    u.set_c_checking(true);
+    u.set_c_status("Checking with your plugins…".into());
+    let payload = crate::plugin_hooks::outgoing_payload(&job.o, &send_context(u, &job.o));
+    let (w, p2) = (u.as_weak(), payload.clone());
+    let pending = crate::plugin_hooks::check_send(payload, move |all| {
+        if let Some(u) = w.upgrade() { checked(&u, job, p2, all, false); }
+    });
+    CHECK.with(|c| *c.borrow_mut() = Some((gen, pending)));
+}
+
+/// The check `gen` moved on to another step (transforms, the second check).
+fn check_step(gen: u64, p: crate::plugin_hooks::Pending) {
+    CHECK.with(|c| if let Some((g, old)) = c.borrow_mut().as_mut() { if *g == gen { *old = p; } });
+}
+
+/// Does the answer still count? Not after Cancel, a closed composer, or a change to the message.
+fn still_current(u: &AppWindow, job: &SendJob) -> bool {
+    if !CHECK.with(|c| c.borrow().as_ref().is_some_and(|(g, _)| *g == job.gen)) { return false; }
+    if !u.get_composing() { cancel_send_check(u, false); return false; }
+    if draft_fingerprint(&outgoing(u)) != job.fp {
+        cancel_send_check(u, false);
+        u.set_c_status("Not sent: the message changed while your plugins checked it. Press Send again.".into());
+        return false;
+    }
+    true
+}
+
+/// The plugins answered the send check (`recheck`: the second one, after a transform changed the recipients).
+fn checked(u: &AppWindow, job: SendJob, payload: Value, all: Vec<(String, crate::plugin_host::Outcome)>, recheck: bool) {
+    use crate::plugin_hooks::Verdict;
+    if !still_current(u, &job) { return; }
+    crate::plugin_notices(u);
+    match crate::plugin_hooks::send_verdict(&all, job.acked) {
+        Verdict::Block(m) => { cancel_send_check(u, false); u.set_c_status(m.into()); }
+        Verdict::Warn(m) => {
+            cancel_send_check(u, false);
+            HELD.with(|h| h.set(Some((job.fp, job.intent, Stage::Plugin))));
+            u.set_c_status(format!("{m} {}", retry_advice(job.intent)).into());
+        }
+        Verdict::Go if recheck => plugin_send_done(u, job),
+        Verdict::Go => {
+            let (w, gen, before) = (u.as_weak(), job.gen, payload.clone());
+            let p = crate::plugin_hooks::transform_send(payload, move |after| {
+                if let Some(u) = w.upgrade() { transformed(&u, job, before, after); }
+            });
+            check_step(gen, p);
+        }
+    }
+}
+
+/// The outgoing transforms ran: put their result into the message. When they changed who it goes to, the send
+/// checks run again for the new recipients (ROADMAP B4): valid addresses, at least one, the outside-recipient
+/// confirmation for recipients a plugin added, API 1's check and the plugins' check.
+fn transformed(u: &AppWindow, mut job: SendJob, before: Value, after: Value) {
+    if !still_current(u, &job) { return; }
+    let changed = crate::plugin_hooks::recipients_changed(&before, &after);
+    let old = job.o.clone();
+    crate::plugin_hooks::apply_outgoing(&mut job.o, &after);
+    if !changed { plugin_send_done(u, job); return; }
+    let all = crate::recipients::parse_list(&format!("{}, {}, {}", job.o.to, job.o.cc, job.o.bcc));
+    let bad = crate::recipients::invalid_addresses(&all);
+    let stop = |u: &AppWindow, m: String| { cancel_send_check(u, false); u.set_c_status(m.into()); };
+    if !bad.is_empty() { return stop(u, format!("Not sent: a plugin changed the recipients to something that is not a valid address: {}", bad.join(", "))); }
+    if crate::jmap::parse_addresses(&format!("{},{},{}", job.o.to, job.o.cc, job.o.bcc)).is_empty() {
+        return stop(u, "Not sent: a plugin removed every recipient.".into());
+    }
+    if !job.acked {
+        let prefs = crate::settings::Settings::load();
+        let internal = crate::trust::own_domains(&crate::own_addresses());
+        let outside = |o: &Outgoing| crate::trust::external_recipients(&o.to, &o.cc, &o.bcc, &internal).into_iter().map(|r| r.address.to_lowercase()).collect::<Vec<_>>();
+        let was = outside(&old);
+        let added: Vec<String> = outside(&job.o).into_iter().filter(|a| !was.contains(a)).collect();
+        let w = if prefs.bool(crate::trust::RECIPIENT_CONFIRM_KEY, false) && !added.is_empty() {
+            Some(format!("A plugin added recipients outside your organisation: {}. {}", added.join(", "), retry_advice(job.intent)))
+        } else {
+            let w = crate::plugin_compose_check(&api1_draft(&job.o));
+            crate::plugin_notices(u);
+            w.map(|w| format!("{w} {}", retry_advice(job.intent)))
+        };
+        if let Some(w) = w {
+            cancel_send_check(u, false);
+            HELD.with(|h| h.set(Some((job.fp, job.intent, Stage::Plugin))));
+            u.set_c_status(w.into());
+            return;
+        }
+    }
+    let payload = crate::plugin_hooks::outgoing_payload(&job.o, &send_context(u, &job.o));
+    let (w, gen, p2) = (u.as_weak(), job.gen, payload.clone());
+    let p = crate::plugin_hooks::check_send(payload, move |all| {
+        if let Some(u) = w.upgrade() { checked(&u, job, p2, all, true); }
+    });
+    check_step(gen, p);
+}
+
+/// Every plugin said yes: send the (possibly changed) message.
+fn plugin_send_done(u: &AppWindow, job: SendJob) {
+    CHECK.with(|c| c.borrow_mut().take());
+    u.set_c_checking(false);
+    u.set_c_status("".into());
+    HELD.with(|h| h.set(None));
+    submit(u, job.c, job.o, job.at, job.delay);
+}
+
+/// Send `o` (all checks passed): scheduled, held in the app for the undo time, or held by the server.
+fn submit(u: &AppWindow, c: Arc<Client>, mut o: Outgoing, at: Option<i64>, delay: u64) {
+    crate::plugin_hooks::composer_sent();
+    let composer = crate::plugin_hooks::composer_id();
     let snapshot = ST.with(|s| {
         use slint::Model;
         let mut x = s.borrow().clone();
@@ -1041,11 +1232,13 @@ fn send_at(u: &AppWindow, c: Arc<Client>, prefs: &crate::settings::Settings, at:
         std::thread::spawn(move || {
             let res = c.send_message(&o);
             let w2 = w.clone();
+            let account = c.account.clone();
             let _ = w.upgrade_in_event_loop(move |u| {
                 let queued = crate::autosave::finish(gen, None);
                 u.set_sending(false);
                 match res {
-                    Ok(_) => {
+                    Ok(sub) => {
+                        crate::plugin_hooks::email_sent(&o, &account, sub.as_deref(), Some(t), &composer);
                         u.set_composing(false);
                         let when = chrono::DateTime::from_timestamp_millis(t).map(|d| d.with_timezone(&chrono::Local))
                             .map(|d| crate::schedule::label(d, crate::settings::Settings::load().str("timeFormat", "24h") == "12h", chrono::Local::now()))
@@ -1076,7 +1269,11 @@ fn send_at(u: &AppWindow, c: Arc<Client>, prefs: &crate::settings::Settings, at:
                 let w3 = w2.clone();
                 let c3 = c2.clone();
                 let _ = w2.upgrade_in_event_loop(move |u| match res {
-                    Ok(_) => { crate::mail::show_toast(&u, "Message sent", false); after_send(&u, c3); }
+                    Ok(sub) => {
+                        crate::plugin_hooks::email_sent(&o, &c3.account, sub.as_deref(), None, &composer);
+                        crate::mail::show_toast(&u, "Message sent", false);
+                        after_send(&u, c3);
+                    }
                     Err(e) => crate::mail::show_error(&u, &format!("Not sent: {e}")),
                 });
                 crate::mail::load_mailboxes(w3, c2, false);
@@ -1099,6 +1296,7 @@ fn send_at(u: &AppWindow, c: Arc<Client>, prefs: &crate::settings::Settings, at:
             if res.is_err() { run_queued(&u, queued); }
             match res {
                 Ok(sub) => {
+                    crate::plugin_hooks::email_sent(&o, &c3.account, sub.as_deref(), None, &composer);
                     u.set_composing(false);
                     after_send(&u, c3);
                     match sub {
@@ -1195,6 +1393,7 @@ pub fn autosave_now(u: &AppWindow) {
 
 fn run_save(u: &AppWindow, c: Arc<Client>, auto: bool, close: bool) {
     let o = outgoing(u);
+    let o_subject = o.subject.clone();
     let key = content_key(u);
     let first = o.replaces_draft.is_none();
     let gen = crate::autosave::begin_save(key);
@@ -1212,6 +1411,7 @@ fn run_save(u: &AppWindow, c: Arc<Client>, auto: bool, close: bool) {
             match &res {
                 Ok(id) if mine => {
                     ST.with(|s| s.borrow_mut().draft_id = Some(id.clone()));
+                    crate::plugin_hooks::draft_saved(id, &o_subject);
                     x.set_saved(format!("Draft saved {}", chrono::Local::now().format("%H:%M")).into());
                     u.set_c_saved_at(chrono::Local::now().format("%H:%M").to_string().into());
                     if !auto { u.set_c_status("Draft saved".into()); }

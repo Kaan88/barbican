@@ -1399,15 +1399,16 @@ fn sync_hashed(plugins: &mut [Plugin], enabled: &[String], loader: &Loader, v2: 
         // Known gap: the file can still be swapped between this hash and the loader opening it (Windows lets a file
         // that is not open be replaced). Holding it open with a share mode that forbids writes is not done here.
         if plugins[i].decl.api >= 2 {
-            // API 2 (B3): loaded and initialised on its own host thread with what the user accepted; no message is
-            // sent to it (hooks and slots come with B4 and B5)
+            // API 2 (B3): loaded and initialised on its own host thread with what the user accepted; it gets the
+            // messages of the hooks it declared and was granted (B4, [`hook_targets`]), slots come with B5
             let p = &plugins[i];
             let Some(g) = v2.grants.iter().find(|g| g.id == p.key) else {
                 plugins[i].load_failed = true;
                 errors.push(format!("{path}: switch it on again to accept what it asks for"));
                 continue;
             };
-            let params = crate::plugin_host::params_for(&p.id, &p.name, &p.version, &p.decl.permissions, &p.decl.http_origins, &p.decl.settings, g);
+            let mut params = crate::plugin_host::params_for(&p.id, &p.name, &p.version, &p.decl.permissions, &p.decl.http_origins, &p.decl.settings, g);
+            params.hooks = p.hooks.clone();
             match crate::plugin_host::start(&v2.loader, std::path::Path::new(&path), p.expect(), params, v2.env.clone(), budget) {
                 Ok(rt) => plugins[i].v2 = Some(rt),
                 Err(e) => { plugins[i].load_failed = true; errors.push(format!("{path}: {e}")); }
@@ -1473,6 +1474,24 @@ pub fn is_active(plugins: &[Plugin], enabled: &[String], id: &str) -> bool {
     plugins.iter().any(|p| p.id == id && p.active(enabled))
 }
 
+/// The running API 2 plugins that hear `hook` ([`crate::plugin_host::HostCtx::hears`]), in the order they were
+/// switched on (`enabled` is the allow-list, which keeps that order): transforms chain in it, and the first
+/// intercept that says no stops the action. API 1 plugins are called by their own functions below.
+pub fn hook_targets(plugins: &[Plugin], enabled: &[String], hook: &str) -> Vec<Arc<crate::plugin_host::HostCtx>> {
+    let mut v: Vec<(usize, Arc<crate::plugin_host::HostCtx>)> = plugins.iter().filter_map(|p| {
+        let rt = p.v2.as_ref()?;
+        let at = enabled.iter().position(|k| *k == p.key)?;
+        (!rt.ctx.is_disabled() && rt.ctx.hears(hook)).then(|| (at, rt.ctx.clone()))
+    }).collect();
+    v.sort_by_key(|x| x.0);
+    v.into_iter().map(|x| x.1).collect()
+}
+
+/// The running API 2 plugin switched on as `key`, if any (the `settings` message).
+pub fn running_v2(plugins: &[Plugin], key: &str) -> Option<Arc<crate::plugin_host::HostCtx>> {
+    plugins.iter().find(|p| p.key == key).and_then(|p| p.v2.as_ref()).filter(|r| !r.ctx.is_disabled()).map(|r| r.ctx.clone())
+}
+
 /// Rows from every enabled plugin for the open message.
 pub fn email_details(plugins: &[Plugin], enabled: &[String], email: &Value) -> Vec<(String, String, String)> {
     let mut rows = vec![];
@@ -1513,7 +1532,7 @@ pub fn describe(p: &Plugin) -> Value {
     let titles: Vec<&str> = perms.iter().map(|x| permission_text(x).map_or(x.as_str(), |t| t.title)).collect();
     if !titles.is_empty() { note += &format!(" Asks to: {}.", titles.join(", ").to_lowercase()); }
     if p.decl.api >= 2 {
-        note += " Uses plugin API 2. This version runs it with storage, its settings, notices and dialogs, web requests to the sites you allowed and who is signed in; it is not called from mail, calendar or other screens yet.";
+        note += " Uses plugin API 2. This version runs it with storage, its settings, notices and dialogs, web requests to the sites you allowed and who is signed in, and tells it about the mail and composer events it asks for; it cannot add to Barbican's screens yet.";
     }
     json!({"id": p.key, "name": p.name, "version": p.version, "author": p.decl.author, "description": format!("{}{note}", p.description).trim(),
         "hooks": p.hooks, "path": p.path, "packaged": p.decl.package.is_some(), "permissions": perms, "api": p.decl.api,

@@ -64,6 +64,7 @@ mod secrets;
 mod plugins;
 mod plugin_package;
 mod plugin_host;
+mod plugin_hooks;
 mod plugin_catalog;
 #[cfg(test)]
 mod plugin_catalog_check;
@@ -863,6 +864,21 @@ pub fn plugin_errors() -> Vec<String> {
     v.extend(PLUGIN_LOAD_ERRORS.with(|e| e.borrow().clone()));
     // the text comes from manifests and libraries: one line each, of a bounded length
     v.iter().map(|e| plugins::shown(e, plugins::MAX_SHOWN)).collect()
+}
+
+/// The running API 2 plugins that hear `hook`, in the order they were switched on (src/plugin_hooks.rs). Cheap
+/// when no API 2 plugin runs: the prefs are read only then. A plugin is running only after it was switched on and
+/// synced with its grant, and switching it off parks it at once.
+pub fn plugin_hook_targets(hook: &str) -> Vec<Arc<plugin_host::HostCtx>> {
+    let any = PLUGINS.with(|p| p.try_borrow().map(|l| l.iter().any(|x| x.is_running_v2())).unwrap_or(false));
+    if !any { return vec![]; }
+    let en = enabled_plugins();
+    PLUGINS.with(|p| p.try_borrow().map(|l| plugins::hook_targets(&l, &en, hook)).unwrap_or_default())
+}
+
+/// A plugin's setting changed in Settings > Add-ons: a running API 2 plugin gets the `settings` message.
+pub fn plugin_settings_changed(key: &str) {
+    plugin_hooks::settings_changed(PLUGINS.with(|p| p.try_borrow().ok().and_then(|l| plugins::running_v2(&l, key))));
 }
 
 pub fn plugin_compose_check(draft: &serde_json::Value) -> Option<String> {
@@ -2013,6 +2029,11 @@ fn main() -> Result<(), slint::PlatformError> {
         let v = (share > 0.1 && share < 0.95).then(|| json!((share as f64 * 1000.0).round() / 1000.0));
         settings::Settings::put("replyDockShare", v);
     });
+
+    let w = ui.as_weak();
+    ui.on_cancel_send_check(move || compose::cancel_send_check(&w.unwrap(), true));
+    let w = ui.as_weak();
+    ui.on_plugin_watch(move |what| plugin_hooks::watch(&w.unwrap(), &what));
 
     let (w, st, pf) = (ui.as_weak(), state.clone(), prefs.clone());
     ui.on_send_now(move || {
