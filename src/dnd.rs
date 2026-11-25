@@ -93,13 +93,13 @@ pub fn drop(u: &AppWindow, st: &Shared) {
                             .and_then(|(_, bad)| if bad.is_empty() { Ok(()) } else { Err(bad.join("; ")) });
                         let (w2, c2) = (w.clone(), c.clone());
                         let _ = w.upgrade_in_event_loop(move |u| {
-                            if let Err(e) = res { crate::mail::show_toast(&u, &format!("Folder not moved: {e}"), false); }
+                            if let Err(e) = res { crate::mail::show_error(&u, &format!("Folder not moved: {e}")); }
                             // always re-read the tree (Bulwark #855: never trust the optimistic order)
                             crate::mail::load_mailboxes(w2, c2, false);
                         });
                     });
                 }
-                Err(e) => crate::mail::show_toast(u, &e, false),
+                Err(e) => crate::mail::show_error(u, &e),
             }
         }
         "file" => {

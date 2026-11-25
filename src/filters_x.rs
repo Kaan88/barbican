@@ -576,7 +576,7 @@ fn save_rules(u: &AppWindow, c: Arc<Client>, cache: Cache, reload: Reload, rules
             g.set_busy(false);
             match res {
                 Ok(()) => { if close { g.set_open(false); } crate::mail::show_toast(&u, done, false); }
-                Err(e) => { if close { g.set_status(e.clone().into()); } else { crate::mail::show_toast(&u, &e, false); } }
+                Err(e) => { if close { g.set_status(e.clone().into()); } else { crate::mail::show_error(&u, &e); } }
             }
             // on failure the cache is back to the server's list; reload only shows what was saved
             if ok { reload("filters".into()); } else if !close { reload("filters".into()); }

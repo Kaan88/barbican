@@ -102,6 +102,8 @@ mod updater;
 #[cfg(test)]
 mod release_manifest;
 mod listsync;
+mod livesync;
+mod notices;
 mod motion;
 
 use chrono::{DateTime, Local};
@@ -543,6 +545,15 @@ pub(crate) fn move_ids(u: &AppWindow, st: &Shared, ids: Vec<String>, fid: &str) 
 
 thread_local! { static MY_ADDRS: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) }; }
 
+/// The login's identities, read at sign-in and kept current by push (livesync): the own
+/// addresses and the name on the mail screen.
+pub fn set_identities(u: &AppWindow, c: &jmap::Client, list: &[Value]) {
+    let ids = identities::ordered_for(list, &c.username, &c.base);
+    let addrs: Vec<String> = ids.iter().filter_map(|i| i["email"].as_str().map(String::from)).collect();
+    MY_ADDRS.with(|a| *a.borrow_mut() = addrs);
+    glance::set_name(u, &ids);
+}
+
 /// The identities' addresses loaded at sign-in (UI thread).
 pub fn my_addrs_cached() -> Vec<String> { MY_ADDRS.with(|a| a.borrow().clone()) }
 
@@ -850,17 +861,6 @@ fn sanitize_name(n: &str) -> String { attachments::safe_file_name(n) }
 
 static SESSION_GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
-/// Data types the app follows over push (RFC 8620 §7.3 `types`).
-const PUSH_TYPES: [&str; 5] = ["Email", "Mailbox", "Thread", "EmailDelivery", "EmailSubmission"];
-
-/// The push types of a login: mail, plus calendar objects where it has calendars.
-fn push_types(c: &jmap::Client) -> Vec<&'static str> {
-    let mut v = PUSH_TYPES.to_vec();
-    if c.has(calendar::CAL) { v.extend(["CalendarEvent", "Calendar"]); }
-    if c.has("urn:ietf:params:jmap:contacts") { v.extend(["ContactCard", "AddressBook"]); }
-    v
-}
-
 /// Live updates: listen to the JMAP event stream and sync what a StateChange names.
 /// The stream is re-opened with exponential backoff (2 s .. 5 min, with jitter) after it drops
 /// or goes silent. Each time it opens everything is synced once (cheap: /changes deltas), since
@@ -870,15 +870,18 @@ fn start_push(w: slint::Weak<AppWindow>, c: Arc<jmap::Client>) {
     let live = move || SESSION_GEN.load(std::sync::atomic::Ordering::SeqCst) == gen;
     std::thread::spawn(move || {
         let mut backoff = 2u64;
+        let mut more = true;
         loop {
             if !live() { return; }
             let started = std::time::Instant::now();
-            let types_wanted = push_types(&c);
+            let types_wanted = livesync::push_types(&c, more);
+            let mut opened = false;
             let res = c.watch(&types_wanted, &mut |ev| {
                 if !live() { return false; }
+                if ev == jmap::PushEvent::Open { opened = true; }
                 let types: std::collections::HashSet<String> = match ev {
                     jmap::PushEvent::Open => types_wanted.iter().map(|t| t.to_string()).collect(),
-                    jmap::PushEvent::State(v) => jmap::changed_types(&v, &c.account).into_keys().collect(),
+                    jmap::PushEvent::State(v) => livesync::pushed_types(&v, &c.account),
                     _ => Default::default(),
                 };
                 if !types.is_empty() {
@@ -894,6 +897,8 @@ fn start_push(w: slint::Weak<AppWindow>, c: Arc<jmap::Client>) {
                 let _ = w.upgrade_in_event_loop(|u| mail::show_toast(&u, "Your sign-in is no longer valid. Sign in again.", false));
                 return;
             }
+            // a server that does not know the newer types may refuse or drop the stream: again without them
+            if livesync::retry_without_more(more, opened, res.as_ref().err().map(|e| e.as_str())) { more = false; continue; }
             if started.elapsed() > std::time::Duration::from_secs(120) { backoff = 2; }
             let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.subsec_nanos() as u64).unwrap_or(0);
             let wait = backoff * 1000 + nanos % (backoff * 500);
@@ -920,11 +925,15 @@ fn schedule_refresh(w: slint::Weak<AppWindow>, c: Arc<jmap::Client>, types: std:
         if has("Email") || has("Thread") || (scheduled && has("EmailSubmission")) { mail::sync(w.clone(), c.clone()); }
         if has("Email") || has("Thread") { if let Some(u) = w.upgrade() { refresh_open_thread(&u); } }
         if has("Email") || has("EmailDelivery") { check_new_mail(c.clone(), Some(w.clone())); }
-        if has("ContactCard") || has("AddressBook") { trustbook::refresh(w.clone(), c.clone(), false); }
+        if has("ContactCard") || has("AddressBook") { trustbook::refresh(w.clone(), c.clone(), false); livesync::contacts(w.clone(), c.clone()); }
         if has("CalendarEvent") || has("Calendar") {
             reminders::changed(w.clone(), c.clone());
-            if w.upgrade().is_some_and(|u| u.get_app() == 1) { calendar::load(w.clone(), c.clone()); }
+            // a delta of what changed (livesync), the full load only when the server can't give one
+            livesync::calendar(w.clone(), c.clone());
         }
+        if has("FileNode") { livesync::files(w.clone(), c.clone()); }
+        if has("Identity") { livesync::identities(w.clone(), c.clone()); }
+        if has("ShareNotification") || has("CalendarEventNotification") { notices::fetch(w.clone(), c.clone()); }
     }));
 }
 
@@ -1107,6 +1116,7 @@ fn main() -> Result<(), slint::PlatformError> {
     let ui = AppWindow::new()?;
     apply_theme(&ui);
     apply_ui_prefs(&ui);
+    notices::wire(&ui);
     motion::watch_system(&ui);
     automation::start(&ui);
     avatars::set_window(ui.as_weak());
@@ -1202,6 +1212,7 @@ fn main() -> Result<(), slint::PlatformError> {
     // what the settings pages cached (the account security page holds secrets): reset when Settings
     // closes and on sign-out, sign-in and account switches
     let server_cache: server_settings::Shared = Default::default();
+    livesync::set_settings_cache(server_cache.clone());
     let w = ui.as_weak();
     let st = state.clone();
     let srv_out = server_cache.clone();
@@ -1277,6 +1288,8 @@ fn main() -> Result<(), slint::PlatformError> {
         if last { settings::forget_trusted_senders(); }
         // what was read from the account's address book; the book itself stays on the server
         trustbook::clear();
+        livesync::forget_all();
+        if last { notices::forget(&u); }
         signout::wipe(signout::Who { user: account, owner, last, webview_live: mailview::is_built() || platform::other_of_profile_running() });
         // the template and sub-address dialogs are drawn over the sign-in page too; the composer's template list
         // was this account's
@@ -2728,6 +2741,8 @@ fn finish_login(w: slint::Weak<AppWindow>, st: Shared, res: Result<jmap::Client,
             let c = Arc::new(c);
             *RESTORE_PENDING.lock().unwrap() = None;
             *st.lock().unwrap() = Some(c.clone());
+            // live updates and notifications are this session's from now on
+            livesync::set_current(Some(c.clone()));
             // the new session starts now: a "Trust sender" click from here on is this account's
             trustbook::begin(&c);
             // this account's synced settings (pulled in the background; nothing is pushed to it before)
@@ -2762,9 +2777,8 @@ fn finish_login(w: slint::Weak<AppWindow>, st: Shared, res: Result<jmap::Client,
             {
                 let (w3, c3) = (w2.clone(), c.clone());
                 std::thread::spawn(move || {
-                    let ids = identities::ordered_for(&c3.identities().unwrap_or_default(), &c3.username, &c3.base);
-                    let addrs: Vec<String> = ids.iter().filter_map(|i| i["email"].as_str().map(String::from)).collect();
-                    let _ = w3.upgrade_in_event_loop(move |u| { MY_ADDRS.with(|a| *a.borrow_mut() = addrs); glance::set_name(&u, &ids); });
+                    let (ids, state) = livesync::load_identities(&c3).unwrap_or_default();
+                    let _ = w3.upgrade_in_event_loop(move |u| livesync::identities_loaded(&u, &c3, ids, state));
                 });
             }
             // today's events and open tasks for the mail screen's summary tiles
@@ -2777,6 +2791,8 @@ fn finish_login(w: slint::Weak<AppWindow>, st: Shared, res: Result<jmap::Client,
             }
             // the trusted senders address book (reads it; files this computer's list into it)
             trustbook::refresh(w2.clone(), c.clone(), true);
+            // shares and event changes waiting on the server, also where push does not work
+            notices::fetch(w2.clone(), c.clone());
             start_push(w2, c);
         }
         Err(e) => {

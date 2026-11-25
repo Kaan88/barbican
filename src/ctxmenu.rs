@@ -1140,7 +1140,7 @@ fn edit_tags(u: &AppWindow, f: impl FnOnce(&mut Vec<crate::tags::TagDef>) -> Res
             mail::rebuild_list(u);
             if !msg.is_empty() { mail::show_toast(u, &msg, false); }
         }
-        Err(e) => mail::show_toast(u, &e, false),
+        Err(e) => mail::show_error(u, &e),
     }
 }
 
@@ -1161,7 +1161,7 @@ pub fn prompt_ok(u: &AppWindow, st: &Shared, text: &str) {
             let old = if action == "rename-att" { crate::attachments::reader_name(i) } else { crate::compose::attachment_name(i) };
             let Some(old) = old else { return };
             match crate::attachments::renamed(&old, &name) {
-                Err(why) => mail::show_toast(u, why, false),
+                Err(why) => mail::show_error(u, why),
                 Ok(None) => {}
                 Ok(Some(new)) => if action == "rename-att" { crate::attachments::rename_in_reader(u, i, &new) } else { crate::compose::rename_attachment(u, i, &new) },
             }
@@ -1584,7 +1584,7 @@ pub fn pick(u: &AppWindow, st: &Shared, action: &str) {
                         let w2 = w.clone();
                         let _ = w.upgrade_in_event_loop(move |u| match res {
                             Ok(_) => { u.set_ct_group("".into()); contacts::load(w2, c); }
-                            Err(e) => mail::show_toast(&u, &e, false),
+                            Err(e) => mail::show_error(&u, &e),
                         });
                     });
                 }

@@ -449,7 +449,7 @@ pub fn start(u: &crate::AppWindow, c: std::sync::Arc<Client>, mailbox: &str, kee
     match may_add(&c, &mailbox) {
         Ok(true) => {}
         Ok(false) => { crate::mail::show_toast(u, "You can't add messages to this folder.", false); return; }
-        Err(e) => { crate::mail::show_toast(u, &e, false); return; }
+        Err(e) => { crate::mail::show_error(u, &e); return; }
     }
     let Some(files) = crate::automation::pick_files() else { return };
     if files.is_empty() { return; }
@@ -464,7 +464,7 @@ pub fn start(u: &crate::AppWindow, c: std::sync::Arc<Client>, mailbox: &str, kee
         let mut boxes: Vec<Value> = if keep_folders {
             match c.mailboxes() {
                 Ok(b) => b,
-                Err(e) => { let _ = w.upgrade_in_event_loop(move |u| crate::mail::show_toast(&u, &format!("Could not read the folders: {e}"), false)); return; }
+                Err(e) => { let _ = w.upgrade_in_event_loop(move |u| crate::mail::show_error(&u, &format!("Could not read the folders: {e}"))); return; }
             }
         } else { vec![] };
         for f in &files {

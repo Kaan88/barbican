@@ -108,33 +108,65 @@ fn all(c: &Value, map: &str, field: &str) -> Vec<String> {
     c[map].as_object().map(|o| o.values().filter_map(|v| v[field].as_str().map(String::from)).collect()).unwrap_or_default()
 }
 
+/// Hold these books and cards (groups split off, both sorted by name) and redraw.
+fn install(u: &AppWindow, books: Vec<Value>, mut cards: Vec<Value>) {
+    let mut groups: Vec<Value> = cards.iter().filter(|x| x["kind"].as_str() == Some("group")).cloned().collect();
+    groups.sort_by_key(|x| full_name(x).to_lowercase());
+    cards.retain(|x| x["kind"].as_str() != Some("group"));
+    cards.sort_by_key(|x| full_name(x).to_lowercase());
+    ST.with(|s| { let mut s = s.borrow_mut(); s.books = books; s.cards = cards; s.groups = groups; });
+    render(u);
+    if current_filter() == "dupes:" { crate::contacts_x::render_dupes(u); }
+}
+
+/// Apply AddressBook and ContactCard deltas to the books and to every card (groups included).
+fn apply_deltas(books: &mut Vec<Value>, all: &mut Vec<Value>, ds: &[crate::livesync::Applied]) {
+    for (ty, acc, _, d) in ds {
+        let ident = |x: &Value| (acc.clone(), x["id"].as_str().unwrap_or("").to_string());
+        crate::livesync::apply(if ty == "AddressBook" { &mut *books } else { &mut *all }, acc, d, ident, |v| v);
+    }
+}
+
+/// Live update (livesync): apply the deltas, then redraw.
+pub fn apply_live(u: &AppWindow, ds: &[crate::livesync::Applied]) {
+    let (mut books, mut all) = ST.with(|s| { let s = s.borrow(); (s.books.clone(), s.cards.iter().chain(s.groups.iter()).cloned().collect::<Vec<_>>()) });
+    apply_deltas(&mut books, &mut all, ds);
+    install(u, books, all);
+}
+
+/// The account the address books were loaded from.
+pub fn account() -> Option<String> { client().map(|c| c.account_for("urn:ietf:params:jmap:contacts")) }
+
 pub fn load(w: slint::Weak<AppWindow>, c: Arc<Client>) {
     if !c.has("urn:ietf:params:jmap:contacts") { return; }
     crate::contacts_x::set_has_principals(c.has("urn:ietf:params:jmap:principals"));
     CLIENT.with(|x| *x.borrow_mut() = Some(c.clone()));
     std::thread::spawn(move || {
         let acc = c.account_for("urn:ietf:params:jmap:contacts");
+        let owner = c.state_key();
+        let mut states: Vec<(String, String, String)> = vec![];
         let res: Result<(Vec<Value>, Vec<Value>), String> = (|| {
             // Stalwart leaves shareWith and myRights out by default (Bulwark client.ts:613 ADDRESS_BOOK_PROPERTIES)
             let r = c.call(json!([["AddressBook/get", {"accountId": acc, "ids": null, "properties": ["id", "name", "description", "sortOrder", "isDefault", "isSubscribed", "shareWith", "myRights"]}, "a"]]))?;
             let books = r[0][1]["list"].as_array().cloned().unwrap_or_default();
+            // live updates (livesync): the states the view is read at, the cards' before the read
+            if let (Some(bs), Some(cs)) = (r[0][1]["state"].as_str(), crate::livesync::state_of(&c, "ContactCard", &acc)) {
+                states = vec![("AddressBook".into(), acc.clone(), bs.into()), ("ContactCard".into(), acc.clone(), cs)];
+            }
             // every card, paged past the server's query cap, fetched in maxObjectsInGet chunks
             let ids = c.query_all("ContactCard/query", &acc, json!({}))?;
             let cards = c.get_all("ContactCard/get", &acc, &ids, None)?;
             Ok((books, cards))
         })();
         let _ = w.upgrade_in_event_loop(move |u| match res {
-            Ok((books, mut cards)) => {
-                let mut groups: Vec<Value> = cards.iter().filter(|x| x["kind"].as_str() == Some("group")).cloned().collect();
-                groups.sort_by_key(|x| full_name(x).to_lowercase());
-                cards.retain(|x| x["kind"].as_str() != Some("group"));
-                cards.sort_by_key(|x| full_name(x).to_lowercase());
-                ST.with(|s| { let mut s = s.borrow_mut(); s.books = books; s.cards = cards; s.groups = groups; });
-                render(&u);
-                if current_filter() == "dupes:" { crate::contacts_x::render_dupes(&u); }
+            // signed out or switched meanwhile: another login's data is not shown
+            Ok(_) if !crate::livesync::is_current(&owner) => {}
+            Ok((books, cards)) => {
+                install(&u, books, cards);
+                crate::livesync::loaded(&u, crate::livesync::View::Contacts, &owner, &states);
                 for f in THEN.with(|t| std::mem::take(&mut *t.borrow_mut())) { f(&u); }
             }
-            Err(e) => crate::mail::show_toast(&u, &format!("Contacts: {e}"), false),
+            Err(e) => crate::mail::show_error(&u, &format!("Contacts: {e}")),
         });
     });
 }
@@ -540,4 +572,24 @@ pub fn has_card(id: &str) -> bool {
 /// (name, first address) of every loaded card with an address, for search suggestions.
 pub fn people() -> Vec<(String, String)> {
     ST.with(|s| s.borrow().cards.iter().filter_map(|c| first(c, "emails", "address").map(|e| (full_name(c), e))).collect())
+}
+
+#[cfg(test)]
+mod live_tests {
+    use super::*;
+    use crate::livesync::Delta;
+
+    #[test]
+    fn live_deltas_update_books_cards_and_groups() {
+        let mut books = vec![json!({"id": "b1", "name": "Personal"}), json!({"id": "b2", "name": "Old"})];
+        let mut all = vec![json!({"id": "k1", "name": {"full": "Ann"}, "emails": {"e": {"address": "a@example.test"}}}), json!({"id": "g1", "kind": "group", "name": {"full": "Team"}})];
+        let ds = vec![
+            ("AddressBook".to_string(), "A".to_string(), "s".to_string(), Delta { destroyed: vec!["b2".into()], fetched: vec![json!({"id": "b3", "name": "Work"})], state: "t".into() }),
+            ("ContactCard".to_string(), "A".to_string(), "s".to_string(), Delta { destroyed: vec!["g1".into()], fetched: vec![json!({"id": "k1", "name": {"full": "Ann B"}}), json!({"id": "k2", "name": {"full": "Cy"}})], state: "t".into() }),
+        ];
+        apply_deltas(&mut books, &mut all, &ds);
+        assert_eq!(books.iter().map(|b| b["id"].as_str().unwrap()).collect::<Vec<_>>(), ["b1", "b3"]);
+        assert_eq!(all.iter().map(|c| full_name(c)).collect::<Vec<_>>(), ["Ann B", "Cy"]);
+        assert!(all[0].get("emails").is_none(), "an updated card is replaced whole");
+    }
 }

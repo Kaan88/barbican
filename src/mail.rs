@@ -262,6 +262,8 @@ pub fn mailbox_info(id: &str) -> (String, String) {
 
 /// The active account's folders as Mailbox/get returned them.
 pub fn mailboxes() -> Vec<Value> { BOXES.with(|b| b.borrow().list.clone()) }
+/// The account the folder list was loaded from.
+pub fn mailboxes_account() -> String { BOXES.with(|b| b.borrow().account.clone()) }
 /// The active account's pinned folder ids (pins are stored per server and account).
 pub fn pinned_ids() -> HashSet<String> {
     let prefs = crate::settings::Settings::load();
@@ -352,6 +354,7 @@ pub fn load_mailboxes(w: slint::Weak<AppWindow>, c: Arc<Client>, select_inbox: b
             crate::ctxmenu::folders_changed(&crate::unified::login_of(&c));
             rebuild_folders(&u);
             set_tags(&u, &counts);
+            crate::notices::folders_landed(&u);
             if select_inbox {
                 // a notification of this login brought the switch: its message, not the Inbox
                 if crate::desktop::resume_pending(&u, &c) { return; }
@@ -1237,6 +1240,13 @@ fn archive_dated(c: &Client, received: &[(String, String)], mode: &str) -> Resul
         if !bad.is_empty() { return Err(bad.join("; ")); }
     }
     Ok(())
+}
+
+/// An error toast: also kept in the notification centre, as Bulwark keeps error and warning
+/// toasts (stores/toast-store.ts:57-63).
+pub fn show_error(u: &AppWindow, text: &str) {
+    show_toast(u, text, false);
+    crate::notices::record(u, crate::notices::Level::Error, text, "");
 }
 
 pub fn show_toast(u: &AppWindow, text: &str, undo: bool) {

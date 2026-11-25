@@ -157,7 +157,7 @@ pub fn init(ui: &AppWindow, state: Shared) {
 pub fn quit_saving_draft(u: &AppWindow, then: fn() -> Result<(), String>) {
     let finish = move || match then() {
         Ok(()) => { slint::quit_event_loop().ok(); }
-        Err(e) => if let Some(u) = app() { crate::mail::show_toast(&u, &e, false); },
+        Err(e) => if let Some(u) = app() { crate::mail::show_error(&u, &e); },
     };
     let anyway = QUIT_ANYWAY_UNTIL.with(|q| q.get()).is_some_and(|t| std::time::Instant::now() < t);
     // nothing typed: no draft is made on the server

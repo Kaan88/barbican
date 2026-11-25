@@ -106,7 +106,7 @@ pub fn targets(r: &Roots, who: &Who) -> Vec<PathBuf> {
                 if n.starts_with("chat") && n.ends_with(".json") { t.push(e.path()); }
             }
         }
-        for f in ["search-history.json", "files.json", crate::reminders::STATE_FILE, "memory.txt", "avatars"] {
+        for f in ["search-history.json", "files.json", crate::reminders::STATE_FILE, "memory.txt", "avatars", crate::notices::FILE] {
             t.push(c.join(f));
         }
     }

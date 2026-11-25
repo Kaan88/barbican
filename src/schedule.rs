@@ -194,7 +194,7 @@ pub fn action(u: &AppWindow, c: Arc<Client>, id: &str, what: &str) {
                         None => crate::mail::show_toast(&u, "Sending cancelled. The message is in Drafts.", false),
                     },
                     Ok(_) => crate::mail::show_toast(&u, "Sending cancelled. The message is in Drafts.", false),
-                    Err(e) => crate::mail::show_toast(&u, &format!("Couldn't cancel the scheduled send: {e}"), false),
+                    Err(e) => crate::mail::show_error(&u, &format!("Couldn't cancel the scheduled send: {e}")),
                 });
                 refresh(w2, c);
             });
@@ -211,7 +211,7 @@ fn reschedule(u: &AppWindow, c: Arc<Client>, _id: String, sub: String, when: Dat
         let w2 = w.clone();
         let _ = w.upgrade_in_event_loop(move |u| match res {
             Ok(_) => crate::mail::show_toast(&u, &format!("Rescheduled for {}", label(when, h12(), Local::now())), false),
-            Err(e) => crate::mail::show_toast(&u, &e, false),
+            Err(e) => crate::mail::show_error(&u, &e),
         });
         refresh(w2, c);
     });

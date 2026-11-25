@@ -277,31 +277,25 @@ pub fn load(w: slint::Weak<AppWindow>, c: Arc<Client>) {
     std::thread::spawn(move || {
         let tz = crate::agent::local_tz();
         let primary = c.account_for(CAL);
+        let owner = c.state_key();
+        let mut states: Vec<(String, String, String)> = vec![];
         let res: Result<(Vec<Value>, Vec<Value>), String> = (|| {
             let mut cals = vec![];
             let mut events = vec![];
             let colors = crate::settings::Settings::load().prefs.get("sharedCalendarColors").cloned().unwrap_or(json!({}));
             for (acc, name, is_primary) in calendar_accounts(&c) {
-                let r = c.request(json!([["Calendar/get", {"accountId": acc, "ids": null, "properties": ["id", "name", "color", "isDefault", "isVisible", "sortOrder", "myRights",
-                    "defaultAlertsWithTime", "defaultAlertsWithoutTime", "isSubscribed", "includeInAvailability"]}, "c"]]))?;
+                let r = c.request(json!([["Calendar/get", {"accountId": acc, "ids": null, "properties": CAL_PROPS}, "c"]]))?;
                 if r.first().is_none_or(|x| x[0] == "error") {
                     if is_primary { return Err(crate::jmap::method_error(&r.first().map(|x| x[1].clone()).unwrap_or(json!({})))); }
                     continue;
                 }
                 let mut list = r[0][1]["list"].as_array().cloned().unwrap_or_default();
                 list.sort_by_key(|x| (x["sortOrder"].as_i64().unwrap_or(0), x["name"].as_str().unwrap_or("").to_lowercase()));
-                for mut cal in list {
-                    let raw = cal["id"].as_str().unwrap_or("").to_string();
-                    cal["_rid"] = json!(raw);
-                    cal["_acc"] = json!(acc);
-                    cal["id"] = json!(ns(&primary, &acc, &raw));
-                    if !is_primary {
-                        cal["_shared"] = json!(true);
-                        cal["_owner"] = json!(name);
-                        if let Some(col) = colors[shared_color_key(&c.username, &acc, &raw)].as_str() { cal["_color"] = json!(col); }
-                    }
-                    cals.push(cal);
-                }
+                for cal in list { cals.push(prepare_calendar(cal, &c.username, &primary, &acc, (!is_primary).then_some(name.as_str()), &colors)); }
+                // live updates (livesync): the states the view is read at, the events' taken before
+                // their read; kept only once this account's read went through
+                let ev_state = crate::livesync::state_of(&c, "CalendarEvent", &acc);
+                let cal_state = r[0][1]["state"].as_str().map(String::from);
                 // every id (paged), then the events in maxObjectsInGet chunks: one back-referenced
                 // CalendarEvent/get of 5000 ids is over Stalwart's limit (requestTooLarge)
                 let ids = match c.query_all("CalendarEvent/query", &acc, json!({"timeZone": tz})) {
@@ -319,6 +313,10 @@ pub fn load(w: slint::Weak<AppWindow>, c: Arc<Client>) {
                     namespace_event(&mut e, &primary, &acc);
                     events.push(e);
                 }
+                if let (Some(cs), Some(es)) = (cal_state, ev_state) {
+                    states.push(("Calendar".to_string(), acc.clone(), cs));
+                    states.push(("CalendarEvent".to_string(), acc.clone(), es));
+                }
             }
             Ok((cals, events))
         })();
@@ -326,6 +324,8 @@ pub fn load(w: slint::Weak<AppWindow>, c: Arc<Client>) {
         let w2 = w.clone();
         let c2 = c.clone();
         let _ = w.upgrade_in_event_loop(move |u| match res {
+            // signed out or switched meanwhile: another login's data is not shown
+            Ok(_) if !crate::livesync::is_current(&owner) => {}
             Ok((cals, events)) => {
                 if let Some(p) = people { crate::cal_extra::set_people(p); }
                 ST.with(|s| s.borrow_mut().calendars = cals);
@@ -333,10 +333,59 @@ pub fn load(w: slint::Weak<AppWindow>, c: Arc<Client>) {
                 rebuild(&u);
                 render_tasks(&u);
                 crate::cal_extra::after_load(&u, w2, c2);
+                crate::livesync::loaded(&u, crate::livesync::View::Calendar, &owner, &states);
             }
-            Err(e) => crate::mail::show_toast(&u, &format!("Calendar: {e}"), false),
+            Err(e) => crate::mail::show_error(&u, &format!("Calendar: {e}")),
         });
     });
+}
+
+/// The calendar properties the view loads (and a live delta fetches).
+pub const CAL_PROPS: [&str; 11] = ["id", "name", "color", "isDefault", "isVisible", "sortOrder", "myRights",
+    "defaultAlertsWithTime", "defaultAlertsWithoutTime", "isSubscribed", "includeInAvailability"];
+
+/// A calendar of `acc` as the view holds it: namespaced id, its account, and for a shared one
+/// (`owner` is the account's name) the per-viewer colour.
+fn prepare_calendar(mut cal: Value, username: &str, primary: &str, acc: &str, owner: Option<&str>, colors: &Value) -> Value {
+    let raw = cal["id"].as_str().unwrap_or("").to_string();
+    cal["_rid"] = json!(raw);
+    cal["_acc"] = json!(acc);
+    cal["id"] = json!(ns(primary, acc, &raw));
+    if let Some(name) = owner {
+        cal["_shared"] = json!(true);
+        cal["_owner"] = json!(name);
+        if let Some(col) = colors[shared_color_key(username, acc, &raw)].as_str() { cal["_color"] = json!(col); }
+    }
+    cal
+}
+
+/// Apply Calendar and CalendarEvent deltas of each account to calendars and events as the view
+/// holds them. Calendars keep their account order (`accounts`, as [`calendar_accounts`]) and are
+/// sorted in it as the full load sorts them.
+pub fn apply_deltas(cals: &mut Vec<Value>, events: &mut Vec<Value>, accounts: &[(String, String, bool)], primary: &str, username: &str,
+                    colors: &Value, ds: &[crate::livesync::Applied]) {
+    let ident = |x: &Value| (x["_acc"].as_str().unwrap_or("").to_string(), x["_rid"].as_str().unwrap_or("").to_string());
+    for (ty, acc, _, d) in ds {
+        if ty == "Calendar" {
+            let owner = accounts.iter().find(|a| a.0 == *acc && !a.2).map(|a| a.1.clone());
+            crate::livesync::apply(cals, acc, d, ident, |v| prepare_calendar(v, username, primary, acc, owner.as_deref(), colors));
+            cals.sort_by_key(|x| (accounts.iter().position(|a| x["_acc"] == a.0.as_str()).unwrap_or(usize::MAX),
+                x["sortOrder"].as_i64().unwrap_or(0), x["name"].as_str().unwrap_or("").to_lowercase()));
+        } else {
+            crate::livesync::apply(events, acc, d, ident, |mut e| { namespace_event(&mut e, primary, acc); e });
+        }
+    }
+}
+
+/// Live update (livesync): apply the deltas, then redraw as a full load does (tasks, the Tasks
+/// view, subscriptions of calendars that went). `colors` were read on the worker thread.
+pub fn apply_live(u: &AppWindow, c: &Arc<Client>, ds: &[crate::livesync::Applied], colors: &Value) {
+    let accounts = calendar_accounts(c);
+    let primary = c.account_for(CAL);
+    ST.with(|s| RAW.with(|r| apply_deltas(&mut s.borrow_mut().calendars, &mut r.borrow_mut(), &accounts, &primary, &c.username, colors, ds)));
+    rebuild(u);
+    render_tasks(u);
+    crate::cal_extra::after_load(u, u.as_weak(), c.clone());
 }
 
 /// Give an event of another account namespaced ids (its own and its calendars').
@@ -705,6 +754,34 @@ pub fn delete(u: &AppWindow, c: Arc<Client>) { crate::cal_editor::delete(u, c); 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn live_deltas_update_calendars_and_events_of_their_account_only() {
+        use crate::livesync::Delta;
+        let accounts = vec![("A".to_string(), "Me".to_string(), true), ("B".to_string(), "Bob".to_string(), false)];
+        let colors = json!({});
+        let mut cals = vec![prepare_calendar(json!({"id": "c1", "name": "Work", "sortOrder": 2}), "ann", "A", "A", None, &colors),
+            prepare_calendar(json!({"id": "c1", "name": "Bob's", "sortOrder": 0}), "ann", "A", "B", Some("Bob"), &colors)];
+        let mut events = vec![];
+        for (acc, id) in [("A", "e1"), ("A", "e2"), ("B", "e1")] { let mut e = json!({"id": id, "title": format!("{acc}{id}"), "calendarIds": {"c1": true}}); namespace_event(&mut e, "A", acc); events.push(e); }
+        let ds = vec![
+            ("Calendar".to_string(), "A".to_string(), "c0".to_string(), Delta { destroyed: vec![], fetched: vec![json!({"id": "c2", "name": "Home", "sortOrder": 1})], state: "c9".into() }),
+            ("Calendar".to_string(), "B".to_string(), "d0".to_string(), Delta { destroyed: vec![], fetched: vec![json!({"id": "c3", "name": "Team", "sortOrder": 0})], state: "d9".into() }),
+            ("CalendarEvent".to_string(), "B".to_string(), "e0".to_string(), Delta { destroyed: vec!["e1".into()], fetched: vec![json!({"id": "e7", "title": "new", "calendarIds": {"c3": true}})], state: "e9".into() }),
+            ("CalendarEvent".to_string(), "A".to_string(), "f0".to_string(), Delta { destroyed: vec![], fetched: vec![json!({"id": "e2", "title": "renamed", "calendarIds": {"c1": true}})], state: "f9".into() }),
+        ];
+        apply_deltas(&mut cals, &mut events, &accounts, "A", "ann", &colors, &ds);
+        // the primary account's calendars first, sorted; a shared one keeps its owner and namespaced id
+        let names: Vec<&str> = cals.iter().map(|c| c["name"].as_str().unwrap()).collect();
+        assert_eq!(names, ["Home", "Work", "Bob's", "Team"]);
+        assert_eq!(cals[3]["_owner"], "Bob");
+        assert_eq!(cals[3]["id"], json!(ns("A", "B", "c3")));
+        let titles: Vec<&str> = events.iter().map(|e| e["title"].as_str().unwrap()).collect();
+        assert_eq!(titles, ["Ae1", "renamed", "new"], "B's e1 went, A's e1 has the same id and stays");
+        assert_eq!(events[2]["_acc"], "B");
+        assert!(events[2]["calendarIds"].get(ns("A", "B", "c3").as_str()).is_some());
+    }
+
     #[test]
     fn sidebar_tasks_capped_and_overdue() {
         let open: Vec<Value> = (0..9).map(|_| json!({"progress": "needs-action"})).chain([json!({"progress": "completed"})]).collect();
@@ -839,7 +916,7 @@ pub fn create_in(u: &AppWindow, c: Arc<Client>, cal: &str, mut obj: Value, what:
         let w2 = w.clone();
         let _ = w.upgrade_in_event_loop(move |u| match res {
             Ok(()) => load(w2, c),
-            Err(e) => crate::mail::show_toast(&u, &format!("{what}: {e}"), false),
+            Err(e) => crate::mail::show_error(&u, &format!("{what}: {e}")),
         });
     });
 }
@@ -931,7 +1008,7 @@ pub fn set_call(u: &AppWindow, c: Arc<Client>, method: &str, args: Value, what: 
         let _ = w.upgrade_in_event_loop(move |u| match res {
             Ok(()) => load(w2, c),
             // re-read on failure too, so an optimistic change the server refused is undone
-            Err(e) => { crate::mail::show_toast(&u, &format!("{what}: {e}"), false); load(w2, c); }
+            Err(e) => { crate::mail::show_error(&u, &format!("{what}: {e}")); load(w2, c); }
         });
     });
 }
