@@ -22,6 +22,7 @@ mod automation;
 mod otp;
 mod agent;
 mod ai;
+mod assistant;
 mod bodycache;
 mod cachedata;
 mod allday;
