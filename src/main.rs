@@ -425,6 +425,9 @@ thread_local! { static SERVER_DEBOUNCE: slint::Timer = slint::Timer::default(); 
 /// The server writes the debounce timer runs, one per slot (server_settings::job_slot).
 type ServerJob = (Arc<jmap::Client>, Box<dyn FnOnce(&jmap::Client) -> Result<(), String> + Send>);
 thread_local! { static SERVER_PENDING: std::cell::RefCell<server_settings::PendingJobs<ServerJob>> = std::cell::RefCell::new(Default::default()); }
+// When the oldest waiting server write came: typing never holds the others back past
+// server_settings::MAX_WAIT.
+thread_local! { static SERVER_WAITING_SINCE: std::cell::Cell<Option<std::time::Instant>> = const { std::cell::Cell::new(None) }; }
 thread_local! { static TEMPLATES: std::cell::RefCell<(String, Vec<Value>)> = const { std::cell::RefCell::new((String::new(), Vec::new())) }; }
 thread_local! { static THREAD_ID: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) }; }
 
@@ -1239,15 +1242,23 @@ fn main() -> Result<(), slint::PlatformError> {
         let (w, st) = (ui.as_weak(), state.clone());
         Arc::new(move |key: &str, job: Box<dyn FnOnce(&jmap::Client) -> Result<(), String> + Send>, delay_ms: u64| {
             let Some(c) = st.lock().unwrap().clone() else { return };
-            SERVER_PENDING.with(|p| p.borrow_mut().put(server_settings::job_slot(key), (c, job)));
+            // per account too: a write still waiting for the account before a switch is its own
+            let slot = format!("{}\n{}", c.state_key(), server_settings::job_slot(key));
+            SERVER_PENDING.with(|p| p.borrow_mut().put(slot, (c, job)));
+            let since = SERVER_WAITING_SINCE.with(|s| *s.get().get_or_insert_with(std::time::Instant::now));
+            let delay = server_settings::debounce_delay(std::time::Duration::from_millis(delay_ms), since.elapsed());
             let w = w.clone();
-            SERVER_DEBOUNCE.with(|t| t.start(slint::TimerMode::SingleShot, std::time::Duration::from_millis(delay_ms), move || {
+            SERVER_DEBOUNCE.with(|t| t.start(slint::TimerMode::SingleShot, delay, move || {
+                SERVER_WAITING_SINCE.with(|s| s.set(None));
                 let jobs = SERVER_PENDING.with(|p| p.borrow_mut().take_all());
                 if jobs.is_empty() { return; }
                 let w = w.clone();
                 std::thread::spawn(move || {
                     for (_, (c, job)) in jobs {
-                        if let Err(e) = job(&c) {
+                        // one write that panics does not take the ones after it along
+                        let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| job(&c)))
+                            .unwrap_or_else(|_| Err("an internal error stopped this change".into()));
+                        if let Err(e) = res {
                             let _ = w.upgrade_in_event_loop(move |u| { mail::show_toast(&u, &format!("Not saved: {e}"), false); u.invoke_settings_search(u.get_settings_query()); });
                         }
                     }

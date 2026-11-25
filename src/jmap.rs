@@ -940,6 +940,12 @@ impl Client {
 
     /// Download a blob of a given account (a shared account's files).
     pub fn download_from(&self, account: &str, blob_id: &str, name: &str, mime: &str) -> R<Vec<u8>> {
+        // tests: the fake server answers a "blob/download" call with {"text": ...}
+        #[cfg(test)]
+        if let Some(f) = &self.fake {
+            let r = f(&json!([["blob/download", {"accountId": account, "blobId": blob_id}, "d"]]))?;
+            return r.first().and_then(|x| x[1]["text"].as_str()).map(|t| t.as_bytes().to_vec()).ok_or_else(|| "Download failed (404)".into());
+        }
         let t = self.url_template("downloadUrl").ok_or("The server has no download URL.")?;
         let enc = pct;
         let url = t.replace("{accountId}", &enc(account)).replace("{blobId}", &enc(blob_id))

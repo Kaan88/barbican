@@ -832,6 +832,9 @@ pub fn sync_block(c: &Client, reply: &Reply, trigger: Trigger, previous: Option<
     ]))?;
     let found = r[1][1]["list"].as_array().and_then(|l| l.first()).cloned();
     let span = found.as_ref().and_then(|f| event_span(f, tz));
+    // ours, but its times cannot be read (a duration past what a date can hold): left alone, as
+    // Bulwark does; a new one would only be a second event with the same UID
+    if found.is_some() && span.is_none() { return Ok("unreadable"); }
     let rec = c.key_for(&acc);
     let last = last_written(&rec, &acc);
     let marked = found.as_ref().is_some_and(|f| f["keywords"][OOO_KEYWORD] == true);
