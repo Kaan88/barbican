@@ -1532,12 +1532,14 @@ fn main() -> Result<(), slint::PlatformError> {
     settings::register_live(prefs.clone());
     if settings::unsaved_session() {
         // prefs.json could not be read (another program held it): this session runs on the
-        // defaults and never writes the file, so the real settings are there next time
+        // defaults and never writes the file, so the real settings are there next time. Every
+        // change to it stays in memory only: settings, the trusted senders a sign-out forgets
+        // (forget_trusted_senders), Reset; and settings sync is paused (settings_sync::frozen).
         eprintln!("barbican: the settings file could not be read; settings changes will not be saved this session");
         let w = ui.as_weak();
         slint::Timer::single_shot(std::time::Duration::from_secs(2), move || {
             if let Some(u) = w.upgrade() {
-                mail::show_toast(&u, "Your settings could not be read, so the defaults are in use. Changes you make now will not be saved; restart Barbican to load your settings.", false);
+                mail::show_toast(&u, "Your settings could not be read, so the defaults are in use. Settings changes, sign-out and reset will not be saved this session; restart Barbican to load your settings.", false);
             }
         });
     }

@@ -79,6 +79,7 @@ impl CacheScope {
     pub(crate) fn new() -> CacheScope {
         static N: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
         let n = N.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let _ = std::fs::create_dir_all(crate::config_dir());
         let file = crate::config_dir().join(format!("prefs-scope-{n}.json"));
         let _ = std::fs::remove_file(&file);
         for b in bad_copies(&file) { let _ = std::fs::remove_file(b); }
@@ -201,8 +202,9 @@ pub(crate) fn unsaved_session() -> bool {
 }
 
 /// Remove the temporary files an earlier run left when it stopped mid-write
-/// (`prefs.json.<pid>-<n>.tmp` of another process; this one's may be in use).
+/// (`prefs.json.<pid>-<n>.tmp` of another process, untouched for a minute; this one's may be in use).
 fn remove_stale_temp(p: &std::path::Path) {
+    const STALE_AFTER: std::time::Duration = std::time::Duration::from_secs(60);
     let (Some(dir), Some(name)) = (p.parent(), p.file_name()) else { return };
     let pre = format!("{}.", name.to_string_lossy());
     let Ok(rd) = std::fs::read_dir(dir) else { return };
@@ -211,6 +213,9 @@ fn remove_stale_temp(p: &std::path::Path) {
         let Some(mid) = n.strip_prefix(&pre).and_then(|r| r.strip_suffix(".tmp")) else { continue };
         let Some((pid, seq)) = mid.split_once('-') else { continue };
         if pid.parse::<u32>().is_err() || seq.parse::<u64>().is_err() { continue; }
+        // a write of another instance may be under way: only files untouched for a minute go
+        let old = e.metadata().and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok()).is_some_and(|age| age >= STALE_AFTER);
+        if !old { continue; }
         if pid != std::process::id().to_string() { let _ = std::fs::remove_file(e.path()); }
     }
 }
@@ -302,7 +307,8 @@ fn rename_over(from: &std::path::Path, to: &std::path::Path) -> std::io::Result<
     let mut tries = 0;
     loop {
         match std::fs::rename(from, to) {
-            Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied && tries + 1 < READ_TRIES => {
+            // access denied, or ERROR_SHARING_VIOLATION (32) from a program that opened it without sharing
+            Err(e) if (e.kind() == std::io::ErrorKind::PermissionDenied || e.raw_os_error() == Some(32)) && tries + 1 < READ_TRIES => {
                 tries += 1;
                 std::thread::sleep(READ_PAUSE);
             }
@@ -1759,14 +1765,19 @@ mod bad_file_tests {
         let dir = scope.file().parent().unwrap().to_path_buf();
         let name = scope.file().file_name().unwrap().to_string_lossy().to_string();
         let other = dir.join(format!("{name}.{}-7.tmp", std::process::id().wrapping_add(1)));
+        let fresh = dir.join(format!("{name}.{}-8.tmp", std::process::id().wrapping_add(1)));
         let mine = dir.join(format!("{name}.{}-7.tmp", std::process::id()));
         let unrelated = dir.join(format!("{name}.notes.tmp"));
-        for f in [&other, &mine, &unrelated] { std::fs::write(f, "{}").unwrap(); }
+        for f in [&other, &fresh, &mine, &unrelated] { std::fs::write(f, "{}").unwrap(); }
+        // the leftover is two minutes old; `fresh` may be another instance's write under way
+        let past = std::time::SystemTime::now() - std::time::Duration::from_secs(120);
+        std::fs::OpenOptions::new().write(true).open(&other).unwrap().set_modified(past).unwrap();
         let _ = Settings::load();
         assert!(!other.exists(), "another run's leftover goes");
+        assert!(fresh.exists(), "a file written in the last minute stays");
         assert!(mine.exists(), "this run's may be in use");
         assert!(unrelated.exists(), "a name that is not ours stays");
-        for f in [&mine, &unrelated] { let _ = std::fs::remove_file(f); }
+        for f in [&fresh, &mine, &unrelated] { let _ = std::fs::remove_file(f); }
     }
 
     #[test]
