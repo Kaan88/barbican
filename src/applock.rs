@@ -352,6 +352,13 @@ static LIVE: Mutex<Live> = Mutex::new(Live::OFF);
 
 fn live() -> MutexGuard<'static, Live> { LIVE.lock().unwrap_or_else(|e| e.into_inner()) }
 
+/// The last lock record this process read from the store (vouched for by the markers) or wrote:
+/// salt, hash and counts, never the PIN. A locked window keeps its PIN with it, so removing the
+/// stored entries (with the sign-ins) while it is locked does not open it.
+static HELD: Mutex<Option<Record>> = Mutex::new(None);
+
+fn held() -> MutexGuard<'static, Option<Record>> { HELD.lock().unwrap_or_else(|e| e.into_inner()) }
+
 /// Nothing with mail in it may show now (Bulwark lib/app-lock/state.ts `isAppLockedNow`).
 pub fn locked() -> bool { live().locked }
 
@@ -492,14 +499,65 @@ impl RecordLock {
 
 /// [`try_pin_in`] on the real store, under the [`RecordLock`].
 /// A record the sign-ins' markers don't vouch for opens with no PIN, only with signing out.
-/// No entry and no marker for one: the PIN was turned off (another window), and this one is off too.
 fn try_pin(pin: &str, now: i64) -> Result<Record, PinError> {
     let _l = RecordLock::acquire();
-    match read_checked() {
-        Stored::Some(_) => try_pin_in(store(), crate::profile::current(), pin, now),
-        Stored::Missing => { *live() = Live::OFF; Err(PinError::Off) }
-        Stored::Unreadable => Err(PinError::NotSet),
+    let locked = live().locked;
+    let stored = read_checked();
+    let res = try_pin_with(store(), crate::profile::current(), stored, locked, &mut held(), pin, now);
+    if res == Err(PinError::Off) { *live() = Live::OFF; }
+    res
+}
+
+/// One PIN try against what there is (`stored`: the store as the markers vouch for it):
+/// - a stored record: tried there (counted first); counts the store could not keep are kept with
+///   the held record, and a store that cannot be written counts in memory instead;
+/// - locked, with no record in the store (removed, or unreadable): tried against the held one,
+///   counted in memory with the same waits; nothing held is NotSet;
+/// - not locked, no entry and no marker: the PIN was turned off in another window (Off).
+pub fn try_pin_with(b: &dyn Backend, profile: &str, stored: Stored, locked: bool, held: &mut Option<Record>, pin: &str, now: i64) -> Result<Record, PinError> {
+    match stored {
+        Stored::Some(mut r) => {
+            if let Some(h) = held.as_ref().filter(|h| h.fingerprint() == r.fingerprint()) {
+                if h.failures > r.failures || h.blocked_until > r.blocked_until {
+                    r.failures = r.failures.max(h.failures);
+                    r.blocked_until = r.blocked_until.max(h.blocked_until);
+                    let _ = save_in(b, profile, &r);
+                }
+            }
+            match try_pin_in(b, profile, pin, now) {
+                Err(PinError::NotSaved) => {
+                    let mut h = r;
+                    let res = try_held(&mut h, pin, now);
+                    *held = Some(h);
+                    res
+                }
+                res => {
+                    match &res {
+                        Ok(r) => *held = Some(r.clone()),
+                        Err(_) => if let Stored::Some(r) = load_in(b, profile) { *held = Some(r); },
+                    }
+                    res
+                }
+            }
+        }
+        Stored::Missing if !locked => { *held = None; Err(PinError::Off) }
+        _ if locked => match held.as_mut() { Some(h) => try_held(h, pin, now), None => Err(PinError::NotSet) },
+        _ => Err(PinError::NotSet),
     }
+}
+
+/// [`try_pin_in`] on a record in memory: counted first, the same waits.
+fn try_held(h: &mut Record, pin: &str, now: i64) -> Result<Record, PinError> {
+    h.blocked_until = clamp_wait(h.blocked_until, now);
+    if h.blocked_until > now { return Err(PinError::Blocked(h.blocked_until)); }
+    h.failures = h.failures.saturating_add(1);
+    h.blocked_until = now + wait_after(h.failures);
+    if !h.matches(pin) {
+        return Err(PinError::Wrong(if h.blocked_until > now { h.blocked_until } else { 0 }));
+    }
+    h.failures = 0;
+    h.blocked_until = 0;
+    Ok(h.clone())
 }
 
 /// [`blocked_until_in`] on the real store; a wait that needs cutting is written back under the
@@ -511,7 +569,9 @@ fn blocked_until(now: i64) -> i64 {
         let _l = RecordLock::acquire();
         keep_cut_wait_in(b, p, now);
     }
-    until
+    // the tries counted in memory (a store that could not be written, or no entry any more)
+    let mem = held().as_ref().map_or(0, |h| clamp_wait(h.blocked_until, now));
+    if mem > now { until.max(mem) } else { until }
 }
 
 /// The lock as the store and the sign-ins' markers say (see [`checked`]).
@@ -533,7 +593,10 @@ pub fn live_for(s: &Stored, now: i64) -> Live {
 /// markers miss on an entry (a sign-in from before) gets them now.
 pub fn init() -> Stored {
     let s = read_checked();
-    if let Stored::Some(r) = &s { crate::oauth::set_lock_marker(Some(&r.fingerprint())); }
+    if let Stored::Some(r) = &s {
+        crate::oauth::set_lock_marker(Some(&r.fingerprint()));
+        *held() = Some(r.clone());
+    }
     *live() = live_for(&s, now_ms());
     s
 }
@@ -546,15 +609,22 @@ pub fn resync() -> Resync {
     let mut l = live();
     let (next, change) = resynced(*l, &s, now_ms());
     *l = next;
+    drop(l);
+    match s {
+        Stored::Some(r) => *held() = Some(r),
+        _ if !next.on => *held() = None,
+        _ => {}
+    }
     change
 }
 
 /// What [`resync`] changed in the window.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Resync { Same, Locked, Opened }
+pub enum Resync { Same, Locked }
 
-/// [`resync`]'s rule: a PIN (or an entry nobody can open) that appeared locks; a lock whose entry
-/// is gone with no marker vouching for one (turned off in another window) is off and opens.
+/// [`resync`]'s rule: a PIN (or an entry nobody can open) that appeared locks. A lock whose entry
+/// is gone with no marker vouching for one is off only while the window is open (turned off in
+/// another window): a locked window never opens this way, whatever was removed from the store.
 pub fn resynced(mut l: Live, s: &Stored, now: i64) -> (Live, Resync) {
     match s {
         Stored::Some(r) => {
@@ -563,10 +633,7 @@ pub fn resynced(mut l: Live, s: &Stored, now: i64) -> (Live, Resync) {
             if !l.on { return (live_for(s, now), Resync::Locked); }
         }
         Stored::Unreadable if !l.locked => return (live_for(s, now), Resync::Locked),
-        Stored::Missing if l.on => {
-            let change = if l.locked { Resync::Opened } else { Resync::Same };
-            return (Live { last_input_ms: now, ..Live::OFF }, change);
-        }
+        Stored::Missing if l.on && !l.locked => return (Live { last_input_ms: now, ..Live::OFF }, Resync::Same),
         _ => {}
     }
     (l, Resync::Same)
@@ -582,6 +649,7 @@ pub fn forget() {
         let _l = RecordLock::acquire();
         forget_in(store(), crate::profile::current());
     }
+    *held() = None;
     *live() = Live::OFF;
     gui::refresh();
 }
@@ -676,7 +744,6 @@ mod gui {
             match super::resync() {
                 Resync::Same => {}
                 Resync::Locked => slint::Timer::single_shot(std::time::Duration::ZERO, || if let Some(u) = ui() { lock_ui(&u); }),
-                Resync::Opened => slint::Timer::single_shot(std::time::Duration::ZERO, || if let Some(u) = ui() { opened(&u); }),
             }
             return false;
         }
@@ -786,8 +853,7 @@ mod gui {
                     Ok(_) => { opened(&u); return; }
                     Err(PinError::Wrong(_)) => g.set_message("That PIN is not right.".into()),
                     Err(PinError::Blocked(_)) => {}
-                    Err(PinError::Off) => { opened(&u); return; }
-                    Err(PinError::NotSet) => g.set_message("This PIN can't be read. Choose \"Forgot your PIN?\" to sign out and continue.".into()),
+                    Err(PinError::NotSet | PinError::Off) => g.set_message("This PIN can't be read. Choose \"Forgot your PIN?\" to sign out and continue.".into()),
                     Err(PinError::NotSaved) => g.set_message("Unlocking did not work. Try again.".into()),
                 }
                 g.set_busy(false);
@@ -1010,6 +1076,7 @@ mod gui {
             let ok = { let _l = RecordLock::acquire(); save_in(b, p, r) };
             if !ok { return Err(FAILED); }
             if mark { crate::oauth::set_lock_marker(Some(&r.fingerprint())); }
+            *held() = Some(r.clone());
             Ok(live_of(r))
         };
         match mode {
@@ -1036,6 +1103,7 @@ mod gui {
                 }
                 // left with both when this fails: the next start writes the new one alone (init)
                 crate::oauth::set_lock_marker(Some(&next));
+                *held() = Some(r.clone());
                 Ok(live_of(&r))
             }
             "disable" => {
@@ -1046,6 +1114,7 @@ mod gui {
                     return Err(FAILED);
                 }
                 { let _l = RecordLock::acquire(); forget_in(b, p); }
+                *held() = None;
                 Ok(Live::OFF)
             }
             _ => {
@@ -1496,11 +1565,64 @@ mod tests {
         // the same PIN changes nothing; an open window stays open
         let open = Live { locked: false, ..on };
         assert_eq!(resynced(open, &Stored::Some(r), 9), (open, Resync::Same));
-        // turned off elsewhere (no entry, no marker): off, and a locked window opens
-        assert_eq!(resynced(on, &Stored::Missing, 9), (Live { last_input_ms: 9, ..Live::OFF }, Resync::Opened));
-        assert_eq!(resynced(open, &Stored::Missing, 9).1, Resync::Same);
-        assert!(!resynced(open, &Stored::Missing, 9).0.on);
+        // turned off elsewhere (no entry, no marker) while open: off
+        assert_eq!(resynced(open, &Stored::Missing, 9), (Live { last_input_ms: 9, ..Live::OFF }, Resync::Same));
         assert_eq!(resynced(Live::OFF, &Stored::Missing, 9), (Live::OFF, Resync::Same));
+        // a locked window never opens from what the store lacks
+        assert_eq!(resynced(on, &Stored::Missing, 9), (on, Resync::Same));
+        assert_eq!(resynced(on, &Stored::Unreadable, 9), (on, Resync::Same));
+    }
+
+    #[test]
+    fn removing_the_entries_while_locked_keeps_the_lock_and_the_pin() {
+        let b = Fake::default();
+        let r = set(&b, "k7#mpz");
+        let mut held = Some(r.clone());
+        // the lock entry, the session and the accounts are removed: nothing in the store is left
+        forget_in(&b, "default");
+        let stored = || checked(load_in(&b, "default"), &[]);
+        assert_eq!(stored(), Stored::Missing);
+        // wrong PINs still count, in memory, with the same waits
+        for _ in 0..FREE_FAILURES {
+            assert_eq!(try_pin_with(&b, "default", stored(), true, &mut held, "wrong1", 1_000), Err(PinError::Wrong(0)));
+        }
+        let wait = 1_000 + wait_after(FREE_FAILURES + 1);
+        assert_eq!(try_pin_with(&b, "default", stored(), true, &mut held, "wrong1", 1_000), Err(PinError::Wrong(wait)));
+        assert_eq!(try_pin_with(&b, "default", stored(), true, &mut held, "k7#mpz", 1_001), Err(PinError::Blocked(wait)));
+        // the right PIN opens after the wait
+        assert!(try_pin_with(&b, "default", stored(), true, &mut held, "k7#mpz", wait).is_ok());
+        assert_eq!(held.as_ref().unwrap().failures, 0);
+        // an unreadable store while locked: the same
+        b.fail_reads.set(true);
+        assert_eq!(load_in(&b, "default"), Stored::Unreadable);
+        assert!(try_pin_with(&b, "default", Stored::Unreadable, true, &mut held, "k7#mpz", wait).is_ok());
+        // nothing held: no PIN opens
+        assert_eq!(try_pin_with(&b, "default", Stored::Missing, true, &mut None, "k7#mpz", wait), Err(PinError::NotSet));
+        // not locked (the settings dialog): turned off in another window
+        assert_eq!(try_pin_with(&b, "default", Stored::Missing, false, &mut held, "k7#mpz", wait), Err(PinError::Off));
+        assert!(held.is_none());
+    }
+
+    #[test]
+    fn a_store_that_cannot_count_counts_in_memory() {
+        let b = Fake::default();
+        let r = set(&b, "k7#mpz");
+        let mut held = Some(r);
+        b.fail_writes.set(true);
+        let stored = || load_in(&b, "default");
+        for _ in 0..FREE_FAILURES {
+            assert_eq!(try_pin_with(&b, "default", stored(), true, &mut held, "wrong1", 0), Err(PinError::Wrong(0)));
+        }
+        assert_eq!(held.as_ref().unwrap().failures, FREE_FAILURES);
+        // the count goes on from memory, though the store still says none
+        assert!(matches!(try_pin_with(&b, "default", stored(), true, &mut held, "wrong1", 0), Err(PinError::Wrong(w)) if w > 0));
+        // and once the store can be written again, it gets the count before the next try
+        b.fail_writes.set(false);
+        let wait = held.as_ref().unwrap().blocked_until;
+        assert_eq!(try_pin_with(&b, "default", stored(), true, &mut held, "k7#mpz", 1), Err(PinError::Blocked(wait)));
+        let Stored::Some(s) = stored() else { panic!() };
+        assert_eq!((s.failures, s.blocked_until), (FREE_FAILURES + 1, wait));
+        assert!(try_pin_with(&b, "default", stored(), true, &mut held, "k7#mpz", wait).is_ok());
     }
 
     #[test]

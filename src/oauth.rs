@@ -631,9 +631,11 @@ pub fn forget_account(names: &[&str], server: &str) -> bool {
 /// replacing the lock's own entry does not open the app.
 pub const LOCK_MARKER: &str = "appLock";
 
-/// Every marker in the remembered session and the account list.
+/// The markers of the remembered session, or of the account list when there is no session.
 pub fn lock_markers_in(b: &dyn crate::secrets::Backend, profile: &str) -> Vec<String> {
-    let mut out: Vec<String> = remembered_in(b, profile).into_iter().chain(accounts_in(b, profile))
+    // a session entry speaks for itself: a marker added to the accounts list alone vouches for nothing
+    let from = match remembered_in(b, profile) { Some(s) => vec![s], None => accounts_in(b, profile) };
+    let mut out: Vec<String> = from.into_iter()
         .filter_map(|a| a[LOCK_MARKER].as_str().map(String::from))
         .flat_map(|m| m.split_whitespace().map(String::from).collect::<Vec<_>>()).collect();
     out.sort();
