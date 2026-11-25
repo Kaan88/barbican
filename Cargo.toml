@@ -25,9 +25,6 @@ iana-time-zone = "0.1"
 ed25519-dalek = { version = "2", default-features = false, features = ["std"] }
 # app, tray and badge icons drawn from ui/barbican.svg (already in the tree through Slint)
 resvg = { version = "0.48", default-features = false }
-# the <style> rules of an SVG preview, matched as usvg matches them (src/files_view.rs; already
-# in the tree through usvg)
-simplecss = "0.2"
 parley = "=0.11.1"
 idna = "1.1"
 # the BIMI verified badge (src/bimi.rs): the mark certificate chain, against pinned roots; the
