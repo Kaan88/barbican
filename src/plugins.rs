@@ -51,7 +51,8 @@
 //!   counts as a failure. Panics are caught. A panic inside a plugin's own `extern "C"` function aborts at the C
 //!   boundary before the host sees it; that cannot be caught from here.
 //! * API 2 packages (`plugins\<id>\manifest.json` plus a library, installed by [`crate::plugin_package`]) are checked by
-//!   [`validate_manifest`] and listed off. Switching any plugin on needs a [`Grant`] (`pluginGrants`; API 1's
+//!   [`validate_manifest`] and listed off; once switched on they are started by [`crate::plugin_host::start`] (the
+//!   host table, `init` and the core host calls of B3, never the API 1 entry points). Switching any plugin on needs a [`Grant`] (`pluginGrants`; API 1's
 //!   `pluginBindings` still count): the consent dialog ([`Plugin::consent_dialog`]) is shown whenever [`decide`] says the
 //!   grant no longer covers the file (another path or SHA-256) or what its manifest asks for.
 //! * `compose.check` fails closed (see [`compose_check`]).
@@ -117,6 +118,8 @@ pub struct Plugin {
     /// SHA-256 of the library file when it was discovered.
     fingerprint: String,
     backend: Option<Arc<dyn PluginBackend>>,
+    /// A started API 2 plugin ([`crate::plugin_host::start`]); API 1 plugins have `backend` instead.
+    v2: Option<Arc<crate::plugin_host::Runtime>>,
     /// Set while a call is in flight (also after it was abandoned on timeout).
     busy: Arc<AtomicBool>,
     load_failed: bool,
@@ -155,6 +158,22 @@ fn load_allowed(path: &str, hash: &str) -> Result<(), String> {
     }
 }
 
+/// Tell the user something about a plugin (the next [`drain_notices`] shows it).
+pub(crate) fn push_notice(text: String) {
+    NOTICES.lock().unwrap_or_else(|e| e.into_inner()).push(text);
+}
+
+/// The notices waiting, without taking them (tests share the list).
+#[cfg(test)]
+pub(crate) fn peek_notices() -> Vec<String> {
+    NOTICES.lock().unwrap_or_else(|e| e.into_inner()).clone()
+}
+
+/// Keep a loaded library mapped for the rest of the process (see [`LIBRARIES`]).
+pub(crate) fn keep_library(lib: Arc<libloading::Library>) {
+    LIBRARIES.lock().unwrap_or_else(|e| e.into_inner()).push(lib);
+}
+
 /// Messages for the user (a plugin was switched off); the UI shows them as toasts.
 pub fn drain_notices() -> Vec<String> {
     // the last error is the plugin's own text
@@ -167,7 +186,11 @@ impl Plugin {
         self.hooks.iter().any(|h| resolve_alias(h) == want)
     }
 
-    pub fn is_tripped(&self) -> bool { self.tripped.load(Ordering::SeqCst) }
+    /// Switched off for the session by the failure limit (API 1 calls, or an API 2 plugin's host-call budget).
+    pub fn is_tripped(&self) -> bool { self.tripped.load(Ordering::SeqCst) || self.v2.as_ref().is_some_and(|r| r.ctx.is_tripped()) }
+
+    /// An API 2 plugin that is loaded and initialised (and not switched off since).
+    pub fn is_running_v2(&self) -> bool { self.v2.as_ref().is_some_and(|r| !r.ctx.is_disabled()) }
 
     /// Loaded, switched on and not switched off by failures.
     fn active(&self, enabled: &[String]) -> bool {
@@ -177,6 +200,12 @@ impl Plugin {
     /// Stop calling this plugin. The library and backend object stay alive for the process lifetime.
     fn park(&mut self) {
         retire(self.backend.take());
+        // API 2: every later host call answers `disabled`, and `shutdown` runs on its host thread. Switched off by the
+        // failure limit stays so for the session, as an API 1 plugin does: switching it on again does not reload it
+        if let Some(rt) = self.v2.take() {
+            if rt.ctx.is_tripped() { self.tripped.store(true, Ordering::SeqCst); }
+            rt.switch_off();
+        }
     }
 
     /// The spelling of `hook` this plugin's manifest declared (its aliases are interchangeable).
@@ -266,6 +295,8 @@ pub struct Declared {
     pub optional_permissions: Vec<String>,
     pub http_origins: Vec<String>,
     pub slots: Vec<String>,
+    /// The manifest's `settings` schema (API 2; `Null` otherwise), drawn in Settings > Add-ons.
+    pub settings: Value,
     /// The package folder (`plugins\<id>\`) for an installed package; `None` for a library dropped into the folder.
     pub package: Option<std::path::PathBuf>,
 }
@@ -277,7 +308,7 @@ fn parse_manifest(v: &Value) -> Result<Meta, String> {
         let m = validate_manifest(v)?;
         return Ok(Meta { id: m.id, name: m.name, version: m.version, description: m.description, hooks: m.hooks,
             decl: Declared { api: 2, author: m.author, permissions: m.permissions, optional_permissions: m.optional_permissions,
-                http_origins: m.http_origins, slots: m.slots, package: None } });
+                http_origins: m.http_origins, slots: m.slots, settings: m.settings, package: None } });
     }
     // API 1 manifests are read as Barbican 0.2.0 read them, so a plugin that loaded then keeps loading: text is
     // cleaned for display (control, direction and zero-width characters, length) instead of refused, a number given
@@ -1060,8 +1091,8 @@ pub fn discover_in(folder: &std::path::Path) -> (Vec<Plugin>, Vec<String>) {
         out.push(Plugin { key: m.id.clone(), id: m.id, name: m.name, version: m.version, description: m.description, hooks: m.hooks,
             path: lib.display().to_string(),
             decl: Declared { api: 2, author: m.author, permissions: m.permissions, optional_permissions: m.optional_permissions,
-                http_origins: m.http_origins, slots: m.slots, package: Some(d.clone()) },
-            verified: true, fingerprint: hash, backend: None, busy: Arc::new(AtomicBool::new(false)),
+                http_origins: m.http_origins, slots: m.slots, settings: m.settings, package: Some(d.clone()) },
+            verified: true, fingerprint: hash, backend: None, v2: None, busy: Arc::new(AtomicBool::new(false)),
             load_failed: false, failures: AtomicU32::new(0), tripped: AtomicBool::new(false) });
     }
     // libraries dropped straight into the folder (API 1, and API 2 with a sidecar)
@@ -1094,7 +1125,7 @@ pub fn discover_in(folder: &std::path::Path) -> (Vec<Plugin>, Vec<String>) {
             Err(e) => { errors.push(format!("{file}: {e}")); continue; }
         };
         out.push(Plugin { key: m.id.clone(), id: m.id, name: m.name, version: m.version, description: m.description, hooks: m.hooks,
-            path: p.display().to_string(), decl: m.decl, verified, fingerprint: hash, backend: None, busy: Arc::new(AtomicBool::new(false)),
+            path: p.display().to_string(), decl: m.decl, verified, fingerprint: hash, backend: None, v2: None, busy: Arc::new(AtomicBool::new(false)),
             load_failed: false, failures: AtomicU32::new(0), tripped: AtomicBool::new(false) });
     }
     (out, errors)
@@ -1257,11 +1288,41 @@ type Loader = Arc<dyn Fn(&std::path::Path) -> LoadResult + Send + Sync>;
 /// How long loading a library (and reading its manifest) may take.
 pub const LOAD_BUDGET_MS: u64 = 3000;
 
+/// What loading an API 2 plugin needs: the grants (what the user accepted), the library loader and the host calls'
+/// environment.
+pub struct V2Load<'a> {
+    pub grants: &'a [Grant],
+    pub loader: crate::plugin_host::V2Loader,
+    pub env: Arc<dyn crate::plugin_host::HostEnv>,
+}
+
 /// Load the plugins the user enabled and unload the ones switched off. Cheap when nothing changed.
-/// Returns load errors (each reported once).
-pub fn sync(plugins: &mut [Plugin], enabled: &[String]) -> Vec<String> {
+/// Returns load errors (each reported once). API 2 plugins are started with what `grants` accepted for them.
+/// The app quits: every API 2 plugin is switched off, and its `shutdown` gets until `wait` (in all) to return. API 1
+/// plugins have nothing to call.
+pub fn shut_down_v2(plugins: &mut [Plugin], wait: Duration) -> bool {
+    let deadline = std::time::Instant::now() + wait;
+    for p in plugins.iter_mut() { if let Some(rt) = p.v2.take() { rt.switch_off(); } }
+    crate::plugin_host::wait_all_idle(deadline)
+}
+
+pub fn sync(plugins: &mut [Plugin], enabled: &[String], grants: &[Grant]) -> Vec<String> {
     let loader: Loader = Arc::new(|p: &std::path::Path| unsafe { load(p) });
-    sync_hashed(plugins, enabled, &loader, Duration::from_millis(LOAD_BUDGET_MS), &fresh_fingerprint)
+    let v2 = V2Load { grants, loader: Arc::new(|p: &std::path::Path| unsafe { crate::plugin_host::load_library(p) }), env: crate::plugin_host::env() };
+    sync_hashed(plugins, enabled, &loader, &v2, Duration::from_millis(LOAD_BUDGET_MS), &fresh_fingerprint)
+}
+
+impl Plugin {
+    /// What the library's own manifest must repeat (PLUGINS.md "Exported symbols").
+    fn expect(&self) -> crate::plugin_host::Expect {
+        crate::plugin_host::Expect { id: self.id.clone(), version: self.version.clone(), permissions: self.decl.permissions.clone(),
+            optional_permissions: self.decl.optional_permissions.clone(), http_origins: self.decl.http_origins.clone(),
+            hooks: self.hooks.clone(), slots: self.decl.slots.clone() }
+    }
+
+    /// The running plugin's context, for tests.
+    #[cfg(test)]
+    pub(crate) fn host_ctx(&self) -> Option<Arc<crate::plugin_host::HostCtx>> { self.v2.as_ref().map(|r| r.ctx.clone()) }
 }
 
 /// The plugin's hash read again from disk, without the size-and-time cache: what is about to be loaded.
@@ -1287,10 +1348,16 @@ pub fn forget_cached_hashes() {
 /// [`sync`] with a stub loader, the discovered hash standing in for the fresh one (tests).
 #[cfg(test)]
 fn sync_with(plugins: &mut [Plugin], enabled: &[String], loader: &Loader, budget: Duration) -> Vec<String> {
-    sync_hashed(plugins, enabled, loader, budget, &|p: &Plugin| Ok(p.fingerprint.clone()))
+    sync_hashed(plugins, enabled, loader, &no_v2(), budget, &|p: &Plugin| Ok(p.fingerprint.clone()))
 }
 
-fn sync_hashed(plugins: &mut [Plugin], enabled: &[String], loader: &Loader, budget: Duration,
+/// Tests that load no API 2 plugin: its loader fails.
+#[cfg(test)]
+fn no_v2() -> V2Load<'static> {
+    V2Load { grants: &[], loader: Arc::new(|_: &std::path::Path| Err("no API 2 loader in this test".to_string())), env: crate::plugin_host::env() }
+}
+
+fn sync_hashed(plugins: &mut [Plugin], enabled: &[String], loader: &Loader, v2: &V2Load, budget: Duration,
     rehash: &dyn Fn(&Plugin) -> Result<String, String>) -> Vec<String> {
     let mut errors = vec![];
     for i in 0..plugins.len() {
@@ -1304,11 +1371,13 @@ fn sync_hashed(plugins: &mut [Plugin], enabled: &[String], loader: &Loader, budg
         // A timed-out call may still be running inside the library: loading the file while it is busy would
         // enter the plugin again (and on Windows could not reload a replaced file anyway).
         if plugins[i].busy.load(Ordering::SeqCst) { continue; }
-        if plugins[i].backend.is_some() || plugins[i].load_failed || plugins[i].is_tripped() { continue; }
-        // API 2 plugins are installed and consented to (B2), but the API 2 runtime (init, handle, the host table)
-        // comes with B3/B4: until then nothing of theirs is loaded.
-        if plugins[i].decl.api >= 2 { continue; }
+        if plugins[i].backend.is_some() || plugins[i].v2.is_some() || plugins[i].load_failed || plugins[i].is_tripped() { continue; }
         let path = plugins[i].path.clone();
+        if plugins[i].decl.api >= 2 && plugins[i].decl.package.is_none() {
+            plugins[i].load_failed = true;
+            errors.push(format!("{path}: an API 2 plugin must be installed as a package (Settings > Add-ons > Install plugin)"));
+            continue;
+        }
         // the grant was checked against the hash from the last discovery, which may come from the cache: hash the
         // files again right before loading, and load only while they are still the ones the user accepted
         let hash = match rehash(&plugins[i]) {
@@ -1329,6 +1398,22 @@ fn sync_hashed(plugins: &mut [Plugin], enabled: &[String], loader: &Loader, budg
         }
         // Known gap: the file can still be swapped between this hash and the loader opening it (Windows lets a file
         // that is not open be replaced). Holding it open with a share mode that forbids writes is not done here.
+        if plugins[i].decl.api >= 2 {
+            // API 2 (B3): loaded and initialised on its own host thread with what the user accepted; no message is
+            // sent to it (hooks and slots come with B4 and B5)
+            let p = &plugins[i];
+            let Some(g) = v2.grants.iter().find(|g| g.id == p.key) else {
+                plugins[i].load_failed = true;
+                errors.push(format!("{path}: switch it on again to accept what it asks for"));
+                continue;
+            };
+            let params = crate::plugin_host::params_for(&p.id, &p.name, &p.version, &p.decl.permissions, &p.decl.http_origins, &p.decl.settings, g);
+            match crate::plugin_host::start(&v2.loader, std::path::Path::new(&path), p.expect(), params, v2.env.clone(), budget) {
+                Ok(rt) => plugins[i].v2 = Some(rt),
+                Err(e) => { plugins[i].load_failed = true; errors.push(format!("{path}: {e}")); }
+            }
+            continue;
+        }
         // Library::new and manifest() run foreign code: never on the UI thread without a limit
         let (tx, rx) = mpsc::channel();
         let (l, pp) = (loader.clone(), std::path::PathBuf::from(&path));
@@ -1427,9 +1512,12 @@ pub fn describe(p: &Plugin) -> Value {
     let (perms, _) = p.requested();
     let titles: Vec<&str> = perms.iter().map(|x| permission_text(x).map_or(x.as_str(), |t| t.title)).collect();
     if !titles.is_empty() { note += &format!(" Asks to: {}.", titles.join(", ").to_lowercase()); }
-    if p.decl.api >= 2 { note += " Uses plugin API 2: switching it on records your consent, but this version does not run API 2 plugins yet."; }
+    if p.decl.api >= 2 {
+        note += " Uses plugin API 2. This version runs it with storage, its settings, notices and dialogs, web requests to the sites you allowed and who is signed in; it is not called from mail, calendar or other screens yet.";
+    }
     json!({"id": p.key, "name": p.name, "version": p.version, "author": p.decl.author, "description": format!("{}{note}", p.description).trim(),
-        "hooks": p.hooks, "path": p.path, "packaged": p.decl.package.is_some(), "permissions": perms})
+        "hooks": p.hooks, "path": p.path, "packaged": p.decl.package.is_some(), "permissions": perms, "api": p.decl.api,
+        "settings": if p.decl.api >= 2 { p.decl.settings.clone() } else { Value::Null }, "running": p.is_running_v2()})
 }
 
 #[cfg(test)]
@@ -1456,7 +1544,7 @@ mod tests {
         let f = Arc::new(Fake { mode, calls: AtomicUsize::new(0) });
         let p = Plugin { key: name.into(), id: name.into(), name: name.into(), version: "1".into(), description: String::new(),
             hooks: vec!["compose.check".into(), "email.details".into()], path: String::new(), decl: Declared::default(), verified: true,
-            fingerprint: String::new(), busy: Arc::new(AtomicBool::new(false)), backend: Some(f.clone()), load_failed: false, failures: AtomicU32::new(0), tripped: AtomicBool::new(false) };
+            fingerprint: String::new(), busy: Arc::new(AtomicBool::new(false)), backend: Some(f.clone()), v2: None, load_failed: false, failures: AtomicU32::new(0), tripped: AtomicBool::new(false) };
         (p, f)
     }
     fn on(p: &Plugin) -> Vec<String> { vec![p.key.clone()] }
@@ -1573,11 +1661,11 @@ mod tests {
         let two = list.iter().find(|p| p.key.starts_with("file:")).unwrap();
         assert!(two.hooks.is_empty() && !two.verified);
         // default off: nothing enabled, nothing loaded, no errors
-        assert!(sync(&mut list, &[]).is_empty());
+        assert!(sync(&mut list, &[], &[]).is_empty());
         // enabling is what triggers the load attempt (which fails for the dummy file)
-        let errs = sync(&mut list, &["one".to_string()]);
+        let errs = sync(&mut list, &["one".to_string()], &[]);
         assert_eq!(errs.len(), 1, "{errs:?}");
-        assert!(sync(&mut list, &["one".to_string()]).is_empty(), "a failed load is reported once");
+        assert!(sync(&mut list, &["one".to_string()], &[]).is_empty(), "a failed load is reported once");
         let _ = std::fs::remove_dir_all(&d);
     }
 
@@ -1601,7 +1689,7 @@ mod tests {
         let (meta, backend) = unsafe { super::load(&dll) }.expect("load");
         assert_eq!(meta.id, "spam-score");
         let p = Plugin { key: meta.id.clone(), id: meta.id, name: meta.name, version: meta.version, description: meta.description, hooks: meta.hooks,
-            path: String::new(), decl: meta.decl, verified: true, fingerprint: String::new(), busy: Arc::new(AtomicBool::new(false)), backend: Some(backend), load_failed: false, failures: AtomicU32::new(0), tripped: AtomicBool::new(false) };
+            path: String::new(), decl: meta.decl, verified: true, fingerprint: String::new(), busy: Arc::new(AtomicBool::new(false)), backend: Some(backend), v2: None, load_failed: false, failures: AtomicU32::new(0), tripped: AtomicBool::new(false) };
         assert!(p.handles("email.details"));
         let email = json!({"headers": [{"name": "X-Spam-Status", "value": "Yes, score=7.5 required=5.0"}]});
         let rows = email_details(std::slice::from_ref(&p), &on(&p), &email);
@@ -1617,7 +1705,7 @@ mod tests {
 
     fn bare(key: &str, path: &str, fp: &str) -> Plugin {
         Plugin { key: key.into(), id: key.into(), name: key.into(), version: String::new(), description: String::new(), hooks: vec![],
-            path: path.into(), decl: Declared::default(), verified: true, fingerprint: fp.into(), backend: None, busy: Arc::new(AtomicBool::new(false)),
+            path: path.into(), decl: Declared::default(), verified: true, fingerprint: fp.into(), backend: None, v2: None, busy: Arc::new(AtomicBool::new(false)),
             load_failed: false, failures: AtomicU32::new(0), tripped: AtomicBool::new(false) }
     }
 
@@ -2197,15 +2285,85 @@ mod tests {
         assert_eq!((grants[1].id.as_str(), grants[1].path.as_str(), grants[1].sha256.as_str()), ("legacy", "C:/p/l.dll", "h9"));
     }
 
+    // an in-process API 2 plugin for the loading tests (plugin_host has the full ABI round trip)
+    const DEMO_MANIFEST: &[u8] = b"{\"api\":2,\"id\":\"dev.example.demo\",\"name\":\"Demo\",\"version\":\"1.1.0\",\"library\":{\"windows-x86_64\":\"demo.dll\"},\"permissions\":[\"email:read\"]}\0";
+    static DEMO_INITS: AtomicUsize = AtomicUsize::new(0);
+    static DEMO_SHUTDOWNS: AtomicUsize = AtomicUsize::new(0);
+    static DEMO_HANDLED: AtomicUsize = AtomicUsize::new(0);
+    unsafe extern "C" fn demo_manifest() -> *const c_char { DEMO_MANIFEST.as_ptr() as *const c_char }
+    unsafe extern "C" fn demo_init(_: *const crate::plugin_host::BarbicanHost, _: *const c_char) -> *mut c_char { DEMO_INITS.fetch_add(1, Ordering::SeqCst); std::ptr::null_mut() }
+    unsafe extern "C" fn demo_handle(_: *const c_char) -> *mut c_char { DEMO_HANDLED.fetch_add(1, Ordering::SeqCst); std::ptr::null_mut() }
+    unsafe extern "C" fn demo_free(_: *mut c_char) {}
+    unsafe extern "C" fn demo_shutdown() { DEMO_SHUTDOWNS.fetch_add(1, Ordering::SeqCst); }
+
     #[test]
-    fn api2_plugins_are_not_loaded_yet() {
+    fn api2_plugins_load_with_their_grant_and_get_no_message() {
         let mut list = vec![v2_plugin(&["email:read"], &[], "h1")];
-        let loads = Arc::new(AtomicUsize::new(0));
-        let n = loads.clone();
-        let l = stub_loader(move |_| { n.fetch_add(1, Ordering::SeqCst); Err("no".into()) });
-        assert!(sync_with(&mut list, &strings(&["dev.example.demo"]), &l, MS).is_empty());
-        assert_eq!(loads.load(Ordering::SeqCst), 0);
-        assert!(describe(&list[0])["description"].as_str().unwrap().contains("does not run API 2 plugins yet"));
+        let v1_loads = Arc::new(AtomicUsize::new(0));
+        let n = v1_loads.clone();
+        let v1 = stub_loader(move |_| { n.fetch_add(1, Ordering::SeqCst); Err("no".into()) });
+        let en = strings(&["dev.example.demo"]);
+        let v2_loads = Arc::new(AtomicUsize::new(0));
+        let n2 = v2_loads.clone();
+        let loader: crate::plugin_host::V2Loader = Arc::new(move |_: &std::path::Path| {
+            n2.fetch_add(1, Ordering::SeqCst);
+            Ok(crate::plugin_host::NativeV2 { manifest: demo_manifest, init: demo_init, handle: demo_handle, free: demo_free, shutdown: Some(demo_shutdown) })
+        });
+        let fp = |p: &Plugin| Ok(p.fingerprint.clone());
+        // without a grant it is not loaded, and says how to fix that
+        let none = V2Load { grants: &[], loader: loader.clone(), env: crate::plugin_host::env() };
+        let errs = sync_hashed(&mut list, &en, &v1, &none, MS, &fp);
+        assert!(errs.len() == 1 && errs[0].contains("switch it on again"), "{errs:?}");
+        assert_eq!(v2_loads.load(Ordering::SeqCst), 0);
+        sync_hashed(&mut list, &[], &v1, &none, MS, &fp); // off again forgets the failure
+        // with one: loaded on its host thread, initialised once, with the granted permission only
+        let grant = list[0].grant(vec![], "2026-11-25T00:00:00Z");
+        let grants = [grant];
+        let with = V2Load { grants: &grants, loader: loader.clone(), env: crate::plugin_host::env() };
+        let (inits, shutdowns) = (DEMO_INITS.load(Ordering::SeqCst), DEMO_SHUTDOWNS.load(Ordering::SeqCst));
+        assert!(sync_hashed(&mut list, &en, &v1, &with, MS, &fp).is_empty());
+        assert!(list[0].is_running_v2());
+        assert_eq!((v2_loads.load(Ordering::SeqCst), DEMO_INITS.load(Ordering::SeqCst) - inits), (1, 1));
+        assert_eq!(v1_loads.load(Ordering::SeqCst), 0, "the API 1 loader is never used for it");
+        let ctx = list[0].host_ctx().unwrap();
+        assert_eq!(ctx.call("calendar.getEvents", &json!([])).unwrap_err().code, "denied");
+        // loaded once; its hooks are not fired by API 1's call sites
+        assert!(sync_hashed(&mut list, &en, &v1, &with, MS, &fp).is_empty());
+        assert_eq!(v2_loads.load(Ordering::SeqCst), 1);
+        assert!(!is_active(&list, &en, "dev.example.demo"));
+        assert_eq!(compose_check_with(&list, &en, &json!({}), MS), None);
+        assert!(email_details(&list, &en, &json!({})).is_empty());
+        assert_eq!(DEMO_HANDLED.load(Ordering::SeqCst), 0, "no message reaches barbican_plugin_handle");
+        // switched off: its context answers disabled at once, shutdown follows on its thread
+        sync_hashed(&mut list, &[], &v1, &with, MS, &fp);
+        assert!(!list[0].is_running_v2());
+        assert_eq!(ctx.call("app.getInfo", &json!([])).unwrap_err().code, "disabled");
+        let t = std::time::Instant::now();
+        while DEMO_SHUTDOWNS.load(Ordering::SeqCst) == shutdowns && t.elapsed() < Duration::from_secs(2) { std::thread::sleep(Duration::from_millis(5)); }
+        assert_eq!(DEMO_SHUTDOWNS.load(Ordering::SeqCst), shutdowns + 1);
+        assert!(describe(&list[0])["description"].as_str().unwrap().contains("Uses plugin API 2"));
+        // on again: a new instance; switched off by the failure limit, it shuts down at once and stays off for the
+        // session, also across switching it off and on
+        assert!(sync_hashed(&mut list, &en, &v1, &with, MS, &fp).is_empty());
+        assert_eq!(v2_loads.load(Ordering::SeqCst), 2);
+        list[0].host_ctx().unwrap().trip_for_test();
+        let t = std::time::Instant::now();
+        while DEMO_SHUTDOWNS.load(Ordering::SeqCst) == shutdowns + 1 && t.elapsed() < Duration::from_secs(2) { std::thread::sleep(Duration::from_millis(5)); }
+        assert_eq!(DEMO_SHUTDOWNS.load(Ordering::SeqCst), shutdowns + 2, "a tripped plugin is shut down");
+        sync_hashed(&mut list, &[], &v1, &with, MS, &fp);
+        assert!(sync_hashed(&mut list, &en, &v1, &with, MS, &fp).is_empty());
+        assert!(list[0].is_tripped() && !list[0].is_running_v2());
+        assert_eq!(v2_loads.load(Ordering::SeqCst), 2, "not loaded again this session");
+        let _ = crate::plugins::drain_notices();
+    }
+
+    #[test]
+    fn a_dropped_in_api2_library_is_not_loaded() {
+        let mut p = v2_plugin(&[], &[], "h1");
+        p.decl.package = None;
+        let mut list = vec![p];
+        let errs = sync_with(&mut list, &strings(&["dev.example.demo"]), &stub_loader(|_| Err("no".into())), MS);
+        assert!(errs.len() == 1 && errs[0].contains("installed as a package"), "{errs:?}");
     }
 
     #[test]
@@ -2406,7 +2564,7 @@ mod tests {
         let n = loads.clone();
         let l = stub_loader(move |_| { n.fetch_add(1, Ordering::SeqCst); Ok((stub_meta("cached"), Arc::new(Recorder(Mutex::new(vec![]))) as Arc<dyn PluginBackend>)) });
         let mut list = vec![p];
-        let errs = sync_hashed(&mut list, &strings(&["cached"]), &l, MS, &fresh_fingerprint);
+        let errs = sync_hashed(&mut list, &strings(&["cached"]), &l, &no_v2(), MS, &fresh_fingerprint);
         assert!(errs.len() == 1 && errs[0].contains("changed since"), "{errs:?}");
         assert_eq!(loads.load(Ordering::SeqCst), 0, "a file that is not the accepted one is never loaded");
         assert!(!hash_cache().lock().unwrap().contains_key(&f), "a mismatch forgets the cached hashes");
@@ -2415,7 +2573,7 @@ mod tests {
         let mut list = vec![bare("cached", &f.display().to_string(), &real)];
         assert_eq!(unchanged_on_disk(&list[0]), Ok(true));
         assert!(unchanged_on_disk(&bare("gone", &d.join("missing.dll").display().to_string(), "h")).is_err(), "a read error is its own outcome");
-        assert!(sync_hashed(&mut list, &strings(&["cached"]), &l, MS, &fresh_fingerprint).is_empty());
+        assert!(sync_hashed(&mut list, &strings(&["cached"]), &l, &no_v2(), MS, &fresh_fingerprint).is_empty());
         assert_eq!(loads.load(Ordering::SeqCst), 1);
         let _ = std::fs::remove_dir_all(&d);
     }
