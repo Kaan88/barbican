@@ -253,15 +253,15 @@ S-markAsReadDelay,settings-reading,Mark as read,stores/settings-store.ts: markAs
 S-messageSpacing,settings-reading,Message spacing,stores/settings-store.ts: messageSpacing,done,src/main.rs:255,S-messageSpacing,0,S
 S-returnToListAfterAction,settings-reading,"Return to list after delete, archive, move or mark unread",stores/settings-store.ts: returnToListAfterAction,done,src/mail.rs:1011,S-returnToListAfterAction,0,S
 S-debugMode,settings-troubleshooting,Detailed logging,stores/settings-store.ts: debugMode,missing,,S-debugMode,6,S
-S-keyless-001,settings-account,Email address,settings-schema.json (page account),missing,,S-keyless-001,3,S
+S-keyless-001,settings-account,Email address,settings-schema.json (page account),done,"src/settings.rs, src/server_settings.rs (Settings > Account)",S-keyless-001,3,S
 S-keyless-002,settings-account,Username,settings-schema.json (page account),missing,,S-keyless-002,3,S
-S-keyless-003,settings-account,Authentication,settings-schema.json (page account),missing,,S-keyless-003,3,S
-S-keyless-004,settings-account,JMAP server,settings-schema.json (page account),missing,,S-keyless-004,3,S
-S-keyless-005,settings-account,Storage usage,settings-schema.json (page account),missing,,S-keyless-005,3,S
+S-keyless-003,settings-account,Authentication,settings-schema.json (page account),done,"src/settings.rs, src/server_settings.rs (Settings > Account)",S-keyless-003,3,S
+S-keyless-004,settings-account,JMAP server,settings-schema.json (page account),done,"src/settings.rs, src/server_settings.rs (Settings > Account)",S-keyless-004,3,S
+S-keyless-005,settings-account,Storage usage,settings-schema.json (page account),done,"src/settings.rs, src/server_settings.rs (Settings > Account)",S-keyless-005,3,S
 S-keyless-006,settings-account,Account type,settings-schema.json (page account),missing,,S-keyless-006,3,S
-S-keyless-007,settings-account,Your name,settings-schema.json (page account),missing,,S-keyless-007,3,S
-S-keyless-008,settings-account,Your name,settings-schema.json (page account),missing,,S-keyless-008,3,S
-S-keyless-009,settings-account,Your addresses,settings-schema.json (page account),missing,,S-keyless-009,3,S
+S-keyless-007,settings-account,Your name,settings-schema.json (page account),done,"src/settings.rs, src/server_settings.rs (Settings > Account)",S-keyless-007,3,S
+S-keyless-008,settings-account,Your name,settings-schema.json (page account),done,"src/settings.rs, src/server_settings.rs (Settings > Account)",S-keyless-008,3,S
+S-keyless-009,settings-account,Your addresses,settings-schema.json (page account),done,"src/settings.rs, src/server_settings.rs (Settings > Account)",S-keyless-009,3,S
 S-keyless-010,settings-account,Sub-addressing,settings-schema.json (page account),missing,,S-keyless-010,3,S
 S-keyless-011,settings-security,Two-step sign-in,settings-schema.json (page security),missing,,S-keyless-011,3,S
 S-keyless-012,settings-security,Two-step sign-in,settings-schema.json (page security),missing,,S-keyless-012,3,S
@@ -293,14 +293,14 @@ S-keyless-037,settings-accessibility,Do not disturb,settings-schema.json (page a
 S-keyless-038,settings-accessibility,Sounds and the unread badge,settings-schema.json (page accessibility),unverified,,S-keyless-038,6,S
 S-keyless-039,settings-message_list,Message list order,settings-schema.json (page message_list),unverified,,S-keyless-039,6,S
 S-keyless-040,settings-composing,Check spelling and grammar while I type,settings-schema.json (page composing),unverified,,S-keyless-040,6,S
-S-keyless-041,settings-vacation,Reply automatically,settings-schema.json (page vacation),missing,,S-keyless-041,3,S
-S-keyless-042,settings-vacation,Reply to,settings-schema.json (page vacation),missing,,S-keyless-042,3,S
-S-keyless-043,settings-vacation,From (optional),settings-schema.json (page vacation),missing,,S-keyless-043,3,S
-S-keyless-044,settings-vacation,Until (optional),settings-schema.json (page vacation),missing,,S-keyless-044,3,S
-S-keyless-045,settings-vacation,Subject,settings-schema.json (page vacation),missing,,S-keyless-045,3,S
-S-keyless-046,settings-vacation,Forward messages,settings-schema.json (page vacation),missing,,S-keyless-046,3,S
-S-keyless-047,settings-vacation,Forward to,settings-schema.json (page vacation),missing,,S-keyless-047,3,S
-S-keyless-048,settings-vacation,Keep in inbox,settings-schema.json (page vacation),missing,,S-keyless-048,3,S
+S-keyless-041,settings-vacation,Reply automatically,settings-schema.json (page vacation),done,"src/server_settings.rs vacation_rows (Settings > Out of office)",S-keyless-041,3,S
+S-keyless-042,settings-vacation,Reply to,settings-schema.json (page vacation),done,"src/server_settings.rs vacation_rows (Settings > Out of office)",S-keyless-042,3,S
+S-keyless-043,settings-vacation,From (optional),settings-schema.json (page vacation),done,"src/server_settings.rs vacation_rows (Settings > Out of office)",S-keyless-043,3,S
+S-keyless-044,settings-vacation,Until (optional),settings-schema.json (page vacation),done,"src/server_settings.rs vacation_rows (Settings > Out of office)",S-keyless-044,3,S
+S-keyless-045,settings-vacation,Subject,settings-schema.json (page vacation),done,"src/server_settings.rs vacation_rows (Settings > Out of office)",S-keyless-045,3,S
+S-keyless-046,settings-vacation,Forward messages,settings-schema.json (page vacation),done,"src/server_settings.rs vacation_rows (Settings > Out of office)",S-keyless-046,3,S
+S-keyless-047,settings-vacation,Forward to,settings-schema.json (page vacation),done,"src/server_settings.rs vacation_rows (Settings > Out of office)",S-keyless-047,3,S
+S-keyless-048,settings-vacation,Keep in inbox,settings-schema.json (page vacation),done,"src/server_settings.rs vacation_rows (Settings > Out of office)",S-keyless-048,3,S
 S-keyless-049,settings-calendar,Calendar opens in,settings-schema.json (page calendar),unverified,,S-keyless-049,6,S
 S-keyless-050,settings-calendar,Organize invitations as,settings-schema.json (page calendar),unverified,,S-keyless-050,6,S
 S-keyless-051,settings-calendar,Working days,settings-schema.json (page calendar),unverified,,S-keyless-051,6,S
