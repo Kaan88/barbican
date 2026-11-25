@@ -8,6 +8,9 @@ regex = "1"
 slint = { version = "1.8", features = ["raw-window-handle-06", "renderer-skia", "unstable-winit-030"] }
 wry = ">=0.45"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+# the assistant's streaming requests (src/assistant): async reqwest on a small runtime, so Stop and
+# the idle limit can end a read; already in the tree through reqwest with these features
+tokio = { version = "1", default-features = false, features = ["rt", "time"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 chrono = "0.4"
 chrono-tz = "0.10"
