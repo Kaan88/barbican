@@ -144,6 +144,30 @@ pub fn problem_message(status: u16, v: &Value) -> String {
     }
 }
 
+/// The rejection for a remembered password sign-in whose password was cleared (two-step sign-in
+/// was turned on): no network call is made, so no failed login is counted on the server.
+/// `None` for anything that can be tried.
+pub fn cleared_password_rejection(v: &Value) -> Option<String> {
+    (v["kind"] != "oauth" && v["pass"].as_str().unwrap_or("").is_empty()).then(|| CLEARED_PASSWORD.to_string())
+}
+
+/// The text of [`cleared_password_rejection`]: it starts like the server's own rejection (so
+/// `auth_rejected` treats it as one), then says the server was not asked and what to do. It does
+/// not name a cause: turning two-step sign-in on and a password change that ended the session
+/// both clear the saved password.
+pub const CLEARED_PASSWORD: &str = "Wrong username, password or 2FA code: the saved password for this account was cleared because it can no longer sign in on its own, so it was not sent to the server. Sign in with your password (and a verification code if two-step sign-in is on), or with an app password.";
+
+/// A 401 for a request sent with `sent` is worth one more try when the session's header has changed
+/// since (a password change switched it while the request was in flight).
+pub fn retry_after_401(sent: &str, current: &str) -> bool { sent != current }
+
+/// The user and password inside a `Basic` Authorization header.
+fn basic_credentials(header: &str) -> Option<(String, String)> {
+    let raw = base64::engine::general_purpose::STANDARD.decode(header.strip_prefix("Basic ")?).ok()?;
+    let (u, p) = String::from_utf8(raw).ok()?.split_once(':').map(|(u, p)| (u.to_string(), p.to_string()))?;
+    Some((u, p))
+}
+
 impl Client {
     /// Password (or app password) sign-in. `totp` is appended Stalwart-style as `password$code`.
     pub fn connect(server: &str, user: &str, pass: &str, totp: &str) -> R<Client> {
@@ -258,20 +282,53 @@ impl Client {
 
     fn auth_header(&self) -> String { self.auth.lock().unwrap().clone() }
 
+    /// The user name of a password (Basic) sign-in, as the server was given it.
+    pub fn basic_user(&self) -> Option<String> {
+        basic_credentials(&self.auth_header()).map(|(u, _)| u)
+    }
+
+    /// The password of a Basic sign-in (typed password, `password$code`, or an app password).
+    pub fn basic_password(&self) -> Option<String> {
+        basic_credentials(&self.auth_header()).map(|(_, p)| p)
+    }
+
+    /// The server no longer accepts this sign-in (the password was changed and the session cannot
+    /// follow): no further request goes out, and the app asks to sign in again.
+    pub fn end_session(&self) { self.reject(); }
+
+    /// After a password change: sign the following requests with the new password. `false` (and
+    /// nothing changed) for a single-sign-on session, which has no password.
+    pub fn set_basic_password(&self, pass: &str) -> bool {
+        if self.oauth.is_some() { return false; }
+        let mut h = self.auth.lock().unwrap();
+        let Some((user, _)) = basic_credentials(&h) else { return false };
+        *h = format!("Basic {}", base64::engine::general_purpose::STANDARD.encode(format!("{user}:{pass}")));
+        true
+    }
+
     pub fn has(&self, cap: &str) -> bool {
         self.caps.iter().any(|c| c == cap)
     }
 
     /// Re-fetch the session resource (RFC 8620 §3.4: when `sessionState` changes).
-    pub fn refresh_session(&self) -> R<()> {
+    pub fn refresh_session(&self) -> R<()> { self.refresh_session_as(true) }
+
+    /// `latch`: a 401 ends the session. The refresh a request answer triggers (`post`) does not
+    /// latch: the answer may be that of a password change, whose new header is not set yet, and a
+    /// real expiry is found by the next request anyway.
+    fn refresh_session_as(&self, latch: bool) -> R<()> {
         self.guard()?;
         self.renew_if_due()?;
-        let (mut status, mut s) = fetch_session(&self.http, &self.base, &self.auth_header())?;
+        let sent = self.auth_header();
+        let (mut status, mut s) = fetch_session(&self.http, &self.base, &sent)?;
         if status == 401 && self.oauth.is_some() {
             self.renew()?;
             (status, s) = fetch_session(&self.http, &self.base, &self.auth_header())?;
+        } else if status == 401 && retry_after_401(&sent, &self.auth_header()) {
+            // a password change swapped the header while this ran
+            (status, s) = fetch_session(&self.http, &self.base, &self.auth_header())?;
         }
-        if status == 401 { return Err(self.reject()); }
+        if status == 401 { return Err(if latch { self.reject() } else { SESSION_EXPIRED.into() }); }
         if s["apiUrl"].is_string() { *self.live.write().unwrap() = s; }
         Ok(())
     }
@@ -295,14 +352,20 @@ impl Client {
         }
         self.renew_if_due()?;
         let api = absolute(&self.base, self.live.read().unwrap()["apiUrl"].as_str().unwrap_or(""));
-        let send = || {
+        // the header this request goes out with: a password change may swap it while we wait
+        let send_with = |auth: String| {
             let _p = self.requests.enter();
-            crate::redirect::send(&api, false, |u| self.http.post(u).header("Authorization", self.auth_header())
+            crate::redirect::send(&api, false, |u| self.http.post(u).header("Authorization", auth.clone())
                 .header("Content-Type", "application/json").header("Accept", "application/json").body(body.clone()))
         };
-        let mut resp = send()?;
+        let sent = self.auth_header();
+        let send = || send_with(self.auth_header());
+        let mut resp = send_with(sent.clone())?;
         if resp.status() == 401 && self.oauth.is_some() {
             self.renew()?;
+            resp = send()?;
+        } else if resp.status() == 401 && retry_after_401(&sent, &self.auth_header()) {
+            // answered 401 for the old password while the new one was being set: not a dead session
             resp = send()?;
         }
         if matches!(resp.status().as_u16(), 429 | 503) && read_only(calls) {
@@ -324,7 +387,7 @@ impl Client {
         trace(calls, &v);
         let known = self.live.read().unwrap()["state"].as_str().map(String::from);
         if let (Some(now), Some(known)) = (v["sessionState"].as_str(), known) {
-            if now != known { let _ = self.refresh_session(); }
+            if now != known { let _ = self.refresh_session_as(false); }
         }
         v["methodResponses"].as_array().cloned().ok_or_else(|| "Bad JMAP response".into())
     }
@@ -927,11 +990,14 @@ impl Client {
         // no per-request timeout: in reqwest it is a total deadline that also covers reading the
         // body, which a big attachment on a slow link overruns. The client's blocking timeout
         // bounds each wait (headers, every body read) with no overall cap.
-        let get = || crate::redirect::send(&url, true, |u| self.http.get(u).header("Authorization", self.auth_header()));
-        let mut resp = get()?;
+        let get = |auth: String| crate::redirect::send(&url, true, |u| self.http.get(u).header("Authorization", auth.clone()));
+        let sent = self.auth_header();
+        let mut resp = get(sent.clone())?;
         if resp.status() == 401 && self.oauth.is_some() {
             self.renew()?;
-            resp = get()?;
+            resp = get(self.auth_header())?;
+        } else if resp.status() == 401 && retry_after_401(&sent, &self.auth_header()) {
+            resp = get(self.auth_header())?;
         }
         if resp.status() == 401 { return Err(self.reject()); }
         if !resp.status().is_success() { return Err(format!("Download failed ({})", resp.status())); }
@@ -958,12 +1024,15 @@ impl Client {
         // a request timeout is a total deadline covering the body; scale it with the size
         // (at least 5 min, allowing ~32 KB/s) so slow links can still upload big files
         let limit = std::time::Duration::from_secs(300u64.max(len as u64 / 32_000));
-        let send = |data: Vec<u8>| crate::redirect::send(&url, false, |u| self.http.post(u).header("Authorization", self.auth_header())
+        let send = |data: Vec<u8>, auth: String| crate::redirect::send(&url, false, |u| self.http.post(u).header("Authorization", auth.clone())
             .header("Content-Type", mime).timeout(limit).body(data.clone()));
-        let mut resp = send(data.clone())?;
+        let sent = self.auth_header();
+        let mut resp = send(data.clone(), sent.clone())?;
         if resp.status() == 401 && self.oauth.is_some() {
             self.renew()?;
-            resp = send(data)?;
+            resp = send(data, self.auth_header())?;
+        } else if resp.status() == 401 && retry_after_401(&sent, &self.auth_header()) {
+            resp = send(data, self.auth_header())?;
         }
         if resp.status() == 401 { return Err(self.reject()); }
         if !resp.status().is_success() {
@@ -1227,12 +1296,15 @@ impl Client {
             .redirect(reqwest::redirect::Policy::none())
             .tcp_keepalive(std::time::Duration::from_secs(30)).build().map_err(e)?;
         self.renew_if_due()?;
-        let open = || crate::redirect::send(&url, true, |u| client.get(u).header("Authorization", self.auth_header())
+        let open = |auth: String| crate::redirect::send(&url, true, |u| client.get(u).header("Authorization", auth.clone())
             .header("Accept", "text/event-stream").header("Cache-Control", "no-cache"));
-        let mut resp = open()?;
+        let sent = self.auth_header();
+        let mut resp = open(sent.clone())?;
         if resp.status() == 401 && self.oauth.is_some() {
             self.renew()?;
-            resp = open()?;
+            resp = open(self.auth_header())?;
+        } else if resp.status() == 401 && retry_after_401(&sent, &self.auth_header()) {
+            resp = open(self.auth_header())?;
         }
         if resp.status() == 401 { return Err(self.reject()); }
         if !resp.status().is_success() { return Err(format!("Push failed ({})", resp.status())); }
@@ -1840,6 +1912,31 @@ pub const BODY_PROPERTIES: [&str; 9] = ["partId", "blobId", "size", "name", "typ
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_cleared_password_is_rejected_without_a_request() {
+        let e = cleared_password_rejection(&json!({"kind": "password", "user": "a", "pass": ""})).unwrap();
+        assert!(auth_rejected(&e));
+        assert!(e.starts_with("Wrong username, password or 2FA code"), "{e}");
+        assert!(e.contains("can no longer sign in on its own") && e.contains("app password"), "{e}");
+        assert!(!e.contains("when two-step sign-in was turned on"), "the cause is not named: {e}");
+        assert!(cleared_password_rejection(&json!({"kind": "password", "pass": "x"})).is_none());
+        assert!(cleared_password_rejection(&json!({"kind": "oauth", "refresh": "r"})).is_none());
+    }
+
+    #[test]
+    fn a_401_is_retried_only_when_the_header_changed() {
+        assert!(retry_after_401("Basic old", "Basic new"));
+        assert!(!retry_after_401("Basic same", "Basic same"));
+    }
+
+    #[test]
+    fn basic_header_is_read_back() {
+        let h = format!("Basic {}", base64::engine::general_purpose::STANDARD.encode("ann@example.test:pa:ss$123456"));
+        assert_eq!(basic_credentials(&h), Some(("ann@example.test".into(), "pa:ss$123456".into())));
+        assert_eq!(basic_credentials("Bearer abc"), None);
+        assert_eq!(basic_credentials("Basic !!!"), None);
+    }
 
     #[test]
     fn reschedule_fallback_order() {

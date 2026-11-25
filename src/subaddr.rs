@@ -49,6 +49,18 @@ fn use_tag(u: &AppWindow, t: &str) {
     x.set_sub_open(false);
 }
 
+/// Sign-out: the dialog is drawn over the whole window (the sign-in page too), so it closes and
+/// forgets the account's recent and suggested tags and what was typed.
+pub fn reset(u: &AppWindow) {
+    let x = u.global::<CompX>();
+    x.set_sub_open(false);
+    x.set_sub_input("".into());
+    x.set_sub_error("".into());
+    x.set_sub_preview("".into());
+    x.set_sub_recent(strings(vec![]));
+    x.set_sub_suggested(strings(vec![]));
+}
+
 pub fn wire(ui: &AppWindow) {
     let x = ui.global::<CompX>();
     let w = ui.as_weak();

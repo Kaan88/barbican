@@ -102,6 +102,8 @@ pub struct Cache {
     pub masked_no_delete: bool,
     /// A delete that could not be confirmed: no delete until the list was read again.
     pub masked_needs_refresh: bool,
+    /// Settings > Password & sign-in (src/security.rs).
+    pub sec: crate::security::State,
 }
 
 /// The identity form (Bulwark identity-form.tsx): `id` "" while it adds an address.
@@ -133,7 +135,7 @@ fn reset_masked(k: &mut Cache) {
 /// Make `c`'s account the one the page holds; another account's identities, form and masked
 /// addresses are dropped first. Returns the owner to check the load's result against.
 pub fn claim(cache: &Shared, owner: &str, username: &str, server: &str) -> String {
-    let mut k = cache.lock().unwrap();
+    let mut k = cache.lock().unwrap_or_else(|e| e.into_inner());
     if k.owner != owner {
         k.owner = owner.to_string();
         k.owner_key = crate::identities::account_key(username, server);
@@ -265,23 +267,24 @@ fn noop() -> Option<Job> { Some(Box::new(|_, _| Ok(()))) }
 /// A masked-address change (Bulwark mutate): one at a time, for the account the page shows;
 /// the outcome is a line on the page.
 fn masked_job(cache: &Shared, kind: &'static str, op: impl FnOnce(&Client) -> Result<(), crate::masked::MErr> + Send + 'static) -> Option<Job> {
-    let owner = {
-        let mut k = cache.lock().unwrap();
+    let (owner, epoch) = {
+        let mut k = cache.lock().unwrap_or_else(|e| e.into_inner());
         if k.masked_busy || k.masked_state != 1 { return None; }
         k.masked_busy = true;
         k.masked_notice.clear();
-        k.owner.clone()
+        (k.owner.clone(), k.sec.epoch)
     };
     Some(Box::new(move |c: &Client, k: &Shared| {
         if c.state_key() != owner {
-            let mut g = k.lock().unwrap();
-            if g.owner == owner { g.masked_busy = false; }
+            let mut g = k.lock().unwrap_or_else(|e| e.into_inner());
+            if g.owner == owner && g.sec.epoch == epoch { g.masked_busy = false; }
             return Err(ACCOUNT_CHANGED.into());
         }
         let r = op(c);
-        let mut g = k.lock().unwrap();
-        // the page shows another account by now: nothing of this belongs there
-        if g.owner != owner { return Ok(()); }
+        let mut g = k.lock().unwrap_or_else(|e| e.into_inner());
+        // the page shows another account by now, or was reset (signed out, Settings closed and
+        // opened again): nothing of this belongs there
+        if g.owner != owner || g.sec.epoch != epoch { return Ok(()); }
         g.masked_busy = false;
         match r {
             Ok(()) => {
@@ -364,6 +367,20 @@ const ARCHIVE_USING: [&str; 2] = ["urn:ietf:params:jmap:core", "urn:stalwart:jma
 
 pub type Shared = Arc<Mutex<Cache>>;
 
+/// Forget everything the pages cached, secrets first: Settings was closed, or the account signed
+/// out or changed. The security page's epoch moves on, so a job or load still running for the old
+/// account drops its answer instead of writing it into the next page.
+pub fn reset(cache: &Shared) {
+    let mut g = cache.lock().unwrap_or_else(|e| e.into_inner());
+    let epoch = g.sec.epoch + 1;
+    // the identity generation keeps counting too: a save answered after the reset, once this
+    // account is claimed again, must not close or touch the new form
+    let generation = g.id_gen + 1;
+    *g = Cache::default();
+    g.sec.epoch = epoch;
+    g.id_gen = generation;
+}
+
 fn s(v: &str) -> SharedString { SharedString::from(v) }
 fn row(kind: &str, key: &str, label: &str, desc: &str, text: &str, on: bool) -> SRow {
     SRow { kind: s(kind), key: s(key), label: s(label), desc: s(desc), options: ModelRc::new(VecModel::from(Vec::<SharedString>::new())), index: 0, on, text: s(text) }
@@ -379,14 +396,47 @@ fn quota_rows(list: &[Value]) -> Vec<SRow> {
     }).collect()
 }
 
+/// Settings > Password & sign-in's masked addresses (Bulwark masked-email-settings.tsx): hidden
+/// on an account without them. Its result is dropped when the page changed account or was reset.
+fn load_masked(c: &Client, cache: &Shared) {
+    let owner = claim(cache, &c.state_key(), &c.username, &c.base);
+    let epoch = cache.lock().unwrap_or_else(|e| e.into_inner()).sec.epoch;
+    // no management capability on this account: no section (Bulwark returns null)
+    if crate::masked::context(c).is_none() {
+        let mut k = cache.lock().unwrap_or_else(|e| e.into_inner());
+        if k.owner == owner && k.sec.epoch == epoch { k.masked_shown = false; k.masked_state = 3; }
+        return;
+    }
+    let r = crate::masked::list(c);
+    let mut k = cache.lock().unwrap_or_else(|e| e.into_inner());
+    // another account, or the page was reset (signed out, Settings closed) while it ran
+    if k.owner != owner || k.sec.epoch != epoch { return; }
+    match r {
+        Ok(list) => {
+            let pages = list.len().div_ceil(crate::masked::PAGE_SIZE).max(1);
+            k.masked_page = k.masked_page.min(pages - 1);
+            if !list.iter().any(|m| m.id == k.masked_open) { k.masked_open.clear(); }
+            k.masked = list;
+            (k.masked_state, k.masked_shown, k.masked_needs_refresh) = (1, true, false);
+        }
+        Err(e) => {
+            k.masked.clear();
+            k.masked_state = if e.unavailable() { 3 } else if e.forbidden() { 2 } else { 4 };
+            if !e.unavailable() { k.masked_shown = true; }
+        }
+    }
+}
+
 /// Fetch what a page needs. Runs on a background thread.
 pub fn load(tab: &str, c: &Client, cache: &Shared) {
+    // typed passwords, codes and a secret just created are kept only while their page is open
+    if tab != "security" { cache.lock().unwrap_or_else(|e| e.into_inner()).sec.forget_secrets(); }
     let res: Result<(), String> = (|| {
         match tab {
             "vacation" => {
                 let acc = c.account_for("urn:ietf:params:jmap:vacationresponse");
                 let r = c.call(json!([["VacationResponse/get", {"accountId": acc, "ids": ["singleton"]}, "v"]]))?;
-                cache.lock().unwrap().vacation = Some(r[0][1]["list"][0].clone());
+                cache.lock().unwrap_or_else(|e| e.into_inner()).vacation = Some(r[0][1]["list"][0].clone());
             }
             "filters" => {
                 let acc = c.account_for("urn:ietf:params:jmap:sieve");
@@ -401,7 +451,7 @@ pub fn load(tab: &str, c: &Client, cache: &Shared) {
                 let ext: Vec<String> = c.session["capabilities"]["urn:ietf:params:jmap:sieve"]["sieveExtensions"].as_array()
                     .or(c.session["accounts"][&acc]["accountCapabilities"]["urn:ietf:params:jmap:sieve"]["sieveExtensions"].as_array())
                     .map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect()).unwrap_or_default();
-                let mut k = cache.lock().unwrap();
+                let mut k = cache.lock().unwrap_or_else(|e| e.into_inner());
                 k.sieve_ext = ext;
                 k.scripts = scripts;
                 k.rules = p.metadata["rules"].as_array().cloned().unwrap_or_default();
@@ -412,9 +462,9 @@ pub fn load(tab: &str, c: &Client, cache: &Shared) {
                 drop(k);
                 // folders for the rule editor's move / copy targets
                 let boxes = c.mailboxes().unwrap_or_default();
-                cache.lock().unwrap().mailboxes = boxes;
+                cache.lock().unwrap_or_else(|e| e.into_inner()).mailboxes = boxes;
             }
-            "organize" => { cache.lock().unwrap().mailboxes = c.mailboxes()?; }
+            "organize" => { cache.lock().unwrap_or_else(|e| e.into_inner()).mailboxes = c.mailboxes()?; }
             "recover" => {
                 // Stalwart's deleted-item archive (x:ArchivedItem), as Bulwark's Recover deleted items
                 let acc = c.account.clone();
@@ -431,13 +481,13 @@ pub fn load(tab: &str, c: &Client, cache: &Shared) {
                     items.extend(g[0][1]["list"].as_array().cloned().unwrap_or_default());
                 }
                 items.sort_by(|a, b| b["archivedAt"].as_str().unwrap_or("").cmp(a["archivedAt"].as_str().unwrap_or("")));
-                cache.lock().unwrap().archived = items;
+                cache.lock().unwrap_or_else(|e| e.into_inner()).archived = items;
             }
             "calendars" => {
                 let acc = c.account_for("urn:ietf:params:jmap:calendars");
                 let r = c.call(json!([["Calendar/get", {"accountId": acc, "ids": null, "properties": ["id", "name", "color", "isDefault", "isVisible", "isSubscribed", "sortOrder", "myRights", "description"]}, "c"]]))?;
                 if r[0][0] == "error" { return Err(crate::jmap::method_error(&r[0][1])); }
-                cache.lock().unwrap().calendars = sorted_calendars(r[0][1]["list"].as_array().map(|a| a.as_slice()).unwrap_or(&[]));
+                cache.lock().unwrap_or_else(|e| e.into_inner()).calendars = sorted_calendars(r[0][1]["list"].as_array().map(|a| a.as_slice()).unwrap_or(&[]));
             }
             "addressbooks" => {
                 let acc = c.account_for("urn:ietf:params:jmap:contacts");
@@ -445,14 +495,14 @@ pub fn load(tab: &str, c: &Client, cache: &Shared) {
                 if r[0][0] == "error" { return Err(crate::jmap::method_error(&r[0][1])); }
                 let mut v = r[0][1]["list"].as_array().cloned().unwrap_or_default();
                 v.sort_by_key(|b| (b["isDefault"] != true, b["name"].as_str().unwrap_or("").to_lowercase()));
-                cache.lock().unwrap().books = v;
+                cache.lock().unwrap_or_else(|e| e.into_inner()).books = v;
             }
             "account" => {
                 let owner = claim(cache, &c.state_key(), &c.username, &c.base);
                 // the storage line is a courtesy: a server without quotas, or one that refuses, keeps the page
                 let quota = c.quotas().unwrap_or_default();
                 let ids = c.identities()?;
-                let mut k = cache.lock().unwrap();
+                let mut k = cache.lock().unwrap_or_else(|e| e.into_inner());
                 // another account's load started since: this one is out of date
                 if k.owner != owner { return Ok(()); }
                 k.quota = quota;
@@ -464,7 +514,7 @@ pub fn load(tab: &str, c: &Client, cache: &Shared) {
                 let ids = c.identities()?;
                 // a failed load is an error on the page, not an empty list
                 let tpls = crate::templates::list(c)?;
-                let mut k = cache.lock().unwrap();
+                let mut k = cache.lock().unwrap_or_else(|e| e.into_inner());
                 if k.owner != owner { return Ok(()); }
                 k.identities = ids;
                 k.ids_loaded = true;
@@ -472,36 +522,16 @@ pub fn load(tab: &str, c: &Client, cache: &Shared) {
                 k.tpl_state = if crate::templates::supported(c) { 1 } else { 2 };
             }
             "security" => {
-                let owner = claim(cache, &c.state_key(), &c.username, &c.base);
-                // no management capability on this account: no section (Bulwark returns null)
-                if crate::masked::context(c).is_none() {
-                    let mut k = cache.lock().unwrap();
-                    if k.owner == owner { k.masked_shown = false; k.masked_state = 3; }
-                    return Ok(());
-                }
-                let r = crate::masked::list(c);
-                let mut k = cache.lock().unwrap();
-                if k.owner != owner { return Ok(()); }
-                match r {
-                    Ok(list) => {
-                        let pages = list.len().div_ceil(crate::masked::PAGE_SIZE).max(1);
-                        k.masked_page = k.masked_page.min(pages - 1);
-                        if !list.iter().any(|m| m.id == k.masked_open) { k.masked_open.clear(); }
-                        k.masked = list;
-                        (k.masked_state, k.masked_shown, k.masked_needs_refresh) = (1, true, false);
-                    }
-                    Err(e) => {
-                        k.masked.clear();
-                        k.masked_state = if e.unavailable() { 3 } else if e.forbidden() { 2 } else { 4 };
-                        if !e.unavailable() { k.masked_shown = true; }
-                    }
-                }
+                // the masked addresses load even when the account security part fails
+                let sec = crate::security::load(c, cache);
+                load_masked(c, cache);
+                sec?;
             }
             _ => {}
         }
         Ok(())
     })();
-    let mut k = cache.lock().unwrap();
+    let mut k = cache.lock().unwrap_or_else(|e| e.into_inner());
     // a failed load of another account's page does not speak for this one
     if matches!(tab, "account" | "composing" | "security") && k.owner != c.state_key() { return; }
     k.error = res.err().unwrap_or_default();
@@ -509,13 +539,21 @@ pub fn load(tab: &str, c: &Client, cache: &Shared) {
 
 /// Rows for server-backed pages; `None` for pages this module doesn't own.
 pub fn rows(tab: &str, cache: &Shared) -> Option<Vec<SRow>> {
-    let k = cache.lock().unwrap();
-    // most servers have no masked addresses: nothing shows until this one answers
-    if tab == "security" { return k.masked_shown.then(|| masked_rows(&k)); }
+    let k = cache.lock().unwrap_or_else(|e| e.into_inner());
     let mut out = vec![];
     if !k.error.is_empty() { out.push(row("value", "", "Could not load from the server", &k.error, "", false)); }
     let quota = if tab == "account" { quota_rows(&k.quota) } else { vec![] };
     match tab {
+        "security" => {
+            // hidden (None) for an account without Stalwart's management capability, and the
+            // masked addresses only once the server answered for them (most servers have none)
+            let sec = crate::security::rows(&k.sec);
+            let masked = k.masked_shown.then(|| masked_rows(&k));
+            if sec.is_none() && masked.is_none() { return None; }
+            out.extend(sec.unwrap_or_default());
+            out.extend(masked.unwrap_or_default());
+            return Some(out);
+        }
         "vacation" => {
             out.push(row("section", "", "Out of office", "Sends an automatic reply to people who write to you while you are away.", "", false));
             let Some(v) = k.vacation.as_ref() else { out.push(row("value", "", "Loading…", "", "", false)); return Some(out) };
@@ -694,7 +732,11 @@ pub fn rows(tab: &str, cache: &Shared) -> Option<Vec<SRow>> {
 
 /// Apply an edit locally (instant) and return a server write to run in the background.
 pub fn edit(key: &str, value: &Value, cache: &Shared) -> Option<Box<dyn FnOnce(&Client) -> Result<(), String> + Send>> {
-    let mut k = cache.lock().unwrap();
+    let mut k = cache.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(field) = key.strip_prefix("server.sec.") {
+        crate::security::edit(&mut k.sec, field, value);
+        return None;
+    }
     if let Some(field) = key.strip_prefix("server.vacation.") {
         let f = field.to_string();
         let mut v = value.clone();
@@ -829,9 +871,9 @@ pub fn identity_done(g: &mut Cache, owner: &str, generation: u64, r: &Result<(),
 fn identity_button(key: &str, cache: &Shared) -> Option<Option<Job>> {
     use crate::identities as ids;
     // one identity change at a time: nothing else of the identities while one is on its way
-    if key.starts_with("server.ident.") && cache.lock().unwrap().id_busy { return Some(None); }
+    if key.starts_with("server.ident.") && cache.lock().unwrap_or_else(|e| e.into_inner()).id_busy { return Some(None); }
     if key == "server.ident.new" || key == "server.ident.cancel" {
-        let mut k = cache.lock().unwrap();
+        let mut k = cache.lock().unwrap_or_else(|e| e.into_inner());
         // what is half typed is not thrown away by one click (Bulwark confirmDiscard)
         let ask = if key == "server.ident.new" { "identnew" } else { "identcancel" };
         if form_dirty(&k) && k.confirm_delete != ask { k.confirm_delete = ask.into(); return Some(noop()); }
@@ -841,7 +883,7 @@ fn identity_button(key: &str, cache: &Shared) -> Option<Option<Job>> {
         return Some(noop());
     }
     if let Some(id) = key.strip_prefix("server.ident.edit:") {
-        let mut k = cache.lock().unwrap();
+        let mut k = cache.lock().unwrap_or_else(|e| e.into_inner());
         if k.id_form.as_ref().is_some_and(|x| x.id == id) { return Some(noop()); }
         let ask = format!("identedit:{id}");
         if form_dirty(&k) && k.confirm_delete != ask { k.confirm_delete = ask; return Some(noop()); }
@@ -853,7 +895,7 @@ fn identity_button(key: &str, cache: &Shared) -> Option<Option<Job>> {
     }
     if key == "server.ident.save" {
         let (owner, form, plain, generation) = {
-            let mut k = cache.lock().unwrap();
+            let mut k = cache.lock().unwrap_or_else(|e| e.into_inner());
             let plain = plain_only();
             let Some(x) = k.id_form.as_mut() else { return Some(None) };
             if let Some(e) = ids::validate(&x.f, x.old.as_ref().filter(|_| !x.id.is_empty()), plain) { x.error = e; return Some(noop()); }
@@ -869,13 +911,13 @@ fn identity_button(key: &str, cache: &Shared) -> Option<Option<Job>> {
                     None => Err("This address is no longer in the list; reload and try again.".into()),
                 }
             };
-            identity_done(&mut k.lock().unwrap(), &owner, generation, &r, true, None);
+            identity_done(&mut k.lock().unwrap_or_else(|e| e.into_inner()), &owner, generation, &r, true, None);
             r
         })));
     }
     if let Some(id) = key.strip_prefix("server.ident.delete:") {
         let id = id.to_string();
-        let mut k = cache.lock().unwrap();
+        let mut k = cache.lock().unwrap_or_else(|e| e.into_inner());
         let list = ordered_identities(&k);
         let Some(pos) = list.iter().position(|i| i["id"] == id.as_str()) else { return Some(noop()) };
         if pos == 0 || !ids::may_delete(&list[pos]) { return Some(Some(Box::new(|_, _| Err("This identity cannot be deleted".into())))); }
@@ -886,14 +928,14 @@ fn identity_button(key: &str, cache: &Shared) -> Option<Option<Job>> {
         let (owner, generation) = (k.owner.clone(), k.id_gen);
         return Some(Some(Box::new(move |c: &Client, k: &Shared| {
             let r = if c.state_key() != owner { Err(ACCOUNT_CHANGED.to_string()) } else { ids::destroy(c, &id) };
-            identity_done(&mut k.lock().unwrap(), &owner, generation, &r, false, Some(&id));
+            identity_done(&mut k.lock().unwrap_or_else(|e| e.into_inner()), &owner, generation, &r, false, Some(&id));
             r
         })));
     }
     if let Some(id) = key.strip_prefix("server.ident.primary:") {
         let id = id.to_string();
         let owner = {
-            let k = cache.lock().unwrap();
+            let k = cache.lock().unwrap_or_else(|e| e.into_inner());
             if !k.identities.iter().any(|i| i["id"] == id.as_str()) { return Some(noop()); }
             k.owner.clone()
         };
@@ -907,7 +949,7 @@ fn identity_button(key: &str, cache: &Shared) -> Option<Option<Job>> {
     }
     // ---- masked addresses ----
     if let Some(id) = key.strip_prefix("server.masked.open:") {
-        let mut k = cache.lock().unwrap();
+        let mut k = cache.lock().unwrap_or_else(|e| e.into_inner());
         if k.masked_open == id { k.masked_open.clear(); } else {
             k.masked_desc = k.masked.iter().find(|m| m.id == id).and_then(|m| m.description.clone()).unwrap_or_default();
             k.masked_open = id.to_string();
@@ -916,34 +958,34 @@ fn identity_button(key: &str, cache: &Shared) -> Option<Option<Job>> {
         return Some(noop());
     }
     if let Some(id) = key.strip_prefix("server.masked.copy:") {
-        let mut k = cache.lock().unwrap();
+        let mut k = cache.lock().unwrap_or_else(|e| e.into_inner());
         let Some(email) = k.masked.iter().find(|m| m.id == id).map(|m| m.email.clone()) else { return Some(noop()) };
         k.masked_notice = if crate::mail::copy_to_clipboard(&email) { "Address copied.".into() } else { "Could not copy. Select and copy the address above.".into() };
         return Some(noop());
     }
     if key == "server.masked.prev" || key == "server.masked.next" {
-        let mut k = cache.lock().unwrap();
+        let mut k = cache.lock().unwrap_or_else(|e| e.into_inner());
         let pages = k.masked.len().div_ceil(crate::masked::PAGE_SIZE).max(1);
         k.masked_page = if key.ends_with("prev") { k.masked_page.saturating_sub(1) } else { (k.masked_page + 1).min(pages - 1) };
         k.masked_open.clear();
         return Some(noop());
     }
     if key == "server.masked.refresh" {
-        let mut k = cache.lock().unwrap();
+        let mut k = cache.lock().unwrap_or_else(|e| e.into_inner());
         if k.masked_busy { return Some(None); }
         k.masked_notice.clear();
         // the page reloads after every button
         return Some(noop());
     }
     if key == "server.masked.create" {
-        let (desc, site, no) = { let k = cache.lock().unwrap(); (k.masked_new_desc.clone(), k.masked_new_site.clone(), k.masked_no_create) };
+        let (desc, site, no) = { let k = cache.lock().unwrap_or_else(|e| e.into_inner()); (k.masked_new_desc.clone(), k.masked_new_site.clone(), k.masked_no_create) };
         if no { return Some(None); }
         return Some(masked_job(cache, "create", move |c| crate::masked::create(c, &desc, &site).map(|_| ())));
     }
     for (prefix, kind) in [("server.masked.savedesc:", "update"), ("server.masked.toggle:", "update"), ("server.masked.delete:", "destroy")] {
         let Some(id) = key.strip_prefix(prefix) else { continue };
         let id = id.to_string();
-        let mut k = cache.lock().unwrap();
+        let mut k = cache.lock().unwrap_or_else(|e| e.into_inner());
         // only an address of the list just read (Bulwark ownedIds)
         let Some(m) = k.masked.iter().find(|m| m.id == id).cloned() else { return Some(noop()) };
         if kind == "update" && k.masked_no_update { return Some(None); }
@@ -967,27 +1009,28 @@ fn identity_button(key: &str, cache: &Shared) -> Option<Option<Job>> {
 /// Button actions on server pages. Returns true when the page should reload from the server.
 pub fn button(key: &str, cache: &Shared) -> Option<Box<dyn FnOnce(&Client, &Shared) -> Result<(), String> + Send>> {
     if let Some(job) = identity_button(key, cache) { return job; }
+    if let Some(what) = key.strip_prefix("server.sec.") { return crate::security::button(&mut cache.lock().unwrap_or_else(|e| e.into_inner()).sec, what); }
     if key == "server.folder.create" {
-        let name = cache.lock().unwrap().new_folder.trim().to_string();
+        let name = cache.lock().unwrap_or_else(|e| e.into_inner()).new_folder.trim().to_string();
         if name.is_empty() { return None; }
-        return Some(Box::new(move |c: &Client, k: &Shared| { c.create_mailbox(&name, None)?; k.lock().unwrap().new_folder.clear(); Ok(()) }));
+        return Some(Box::new(move |c: &Client, k: &Shared| { c.create_mailbox(&name, None)?; k.lock().unwrap_or_else(|e| e.into_inner()).new_folder.clear(); Ok(()) }));
     }
     if let Some(id) = key.strip_prefix("server.folder.delete:") {
         let id = id.to_string();
-        let mut k = cache.lock().unwrap();
+        let mut k = cache.lock().unwrap_or_else(|e| e.into_inner());
         if k.confirm_delete != id { k.confirm_delete = id; return Some(Box::new(|_, _| Ok(()))); }
         k.confirm_delete.clear();
         return Some(Box::new(move |c: &Client, _| c.delete_mailbox(&id)));
     }
     if key == "server.cal.create" || key == "server.book.create" {
         let book = key == "server.book.create";
-        let name = { let k = cache.lock().unwrap(); if book { k.new_book.trim().to_string() } else { k.new_cal.trim().to_string() } };
+        let name = { let k = cache.lock().unwrap_or_else(|e| e.into_inner()); if book { k.new_book.trim().to_string() } else { k.new_cal.trim().to_string() } };
         if name.is_empty() { return None; }
         return Some(Box::new(move |c: &Client, k: &Shared| {
-            let n = if book { k.lock().unwrap().books.len() } else { k.lock().unwrap().calendars.len() };
+            let n = if book { k.lock().unwrap_or_else(|e| e.into_inner()).books.len() } else { k.lock().unwrap_or_else(|e| e.into_inner()).calendars.len() };
             let obj = if book { json!({"name": name}) } else { json!({"name": name, "color": CAL_COLORS[n % CAL_COLORS.len()].0, "isVisible": true}) };
             collection_set(c, book, json!({"create": {"n": obj}}))?;
-            let mut g = k.lock().unwrap();
+            let mut g = k.lock().unwrap_or_else(|e| e.into_inner());
             if book { g.new_book.clear() } else { g.new_cal.clear() }
             Ok(())
         }));
@@ -999,7 +1042,7 @@ pub fn button(key: &str, cache: &Shared) -> Option<Box<dyn FnOnce(&Client, &Shar
         match what {
             "default" => return Some(Box::new(move |c: &Client, _| default_collection(c, book, &id))),
             "delete" => {
-                let mut k = cache.lock().unwrap();
+                let mut k = cache.lock().unwrap_or_else(|e| e.into_inner());
                 if k.confirm_delete != id { k.confirm_delete = id; return Some(Box::new(|_, _| Ok(()))); }
                 k.confirm_delete.clear();
                 let args = if book { json!({"destroy": [id], "onDestroyRemoveContents": true}) } else { json!({"destroy": [id], "onDestroyRemoveEvents": true}) };
@@ -1009,8 +1052,8 @@ pub fn button(key: &str, cache: &Shared) -> Option<Box<dyn FnOnce(&Client, &Shar
         }
     }
     if key == "server.rule.add" {
-        let k = cache.lock().unwrap();
-        if k.nr_field < 5 && k.nr_value.trim().is_empty() { drop(k); cache.lock().unwrap().script_status = "Add a value for the condition.".into(); return Some(Box::new(|_, _| Ok(()))); }
+        let k = cache.lock().unwrap_or_else(|e| e.into_inner());
+        if k.nr_field < 5 && k.nr_value.trim().is_empty() { drop(k); cache.lock().unwrap_or_else(|e| e.into_inner()).script_status = "Add a value for the condition.".into(); return Some(Box::new(|_, _| Ok(()))); }
         let field = NR_FIELDS[k.nr_field.clamp(0, 6) as usize];
         let cmp = NR_CMPS[k.nr_cmp.clamp(0, 5) as usize];
         let vals: Vec<String> = k.nr_value.split(',').map(|v| v.trim().to_string()).filter(|v| !v.is_empty()).collect();
@@ -1026,7 +1069,7 @@ pub fn button(key: &str, cache: &Shared) -> Option<Box<dyn FnOnce(&Client, &Shar
                 if let Some(f) = f { r["activeFrom"] = json!(f); }
                 if let Some(u) = u { r["activeUntil"] = json!(u); }
             }
-            Err(e) => { drop(k); cache.lock().unwrap().script_status = e; return Some(Box::new(|_, _| Ok(()))); }
+            Err(e) => { drop(k); cache.lock().unwrap_or_else(|e| e.into_inner()).script_status = e; return Some(Box::new(|_, _| Ok(()))); }
         }
         let mut rules = k.rules.clone();
         rules.push(r);
@@ -1034,14 +1077,14 @@ pub fn button(key: &str, cache: &Shared) -> Option<Box<dyn FnOnce(&Client, &Shar
         drop(k);
         return Some(Box::new(move |c: &Client, k: &Shared| {
             save_script(c, &script, &scripts)?;
-            let mut g = k.lock().unwrap();
+            let mut g = k.lock().unwrap_or_else(|e| e.into_inner());
             g.nr_name.clear(); g.nr_value.clear(); g.nr_action_value.clear(); g.nr_from.clear(); g.nr_until.clear(); g.script_status = "Rule added.".into();
             Ok(())
         }));
     }
     if let Some(id) = key.strip_prefix("server.rule.delete:") {
         let id = id.to_string();
-        let mut k = cache.lock().unwrap();
+        let mut k = cache.lock().unwrap_or_else(|e| e.into_inner());
         if k.confirm_delete != id { k.confirm_delete = id; return Some(Box::new(|_, _| Ok(()))); }
         k.confirm_delete.clear();
         let rules: Vec<Value> = k.rules.iter().filter(|r| r["id"] != id.as_str()).cloned().collect();
@@ -1049,11 +1092,11 @@ pub fn button(key: &str, cache: &Shared) -> Option<Box<dyn FnOnce(&Client, &Shar
         return Some(Box::new(move |c: &Client, _| save_script(c, &script, &scripts)));
     }
     if key == "server.tpl.cancel" {
-        clear_tpl_form(&mut cache.lock().unwrap());
+        clear_tpl_form(&mut cache.lock().unwrap_or_else(|e| e.into_inner()));
         return Some(Box::new(|_, _| Ok(())));
     }
     if let Some(id) = key.strip_prefix("server.tpl.edit:") {
-        let mut k = cache.lock().unwrap();
+        let mut k = cache.lock().unwrap_or_else(|e| e.into_inner());
         if k.tpl_edit == id { return Some(Box::new(|_, _| Ok(()))); }
         // what is half typed is not thrown away by one click
         let dirty = format!("{:?}", form_fields(&k)) != format!("{:?}", k.tpl_old.as_ref().map(crate::templates::fields_of).unwrap_or_default());
@@ -1073,27 +1116,27 @@ pub fn button(key: &str, cache: &Shared) -> Option<Box<dyn FnOnce(&Client, &Shar
     }
     if key == "server.tpl.create" {
         let (old, f, generation) = {
-            let k = cache.lock().unwrap();
-            if !k.tpl_edit.is_empty() && k.tpl_old.is_none() { return Some(Box::new(|_, k: &Shared| { let e = "This template is no longer in the list; reload and try again.".to_string(); k.lock().unwrap().tpl_error = e.clone(); Err(e) })); }
+            let k = cache.lock().unwrap_or_else(|e| e.into_inner());
+            if !k.tpl_edit.is_empty() && k.tpl_old.is_none() { return Some(Box::new(|_, k: &Shared| { let e = "This template is no longer in the list; reload and try again.".to_string(); k.lock().unwrap_or_else(|e| e.into_inner()).tpl_error = e.clone(); Err(e) })); }
             (k.tpl_old.clone().filter(|_| !k.tpl_edit.is_empty()), form_fields(&k), k.tpl_gen)
         };
         return Some(Box::new(move |c: &Client, k: &Shared| {
             match crate::templates::save(c, old.as_ref(), &f) {
                 // only when the form still holds what was saved (the user may have moved to another template)
-                Ok(()) => { let mut k = k.lock().unwrap(); if k.tpl_gen == generation { clear_tpl_form(&mut k); } Ok(()) }
-                Err(e) => { k.lock().unwrap().tpl_error = e.clone(); Err(e) }
+                Ok(()) => { let mut k = k.lock().unwrap_or_else(|e| e.into_inner()); if k.tpl_gen == generation { clear_tpl_form(&mut k); } Ok(()) }
+                Err(e) => { k.lock().unwrap_or_else(|e| e.into_inner()).tpl_error = e.clone(); Err(e) }
             }
         }));
     }
     if let Some(id) = key.strip_prefix("server.tpl.delete:") {
         let id = id.to_string();
-        let mut k = cache.lock().unwrap();
+        let mut k = cache.lock().unwrap_or_else(|e| e.into_inner());
         if k.confirm_delete != id { k.confirm_delete = id; return Some(Box::new(|_, _| Ok(()))); }
         k.confirm_delete.clear();
         return Some(Box::new(move |c: &Client, k: &Shared| {
             crate::templates::delete(c, &id)?;
             // the form was editing the template just deleted
-            let mut k = k.lock().unwrap();
+            let mut k = k.lock().unwrap_or_else(|e| e.into_inner());
             if k.tpl_edit == id { clear_tpl_form(&mut k); }
             Ok(())
         }));
@@ -1105,23 +1148,23 @@ pub fn button(key: &str, cache: &Shared) -> Option<Box<dyn FnOnce(&Client, &Shar
             let r = c.request_using(&ARCHIVE_USING, json!([["x:ArchivedItem/set", {"accountId": acc, "update": { id.clone(): {"status": "requestRestore"} }}, "r"]]))?;
             if r[0][0] == "error" { return Err(crate::jmap::method_error(&r[0][1])); }
             if let Some(e) = r[0][1]["notUpdated"].get(&id) { return Err(crate::jmap::set_error(e)); }
-            k.lock().unwrap().archived.retain(|x| x["id"] != id.as_str());
+            k.lock().unwrap_or_else(|e| e.into_inner()).archived.retain(|x| x["id"] != id.as_str());
             Ok(())
         }));
     }
     if key == "server.sieve.save" {
-        let text = cache.lock().unwrap().script_text.clone();
+        let text = cache.lock().unwrap_or_else(|e| e.into_inner()).script_text.clone();
         return Some(Box::new(move |c: &Client, k: &Shared| {
             let acc = c.account_for("urn:ietf:params:jmap:sieve");
             let (blob, _) = c.upload(text.into_bytes(), "application/sieve")?;
             let v = c.call(json!([["SieveScript/validate", {"accountId": acc, "blobId": blob}, "v"]]))?;
             if let Some(err) = v[0][1]["error"].as_object() {
                 let msg = err.get("description").and_then(|d| d.as_str()).unwrap_or("invalid script").to_string();
-                k.lock().unwrap().script_status = format!("Not saved: {msg}");
+                k.lock().unwrap_or_else(|e| e.into_inner()).script_status = format!("Not saved: {msg}");
                 return Ok(());
             }
             let existing = {
-                let g = k.lock().unwrap();
+                let g = k.lock().unwrap_or_else(|e| e.into_inner());
                 g.scripts.iter().find(|x| x["isActive"] == true).or(g.scripts.first()).and_then(|x| x["id"].as_str().map(String::from))
             };
             let r = match existing {
@@ -1129,7 +1172,7 @@ pub fn button(key: &str, cache: &Shared) -> Option<Box<dyn FnOnce(&Client, &Shar
                 None => c.call(json!([["SieveScript/set", {"accountId": acc, "create": {"n": {"name": "barbican", "blobId": blob}}, "onSuccessActivateScript": "#n"}, "s"]]))?,
             };
             let ok = r[0][1]["updated"].is_object() || r[0][1]["created"].is_object();
-            k.lock().unwrap().script_status = if ok { "Saved and active.".into() } else {
+            k.lock().unwrap_or_else(|e| e.into_inner()).script_status = if ok { "Saved and active.".into() } else {
                 format!("Not saved: {}", crate::jmap::set_error(r[0][1]["notUpdated"].as_object().and_then(|o| o.values().next())
                     .or(r[0][1]["notCreated"].as_object().and_then(|o| o.values().next())).unwrap_or(&Value::Null)))
             };
@@ -1166,7 +1209,7 @@ mod tests {
 
     fn cache_with(quota: Vec<Value>, identities: Vec<Value>) -> Shared {
         let c = Shared::default();
-        { let mut k = c.lock().unwrap(); k.quota = quota; k.identities = identities; }
+        { let mut k = c.lock().unwrap_or_else(|e| e.into_inner()); k.quota = quota; k.identities = identities; }
         c
     }
 
@@ -1204,7 +1247,7 @@ mod tests {
     fn identities_page() -> Shared {
         let c = Shared::default();
         {
-            let mut k = c.lock().unwrap();
+            let mut k = c.lock().unwrap_or_else(|e| e.into_inner());
             (k.owner, k.owner_user, k.owner_key, k.ids_loaded) = ("A".into(), "ann@example.test".into(), "ann@example.test@mail.example.test".into(), true);
             k.identities = vec![
                 json!({"id": "team", "email": "team@example.test", "name": "Team", "mayDelete": false}),
@@ -1232,7 +1275,7 @@ mod tests {
         // deleting the primary is refused before anything is sent; another asks first
         let c = identities_page();
         assert!(button("server.ident.delete:alias", &c).is_some());
-        assert_eq!(c.lock().unwrap().confirm_delete, "ident:alias");
+        assert_eq!(c.lock().unwrap_or_else(|e| e.into_inner()).confirm_delete, "ident:alias");
         assert!(keys(&rows("account", &c).unwrap()).contains(&"server.ident.delete:alias=Click again to delete".to_string()));
     }
 
@@ -1240,22 +1283,22 @@ mod tests {
     fn the_identity_form_checks_before_saving_and_keeps_what_is_typed() {
         let c = identities_page();
         assert!(button("server.ident.new", &c).is_some());
-        assert!(c.lock().unwrap().id_form.as_ref().is_some_and(|x| x.id.is_empty()));
+        assert!(c.lock().unwrap_or_else(|e| e.into_inner()).id_form.as_ref().is_some_and(|x| x.id.is_empty()));
         edit("server.ident.f.email", &json!("not an address"), &c);
         edit("server.ident.f.bcc", &json!("copy@example.test, nope"), &c);
         // a refused form writes nothing: the job does nothing and the error is on the page
         assert!(button("server.ident.save", &c).is_some());
-        let err = c.lock().unwrap().id_form.as_ref().unwrap().error.clone();
+        let err = c.lock().unwrap_or_else(|e| e.into_inner()).id_form.as_ref().unwrap().error.clone();
         assert!(err.contains("valid email address") && err.contains("nope"), "{err}");
         assert!(rows("account", &c).unwrap().iter().any(|x| x.label.as_str() == "Not saved"));
         // typing clears the error; one click on another identity does not throw the input away
         edit("server.ident.f.email", &json!("new@example.test"), &c);
-        assert!(c.lock().unwrap().id_form.as_ref().unwrap().error.is_empty());
+        assert!(c.lock().unwrap_or_else(|e| e.into_inner()).id_form.as_ref().unwrap().error.is_empty());
         button("server.ident.edit:alias", &c);
-        assert!(c.lock().unwrap().id_form.as_ref().unwrap().id.is_empty(), "the first click only asks");
+        assert!(c.lock().unwrap_or_else(|e| e.into_inner()).id_form.as_ref().unwrap().id.is_empty(), "the first click only asks");
         assert!(keys(&rows("account", &c).unwrap()).contains(&"server.ident.edit:alias=Click again to discard what you typed".to_string()));
         button("server.ident.edit:alias", &c);
-        let k = c.lock().unwrap();
+        let k = c.lock().unwrap_or_else(|e| e.into_inner());
         let x = k.id_form.as_ref().unwrap();
         assert_eq!((x.id.as_str(), x.f.email.as_str(), x.f.bcc.as_str()), ("alias", "sales@example.test", "copy@example.test"));
     }
@@ -1267,59 +1310,59 @@ mod tests {
         edit("server.ident.f.email", &json!("new@example.test"), &c);
         // the first Save goes out and the page waits for it
         assert!(button("server.ident.save", &c).is_some());
-        assert!(c.lock().unwrap().id_busy);
+        assert!(c.lock().unwrap_or_else(|e| e.into_inner()).id_busy);
         // a double click, typing, another form or a delete do nothing meanwhile
         assert!(button("server.ident.save", &c).is_none());
         edit("server.ident.f.email", &json!("other@example.test"), &c);
-        assert_eq!(c.lock().unwrap().id_form.as_ref().unwrap().f.email, "new@example.test");
+        assert_eq!(c.lock().unwrap_or_else(|e| e.into_inner()).id_form.as_ref().unwrap().f.email, "new@example.test");
         assert!(button("server.ident.cancel", &c).is_none() && button("server.ident.edit:alias", &c).is_none() && button("server.ident.delete:alias", &c).is_none());
         let r = rows("account", &c).unwrap();
         assert!(r.iter().any(|x| x.label.as_str() == "Saving…"));
         assert!(!r.iter().any(|x| x.key.starts_with("server.ident.f.") || x.key.as_str() == "server.ident.save" || x.key.starts_with("server.ident.delete:")));
         // an answer for another account's page changes nothing here
-        let g0 = c.lock().unwrap().id_gen;
-        identity_done(&mut c.lock().unwrap(), "B", g0, &Ok(()), true, None);
-        assert!(c.lock().unwrap().id_busy);
+        let g0 = c.lock().unwrap_or_else(|e| e.into_inner()).id_gen;
+        identity_done(&mut c.lock().unwrap_or_else(|e| e.into_inner()), "B", g0, &Ok(()), true, None);
+        assert!(c.lock().unwrap_or_else(|e| e.into_inner()).id_busy);
         // a refused save gives the form back with the reason
-        identity_done(&mut c.lock().unwrap(), "A", g0, &Err("You are not authorized to send from this email address.".into()), true, None);
-        { let k = c.lock().unwrap(); assert!(!k.id_busy); assert!(k.id_form.as_ref().unwrap().error.contains("not authorized")); }
+        identity_done(&mut c.lock().unwrap_or_else(|e| e.into_inner()), "A", g0, &Err("You are not authorized to send from this email address.".into()), true, None);
+        { let k = c.lock().unwrap_or_else(|e| e.into_inner()); assert!(!k.id_busy); assert!(k.id_form.as_ref().unwrap().error.contains("not authorized")); }
         // a saved one closes the form: Save cannot add it again
         assert!(button("server.ident.save", &c).is_some());
-        let g1 = c.lock().unwrap().id_gen;
-        identity_done(&mut c.lock().unwrap(), "A", g1, &Ok(()), true, None);
-        { let k = c.lock().unwrap(); assert!(!k.id_busy && k.id_form.is_none()); }
+        let g1 = c.lock().unwrap_or_else(|e| e.into_inner()).id_gen;
+        identity_done(&mut c.lock().unwrap_or_else(|e| e.into_inner()), "A", g1, &Ok(()), true, None);
+        { let k = c.lock().unwrap_or_else(|e| e.into_inner()); assert!(!k.id_busy && k.id_form.is_none()); }
         assert!(button("server.ident.save", &c).is_none());
         // the account changed while it was out: the page takes input again
         button("server.ident.new", &c);
         edit("server.ident.f.email", &json!("x@example.test"), &c);
         button("server.ident.save", &c);
-        let g2 = c.lock().unwrap().id_gen;
-        identity_done(&mut c.lock().unwrap(), "A", g2, &Err(ACCOUNT_CHANGED.into()), true, None);
-        assert!(!c.lock().unwrap().id_busy);
+        let g2 = c.lock().unwrap_or_else(|e| e.into_inner()).id_gen;
+        identity_done(&mut c.lock().unwrap_or_else(|e| e.into_inner()), "A", g2, &Err(ACCOUNT_CHANGED.into()), true, None);
+        assert!(!c.lock().unwrap_or_else(|e| e.into_inner()).id_busy);
         // switching account clears it as well
-        c.lock().unwrap().id_busy = true;
+        c.lock().unwrap_or_else(|e| e.into_inner()).id_busy = true;
         claim(&c, "B", "bob@example.test", "https://other.example.test");
-        assert!(!c.lock().unwrap().id_busy);
+        assert!(!c.lock().unwrap_or_else(|e| e.into_inner()).id_busy);
     }
 
     #[test]
     fn a_delete_waits_too_and_a_missing_may_delete_is_kept() {
         let c = identities_page();
-        c.lock().unwrap().identities.push(json!({"id": "nokey", "email": "old@example.test", "name": ""}));
+        c.lock().unwrap_or_else(|e| e.into_inner()).identities.push(json!({"id": "nokey", "email": "old@example.test", "name": ""}));
         let b = keys(&rows("account", &c).unwrap());
         assert!(!b.iter().any(|x| x.starts_with("server.ident.delete:nokey")), "{b:?}");
         assert!(rows("account", &c).unwrap().iter().any(|x| x.key.as_str() == "server.ident.edit:nokey" && x.desc.as_str().contains("cannot be deleted")));
         // refused before anything is sent
-        c.lock().unwrap().confirm_delete = "ident:nokey".into();
+        c.lock().unwrap_or_else(|e| e.into_inner()).confirm_delete = "ident:nokey".into();
         assert!(button("server.ident.delete:nokey", &c).is_some());
-        assert!(!c.lock().unwrap().id_busy);
+        assert!(!c.lock().unwrap_or_else(|e| e.into_inner()).id_busy);
         button("server.ident.delete:alias", &c);
         assert!(button("server.ident.delete:alias", &c).is_some());
-        assert!(c.lock().unwrap().id_busy);
+        assert!(c.lock().unwrap_or_else(|e| e.into_inner()).id_busy);
         assert!(rows("account", &c).unwrap().iter().any(|x| x.label.as_str() == "Deleting…"));
-        let g = c.lock().unwrap().id_gen;
-        identity_done(&mut c.lock().unwrap(), "A", g, &Ok(()), false, Some("alias"));
-        assert!(!c.lock().unwrap().id_busy && !c.lock().unwrap().id_deleting);
+        let g = c.lock().unwrap_or_else(|e| e.into_inner()).id_gen;
+        identity_done(&mut c.lock().unwrap_or_else(|e| e.into_inner()), "A", g, &Ok(()), false, Some("alias"));
+        assert!(!c.lock().unwrap_or_else(|e| e.into_inner()).id_busy && !c.lock().unwrap_or_else(|e| e.into_inner()).id_deleting);
         // a delete with the form open: the form says Deleting…, not Saving…
         button("server.ident.edit:team", &c);
         button("server.ident.delete:alias", &c);
@@ -1334,28 +1377,60 @@ mod tests {
         button("server.ident.new", &c);
         edit("server.ident.f.email", &json!("first@example.test"), &c);
         assert!(button("server.ident.save", &c).is_some());
-        let first = c.lock().unwrap().id_gen;
+        let first = c.lock().unwrap_or_else(|e| e.into_inner()).id_gen;
         // to another account and back before the answer, then a new form and its own save
         claim(&c, "B", "bob@example.test", "https://other.example.test");
         claim(&c, "A", "ann@example.test", "https://mail.example.test");
-        c.lock().unwrap().identities = identities_page().lock().unwrap().identities.clone();
+        c.lock().unwrap_or_else(|e| e.into_inner()).identities = identities_page().lock().unwrap_or_else(|e| e.into_inner()).identities.clone();
         button("server.ident.new", &c);
         edit("server.ident.f.email", &json!("second@example.test"), &c);
         assert!(button("server.ident.save", &c).is_some());
-        let second = c.lock().unwrap().id_gen;
+        let second = c.lock().unwrap_or_else(|e| e.into_inner()).id_gen;
         assert_ne!(first, second);
         // the first save's late answer, whatever it says: the second keeps its busy page and form
-        identity_done(&mut c.lock().unwrap(), "A", first, &Ok(()), true, None);
-        identity_done(&mut c.lock().unwrap(), "A", first, &Err("refused".into()), true, None);
+        identity_done(&mut c.lock().unwrap_or_else(|e| e.into_inner()), "A", first, &Ok(()), true, None);
+        identity_done(&mut c.lock().unwrap_or_else(|e| e.into_inner()), "A", first, &Err("refused".into()), true, None);
         {
-            let k = c.lock().unwrap();
+            let k = c.lock().unwrap_or_else(|e| e.into_inner());
             assert!(k.id_busy);
             let x = k.id_form.as_ref().unwrap();
             assert_eq!((x.f.email.as_str(), x.error.as_str()), ("second@example.test", ""));
         }
-        identity_done(&mut c.lock().unwrap(), "A", second, &Ok(()), true, None);
-        let k = c.lock().unwrap();
+        identity_done(&mut c.lock().unwrap_or_else(|e| e.into_inner()), "A", second, &Ok(()), true, None);
+        let k = c.lock().unwrap_or_else(|e| e.into_inner());
         assert!(!k.id_busy && k.id_form.is_none());
+    }
+
+    #[test]
+    fn a_reset_forgets_the_identities_and_a_late_save_stays_out() {
+        let c = identities_page();
+        button("server.ident.new", &c);
+        edit("server.ident.f.email", &json!("first@example.test"), &c);
+        assert!(button("server.ident.save", &c).is_some());
+        let first = c.lock().unwrap_or_else(|e| e.into_inner()).id_gen;
+        {
+            let mut k = c.lock().unwrap_or_else(|e| e.into_inner());
+            (k.masked_shown, k.masked_state, k.masked_busy) = (true, 1, true);
+            k.masked_new_desc = "Shop".into();
+        }
+        // signed out (or Settings closed): nothing of the page stays, nor is anything on its way
+        reset(&c);
+        {
+            let k = c.lock().unwrap_or_else(|e| e.into_inner());
+            assert!(k.owner.is_empty() && k.identities.is_empty() && !k.ids_loaded && k.id_form.is_none());
+            assert!(!k.id_busy && !k.id_deleting && !k.masked_busy && !k.masked_shown && k.masked_new_desc.is_empty());
+            assert!(k.id_gen > first, "the generation keeps counting across a reset");
+        }
+        assert!(rows("security", &c).is_none());
+        // the same account again, a new form; the old save answers only now
+        claim(&c, "A", "ann@example.test", "https://mail.example.test");
+        button("server.ident.new", &c);
+        edit("server.ident.f.email", &json!("second@example.test"), &c);
+        identity_done(&mut c.lock().unwrap_or_else(|e| e.into_inner()), "A", first, &Ok(()), true, None);
+        identity_done(&mut c.lock().unwrap_or_else(|e| e.into_inner()), "A", first, &Err("refused".into()), true, None);
+        let k = c.lock().unwrap_or_else(|e| e.into_inner());
+        let x = k.id_form.as_ref().expect("the new form stays open");
+        assert_eq!((x.f.email.as_str(), x.error.as_str()), ("second@example.test", ""));
     }
 
     #[test]
@@ -1364,13 +1439,13 @@ mod tests {
         button("server.ident.edit:ann", &c);
         edit("server.ident.f.sig", &json!("Ann\nSales"), &c);
         edit("server.ident.f.html", &json!(true), &c);
-        let sig = c.lock().unwrap().id_form.as_ref().unwrap().f.signature.clone();
+        let sig = c.lock().unwrap_or_else(|e| e.into_inner()).id_form.as_ref().unwrap().f.signature.clone();
         assert!(sig.contains('<') && sig.contains("Sales"), "{sig}");
         let r = rows("account", &c).unwrap();
         assert!(r.iter().any(|x| x.key.as_str() == "server.ident.f.sig" && x.label.as_str() == "Signature (HTML)"));
         assert!(r.iter().any(|x| x.label.as_str() == "Plain-text version" && x.desc.as_str().contains("Sales")));
         edit("server.ident.f.html", &json!(false), &c);
-        assert!(!c.lock().unwrap().id_form.as_ref().unwrap().f.signature.contains('<'));
+        assert!(!c.lock().unwrap_or_else(|e| e.into_inner()).id_form.as_ref().unwrap().f.signature.contains('<'));
     }
 
     #[test]
@@ -1378,13 +1453,13 @@ mod tests {
         let c = identities_page();
         button("server.ident.new", &c);
         edit("server.ident.f.email", &json!("typed@example.test"), &c);
-        { let mut k = c.lock().unwrap(); k.masked = vec![crate::masked::Masked { id: "m1".into(), email: "m1@mask.example.test".into(), for_domain: None, description: None, enabled: true }]; (k.masked_state, k.masked_shown) = (1, true); }
+        { let mut k = c.lock().unwrap_or_else(|e| e.into_inner()); k.masked = vec![crate::masked::Masked { id: "m1".into(), email: "m1@mask.example.test".into(), for_domain: None, description: None, enabled: true }]; (k.masked_state, k.masked_shown) = (1, true); }
         // the same account keeps everything
         claim(&c, "A", "ann@example.test", "https://mail.example.test");
-        assert!(c.lock().unwrap().id_form.is_some());
+        assert!(c.lock().unwrap_or_else(|e| e.into_inner()).id_form.is_some());
         // another account: the list, the form and the masked addresses go
         claim(&c, "B", "bob@example.test", "https://other.example.test");
-        let k = c.lock().unwrap();
+        let k = c.lock().unwrap_or_else(|e| e.into_inner());
         assert!(k.identities.is_empty() && k.id_form.is_none() && k.masked.is_empty() && !k.masked_shown && !k.ids_loaded);
         assert_eq!((k.owner.as_str(), k.owner_key.as_str()), ("B", "bob@example.test@other.example.test"));
         drop(k);
@@ -1396,7 +1471,7 @@ mod tests {
     fn masked_page(n: usize) -> Shared {
         let c = Shared::default();
         {
-            let mut k = c.lock().unwrap();
+            let mut k = c.lock().unwrap_or_else(|e| e.into_inner());
             k.owner = "A".into();
             k.masked = (0..n).map(|i| crate::masked::Masked { id: format!("m{i}"), email: format!("m{i}@mask.example.test"), for_domain: (i == 0).then(|| "shop.example".into()), description: None, enabled: i != 1 }).collect();
             (k.masked_state, k.masked_shown) = (1, true);
@@ -1422,13 +1497,13 @@ mod tests {
         assert!(b.contains(&"server.masked.toggle:m10=Disable".to_string()) && b.contains(&"server.masked.delete:m10=Delete".to_string()));
         // an id that is not in the list just read is not touched
         assert!(button("server.masked.toggle:zzz", &c).is_some());
-        assert!(!c.lock().unwrap().masked_busy);
+        assert!(!c.lock().unwrap_or_else(|e| e.into_inner()).masked_busy);
         // a delete asks first, then runs; one change at a time
         button("server.masked.delete:m10", &c);
-        assert!(!c.lock().unwrap().masked_busy);
+        assert!(!c.lock().unwrap_or_else(|e| e.into_inner()).masked_busy);
         assert!(keys(&rows("security", &c).unwrap()).contains(&"server.masked.delete:m10=Delete permanently".to_string()));
         assert!(button("server.masked.delete:m10", &c).is_some());
-        assert!(c.lock().unwrap().masked_busy);
+        assert!(c.lock().unwrap_or_else(|e| e.into_inner()).masked_busy);
         assert!(button("server.masked.toggle:m10", &c).is_none(), "busy: no second change");
     }
 
@@ -1442,7 +1517,7 @@ mod tests {
         assert!(keys(&r).contains(&"server.masked.create=Create masked address".to_string()));
         // a delete that could not be confirmed is not offered again before a fresh read
         let c = masked_page(1);
-        { let mut k = c.lock().unwrap(); k.masked_needs_refresh = true; k.masked_open = "m0".into(); }
+        { let mut k = c.lock().unwrap_or_else(|e| e.into_inner()); k.masked_needs_refresh = true; k.masked_open = "m0".into(); }
         assert!(!keys(&rows("security", &c).unwrap()).iter().any(|x| x.starts_with("server.masked.delete:")));
         assert!(button("server.masked.delete:m0", &c).is_none());
     }

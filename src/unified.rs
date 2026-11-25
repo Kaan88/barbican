@@ -94,6 +94,8 @@ pub fn connect(v: &Value) -> Result<Client, String> {
             user: user.to_string(),
         };
         Client::connect_oauth(server, t)
+    } else if let Some(e) = crate::jmap::cleared_password_rejection(v) {
+        Err(e)
     } else {
         Client::connect(server, user, v["pass"].as_str().unwrap_or(""), "")
     }

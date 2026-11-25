@@ -95,7 +95,26 @@ pub fn insert(u: &AppWindow, t: Value) {
 
 fn close_fill(u: &AppWindow) {
     u.global::<CompX>().set_tpl_fill_open(false);
-    PENDING.with(|p| *p.borrow_mut() = None);
+    forget_pending();
+}
+
+/// Drop the template being filled in and what was typed into it.
+fn forget_pending() { PENDING.with(|p| *p.borrow_mut() = None); }
+
+/// Sign-out: both dialogs are drawn over the whole window (the sign-in page too), so they close
+/// and forget the signed-out account's template, the values typed into it and the name typed
+/// for a new one.
+pub fn reset(u: &AppWindow) {
+    let x = u.global::<CompX>();
+    x.set_tpl_fill_open(false);
+    x.set_tpl_save_open(false);
+    forget_pending();
+    x.set_tpl_fill_name("".into());
+    x.set_tpl_fields(ModelRc::new(VecModel::from(Vec::<TplField>::new())));
+    x.set_tpl_preview("".into());
+    x.set_tpl_fill_warn("".into());
+    x.set_tpl_save_name("".into());
+    x.set_tpl_save_error("".into());
 }
 
 /// "Save as template…": the draft's subject is the name to start with.
@@ -200,6 +219,14 @@ mod tests {
         // into a plain draft it becomes text
         let r = render(&h, &vals(&[("name", "Ann")]), true);
         assert!(!r.html && r.body.contains("Hi Ann") && !r.body.contains('<'));
+    }
+
+    #[test]
+    fn forgetting_drops_the_template_being_filled() {
+        let values = vals(&[("name", "Ann")]);
+        PENDING.with(|p| *p.borrow_mut() = Some(Pending { template: json!({"body": "Hi {{name}}"}), names: vec!["name".into()], initial: values.clone(), values, asked: false }));
+        forget_pending();
+        assert!(PENDING.with(|p| p.borrow().is_none()));
     }
 
     #[test]
