@@ -931,7 +931,7 @@ mod tests {
         assert_eq!(duration_secs("P2W"), Some(1_209_600));
         assert_eq!(duration_secs("1H"), None);
         assert_eq!(when(&ev(), "Europe/Berlin"), "Tue 17 Nov 2026, 10:00 – 11:30");
-        assert_eq!(when(&ev(), "Europe/Istanbul"), "Tue 17 Nov 2026, 10:00 – 11:30 (Europe/Berlin)");
+        assert_eq!(when(&ev(), "America/New_York"), "Tue 17 Nov 2026, 10:00 – 11:30 (Europe/Berlin)");
         let all_day = json!({"start": "2026-11-17T00:00:00", "showWithoutTime": true, "duration": "P1D"});
         assert_eq!(when(&all_day, "X"), "Tue 17 Nov 2026, all day");
         let two = json!({"start": "2026-11-17T00:00:00", "showWithoutTime": true, "duration": "P2D"});

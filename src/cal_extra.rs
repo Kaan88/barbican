@@ -1130,10 +1130,10 @@ mod tests {
 
     #[test]
     fn task_field_mapping() {
-        let f = task_fields(" Pay ", "", "2026-11-20", Some("14:30"), 1, 0, 2, 3, "Europe/Istanbul").unwrap();
+        let f = task_fields(" Pay ", "", "2026-11-20", Some("14:30"), 1, 0, 2, 3, "America/New_York").unwrap();
         assert_eq!(f["title"], "Pay");
         assert_eq!(f["due"], "2026-11-20T14:30:00");
-        assert_eq!(f["timeZone"], "Europe/Istanbul");
+        assert_eq!(f["timeZone"], "America/New_York");
         assert_eq!(f["priority"], 1);
         assert_eq!(f["recurrenceRules"][0]["frequency"], "weekly");
         assert_eq!(f["alerts"]["alert1"]["trigger"]["offset"], "-PT15M");
