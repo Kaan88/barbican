@@ -208,15 +208,41 @@ pub enum PinError {
 /// What a stored entry that can't be read means: there is a lock, and nobody knows its PIN. The
 /// way out is the same as for a forgotten one.
 #[derive(Clone, Debug, PartialEq)]
-pub enum Stored { Missing, Unreadable, Some(Record) }
+pub enum Stored {
+    /// No entry at all: never set, or removed from outside Barbican.
+    Missing,
+    Unreadable,
+    Some(Record),
+    /// Turned off by Barbican: the record's place holds a tombstone ([`turn_off_in`]), so a
+    /// window still holding the PIN tells "turned off in another window" from "removed".
+    Off,
+}
 
 /// A store that cannot be read, a value that is not text, or not a record: Unreadable (locked).
 pub fn load_in(b: &dyn Backend, profile: &str) -> Stored {
     match crate::secrets::load_checked(b, profile, SECRET) {
         Err(()) => Stored::Unreadable,
         Ok(None) => Stored::Missing,
-        Ok(Some(t)) => Record::from_json(&t).map_or(Stored::Unreadable, Stored::Some),
+        Ok(Some(t)) => match Record::from_json(&t) {
+            Some(r) => Stored::Some(r),
+            None if is_tombstone(&t) => Stored::Off,
+            None => Stored::Unreadable,
+        },
     }
+}
+
+/// What "Turn off" (and forgetting the PIN) leaves in the record's place. Barbican writes it as
+/// UTF-8; a value typed into the Credential Manager window is UTF-16, which reads as Unreadable,
+/// so it can't be made by hand there.
+fn tombstone(now: i64) -> String { json!({"off": true, "at": now}).to_string() }
+
+fn is_tombstone(text: &str) -> bool {
+    serde_json::from_str::<Value>(text).is_ok_and(|v| v["off"] == true)
+}
+
+/// The PIN turned off: the tombstone replaces the record.
+pub fn turn_off_in(b: &dyn Backend, profile: &str, now: i64) -> bool {
+    crate::secrets::save(b, profile, SECRET, &tombstone(now))
 }
 
 /// The lock at start, checked against the markers the remembered sign-ins carry: a marker with no
@@ -225,7 +251,7 @@ pub fn load_in(b: &dyn Backend, profile: &str) -> Stored {
 pub fn checked(stored: Stored, markers: &[String]) -> Stored {
     match stored {
         Stored::Some(r) if !markers.is_empty() && !markers.contains(&r.fingerprint()) => Stored::Unreadable,
-        Stored::Missing if !markers.is_empty() => Stored::Unreadable,
+        Stored::Missing | Stored::Off if !markers.is_empty() => Stored::Unreadable,
         s => s,
     }
 }
@@ -515,6 +541,7 @@ fn try_pin(pin: &str, now: i64) -> Result<Record, PinError> {
 ///   counted in memory with the same waits; nothing held is NotSet;
 /// - not locked, no entry and no marker: the PIN was turned off in another window (Off).
 pub fn try_pin_with(b: &dyn Backend, profile: &str, stored: Stored, locked: bool, held: &mut Option<Record>, pin: &str, now: i64) -> Result<Record, PinError> {
+    let missing = stored == Stored::Missing;
     match stored {
         Stored::Some(mut r) => {
             if let Some(h) = held.as_ref().filter(|h| h.fingerprint() == r.fingerprint()) {
@@ -540,8 +567,12 @@ pub fn try_pin_with(b: &dyn Backend, profile: &str, stored: Stored, locked: bool
                 }
             }
         }
-        Stored::Missing if !locked => { *held = None; Err(PinError::Off) }
-        _ if locked => match held.as_mut() { Some(h) => try_held(h, pin, now), None => Err(PinError::NotSet) },
+        Stored::Off if !locked => { *held = None; Err(PinError::Off) }
+        // locked with no record, or open with the entry removed (put back by the next resync)
+        Stored::Missing | Stored::Off | Stored::Unreadable if locked || missing => match held.as_mut() {
+            Some(h) => try_held(h, pin, now),
+            None => Err(PinError::NotSet),
+        },
         _ => Err(PinError::NotSet),
     }
 }
@@ -584,7 +615,7 @@ pub fn live_for(s: &Stored, now: i64) -> Live {
     match s {
         Stored::Some(r) => Live { on: true, locked: true, hello: r.hello, timeout: r.timeout, last_input_ms: now },
         Stored::Unreadable => Live { on: true, locked: true, ..Live::OFF },
-        Stored::Missing => Live::OFF,
+        Stored::Missing | Stored::Off => Live::OFF,
     }
 }
 
@@ -615,16 +646,39 @@ pub fn resync() -> Resync {
         _ if !next.on => *held() = None,
         _ => {}
     }
+    if change == Resync::Repair {
+        let _l = RecordLock::acquire();
+        let held = held().clone();
+        if repair_in(store(), crate::profile::current(), held.as_ref()) {
+            // markers on the sign-ins as well (oauth::LOCK_MARKER), from the same copy
+            if let Some(r) = &held { crate::oauth::set_lock_marker(Some(&r.fingerprint())); }
+            eprintln!("app lock: the PIN's entry was removed from outside Barbican; written back");
+        }
+    }
     change
+}
+
+/// The lock's entry is gone (no tombstone: not turned off by Barbican) while this window is open
+/// and holds the record: it is written back from the held copy. Read again first; false when
+/// nothing was written.
+pub fn repair_in(b: &dyn Backend, profile: &str, held: Option<&Record>) -> bool {
+    let Some(r) = held else { return false };
+    load_in(b, profile) == Stored::Missing && save_in(b, profile, r)
 }
 
 /// What [`resync`] changed in the window.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Resync { Same, Locked }
+pub enum Resync {
+    Same,
+    Locked,
+    /// The entry was removed while the window is open: [`resync`] writes it back (the lock stays).
+    Repair,
+}
 
-/// [`resync`]'s rule: a PIN (or an entry nobody can open) that appeared locks. A lock whose entry
-/// is gone with no marker vouching for one is off only while the window is open (turned off in
-/// another window): a locked window never opens this way, whatever was removed from the store.
+/// [`resync`]'s rule: a PIN (or an entry nobody can open) that appeared locks. Turned off in
+/// another window (the tombstone) is off, only while this window is open. An entry removed from
+/// outside Barbican while the window is open is written back (Repair). A locked window never
+/// opens this way, whatever the store holds.
 pub fn resynced(mut l: Live, s: &Stored, now: i64) -> (Live, Resync) {
     match s {
         Stored::Some(r) => {
@@ -633,7 +687,8 @@ pub fn resynced(mut l: Live, s: &Stored, now: i64) -> (Live, Resync) {
             if !l.on { return (live_for(s, now), Resync::Locked); }
         }
         Stored::Unreadable if !l.locked => return (live_for(s, now), Resync::Locked),
-        Stored::Missing if l.on && !l.locked => return (Live { last_input_ms: now, ..Live::OFF }, Resync::Same),
+        Stored::Off if l.on && !l.locked => return (Live { last_input_ms: now, ..Live::OFF }, Resync::Same),
+        Stored::Missing if l.on && !l.locked => return (l, Resync::Repair),
         _ => {}
     }
     (l, Resync::Same)
@@ -647,7 +702,7 @@ pub fn forget() {
     crate::oauth::set_lock_marker(None);
     {
         let _l = RecordLock::acquire();
-        forget_in(store(), crate::profile::current());
+        if !turn_off_in(store(), crate::profile::current(), now_ms()) { forget_in(store(), crate::profile::current()); }
     }
     *held() = None;
     *live() = Live::OFF;
@@ -742,7 +797,7 @@ mod gui {
         use slint::winit_030::winit::event::WindowEvent as E;
         if matches!(ev, E::Focused(true)) {
             match super::resync() {
-                Resync::Same => {}
+                Resync::Same | Resync::Repair => {}
                 Resync::Locked => slint::Timer::single_shot(std::time::Duration::ZERO, || if let Some(u) = ui() { lock_ui(&u); }),
             }
             return false;
@@ -1113,7 +1168,11 @@ mod gui {
                     crate::oauth::set_lock_marker(Some(&r.fingerprint()));
                     return Err(FAILED);
                 }
-                { let _l = RecordLock::acquire(); forget_in(b, p); }
+                // the tombstone tells other windows holding the PIN that it was turned off
+                if !{ let _l = RecordLock::acquire(); turn_off_in(b, p, now) } {
+                    crate::oauth::set_lock_marker(Some(&r.fingerprint()));
+                    return Err(FAILED);
+                }
                 *held() = None;
                 Ok(Live::OFF)
             }
@@ -1565,12 +1624,54 @@ mod tests {
         // the same PIN changes nothing; an open window stays open
         let open = Live { locked: false, ..on };
         assert_eq!(resynced(open, &Stored::Some(r), 9), (open, Resync::Same));
-        // turned off elsewhere (no entry, no marker) while open: off
-        assert_eq!(resynced(open, &Stored::Missing, 9), (Live { last_input_ms: 9, ..Live::OFF }, Resync::Same));
+        // turned off in another window (the tombstone) while open: off
+        assert_eq!(resynced(open, &Stored::Off, 9), (Live { last_input_ms: 9, ..Live::OFF }, Resync::Same));
+        assert_eq!(resynced(Live::OFF, &Stored::Off, 9), (Live::OFF, Resync::Same));
         assert_eq!(resynced(Live::OFF, &Stored::Missing, 9), (Live::OFF, Resync::Same));
-        // a locked window never opens from what the store lacks
+        // removed from outside while open: written back, the lock stays on
+        assert_eq!(resynced(open, &Stored::Missing, 9), (open, Resync::Repair));
+        // a locked window never opens, whatever the store holds
         assert_eq!(resynced(on, &Stored::Missing, 9), (on, Resync::Same));
+        assert_eq!(resynced(on, &Stored::Off, 9), (on, Resync::Same));
         assert_eq!(resynced(on, &Stored::Unreadable, 9), (on, Resync::Same));
+    }
+
+    #[test]
+    fn a_removed_entry_is_written_back_and_a_turned_off_one_is_not() {
+        let b = Fake::default();
+        let r = set(&b, "k7#mpz");
+        // removed from outside: put back from the held copy, once
+        forget_in(&b, "default");
+        assert!(repair_in(&b, "default", Some(&r)));
+        assert_eq!(load_in(&b, "default"), Stored::Some(r.clone()));
+        assert!(!repair_in(&b, "default", Some(&r)));
+        assert!(!repair_in(&b, "default", None));
+        // turned off by Barbican: the tombstone stays, and reads as off
+        assert!(turn_off_in(&b, "default", 5));
+        assert_eq!(load_in(&b, "default"), Stored::Off);
+        assert!(!repair_in(&b, "default", Some(&r)));
+        assert_eq!(live_for(&Stored::Off, 5), Live::OFF);
+        // a tombstone where the markers say a lock is: locked, nobody's PIN
+        assert_eq!(checked(Stored::Off, &[r.fingerprint()]), Stored::Unreadable);
+        assert_eq!(checked(Stored::Off, &[]), Stored::Off);
+        // turning the PIN on again replaces it
+        let n = set(&b, "q9!wre");
+        assert_eq!(load_in(&b, "default"), Stored::Some(n));
+    }
+
+    #[test]
+    fn a_tombstone_while_locked_keeps_the_lock_and_the_pin() {
+        let b = Fake::default();
+        let r = set(&b, "k7#mpz");
+        let mut held = Some(r);
+        assert!(turn_off_in(&b, "default", 5));
+        let stored = || checked(load_in(&b, "default"), &[]);
+        assert_eq!(stored(), Stored::Off);
+        assert_eq!(try_pin_with(&b, "default", stored(), true, &mut held, "wrong1", 10), Err(PinError::Wrong(0)));
+        assert!(try_pin_with(&b, "default", stored(), true, &mut held, "k7#mpz", 10).is_ok());
+        // open (the settings dialog): it was turned off
+        assert_eq!(try_pin_with(&b, "default", stored(), false, &mut held, "k7#mpz", 10), Err(PinError::Off));
+        assert!(held.is_none());
     }
 
     #[test]
@@ -1598,9 +1699,9 @@ mod tests {
         assert!(try_pin_with(&b, "default", Stored::Unreadable, true, &mut held, "k7#mpz", wait).is_ok());
         // nothing held: no PIN opens
         assert_eq!(try_pin_with(&b, "default", Stored::Missing, true, &mut None, "k7#mpz", wait), Err(PinError::NotSet));
-        // not locked (the settings dialog): turned off in another window
-        assert_eq!(try_pin_with(&b, "default", Stored::Missing, false, &mut held, "k7#mpz", wait), Err(PinError::Off));
-        assert!(held.is_none());
+        // open (the settings dialog), entry removed: the held copy still answers
+        assert!(try_pin_with(&b, "default", Stored::Missing, false, &mut held, "k7#mpz", wait).is_ok());
+        assert_eq!(try_pin_with(&b, "default", Stored::Unreadable, false, &mut held, "k7#mpz", wait), Err(PinError::NotSet));
     }
 
     #[test]
