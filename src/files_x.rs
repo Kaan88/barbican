@@ -867,14 +867,19 @@ mod tests {
         }
     }
 
+    /// The files of a zip (its folder entries left out), read back the way an unzip tool does.
+    fn unzipped(z: &[u8]) -> Vec<(String, Vec<u8>)> {
+        crate::zip::tests::read_back(z).into_iter().filter(|(name, _)| !name.ends_with('/')).collect()
+    }
+
     #[test]
-    fn streamed_zip_reads_back_in_the_plugin_unpacker() {
+    fn streamed_zip_reads_back_as_files() {
         let nodes = vec![n("d", None, "Docs", true, 0), n("a", Some("d"), "a.txt", false, 40_000), n("e", Some("d"), "Empty", true, 0), n("t", None, "top.bin", false, 5)];
         let plan = plan_zip(&nodes, &["d".into(), "t".into()]);
         let data: HashMap<String, Vec<u8>> = [("b-a".to_string(), (0..40_000u32).map(|i| (i % 253) as u8).collect()), ("b-t".to_string(), b"12345".to_vec())].into();
         let out = write_zip(&plan, Vec::new(), &AtomicBool::new(false), &mut chunked(&data), &mut |_, _| {}).unwrap();
-        let files = crate::plugin_package::read_zip(&out, crate::plugin_package::LIMITS).unwrap();
-        let got: Vec<(&str, &[u8])> = files.iter().map(|f| (f.path.as_str(), f.data.as_slice())).collect();
+        let files = unzipped(&out);
+        let got: Vec<(&str, &[u8])> = files.iter().map(|f| (f.0.as_str(), f.1.as_slice())).collect();
         assert_eq!(got, [("Docs/a.txt", data["b-a"].as_slice()), ("top.bin", data["b-t"].as_slice())]);
     }
 
@@ -910,15 +915,15 @@ mod tests {
         let plan = plan_zip(&nodes, &["a".into()]);
         let data: HashMap<String, Vec<u8>> = [("b-a".to_string(), b"abc".to_vec())].into();
         save_zip(&plan, &target, &AtomicBool::new(false), &mut chunked(&data), &mut |_, _| {}).unwrap();
-        let files = crate::plugin_package::read_zip(&std::fs::read(&target).unwrap(), crate::plugin_package::LIMITS).unwrap();
-        assert_eq!(files[0].data, b"abc");
+        let files = unzipped(&std::fs::read(&target).unwrap());
+        assert_eq!(files[0].1, b"abc");
         assert_eq!(std::fs::read(dir.join("Docs.zip.part")).unwrap(), b"not ours");
         assert!(!dir.join("Docs.zip.1.part").exists(), "our part file became the zip");
         // a failure half way: the old zip stays, no part file of ours is left
         let mut failing = |_: &ZipFile, w: &mut dyn std::io::Write| { w.write_all(b"partial").map_err(|e| e.to_string())?; Err("Download failed (500)".to_string()) };
         let r = save_zip(&plan, &target, &AtomicBool::new(false), &mut failing, &mut |_, _| {});
         assert_eq!(r.err().as_deref(), Some("Download failed (500)"));
-        assert_eq!(crate::plugin_package::read_zip(&std::fs::read(&target).unwrap(), crate::plugin_package::LIMITS).unwrap()[0].data, b"abc");
+        assert_eq!(unzipped(&std::fs::read(&target).unwrap())[0].1, b"abc");
         assert!(!dir.join("Docs.zip.1.part").exists());
         // a cancel before it starts leaves nothing either
         let r = save_zip(&plan, &dir.join("New.zip"), &AtomicBool::new(true), &mut chunked(&data), &mut |_, _| {});

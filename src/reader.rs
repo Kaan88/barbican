@@ -967,7 +967,6 @@ fn show_parsed(u: &AppWindow, m: &Value) {
     u.set_r_external(crate::message_external(m));
     u.set_r_date(mail::parse_time(&m["sentAt"]).map(|t| t.format("%a %d %b %Y, %H:%M").to_string()).unwrap_or_default().into());
     u.set_thread_msgs(ModelRc::default());
-    u.set_plugin_rows(ModelRc::default());
     u.set_spam_verdict("".into());
     u.set_spam_detail("".into());
     let hide_inline = crate::settings::bool_pref("hideInlineImageAttachments", true);

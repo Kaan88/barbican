@@ -3,7 +3,7 @@
 //! company favicon, in that order, falling back to the initials. Everything here reaches
 //! outside hosts, so it is off by default: "Sender pictures from the web" (`senderFavicons`:
 //! favicons and BIMI logos; Bulwark has it on, Barbican asks first) and "Gravatar photos"
-//! (`gravatarAvatars`; Bulwark's Gravatar is a plugin). In Junk no pictures are shown unless
+//! (`gravatarAvatars`; a plugin in Bulwark, built in here). In Junk no pictures are shown unless
 //! `showAvatarsInJunk` (a logo lends a phishing mail credibility).
 //!
 //! Answers are kept on disk (config dir `avatars/`) for two weeks, a missing one for a day
@@ -113,8 +113,8 @@ pub fn gravatar_hash(email: &str) -> String {
     Sha256::digest(email.trim().to_lowercase().as_bytes()).iter().map(|b| format!("{b:02x}")).collect()
 }
 
-/// The cache keys to try for a sender, best first (Bulwark: BIMI logo > plugin avatar
-/// (Gravatar) > company favicon). `brand` is the From domain of a message that passed DMARC.
+/// The cache keys to try for a sender, best first (Bulwark: BIMI logo > Gravatar >
+/// company favicon). `brand` is the From domain of a message that passed DMARC.
 pub fn candidates(email: &str, brand: Option<&str>, p: &Prefs) -> Vec<String> {
     let domain = domain_of(email);
     if domain.is_empty() || !valid_domain(&domain) { return vec![]; }

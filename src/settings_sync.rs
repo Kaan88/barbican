@@ -12,7 +12,7 @@
 //!   reader that finds parts not matching the manifest takes it as "not ready" and keeps the
 //!   local settings.
 //! * What syncs is an allowlist: the settings schema's preferences and a few Bulwark-keyed values
-//!   with no row ([`EXTRA`]), minus [`DENY`]: plugin consent, sign-ins, the device's state, the
+//!   with no row ([`EXTRA`]), minus [`DENY`]: sign-ins, the device's state, the
 //!   desktop and assistant settings, and whatever loads content or sends data somewhere.
 //!   Pulled values are checked against their kind and bounded; anything else is dropped.
 //! * The owner logic is Bulwark's loadFromServer: the local settings mirror one account's server
@@ -49,14 +49,13 @@ fn part_key(gen: &str, i: usize) -> String { format!("{NS}.part.{gen}.{i}") }
 
 // ---------------------------------------------------------------- what syncs (pure)
 
-/// Never synced, and never applied from a server copy: code and plugin consent, the sync switch
-/// itself, device state (Bulwark DEVICE_LOCAL_SETTING_KEYS), and settings that make this
+/// Never synced, and never applied from a server copy: the sync switch itself, device state (Bulwark DEVICE_LOCAL_SETTING_KEYS), and settings that make this
 /// computer send data, load remote content, drop a warning or a confirmation, or delete for good.
 /// Whoever can write the account's metadata (a sharee of a shared Inbox too) could otherwise
 /// switch them on this computer.
 const DENY: &[&str] = &[
-    // code, consent, the switch, device state
-    "enabledPlugins", "pluginBindings", "pluginGrants", "pluginsOffNoticeShown", DISABLED_KEY, "proInterface", "doNotDisturb",
+    // the switch, device state
+    DISABLED_KEY, "proInterface", "doNotDisturb",
     "vacationCalendarBlocks", "pinnedFolders", "subAddressTags", "replyDockShare", "explicitSettings", "debugMode",
     // sends data somewhere, or tells senders something
     "pushRelayUrl", "phishingReportAddress", "readReceiptResponse", "requestReadReceiptDefault", "proofreading",
@@ -70,10 +69,12 @@ const DENY: &[&str] = &[
     "deleteAction", "permanentlyDeleteJunk",
 ];
 
-/// Whether `key` may never sync, whatever the lists say: any plugin key, any key of Barbican's
-/// own desktop, assistant or server pages (they have a dot), and [`DENY`].
+/// Whether `key` may never sync, whatever the lists say: any key of Barbican's own desktop,
+/// assistant or server pages (they have a dot), and [`DENY`]. The plugin keys an older Barbican
+/// kept (`enabledPlugins` and the like) have no schema row and are not in [`EXTRA`]: they are
+/// neither pushed nor read.
 fn denied(key: &str) -> bool {
-    key.is_empty() || key.contains('.') || key.contains(':') || key.to_ascii_lowercase().starts_with("plugin") || DENY.contains(&key)
+    key.is_empty() || key.contains('.') || key.contains(':') || DENY.contains(&key)
 }
 
 /// Kept as this device has them once it holds several logins (Bulwark CROSS_ACCOUNT_VIEW_KEYS).
@@ -623,7 +624,7 @@ static ON_APPLIED: std::sync::OnceLock<Applied> = std::sync::OnceLock::new();
 const UNSUPPORTED: &str = "Not available: this server keeps no account metadata (Stalwart 1.0 or later does), so your settings stay on this computer.";
 const BLOCKED: &str = "Paused: this account's settings could not be read while another account's were here. Barbican shows the default settings and tries again at the next sign-in.";
 const FROZEN: &str = "Paused: Barbican could not read your settings file when it started, so nothing is synced until you restart it.";
-const ABOUT: &str = "Your other computers signed in to this account get the same Barbican settings, kept in your account on the server (anyone you share your Inbox with can read them). Plugins, sign-ins, trusted senders, remote content, warnings and this computer's desktop settings stay here.";
+const ABOUT: &str = "Your other computers signed in to this account get the same Barbican settings, kept in your account on the server (anyone you share your Inbox with can read them). Sign-ins, trusted senders, remote content, warnings and this computer's desktop settings stay here.";
 
 /// The row's text: what the sync does (or why it cannot), and the last push's error.
 fn describe(note: Option<&str>, err: Option<&str>) -> String {
@@ -974,7 +975,7 @@ mod tests {
         let (parts, _) = encode(&ok, "2026-11-25T10:00:00.000Z", "aa").unwrap();
         assert!(parts.len() <= MAX_PARTS && parts.iter().map(|p| crate::templates::value_bytes(&p.1)).sum::<usize>() <= MAX_BLOB_BYTES);
         let d = describe(None, Some("Your settings are too big to sync (25000 of 20480 bytes)."));
-        assert!(d.contains("Plugins") && d.ends_with("Last sync failed: Your settings are too big to sync (25000 of 20480 bytes)."), "{d}");
+        assert!(d.contains("Sign-ins") && d.ends_with("Last sync failed: Your settings are too big to sync (25000 of 20480 bytes)."), "{d}");
         assert!(describe(Some(UNSUPPORTED), None).starts_with("Not available"));
         assert!(ABOUT.contains("share your Inbox"));
     }
@@ -1009,7 +1010,7 @@ mod tests {
             "theme": "dark", "density": "compact", "showPreview": false, "firstDayOfWeek": 0, "retentionTrashDays": 30,
             "calendarWorkingDays": [1, 2, 3], "hoverActions": ["delete", "star"], "subAddressDelimiter": "-",
             "fontSize": "large", "mailTextScale": 1.25, "reduceTransparency": "system", "showRowActionButton": null,
-            // never applied, whatever a server copy says
+            // never applied, whatever a server copy says (the plugin keys are an older Barbican's)
             "enabledPlugins": ["evil"], "pluginBindings": {"evil": "C:/x.dll|h"}, "pluginGrants": {"evil": ["net"]}, "plugin:evil": true,
             "settingsSyncDisabled": true, "trustedSenders": ["a@example.test"], "externalContentPolicy": "allow",
             "pushRelayUrl": "https://relay.example.test", "proInterface": true, "ai.key": "k", "desktop.startAtLogin": true,
@@ -1061,7 +1062,7 @@ mod tests {
     }
 
     #[test]
-    fn a_server_copy_with_enabled_plugins_does_not_switch_them_on() {
+    fn a_server_copy_with_old_plugin_keys_is_not_applied() {
         let mut st = state(Some("A"), None);
         let mut prefs = obj(json!({"enabledPlugins": [], "theme": "dark"}));
         let s = obj(json!({"enabledPlugins": ["evil"], "pluginBindings": {"evil": "x"}, "pluginGrants": {"evil": ["fs"]}, "theme": "light"}));

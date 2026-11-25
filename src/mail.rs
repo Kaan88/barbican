@@ -668,7 +668,6 @@ pub fn rebuild_list(u: &AppWindow) {
         crate::listsync::sync_into(&u.get_mails(), build_rows(&l, &p), |m| m.id.clone(), same_row, |m| u.set_mails(m));
         u.set_has_more(l.emails.len() < l.total);
         u.set_checked_count(l.checked.len() as i32);
-        crate::plugin_hooks::selection(&l.checked);
         // the selection bar offers "Report phishing" only once an address is set (Bulwark: while one is)
         if !l.checked.is_empty() { u.set_phish_ok(crate::phish::setup_cached().is_some()); }
         // the first list built after sign-in is what a bad sender-picture setting crashed in:

@@ -105,7 +105,7 @@ All nine P0 items are implemented (see above). What is left of them:
 ## P3: large and low priority
 
 - **Admin (L).** Barbican's admin is read-mostly: dashboard, directory, domains, queue (delete only), reports, logs, tasks, cluster, actions. Bulwark admin/ and Stalwart webui add create/edit for accounts, groups, lists, domains (DKIM/DNS), API keys, OAuth clients, the settings editor, spam training and queue retry. Per the rules none of this should be tested against the live server.
-- **Plugins (L).** Bulwark has a web plugin runtime (lib/plugin-*.ts: slots, hook catalogue, sandbox, OAuth, secrets, settings). Barbican loads native DLLs with 2 hooks (`email_details`, `compose_check`).
+- **Plugins: cut (2026-11-25).** Bulwark has a web plugin runtime (lib/plugin-*.ts: slots, hook catalogue, sandbox, OAuth, secrets, settings). Barbican's own plugin platform was removed (docs/FEATURE-CUT.md); the spam score and the AI assistant are built in.
 - **Offline mode and outbox (L)** (offline/, lib/offline), files sync (files-sync/), WebDAV (lib/webdav), WOPI editing.
 - **Delegation and impersonation (M)** (settings/delegates/, impersonation/), tour/onboarding (tour/), Pro interface (pro/), org announcements and disclaimers (org/).
 
@@ -117,7 +117,7 @@ All nine P0 items are implemented (see above). What is left of them:
 - **Linux platform layer (M):** a platform layer exists now (src/platform/), but the Linux side, the .deb scripts and the AppImage step have never been compiled (no GTK libraries on this machine). WebKitGTK, Secret Service and the portal colour scheme are unverified.
 - **Rich-text composer leftovers (S):** IME is unverified with a real IME, and the pre-edit text covers the text after the caret instead of pushing it aside.
 - **Polish font pass:** the memory note marks it done on 2026-11-16 (Skia renderer, Segoe UI, run-through by driving the real window with drive.ps1). Still open: a side-by-side check of font sizes and weights against Bulwark per view, redone through the hidden automation channel since drive.ps1 is now forbidden.
-- ROADMAP.md was rewritten on 2026-11-23 around 1:1 Bulwark parity, plugins included.
+- ROADMAP.md was rewritten on 2026-11-23 around 1:1 Bulwark parity, plugins included; the plugin track was cut on 2026-11-25 (docs/FEATURE-CUT.md).
 
 Files read: `C:/Users/user/Downloads/webmail-main/desktop/ROADMAP.md`, `C:/Users/user/Downloads/webmail-main/desktop/JMAP-COMPLIANCE.md`, `C:/Users/user/Downloads/webmail-main/desktop/src/settings.rs`, `C:/Users/user/Downloads/webmail-main/desktop/src/server_settings.rs`, `C:/Users/user/Downloads/webmail-main/desktop/src/main.rs`, `C:/Users/user/Downloads/webmail-main/desktop/src/ctxmenu.rs`, `C:/Users/user/Downloads/webmail-main/desktop/ui/app.slint`, `C:/Users/user/Downloads/webmail-main/desktop/ui/settings-schema.json`, `C:/Users/user/Downloads/webmail-main/stores/settings-store.ts`, `C:/Users/user/Downloads/webmail-main/lib/keyboard-shortcuts/`.
 
@@ -137,7 +137,6 @@ Open items found while reviewing the 0.2 and early 0.3 branches. Each needs a de
 - **Templates:**
   - No browser-storage fallback for servers without metadata.
   - No team or per-account templates.
-  - No plugin onTemplateRender hook.
   - Auto-fill dates are English only.
 - **Folders:** subscribe/unsubscribe and pinned folders are Barbican's own (Bulwark has neither). Custom folder icons draw only in the Bento theme.
 - **Installer and Hub:** the quit signal (0.2.1) is not yet verified end to end through a Hub update. The update from 0.2.0 or older still needs a manual Quit.

@@ -28,7 +28,6 @@ TABS = [
     ('calendar', 'Calendar', 'apps', '', ['calendar-settings', 'calendar-management-settings']),
     ('contacts', 'Contacts', 'apps', '', ['contacts-settings', 'address-book-management-settings']),
     ('files', 'Files', 'apps', '', ['files-settings', 'downloads-settings']),
-    ('addons', 'Add-ons', 'apps', '', ['addons-settings', 'plugins-settings']),
     ('backup', 'Backup & import', 'bottom', '', []),
     ('troubleshooting', 'Troubleshooting', 'bottom', '', ['debug-settings']),
     ('about', 'About', 'bottom', '', ['about-data-settings']),

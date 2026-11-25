@@ -191,7 +191,6 @@ fn prefill(u: &AppWindow, id: &str) {
     u.set_attachments(ModelRc::default());
     u.set_att_cards(ModelRc::default());
     u.set_thread_msgs(ModelRc::default());
-    u.set_plugin_rows(ModelRc::default());
     u.set_spam_verdict("".into());
     u.set_images_blocked(false);
     // the banners (unsubscribe, receipt, invitation) belong to the message that was shown
@@ -253,14 +252,8 @@ fn present(u: &AppWindow, c: &Arc<jmap::Client>, id: &str, m: Arc<Value>, thread
         Some(t) => (m["threadId"].as_str().map(String::from), thread_rows(id, t)),
         None => (None, vec![]),
     };
-    let prow: Vec<PRow> = crate::plugin_email_details(&m).into_iter()
-        .map(|(label, value, tone)| PRow { label: label.into(), value: value.into(), tone: tone.into() }).collect();
-    let spam_plugin = crate::plugin_spam_active();
-    // API 2 plugins hear it as onEmailOpen (fire and forget)
-    crate::plugin_hooks::email_opened(&m);
-    crate::plugin_notices(u);
     let headers = m["headers"].as_array().cloned().unwrap_or_default();
-    let sp = spam::analyze(&headers).filter(|_| !spam_plugin).filter(|sp| sp.verdict != "clean" || u.get_spam_show_clean());
+    let sp = spam::analyze(&headers).filter(|sp| sp.verdict != "clean" || u.get_spam_show_clean());
     let (_, text) = body_text(&m);
     let reply = (email.clone(), m["subject"].as_str().unwrap_or("").to_string(), m["messageId"][0].as_str().map(String::from), text, format!("{date}, {from}"));
     let flagged = kw["$flagged"].as_bool() == Some(true);
@@ -306,7 +299,6 @@ fn present(u: &AppWindow, c: &Arc<jmap::Client>, id: &str, m: Arc<Value>, thread
         u.set_r_external(external);
         u.set_r_date(date.into());
         u.set_ai_result("".into());
-        u.set_plugin_rows(ModelRc::new(VecModel::from(prow)));
         match sp {
             Some(sp) => { u.set_spam_verdict(sp.verdict.into()); u.set_spam_detail(sp.detail.into()); }
             None => { u.set_spam_verdict("".into()); u.set_spam_detail("".into()); }
