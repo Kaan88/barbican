@@ -56,7 +56,22 @@ mod sys {
         String::from_utf16_lossy(&buf[..n as usize - 1])
     }
 
+    /// Keeps COM loaded for the rest of the process (a reference on the MTA, never released).
+    /// While a checker is alive, a thread without COM that asks for a WinRT factory
+    /// (iana-time-zone's Calendar, behind `agent::local_tz`) gets it without taking a COM
+    /// reference of its own (windows-core only pins the MTA when the call fails as
+    /// uninitialized), and windows-core caches that factory in a static. When the thread that
+    /// created the checker was the process's only apartment and ends, COM unloads
+    /// Windows.Globalization.dll and the next time zone lookup calls into unmapped memory
+    /// (STATUS_ACCESS_VIOLATION). The app's UI thread lives as long as the app, a test thread
+    /// does not.
+    fn keep_com_loaded() {
+        static ONCE: std::sync::Once = std::sync::Once::new();
+        ONCE.call_once(|| { let _ = unsafe { CoIncrementMTAUsage() }; });
+    }
+
     pub fn create(tag: &str) -> Option<Checker> {
+        keep_com_loaded();
         unsafe {
             let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
             let f: ISpellCheckerFactory = CoCreateInstance(&SpellCheckerFactory, None, CLSCTX_INPROC_SERVER).ok()?;
@@ -222,5 +237,39 @@ mod tests {
         assert!(words.contains(&"sentense"), "{words:?}");
         assert!(words.contains(&"mispelled"), "{words:?}");
         assert!(c.suggest("sentense").iter().any(|s| s == "sentence"));
+    }
+
+    /// Run by `a_checker_thread_ending_leaves_the_time_zone_lookup_working` in a process of its own:
+    /// a thread creates a checker (the process's first COM), another thread looks the time zone
+    /// up meanwhile, the checker thread ends, the time zone is looked up again.
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "run in its own process by the test below"]
+    fn checker_thread_then_time_zone() {
+        let (ready_tx, ready) = std::sync::mpsc::channel();
+        let (go, go_rx) = std::sync::mpsc::channel::<()>();
+        let t = std::thread::spawn(move || {
+            let c = sys::create("en-US");
+            if let Some(c) = &c { c.check("This sentense"); }
+            ready_tx.send(()).unwrap();
+            go_rx.recv().unwrap();
+        });
+        ready.recv().unwrap();
+        let first = crate::agent::local_tz();
+        go.send(()).unwrap();
+        t.join().unwrap();
+        assert_eq!(crate::agent::local_tz(), first);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_checker_thread_ending_leaves_the_time_zone_lookup_working() {
+        // regression: the unit tests crashed with STATUS_ACCESS_VIOLATION in about a third of the
+        // parallel runs; in a fresh process this order crashed every time
+        let out = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "rte::spell::tests::checker_thread_then_time_zone", "--ignored", "--test-threads=1"])
+            .output().unwrap();
+        assert!(out.status.success(), "{:?}\n{}", out.status, String::from_utf8_lossy(&out.stdout));
+        assert!(String::from_utf8_lossy(&out.stdout).contains("1 passed"));
     }
 }
