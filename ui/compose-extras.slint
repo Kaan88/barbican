@@ -53,6 +53,21 @@ export global CompX {
     callback sched-open-compose();
     // banner and menu actions on the open scheduled message: reschedule, edit, cancel
     callback sched-action(string);
+    // sub-address helper (Bulwark sub-address-helper.tsx; logic src/subaddr.rs): the tag in
+    // use ("" none) and the dialog that picks one
+    in-out property <string> sub-tag;
+    in-out property <bool> sub-open;
+    in-out property <string> sub-input;
+    in-out property <string> sub-preview;
+    in-out property <string> sub-error;
+    in-out property <string> sub-help;
+    in-out property <[string]> sub-recent;
+    in-out property <[string]> sub-suggested;
+    callback sub-open-compose();
+    callback sub-edit(string);
+    callback sub-use(string);
+    callback sub-cancel();
+    callback sub-clear();
 }
 
 export component SaveState inherits Text {
@@ -227,6 +242,91 @@ export component TplSaveDialog inherits Rectangle {
         }
     }
     init => { name-field.focus-input(); }
+}
+
+component TagChip inherits Rectangle {
+    in property <string> text;
+    in property <bool> suggested;
+    callback clicked();
+    height: 26px;
+    width: tl.preferred-width + 18px;
+    border-radius: 8px;
+    background: ta.has-hover ? CTheme.hover : suggested ? CTheme.sky-bg : CTheme.chip;
+    ta := TouchArea { clicked => { root.clicked(); } }
+    tl := Text { text: root.text; color: suggested ? CTheme.sky-fg : CTheme.text; font-size: 12px; vertical-alignment: center; horizontal-alignment: center; }
+}
+
+// Modal: a sub-address tag for the From address (user+tag@domain), with a preview, the recent
+// tags and suggestions for the recipients' domains.
+export component SubAddrDialog inherits Rectangle {
+    background: CTheme.scrim;
+    TouchArea { clicked => { CompX.sub-cancel(); } }
+    FocusScope {
+        capture-key-pressed(e) => {
+            if e.text == Key.Escape { CompX.sub-cancel(); return accept; }
+            reject
+        }
+        Rectangle {
+            width: min(400px, root.width - 32px);
+            height: lay.preferred-height;
+            x: (root.width - self.width) / 2;
+            y: (root.height - self.height) / 2;
+            background: CTheme.popup;
+            border-radius: 24px;
+            border-width: 1px;
+            border-color: CTheme.line;
+            drop-shadow-blur: 30px;
+            drop-shadow-color: CTheme.shadow;
+            drop-shadow-offset-y: 12px;
+            TouchArea { }
+            lay := VerticalLayout {
+                padding: 20px;
+                spacing: 12px;
+                Text { text: "Add a sub-address tag"; color: CTheme.text; font-size: 17px; font-weight: 700; }
+                tag-field := DialogField {
+                    placeholder: "Enter tag (e.g., shopping)";
+                    text: CompX.sub-input;
+                    invalid: CompX.sub-error != "";
+                    edited(t) => { CompX.sub-edit(t); }
+                    accepted => { if CompX.sub-error == "" && CompX.sub-input != "" { CompX.sub-use(CompX.sub-input); } }
+                }
+                if CompX.sub-error != "": Text { text: CompX.sub-error; color: CTheme.amber-fg; font-size: 12.5px; wrap: word-wrap; }
+                Rectangle {
+                    border-radius: 10px;
+                    background: CTheme.raised;
+                    height: pv.preferred-height;
+                    pv := VerticalLayout {
+                        padding: 10px;
+                        spacing: 2px;
+                        Text { text: "Preview:"; color: CTheme.dim; font-size: 11.5px; }
+                        Text { text: CompX.sub-preview; color: CTheme.text; font-size: 13px; font-family: "Consolas"; wrap: char-wrap; }
+                    }
+                }
+                if CompX.sub-recent.length > 0: VerticalLayout {
+                    spacing: 6px;
+                    Text { text: "Recent tags"; color: CTheme.dim; font-size: 12px; }
+                    HorizontalLayout { alignment: start; spacing: 6px; for t in CompX.sub-recent: TagChip { text: t; clicked => { CompX.sub-use(t); } } }
+                }
+                if CompX.sub-suggested.length > 0: VerticalLayout {
+                    spacing: 6px;
+                    Text { text: "Suggested"; color: CTheme.dim; font-size: 12px; }
+                    HorizontalLayout { alignment: start; spacing: 6px; for t in CompX.sub-suggested: TagChip { text: t; suggested: true; clicked => { CompX.sub-use(t); } } }
+                }
+                Text { text: CompX.sub-help; color: CTheme.dim; font-size: 12px; wrap: word-wrap; }
+                HorizontalLayout {
+                    alignment: end;
+                    spacing: 8px;
+                    PillButton { text: "Cancel"; clicked => { CompX.sub-cancel(); } }
+                    PillButton {
+                        text: "Use this address";
+                        primary: true;
+                        clicked => { if CompX.sub-error == "" && CompX.sub-input != "" { CompX.sub-use(CompX.sub-input); } }
+                    }
+                }
+            }
+        }
+    }
+    init => { tag-field.focus-input(); }
 }
 
 // Modal: one click for the usual times, or any date and time typed below.

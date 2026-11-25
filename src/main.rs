@@ -41,6 +41,9 @@ mod folders;
 mod copymsg;
 mod files;
 mod glance;
+mod identities;
+mod masked;
+mod subaddr;
 mod jmap;
 mod lite;
 mod mailview;
@@ -1043,9 +1046,10 @@ fn main() -> Result<(), slint::PlatformError> {
         // what was read from the account's address book; the book itself stays on the server
         trustbook::clear();
         signout::wipe(signout::Who { user: account, owner, last, webview_live: mailview::is_built() || platform::other_of_profile_running() });
-        // the template dialogs are drawn over the sign-in page too; the composer's template list
+        // the template and sub-address dialogs are drawn over the sign-in page too; the composer's template list
         // was this account's
         tplflow::reset(&u);
+        subaddr::reset(&u);
         TEMPLATES.with(|t| *t.borrow_mut() = (String::new(), Vec::new()));
         u.set_tpl_names(ModelRc::new(VecModel::from(vec![slint::SharedString::from("Insert template…")])));
         u.set_tpl_index(0);
@@ -1206,9 +1210,12 @@ fn main() -> Result<(), slint::PlatformError> {
     };
     // rebuild the current settings page (or search results)
     let refresh_settings = {
-        let (w, pf, cf, acc, srv) = (ui.as_weak(), prefs.clone(), cfg.clone(), account_info.clone(), server_cache.clone());
+        let (w, pf, cf, acc, srv, stc) = (ui.as_weak(), prefs.clone(), cfg.clone(), account_info.clone(), server_cache.clone(), state.clone());
         Arc::new(move || {
             let u = w.unwrap();
+            // the page shows the signed-in account's identities and masked addresses only:
+            // another account's are dropped before anything is drawn
+            if let Some(c) = stc.lock().unwrap().clone() { server_settings::claim(&srv, &c.state_key(), &c.username, &c.base); }
             let p = pf.lock().unwrap();
             let c = cf.lock().unwrap().clone();
             let adv = u.get_show_advanced_settings();
@@ -1222,7 +1229,7 @@ fn main() -> Result<(), slint::PlatformError> {
                 if let Some(extra) = server_settings::rows(&tab, &srv) {
                     if tab == "account" || tab == "composing" { rows.extend(extra); }
                     else if tab == "security" {
-                        // the server's account security replaces the schema's empty headings it covers
+                        // the server's account security (and masked addresses) replaces the schema's empty headings it covers
                         rows.retain(|r| !(r.kind == "section" && matches!(r.label.as_str(), "Account security" | "Encryption")));
                         rows.splice(0..0, extra);
                     } else { rows = extra; }
@@ -1370,8 +1377,9 @@ fn main() -> Result<(), slint::PlatformError> {
     ui.on_settings_button(move |key| {
         let u = w.unwrap();
         if key.starts_with("server.") {
-            let Some(job) = server_settings::button(&key, &srv) else { return };
+            // the client first: a job that marks the page busy must also run and clear it
             let Some(c) = st.lock().unwrap().clone() else { return };
+            let Some(job) = server_settings::button(&key, &srv) else { return };
             let (w2, srv2, lsp2, tab) = (w.clone(), srv.clone(), lsp.clone(), u.get_settings_tab().to_string());
             u.invoke_settings_search(u.get_settings_query());
             std::thread::spawn(move || {
@@ -1992,6 +2000,7 @@ fn main() -> Result<(), slint::PlatformError> {
         tplflow::insert(&u, t);
     });
     tplflow::wire(&ui, state.clone());
+    subaddr::wire(&ui);
 
     // ---------------- mail actions ----------------
     let w = ui.as_weak();
@@ -2458,7 +2467,7 @@ fn finish_login(w: slint::Weak<AppWindow>, st: Shared, res: Result<jmap::Client,
             {
                 let (w3, c3) = (w2.clone(), c.clone());
                 std::thread::spawn(move || {
-                    let ids = c3.identities().unwrap_or_default();
+                    let ids = identities::ordered_for(&c3.identities().unwrap_or_default(), &c3.username, &c3.base);
                     let addrs: Vec<String> = ids.iter().filter_map(|i| i["email"].as_str().map(String::from)).collect();
                     let _ = w3.upgrade_in_event_loop(move |u| { MY_ADDRS.with(|a| *a.borrow_mut() = addrs); glance::set_name(&u, &ids); });
                 });

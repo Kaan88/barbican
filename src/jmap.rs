@@ -340,6 +340,11 @@ impl Client {
     /// One POST to the API endpoint: maxSizeRequest, maxConcurrentRequests, OAuth renewal, one
     /// retry of read-only calls after 429/503, request-level errors, and the sessionState check.
     fn post(&self, using: &Value, calls: &Value) -> R<Vec<Value>> {
+        self.post_inner(using, calls, &mut None)
+    }
+
+    /// `post`, telling the HTTP status of a request the server turned down (`status`).
+    fn post_inner(&self, using: &Value, calls: &Value, status: &mut Option<u16>) -> R<Vec<Value>> {
         let body = serde_json::to_vec(&json!({ "using": using, "methodCalls": calls })).map_err(e)?;
         let max = self.limit("maxSizeRequest", 10_000_000);
         if body.len() > max {
@@ -368,6 +373,7 @@ impl Client {
             std::thread::sleep(std::time::Duration::from_secs(wait));
             resp = send()?;
         }
+        if resp.status().as_u16() >= 400 { *status = Some(resp.status().as_u16()); }
         match resp.status().as_u16() {
             401 => return Err(self.reject()),
             429 => return Err("The server is rate limiting requests; try again shortly.".into()),
@@ -402,6 +408,12 @@ impl Client {
     /// Request with an explicit `using` list (e.g. Stalwart's own `urn:stalwart:jmap` objects).
     pub fn request_using(&self, using: &[&str], calls: Value) -> R<Vec<Value>> {
         self.post(&json!(using), &calls)
+    }
+
+    /// `request_using`, with the HTTP status (when there was one) of a request that failed.
+    pub fn request_using_status(&self, using: &[&str], calls: Value) -> Result<Vec<Value>, (Option<u16>, String)> {
+        let mut status = None;
+        self.post_inner(&json!(using), &calls, &mut status).map_err(|e| (status, e))
     }
 
     /// Like [`request`] but fails on the first method error.
@@ -1085,6 +1097,10 @@ impl Client {
         }
         let ident = self.pick_identity_for(&o.from, o.from_override.as_ref().map(|f| f.1.as_str()))?;
         let ident_id = ident["id"].as_str().unwrap_or("").to_string();
+        // the identity's own Bcc goes with the send only (Bulwark): as envelope recipients, never
+        // in the message, so the copy in Drafts (kept when the submission fails, brought back by
+        // an undone send) does not carry it
+        let extra = crate::identities::identity_bcc_extra(&o.to, &o.cc, &o.bcc, &ident);
         let roles = self.role_ids()?;
         let drafts = roles.get("drafts").ok_or("No Drafts folder.")?.clone();
         let sent = roles.get("sent").ok_or("No Sent folder.")?.clone();
@@ -1099,11 +1115,11 @@ impl Client {
         };
         // the MAIL FROM the server derives from the identity, and the one asked for: the From
         // override, so the Return-Path does not give the identity's address away (Bulwark #1009)
-        let identity_mail_from = header_from(&Outgoing { from_override: None, ..o.clone() }, &ident, &self.username)["email"].as_str().unwrap_or("").to_string();
+        let identity_mail_from = header_from(&Outgoing { from_override: None, sub_address: None, ..o.clone() }, &ident, &self.username)["email"].as_str().unwrap_or("").to_string();
         let mail_from = o.from_override.as_ref().map(|f| f.1.trim().to_string()).filter(|e| e.contains('@')).unwrap_or_else(|| identity_mail_from.clone());
         let submission = |email_id: &str, mail_from: &str| -> Value {
             let mut sub = json!({"emailId": email_id, "identityId": ident_id});
-            if let Some(env) = submission_envelope(mail_from, &identity_mail_from, hold, &rcpts) { sub["envelope"] = env; }
+            if let Some(env) = send_envelope(mail_from, &identity_mail_from, hold, &rcpts, &extra) { sub["envelope"] = env; }
             sub
         };
         let on_success = json!({"#s": {
@@ -1388,6 +1404,9 @@ pub struct Outgoing {
     /// Bulwark's From override ("Edit sender…", or the catch-all reply rewrite): the header
     /// From as (name, email), sent through the identity `from`. Also asked for as MAIL FROM.
     pub from_override: Option<(String, String)>,
+    /// Bulwark's sub-address (`user+tag@domain` of the identity): the header From only, sent
+    /// through the identity; the server derives MAIL FROM from the identity as usual.
+    pub sub_address: Option<String>,
 }
 
 /// The Email/set create object for a message (a draft or a message to send).
@@ -1445,7 +1464,7 @@ pub fn header_from(o: &Outgoing, ident: &Value, username: &str) -> Value {
         return if name.is_empty() { json!({"email": email.trim()}) } else { json!({"name": name, "email": email.trim()}) };
     }
     let e = ident["email"].as_str().unwrap_or("");
-    let email = if e.contains('*') || !e.contains('@') { username } else { e };
+    let email = if e.contains('*') || !e.contains('@') { username } else { o.sub_address.as_deref().map(str::trim).filter(|a| a.contains('@')).unwrap_or(e) };
     match ident["name"].as_str().filter(|n| !n.trim().is_empty()) {
         Some(n) => json!({"name": n, "email": email}),
         None => json!({"email": email}),
@@ -1480,6 +1499,15 @@ pub fn submission_envelope(mail_from: &str, identity_mail_from: &str, hold: Opti
     let mut from = json!({"email": mail_from});
     if let Some(h) = hold { from["parameters"] = json!({"HOLDFOR": h.to_string()}); }
     Some(json!({"mailFrom": from, "rcptTo": rcpts.iter().map(|r| json!({"email": r})).collect::<Vec<_>>()}))
+}
+
+/// The envelope of a send: as [`submission_envelope`], and always when the identity adds
+/// recipients of its own (`extra`, its Bcc), which then go to RCPT TO only.
+pub fn send_envelope(mail_from: &str, identity_mail_from: &str, hold: Option<u64>, rcpts: &[String], extra: &[String]) -> Option<Value> {
+    if extra.is_empty() { return submission_envelope(mail_from, identity_mail_from, hold, rcpts); }
+    let all: Vec<String> = rcpts.iter().chain(extra).cloned().collect();
+    // "" never equals a MAIL FROM, so the envelope is always made
+    submission_envelope(mail_from, "", hold, &all)
 }
 
 /// A submission refused for its MAIL FROM (forbiddenMailFrom, or Stalwart's forbiddenFrom).
@@ -1917,6 +1945,39 @@ mod tests {
         // the old time has passed (or is about to): straight back to Drafts
         assert_eq!(reschedule_fallbacks(Some(10_000), 10_000), vec![RestoreDraft]);
         assert_eq!(reschedule_fallbacks(None, 0), vec![RestoreDraft]);
+    }
+
+    #[test]
+    fn the_identity_bcc_goes_to_the_envelope_only() {
+        let ident = json!({"id": "1", "email": "ann@example.test", "bcc": [{"email": "archive@example.test"}]});
+        let o = Outgoing { from: "ann@example.test".into(), to: "bob@example.test".into(), subject: "Hi".into(), ..Default::default() };
+        // the message (the copy in Drafts) has no Bcc
+        let e = build_email_object(&o, &ident, "D", true, "ann@example.test").unwrap();
+        assert!(e.get("bcc").is_none(), "{e}");
+        let extra = crate::identities::identity_bcc_extra(&o.to, &o.cc, &o.bcc, &ident);
+        let rcpts = vec!["bob@example.test".to_string()];
+        // an envelope is asked for although MAIL FROM is the identity's own
+        let env = send_envelope("ann@example.test", "ann@example.test", None, &rcpts, &extra).unwrap();
+        assert_eq!(env, json!({"mailFrom": {"email": "ann@example.test"}, "rcptTo": [{"email": "bob@example.test"}, {"email": "archive@example.test"}]}));
+        let held = send_envelope("ann@example.test", "ann@example.test", Some(30), &rcpts, &extra).unwrap();
+        assert_eq!(held["mailFrom"]["parameters"]["HOLDFOR"], "30");
+        // no identity Bcc: as before
+        assert!(send_envelope("ann@example.test", "ann@example.test", None, &rcpts, &[]).is_none());
+    }
+
+    #[test]
+    fn a_sub_address_changes_the_header_from_only() {
+        let ident = json!({"id": "1", "email": "ann@example.test", "name": "Ann"});
+        let o = Outgoing { from: "ann@example.test".into(), sub_address: Some("ann+shop@example.test".into()), ..Default::default() };
+        assert_eq!(header_from(&o, &ident, "ann@example.test"), json!({"name": "Ann", "email": "ann+shop@example.test"}));
+        // a typed sender wins; a wildcard identity still sends as the login
+        let o2 = Outgoing { from_override: Some(("".into(), "x@example.test".into())), ..o.clone() };
+        assert_eq!(header_from(&o2, &ident, "ann@example.test")["email"], "x@example.test");
+        assert_eq!(header_from(&o, &json!({"email": "*@example.test"}), "ann@example.test")["email"], "ann@example.test");
+        // the identity's own MAIL FROM is what the server derives: no envelope is asked for
+        let mail_from = header_from(&Outgoing { from_override: None, sub_address: None, ..o.clone() }, &ident, "ann@example.test")["email"].as_str().unwrap().to_string();
+        assert_eq!(mail_from, "ann@example.test");
+        assert!(submission_envelope(&mail_from, &mail_from, None, &["b@example.test".into()]).is_none());
     }
 
     #[test]
