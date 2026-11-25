@@ -28,9 +28,11 @@ const NS: &str = "org.barbican.settings";
 const FORMAT: i64 = 1;
 /// Stalwart's limit for one metadata value (the value's JSON in UTF-8).
 pub const MAX_ENTRY_BYTES: usize = crate::templates::MAX_ENTRY_BYTES;
-/// At most this many parts, and this much JSON in all: pulled data is untrusted input.
-pub const MAX_PARTS: usize = 16;
-pub const MAX_BLOB_BYTES: usize = 96 * 1024;
+/// A mailbox holds at most 64 KB of shared metadata, shared with Bulwark's templates in the same
+/// Inbox (lib/jmap/bulwark-metadata.ts:8), and a push briefly holds two generations: the blob is
+/// kept to 20 KB in all (its parts' JSON), in at most 4 parts. Pulled data is held to the same.
+pub const MAX_PARTS: usize = 4;
+pub const MAX_BLOB_BYTES: usize = 20 * 1024;
 const MAX_TEXT_CHARS: usize = 4096;
 const MAX_VALUE_BYTES: usize = 32 * 1024;
 const MAX_ITEMS: usize = 1000;
@@ -47,12 +49,23 @@ fn part_key(gen: &str, i: usize) -> String { format!("{NS}.part.{gen}.{i}") }
 
 /// Never synced, and never applied from a server copy: code and plugin consent, the sync switch
 /// itself, device state (Bulwark DEVICE_LOCAL_SETTING_KEYS), and settings that make this
-/// computer load remote content or send data to a new place.
+/// computer send data, load remote content, drop a warning or a confirmation, or delete for good.
+/// Whoever can write the account's metadata (a sharee of a shared Inbox too) could otherwise
+/// switch them on this computer.
 const DENY: &[&str] = &[
-    "enabledPlugins", "pluginBindings", "pluginsOffNoticeShown", DISABLED_KEY, "proInterface", "doNotDisturb",
+    // code, consent, the switch, device state
+    "enabledPlugins", "pluginBindings", "pluginGrants", "pluginsOffNoticeShown", DISABLED_KEY, "proInterface", "doNotDisturb",
+    "vacationCalendarBlocks", "pinnedFolders", "subAddressTags", "replyDockShare", "explicitSettings", "debugMode",
+    // sends data somewhere, or tells senders something
+    "pushRelayUrl", "phishingReportAddress", "readReceiptResponse", "requestReadReceiptDefault", "proofreading",
+    // loads remote content
     "trustedSenders", "trustedSendersFrom", "trustedSendersAddressBook", "externalContentPolicy",
-    "gravatarAvatars", "senderFavicons", "pushRelayUrl", "phishingReportAddress",
-    "vacationCalendarBlocks", "pinnedFolders", "subAddressTags", "replyDockShare", "explicitSettings",
+    "gravatarAvatars", "senderFavicons", "showAvatarsInJunk",
+    // warnings and confirmations
+    "externalRecipientConfirm", "externalSenderLabel", "sendConfirmation", "sendDelaySeconds", "confirmDelete",
+    "confirmArchive", "confirmBulkDelete", "attachmentReminderEnabled", "emptySubjectWarningEnabled", "placeholderWarningEnabled",
+    // deletes for good
+    "deleteAction", "permanentlyDeleteJunk",
 ];
 
 /// Whether `key` may never sync, whatever the lists say: any plugin key, any key of Barbican's
@@ -73,10 +86,10 @@ enum Kind { Bool, Text, Num, Scalar, OneOf(Vec<Value>), List(&'static [&'static 
 /// Bulwark-keyed values Barbican keeps that have no schema row of their own.
 const EXTRA: &[(&str, &str)] = &[
     ("theme", "oneof"), ("hoverActions", "hover"), ("hoverActionsMode", "oneof"), ("hoverActionsCorner", "oneof"),
-    ("calendarWorkingDays", "days"), ("calendarDayStartHour", "oneof"), ("readReceiptResponse", "oneof"),
-    ("requestReadReceiptDefault", "bool"), ("showAdvancedSettings", "bool"), ("showAccountDot", "bool"),
+    ("calendarWorkingDays", "days"), ("calendarDayStartHour", "oneof"),
+    ("showAdvancedSettings", "bool"), ("showAccountDot", "bool"),
     ("calendarNarrowWeekAllDays", "bool"), ("vacationBlockCalendar", "bool"), ("spellCheck", "bool"),
-    ("externalSenderLabel", "bool"), ("externalRecipientConfirm", "bool"), ("birthdayCalendarColor", "text"),
+    ("birthdayCalendarColor", "text"),
     ("emailKeywords", "arr"), ("sharedCalendarColors", "obj"), ("folderIcons", "obj"), ("folderCountModes", "obj"),
     ("notificationMutes", "obj"), ("preferredIdentityIds", "obj"),
 ];
@@ -109,6 +122,7 @@ fn kinds() -> &'static HashMap<String, Kind> {
             }
         }
         for (key, t) in EXTRA {
+            if denied(key) { continue; }
             let k = match *t {
                 "bool" => Kind::Bool, "text" => Kind::Text, "days" => Kind::Days, "obj" => Kind::Obj, "arr" => Kind::Arr,
                 "hover" => Kind::List(&["delete", "star", "markRead", "archive", "spam", "tag"]),
@@ -254,7 +268,8 @@ pub fn encode(settings: &Map<String, Value>, updated: &str, gen: &str) -> Result
     let text = json!({"format": FORMAT, "settings": settings}).to_string();
     if text.len() > MAX_BLOB_BYTES { return Err(format!("Your settings are too big to sync ({} of {} bytes).", text.len(), MAX_BLOB_BYTES)); }
     let parts = chunk(&text);
-    if parts.len() > MAX_PARTS { return Err("Your settings are too big to sync.".into()); }
+    let stored: usize = parts.iter().map(|p| crate::templates::value_bytes(&json!(p))).sum();
+    if parts.len() > MAX_PARTS || stored > MAX_BLOB_BYTES { return Err(format!("Your settings are too big to sync ({stored} of {MAX_BLOB_BYTES} bytes).")); }
     let manifest = json!({"format": FORMAT, "updatedAt": updated, "gen": gen, "parts": parts.len(), "bytes": text.len(), "sha256": sha256_hex(&text)});
     Ok((parts.into_iter().enumerate().map(|(i, p)| (part_key(gen, i), Value::String(p))).collect(), manifest))
 }
@@ -269,6 +284,8 @@ pub enum Remote {
     /// A manifest whose parts are missing, do not match its hash, or are not a blob this version
     /// reads (a write in progress, or a newer format): the local settings stay.
     NotReady,
+    /// A manifest of a newer format (a newer Barbican wrote it): neither applied nor overwritten.
+    Newer,
     Blob { manifest: Manifest, settings: Map<String, Value> },
 }
 
@@ -276,6 +293,7 @@ pub enum Remote {
 pub fn decode(meta: &Value) -> Remote {
     let m = &meta[manifest_key()];
     if m.is_null() { return Remote::Nothing; }
+    if m["format"].as_i64().is_some_and(|f| f > FORMAT) { return Remote::Newer; }
     let (Some(gen), Some(parts), Some(updated), Some(sha)) = (m["gen"].as_str(), m["parts"].as_u64(), m["updatedAt"].as_str(), m["sha256"].as_str()) else { return Remote::NotReady };
     let Some(updated_ms) = ms_of(updated) else { return Remote::NotReady };
     if m["format"].as_i64() != Some(FORMAT) || !good_gen(gen) || parts == 0 || parts as usize > MAX_PARTS { return Remote::NotReady; }
@@ -297,6 +315,7 @@ fn part_keys(meta: &Value) -> Vec<String> {
     meta.as_object().map(|o| o.keys().filter(|k| k.starts_with(&p)).cloned().collect()).unwrap_or_default()
 }
 
+
 // ---------------------------------------------------------------- this device's sync state (pure)
 
 /// Kept in settings-sync.json next to prefs.json (Bulwark keeps the same in localStorage:
@@ -306,10 +325,16 @@ pub struct DeviceState {
     /// The account whose server copy the local settings mirror (`Client::state_key`); None on a
     /// device that never synced, whose settings are its own and are adopted by the first sign-in.
     pub owner: Option<String>,
+    /// The local settings are no clean copy of the owner's: its pull failed while another
+    /// account's settings were here, or a synced setting changed while an account they are not
+    /// of was signed in. Nothing is pushed, and the next pull starts over from defaults.
+    pub blocked: bool,
     /// The `updatedAt` of the owner's server copy last applied or written here.
     pub base: Option<String>,
     /// Synced keys changed here that the server has not taken yet: key -> when (ms).
     pub dirty: Map<String, Value>,
+    /// The account signed in now (in memory only).
+    active: Option<String>,
     /// The synced values as last seen (in memory only): what a save is compared with.
     seen: Option<Map<String, Value>>,
     disabled: Option<bool>,
@@ -317,22 +342,32 @@ pub struct DeviceState {
 
 /// What a local save changed.
 #[derive(Debug, Default, PartialEq)]
-pub struct Saved { pub synced: bool, pub toggled: Option<bool> }
+pub struct Saved {
+    /// A change of the owner's was recorded (to push).
+    pub dirty: bool,
+    /// The settings stopped being the owner's clean copy (the holder or the block changed).
+    pub holder: bool,
+    pub toggled: Option<bool>,
+}
 
 /// What a settled pull did, and what comes next.
 #[derive(Debug, Default, PartialEq)]
-pub struct Settled { pub changed: bool, pub push: bool, pub blocked: bool }
+pub struct Settled { pub changed: bool, pub push: bool, pub blocked: bool, pub owner_changed: bool }
+
+/// A push ready to write.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Push { pub blob: Map<String, Value>, pub sent: Map<String, Value>, pub updated: String, pub changed: bool }
 
 impl DeviceState {
     pub fn from_json(v: &Value) -> DeviceState {
         DeviceState {
-            owner: v["owner"].as_str().map(String::from), base: v["base"].as_str().map(String::from),
+            owner: v["owner"].as_str().map(String::from), blocked: v["blocked"] == true, base: v["base"].as_str().map(String::from),
             dirty: v["dirty"].as_object().map(|d| d.iter().filter(|(k, t)| is_synced(k) && t.is_i64()).map(|(k, t)| (k.clone(), t.clone())).collect()).unwrap_or_default(),
-            seen: None, disabled: None,
+            ..Default::default()
         }
     }
 
-    pub fn to_json(&self) -> Value { json!({"owner": self.owner, "base": self.base, "dirty": self.dirty}) }
+    pub fn to_json(&self) -> Value { json!({"owner": self.owner, "blocked": self.blocked, "base": self.base, "dirty": self.dirty}) }
 
     /// The values the device starts with (no change is recorded for them).
     pub fn start(&mut self, prefs: &Map<String, Value>) {
@@ -340,7 +375,15 @@ impl DeviceState {
         self.disabled = Some(prefs.get(DISABLED_KEY) == Some(&json!(true)));
     }
 
-    /// A save of `prefs` at `now_ms`: the synced keys whose value changed are marked as not sent.
+    /// The account signed in now (`Client::state_key`), None when nobody is.
+    pub fn activate(&mut self, who: Option<&str>) { self.active = who.map(String::from); }
+
+    /// A change made now is the owner's: its account is signed in and the settings are its clean copy.
+    pub fn tracking(&self) -> bool { self.active.is_some() && self.active == self.owner && !self.blocked }
+
+    /// A save of `prefs` at `now_ms`. A changed synced key is the owner's change (to push) only
+    /// while [`tracking`](Self::tracking); else the settings become the signed-in account's,
+    /// blocked (never pushed to the account they were of), or, with nobody signed in, nobody's.
     pub fn saved(&mut self, prefs: &Map<String, Value>, now_ms: i64) -> Saved {
         let mut out = Saved::default();
         let disabled = prefs.get(DISABLED_KEY) == Some(&json!(true));
@@ -348,54 +391,68 @@ impl DeviceState {
         self.disabled = Some(disabled);
         let now = view(prefs);
         let Some(seen) = self.seen.replace(now.clone()) else { return out };
-        for k in seen.keys().chain(now.keys()) {
-            if seen.get(k) != now.get(k) { self.dirty.insert(k.clone(), json!(now_ms)); out.synced = true; }
+        let changed: Vec<String> = seen.keys().chain(now.keys()).filter(|k| seen.get(*k) != now.get(*k)).cloned().collect();
+        if changed.is_empty() { return out; }
+        if self.tracking() {
+            for k in changed { self.dirty.insert(k, json!(now_ms)); }
+            out.dirty = true;
+            return out;
         }
+        match self.active.clone() {
+            Some(a) if self.owner.as_deref() != Some(a.as_str()) => { self.owner = Some(a); self.blocked = true; }
+            Some(_) => return out, // already blocked for this account
+            None if self.owner.is_some() || self.blocked => { self.owner = None; self.blocked = false; }
+            None => return out,
+        }
+        self.base = None;
+        self.dirty.clear();
+        out.holder = true;
         out
     }
 
     /// Bulwark loadFromServer for `owner` (and its Bulwark account id `acct`): `remote` is the
     /// pull's outcome. The caller saves `prefs` when `changed`, then pushes when `push`.
     pub fn settle(&mut self, prefs: &mut Map<String, Value>, owner: &str, acct: &str, remote: Result<Remote, String>, keep_cross: bool) -> Settled {
-        let held_by_other = self.owner.as_deref().is_some_and(|o| o != owner);
+        let before = self.owner.clone();
+        // the settings here are another account's, or no clean copy of this one's
+        let foreign = self.owner.as_deref().is_some_and(|o| o != owner) || self.blocked;
         let mut out = Settled::default();
-        if held_by_other {
-            // whatever the pull found, the other account's synced settings and unsent changes go
+        if foreign {
             out.changed = reset_synced(prefs, keep_cross);
             self.dirty.clear();
             self.base = None;
         }
+        self.owner = Some(owner.to_string());
         match remote {
-            Err(_) | Ok(Remote::NotReady) if held_by_other => {
-                self.owner = None;
-                out.blocked = true;
-            }
-            Err(_) | Ok(Remote::NotReady) => { self.owner = Some(owner.to_string()); }
+            // this one's could not be read: defaults, and no push for it, rather than pushing the
+            // other account's settings (or changes made while they were here) under its name
+            Err(_) | Ok(Remote::NotReady | Remote::Newer) => { self.blocked = foreign; out.blocked = foreign; }
             Ok(Remote::Nothing) => {
                 // a new account starts from defaults, not from what another left here (#1185)
-                self.owner = Some(owner.to_string());
+                self.blocked = false;
                 self.base = None;
-                out.push = !held_by_other;
+                out.push = !foreign;
             }
             Ok(Remote::Blob { manifest, settings }) => {
+                self.blocked = false;
                 let newer = self.base.as_deref().and_then(ms_of).is_none_or(|b| b < manifest.updated_ms);
                 if newer {
                     out.changed |= !merge(prefs, &settings, &mut self.dirty, manifest.updated_ms, acct, keep_cross).is_empty();
                     self.base = Some(manifest.updated);
                 }
-                self.owner = Some(owner.to_string());
                 out.push = !self.dirty.is_empty();
             }
         }
+        out.owner_changed = before != self.owner;
         self.seen = Some(view(prefs));
         out
     }
 
     /// Before a push for `owner`: a server copy newer than [`base`](Self::base) is merged in first
-    /// (local unsent changes stay). None when the local settings are not `owner`'s (never push
-    /// one account's state under another) or the server could not be read.
+    /// (local unsent changes stay). None when the local settings are not `owner`'s clean copy
+    /// (never push one account's state under another), or the server holds a newer format.
     pub fn prepare(&mut self, prefs: &mut Map<String, Value>, owner: &str, acct: &str, remote: &Remote, now_ms: i64, keep_cross: bool) -> Option<Push> {
-        if self.owner.as_deref() != Some(owner) { return None; }
+        if self.owner.as_deref() != Some(owner) || self.blocked || *remote == Remote::Newer { return None; }
         let mut changed = false;
         let mut floor = self.base.as_deref().and_then(ms_of).unwrap_or(0);
         if let Remote::Blob { manifest, settings } = remote {
@@ -412,15 +469,21 @@ impl DeviceState {
 
     /// The server took a push: its changes are no longer only here (Bulwark acknowledgeChanges).
     pub fn pushed(&mut self, owner: &str, p: &Push) {
-        if self.owner.as_deref() != Some(owner) { return; }
+        if self.owner.as_deref() != Some(owner) || self.blocked { return; }
         self.base = Some(p.updated.clone());
         for (k, t) in &p.sent { if self.dirty.get(k) == Some(t) { self.dirty.remove(k); } }
     }
-}
 
-/// A push ready to write.
-#[derive(Clone, Debug, PartialEq)]
-pub struct Push { pub blob: Map<String, Value>, pub sent: Map<String, Value>, pub updated: String, pub changed: bool }
+    /// The last account signed out with the sync on (Bulwark forgetSyncedSettings): its synced
+    /// settings go back to defaults and the device is nobody's. Whether anything was done.
+    pub fn forget(&mut self, prefs: &mut Map<String, Value>, owner: &str, disabled: bool) -> bool {
+        if disabled || self.owner.as_deref() != Some(owner) { return false; }
+        reset_synced(prefs, false);
+        *self = DeviceState { active: self.active.take(), disabled: self.disabled, ..Default::default() };
+        self.seen = Some(view(prefs));
+        true
+    }
+}
 
 // ---------------------------------------------------------------- requests
 
@@ -429,11 +492,15 @@ pub fn supported(c: &Client) -> bool { c.has("urn:ietf:params:jmap:metadata") }
 
 fn inbox(c: &Client) -> Result<String, String> { c.role_ids()?.get("inbox").cloned().ok_or_else(|| "No Inbox.".into()) }
 
-/// The stored blob and the part entries there now.
+/// The stored blob and the part entries there now. An Inbox that is not returned, or returned
+/// without its metadata, is an error, not "nothing stored".
 pub fn fetch(c: &Client) -> Result<(Remote, Vec<String>), String> {
     let id = inbox(c)?;
-    let r = c.call(json!([["Mailbox/get", {"accountId": c.account, "ids": [id], "properties": ["metadata"]}, "m"]]))?;
-    let meta = &r[0][1]["list"][0]["metadata"];
+    let r = c.call(json!([["Mailbox/get", {"accountId": c.account, "ids": [id.clone()], "properties": ["metadata"]}, "m"]]))?;
+    let Some(item) = r.first().and_then(|a| a[1]["list"].as_array()).and_then(|l| l.iter().find(|m| m["id"] == id.as_str())) else {
+        return Err("The server did not return the Inbox.".into());
+    };
+    let Some(meta) = item.get("metadata") else { return Err("The server did not return the Inbox's metadata.".into()) };
     Ok((decode(meta), part_keys(meta)))
 }
 
@@ -443,25 +510,79 @@ fn new_gen() -> String {
     b.iter().map(|x| format!("{x:02x}")).collect()
 }
 
-/// Write `settings` as a new generation: the parts, then (a second request) the manifest, which
-/// also removes the parts in `old` (another generation's) so they do not pile up.
-pub fn store(c: &Client, settings: &Map<String, Value>, updated: &str, old: &[String]) -> Result<(), String> {
+#[derive(Debug, PartialEq)]
+enum StoreError {
+    /// The Inbox changed between the parts and the manifest (another computer, ifInState).
+    Changed,
+    Failed(String),
+}
+
+/// One Mailbox/set answer: the new state, or why the Inbox was not updated.
+fn set_answer(r: &[Value], inbox: &str) -> Result<Option<String>, StoreError> {
+    let Some(a) = r.first() else { return Err(StoreError::Failed("The server did not answer.".into())) };
+    if a[0] == "error" {
+        return Err(if a[1]["type"] == "stateMismatch" { StoreError::Changed } else { StoreError::Failed(crate::jmap::method_error(&a[1])) });
+    }
+    if let Some(e) = a[1]["notUpdated"].get(inbox) { return Err(StoreError::Failed(crate::jmap::set_error(e))); }
+    Ok(a[1]["newState"].as_str().map(String::from))
+}
+
+/// Write `settings` as a new generation: the parts, then the manifest, which also removes the
+/// parts in `old` (another generation's). The manifest is written only in the state the parts
+/// left (RFC 8620 §5.3 ifInState, as src/templates.rs does), so a write from another computer in
+/// between is not overwritten unseen.
+fn store(c: &Client, settings: &Map<String, Value>, updated: &str, old: &[String]) -> Result<(), StoreError> {
     store_gen(c, settings, updated, old, &new_gen())
 }
 
-fn store_gen(c: &Client, settings: &Map<String, Value>, updated: &str, old: &[String], gen: &str) -> Result<(), String> {
-    let (parts, manifest) = encode(settings, updated, gen)?;
-    let inbox = inbox(c)?;
+fn store_gen(c: &Client, settings: &Map<String, Value>, updated: &str, old: &[String], gen: &str) -> Result<(), StoreError> {
+    let (parts, manifest) = encode(settings, updated, gen).map_err(StoreError::Failed)?;
+    let inbox = inbox(c).map_err(StoreError::Failed)?;
     let mut first = Map::new();
     for (k, v) in &parts { first.insert(format!("metadata/{k}"), v.clone()); }
-    let (_, bad) = c.update("Mailbox/set", &c.account, vec![(inbox.clone(), Value::Object(first))])?;
-    if !bad.is_empty() { return Err(bad.join("; ")); }
+    let r = c.request(json!([["Mailbox/set", {"accountId": c.account, "update": { inbox.clone(): first }}, "p"]])).map_err(StoreError::Failed)?;
+    let state = set_answer(&r, &inbox)?;
     let mut second = Map::new();
     second.insert(format!("metadata/{}", manifest_key()), manifest);
     let fresh = format!("{}{gen}.", part_prefix());
     for k in old { if !k.starts_with(&fresh) { second.insert(format!("metadata/{k}"), Value::Null); } }
-    let (_, bad) = c.update("Mailbox/set", &c.account, vec![(inbox, Value::Object(second))])?;
-    if bad.is_empty() { Ok(()) } else { Err(bad.join("; ")) }
+    let mut args = json!({"accountId": c.account, "update": { inbox.clone(): second }});
+    if let Some(s) = state { args["ifInState"] = json!(s); }
+    let r = c.request(json!([["Mailbox/set", args, "m"]])).map_err(StoreError::Failed)?;
+    set_answer(&r, &inbox).map(|_| ())
+}
+
+const NEWER: &str = "Another computer synced these settings with a newer Barbican. Update Barbican here to sync again.";
+const RACED: &str = "Another computer changed the settings at the same moment; yours go up with your next change.";
+
+/// Run `f` on the settings and this device's sync state under their locks; `f` says whether it
+/// changed the settings (to save them).
+type Access<'a> = dyn FnMut(&mut dyn FnMut(&mut Map<String, Value>, &mut DeviceState) -> bool) + 'a;
+
+/// One push for `owner`: read the server's copy (a newer format is never overwritten), merge a
+/// newer one in, write, and acknowledge what was sent. On a stateMismatch it reads and tries
+/// once more. Ok(false): nothing to push for `owner` (its settings are not here).
+fn push_core(c: &Client, owner: &str, acct: &str, keep_cross: bool, now: &dyn Fn() -> i64, access: &mut Access) -> Result<bool, String> {
+    for attempt in 0..2 {
+        let (remote, old) = fetch(c)?;
+        if remote == Remote::Newer { return Err(NEWER.into()); }
+        let mut job = None;
+        access(&mut |prefs, st| {
+            job = st.prepare(prefs, owner, acct, &remote, now(), keep_cross);
+            job.as_ref().is_some_and(|p| p.changed)
+        });
+        let Some(p) = job else { return Ok(false) };
+        match store(c, &p.blob, &p.updated, &old) {
+            Ok(()) => {
+                access(&mut |_, st| { st.pushed(owner, &p); false });
+                return Ok(true);
+            }
+            Err(StoreError::Changed) if attempt == 0 => continue,
+            Err(StoreError::Changed) => return Err(RACED.into()),
+            Err(StoreError::Failed(e)) => return Err(e),
+        }
+    }
+    Err(RACED.into())
 }
 
 // ---------------------------------------------------------------- the running program
@@ -473,37 +594,56 @@ struct Active { client: std::sync::Arc<Client>, owner: String, acct: String, gen
 static STATE: std::sync::Mutex<Option<DeviceState>> = std::sync::Mutex::new(None);
 static ACTIVE: std::sync::Mutex<Option<Active>> = std::sync::Mutex::new(None);
 static NOTE: std::sync::Mutex<Option<&'static str>> = std::sync::Mutex::new(None);
+static LAST_ERROR: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 static GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 #[cfg(not(test))]
 static PUSH_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 static PUSHING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+/// Flushes of an outgoing account still running: a pull waits for them.
+static FLUSHING: std::sync::Mutex<u32> = std::sync::Mutex::new(0);
+static FLUSHED: std::sync::Condvar = std::sync::Condvar::new();
 type Applied = Box<dyn Fn() + Send + Sync>;
 static ON_APPLIED: std::sync::OnceLock<Applied> = std::sync::OnceLock::new();
 
 const UNSUPPORTED: &str = "Not available: this server keeps no account metadata (Stalwart 1.0 or later does), so your settings stay on this computer.";
+const BLOCKED: &str = "Paused: this account's settings could not be read while another account's were here. Barbican shows the default settings and tries again at the next sign-in.";
+const ABOUT: &str = "Your other computers signed in to this account get the same Barbican settings, kept in your account on the server (anyone you share your Inbox with can read them). Plugins, sign-ins, trusted senders, remote content, warnings and this computer's desktop settings stay here.";
+
+/// The row's text: what the sync does (or why it cannot), and the last push's error.
+fn describe(note: Option<&str>, err: Option<&str>) -> String {
+    let base = note.unwrap_or(ABOUT).to_string();
+    match err { Some(e) => format!("{base} Last sync failed: {e}"), None => base }
+}
 
 /// The Settings > About row's description.
 pub fn row_desc() -> String {
-    match *NOTE.lock().unwrap_or_else(|e| e.into_inner()) {
-        Some(n) => n.to_string(),
-        None => "Your other computers signed in to this account get the same Barbican settings, kept in your account on the server. Plugins, sign-ins, trusted senders, remote content and this computer's desktop settings stay here.".into(),
-    }
+    let note = *NOTE.lock().unwrap_or_else(|e| e.into_inner());
+    let err = LAST_ERROR.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    describe(note, err.as_deref())
 }
 
 fn state_path() -> std::path::PathBuf { crate::config_dir().join("settings-sync.json") }
 
-fn persist(st: &DeviceState) {
+/// Write the state file whole or not at all (a temporary file renamed over it).
+fn write_state(v: &Value) {
     #[cfg(not(test))]
     {
         let _ = std::fs::create_dir_all(crate::config_dir());
-        let _ = std::fs::write(state_path(), st.to_json().to_string());
+        let tmp = crate::config_dir().join("settings-sync.json.tmp");
+        if std::fs::write(&tmp, v.to_string()).is_ok() { let _ = std::fs::rename(&tmp, state_path()); }
     }
     #[cfg(test)]
-    let _ = st;
+    let _ = v;
 }
 
-/// Run `f` on this device's sync state (loaded on first use). Never call while holding it: the
-/// lock order is the live settings, then this.
+fn persist(st: &DeviceState) { write_state(&st.to_json()); }
+
+/// Before the settings of a new owner are written: the file says "nobody's" until they are on
+/// disk, so a crash in between never pairs one account with another's settings.
+fn persist_unowned() { write_state(&DeviceState::default().to_json()); }
+
+/// Run `f` on this device's sync state (loaded on first use). Lock order: the live settings, then
+/// this; never take the live settings inside `f`.
 fn with_state<T>(f: impl FnOnce(&mut DeviceState) -> T) -> T {
     let mut g = STATE.lock().unwrap_or_else(|e| e.into_inner());
     let st = g.get_or_insert_with(|| {
@@ -538,12 +678,12 @@ fn applied() { if let Some(f) = ON_APPLIED.get() { f(); } }
 pub fn local_saved(prefs: &Map<String, Value>) {
     let s = with_state(|st| {
         let s = st.saved(prefs, now_ms());
-        if s.synced { persist(st); }
+        if s.dirty || s.holder { persist(st); }
         s
     });
     if s.toggled == Some(false) { std::thread::spawn(restart); }
     #[cfg(not(test))]
-    if s.synced { schedule_push(); }
+    if s.dirty { schedule_push(); }
 }
 
 fn keep_cross() -> bool { crate::oauth::accounts().len() > 1 }
@@ -554,19 +694,81 @@ pub fn begin(c: std::sync::Arc<Client>) {
     let gen = GEN.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
     let ok = supported(&c);
     *NOTE.lock().unwrap_or_else(|e| e.into_inner()) = if ok { None } else { Some(UNSUPPORTED) };
+    *LAST_ERROR.lock().unwrap_or_else(|e| e.into_inner()) = None;
     let a = Active { owner: c.state_key(), acct: crate::identities::account_key(&c.username, &c.base), client: c, gen, settled: false, blocked: false };
+    with_state(|st| st.activate(Some(&a.owner)));
     *ACTIVE.lock().unwrap_or_else(|e| e.into_inner()) = Some(a.clone());
     if !may_pull(ok, disabled()) { return; }
     std::thread::spawn(move || pull(a));
 }
 
-/// Sign-out or "add account": nothing more goes to (or comes from) the account that was in.
-pub fn end() {
+/// Nothing more goes to (or comes from) the account that was in.
+fn end() {
     GEN.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     *ACTIVE.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    with_state(|st| st.activate(None));
 }
 
 fn current(gen: u64) -> bool { GEN.load(std::sync::atomic::Ordering::SeqCst) == gen }
+
+/// Run `f` on a worker thread that pulls wait for (see [`wait_flushes`]).
+fn counted(f: impl FnOnce() + Send + 'static) {
+    *FLUSHING.lock().unwrap_or_else(|e| e.into_inner()) += 1;
+    std::thread::spawn(move || {
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
+        let mut n = FLUSHING.lock().unwrap_or_else(|e| e.into_inner());
+        *n = n.saturating_sub(1);
+        FLUSHED.notify_all();
+    });
+}
+
+/// Wait (at most `max`) until the flushes of accounts being left are done.
+pub fn wait_flushes(max: std::time::Duration) {
+    let g = FLUSHING.lock().unwrap_or_else(|e| e.into_inner());
+    let _ = FLUSHED.wait_timeout_while(g, max, |n| *n > 0);
+}
+
+/// The account signed in, when it has changes waiting to be pushed and may get them.
+fn pending_push() -> Option<Active> {
+    let a = ACTIVE.lock().unwrap_or_else(|e| e.into_inner()).clone()?;
+    if !may_push(a.settled, a.blocked, supported(&a.client), disabled()) { return None; }
+    with_state(|st| st.owner.as_deref() == Some(a.owner.as_str()) && !st.blocked && !st.dirty.is_empty()).then_some(a)
+}
+
+/// Before an account switch (Bulwark flushSync): the changes still waiting for the debounce go
+/// to the account being left now, on a worker thread; the next account's pull waits for it.
+pub fn flush() {
+    if let Some(a) = pending_push() { counted(move || push_as(&a, false)); }
+}
+
+/// Sign-out or "add account": flush the waiting changes to the account being left, then nothing
+/// more goes to it. `last`: the last account signed out, whose synced settings then go back to
+/// defaults (Bulwark forgetSyncedSettings), after the flush.
+pub fn leave(last: bool) {
+    let a = ACTIVE.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    let pending = pending_push();
+    end();
+    if pending.is_none() && !last { return; }
+    counted(move || {
+        if let Some(p) = pending { push_as(&p, false); }
+        if let Some(a) = a.filter(|_| last) { forget(&a.owner); }
+    });
+}
+
+fn forget(owner: &str) {
+    let mut done = false;
+    crate::settings::with_live(|s| {
+        let off = s.prefs.get(DISABLED_KEY) == Some(&json!(true));
+        done = with_state(|st| {
+            let d = st.forget(&mut s.prefs, owner, off);
+            // nobody's already: written before the settings, which is the safe order
+            if d { persist(st); }
+            d
+        });
+        if done { s.save(); }
+    });
+    if done { crate::settings::Settings::flush(); applied(); }
+}
 
 /// The sync was switched back on: pull again for the account signed in.
 fn restart() {
@@ -580,6 +782,8 @@ fn pull(a: Active) {
         if ON_APPLIED.get().is_some() { break; }
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
+    // the account just left gets its waiting changes first
+    wait_flushes(std::time::Duration::from_secs(10));
     let remote = fetch(&a.client).map(|r| r.0);
     let keep = keep_cross();
     let mut out = None;
@@ -587,20 +791,25 @@ fn pull(a: Active) {
         if !current(a.gen) { return; }
         let r = with_state(|st| {
             let r = st.settle(&mut s.prefs, &a.owner, &a.acct, remote, keep);
-            persist(st);
+            if r.owner_changed { persist_unowned(); } else { persist(st); }
             r
         });
-        // the state saw these values already: the save records no change of ours
         if r.changed { s.save(); }
         out = Some(r);
     });
     let Some(r) = out else { return };
+    if r.owner_changed || r.changed {
+        // the owner is written only once the settings it describes are on disk
+        crate::settings::Settings::flush();
+        with_state(|st| persist(st));
+    }
     if let Some(x) = ACTIVE.lock().unwrap_or_else(|e| e.into_inner()).as_mut().filter(|x| x.gen == a.gen) {
         x.settled = true;
         x.blocked = r.blocked;
     }
+    if r.blocked { *NOTE.lock().unwrap_or_else(|e| e.into_inner()) = Some(BLOCKED); }
     if r.changed { applied(); }
-    if r.push { push_now(); }
+    if r.push && !disabled() { push_as(&a, true); }
 }
 
 #[cfg(not(test))]
@@ -612,31 +821,39 @@ fn schedule_push() {
     });
 }
 
-/// Push the synced settings to the account signed in, if its pull settled. One at a time.
+/// The debounced push to the account signed in, if its pull settled.
+#[cfg_attr(test, allow(dead_code))]
 fn push_now() {
-    let _one = PUSHING.lock().unwrap_or_else(|e| e.into_inner());
     let Some(a) = ACTIVE.lock().unwrap_or_else(|e| e.into_inner()).clone() else { return };
     if !may_push(a.settled, a.blocked, supported(&a.client), disabled()) { return; }
-    let Ok((remote, old)) = fetch(&a.client) else { return };
+    push_as(&a, true);
+}
+
+/// Push to `a` (one push at a time). `check_gen`: only while `a` is still the account signed in
+/// (a flush of the account being left goes regardless; the owner check still holds).
+fn push_as(a: &Active, check_gen: bool) {
+    let _one = PUSHING.lock().unwrap_or_else(|e| e.into_inner());
+    if check_gen && !current(a.gen) { return; }
     let keep = keep_cross();
-    let mut job = None;
-    crate::settings::with_live(|s| {
-        if !current(a.gen) { return; }
-        let p = with_state(|st| {
-            let p = st.prepare(&mut s.prefs, &a.owner, &a.acct, &remote, now_ms(), keep);
-            persist(st);
-            p
+    let gen = a.gen;
+    let mut redraw = false;
+    let mut access = |f: &mut dyn FnMut(&mut Map<String, Value>, &mut DeviceState) -> bool| {
+        let mut changed = false;
+        crate::settings::with_live(|s| {
+            if check_gen && !current(gen) { return; }
+            changed = with_state(|st| {
+                let c = f(&mut s.prefs, st);
+                persist(st);
+                c
+            });
+            if changed { s.save(); }
         });
-        if p.as_ref().is_some_and(|p| p.changed) { s.save(); }
-        job = p;
-    });
-    let Some(p) = job else { return };
-    if p.changed { applied(); }
-    if !current(a.gen) { return; }
+        if changed { redraw = true; crate::settings::Settings::flush(); }
+    };
+    let res = push_core(&a.client, &a.owner, &a.acct, keep, &now_ms, &mut access);
+    if redraw { applied(); }
     // a failed write keeps the changes marked: the next change or sign-in sends them
-    if store(&a.client, &p.blob, &p.updated, &old).is_ok() {
-        with_state(|st| { st.pushed(&a.owner, &p); persist(st); });
-    }
+    *LAST_ERROR.lock().unwrap_or_else(|e| e.into_inner()) = res.err();
 }
 
 #[cfg(test)]
@@ -654,12 +871,19 @@ mod tests {
         m.insert(manifest_key(), manifest.clone());
         Value::Object(m)
     }
+    /// A device whose settings are `owner`'s, with `owner` signed in.
+    fn state(owner: Option<&str>, base: Option<&str>) -> DeviceState {
+        let mut st = DeviceState { owner: owner.map(String::from), base: base.map(String::from), ..Default::default() };
+        st.activate(owner);
+        st.start(&Map::new());
+        st
+    }
 
     #[test]
     fn a_blob_round_trips_through_parts_that_each_fit_an_entry() {
         // quotes, backslashes, control characters and non-ASCII all count as JSON spells them
         let mut s = Map::new();
-        s.insert("emailKeywords".into(), json!((0..150).map(|i| json!({"id": format!("t{i}"), "label": format!("\"Tag\\ {i}\n\u{1}ünï ✓"), "color": "#ff0000"})).collect::<Vec<_>>()));
+        s.insert("emailKeywords".into(), json!((0..120).map(|i| json!({"id": format!("t{i}"), "label": format!("\"Tag\\ {i}\n\u{1}ünï ✓"), "color": "#ff0000"})).collect::<Vec<_>>()));
         s.insert("theme".into(), json!("dark"));
         let (parts, manifest) = encode(&s, "2026-11-25T10:00:00.000Z", "0a1b").unwrap();
         assert!(parts.len() > 1, "{}", parts.len());
@@ -671,11 +895,7 @@ mod tests {
         let Remote::Blob { manifest: m, settings } = decode(&meta_of(&parts, &manifest)) else { panic!() };
         assert_eq!(m.gen, "0a1b");
         assert_eq!(settings, s);
-        // an empty blob is one part; a too-big one is refused
         assert_eq!(chunk(""), vec![String::new()]);
-        let mut big = Map::new();
-        big.insert("x".into(), json!("y".repeat(MAX_BLOB_BYTES)));
-        assert!(encode(&big, "2026-11-25T10:00:00.000Z", "aa").unwrap_err().contains("too big"));
         // a piece never splits inside the budget wrongly: the exact budget fits, one more does not
         let exact = "a".repeat(MAX_ENTRY_BYTES - 2);
         assert_eq!(chunk(&exact).len(), 1);
@@ -683,25 +903,45 @@ mod tests {
     }
 
     #[test]
+    fn a_blob_over_20_kb_is_not_pushed_and_the_row_says_why() {
+        // 64 KB of shared metadata per mailbox, with Bulwark's templates and two generations
+        let mut big = Map::new();
+        big.insert("x".into(), json!("y".repeat(MAX_BLOB_BYTES)));
+        assert!(encode(&big, "2026-11-25T10:00:00.000Z", "aa").unwrap_err().contains("too big"));
+        // escapes count: text under the cap whose stored JSON is over it is refused too
+        let mut quoted = Map::new();
+        quoted.insert("x".into(), json!("\"".repeat(MAX_BLOB_BYTES / 3)));
+        assert!(encode(&quoted, "2026-11-25T10:00:00.000Z", "aa").is_err());
+        let mut ok = Map::new();
+        ok.insert("x".into(), json!("y".repeat(MAX_BLOB_BYTES - 200)));
+        let (parts, _) = encode(&ok, "2026-11-25T10:00:00.000Z", "aa").unwrap();
+        assert!(parts.len() <= MAX_PARTS && parts.iter().map(|p| crate::templates::value_bytes(&p.1)).sum::<usize>() <= MAX_BLOB_BYTES);
+        let d = describe(None, Some("Your settings are too big to sync (25000 of 20480 bytes)."));
+        assert!(d.contains("Plugins") && d.ends_with("Last sync failed: Your settings are too big to sync (25000 of 20480 bytes)."), "{d}");
+        assert!(describe(Some(UNSUPPORTED), None).starts_with("Not available"));
+        assert!(ABOUT.contains("share your Inbox"));
+    }
+
+    #[test]
     fn parts_that_do_not_match_the_manifest_are_not_applied() {
         let s = obj(json!({"theme": "light"}));
         let (parts, manifest) = encode(&s, "2026-11-25T10:00:00.000Z", "abcd").unwrap();
         assert!(matches!(decode(&meta_of(&parts, &manifest)), Remote::Blob { .. }));
-        // a part rewritten by another device's half-done write
         let mut other = parts.clone();
         other[0].1 = json!(other[0].1.as_str().unwrap().replace("light", "dark!"));
         assert_eq!(decode(&meta_of(&other, &manifest)), Remote::NotReady);
-        // a part missing, more parts than allowed, a newer format, a bad generation
         assert_eq!(decode(&meta_of(&[], &manifest)), Remote::NotReady);
         let mut m = manifest.clone();
         m["parts"] = json!(MAX_PARTS + 1);
         assert_eq!(decode(&meta_of(&parts, &m)), Remote::NotReady);
         let mut m = manifest.clone();
-        m["format"] = json!(2);
+        m["format"] = json!(0);
         assert_eq!(decode(&meta_of(&parts, &m)), Remote::NotReady);
         let mut m = manifest.clone();
         m["gen"] = json!("../x");
         assert_eq!(decode(&meta_of(&parts, &m)), Remote::NotReady);
+        // a newer format, whatever else its manifest holds
+        assert_eq!(decode(&meta_of(&[], &json!({"format": 2, "layout": "other"}))), Remote::Newer);
         assert_eq!(decode(&json!({"org.bulwarkmail.templates": {}})), Remote::Nothing);
         assert_eq!(decode(&Value::Null), Remote::Nothing);
     }
@@ -711,21 +951,28 @@ mod tests {
         let v = validate(&obj(json!({
             "theme": "dark", "density": "compact", "showPreview": false, "firstDayOfWeek": 0, "retentionTrashDays": 30,
             "calendarWorkingDays": [1, 2, 3], "hoverActions": ["delete", "star"], "subAddressDelimiter": "-",
-            "sendDelaySeconds": 10, "fontSize": "large", "mailTextScale": 1.25, "reduceTransparency": "system",
-            "showRowActionButton": null,
+            "fontSize": "large", "mailTextScale": 1.25, "reduceTransparency": "system", "showRowActionButton": null,
             // never applied, whatever a server copy says
-            "enabledPlugins": ["evil"], "pluginBindings": {"evil": "C:/x.dll|h"}, "pluginGrant.evil": true, "plugin:evil": true,
+            "enabledPlugins": ["evil"], "pluginBindings": {"evil": "C:/x.dll|h"}, "pluginGrants": {"evil": ["net"]}, "plugin:evil": true,
             "settingsSyncDisabled": true, "trustedSenders": ["a@example.test"], "externalContentPolicy": "allow",
             "pushRelayUrl": "https://relay.example.test", "proInterface": true, "ai.key": "k", "desktop.startAtLogin": true,
+            "readReceiptResponse": "always", "externalRecipientConfirm": false, "externalSenderLabel": false, "showAvatarsInJunk": true,
+            "deleteAction": "permanent", "permanentlyDeleteJunk": true, "sendConfirmation": false, "sendDelaySeconds": 0,
+            "confirmBulkDelete": false, "debugMode": true,
             "accounts": [], "windowState": {}, "unknownThing": 1,
         })));
         for k in ["theme", "density", "showPreview", "firstDayOfWeek", "retentionTrashDays", "calendarWorkingDays", "hoverActions",
-            "subAddressDelimiter", "sendDelaySeconds", "fontSize", "mailTextScale", "reduceTransparency", "showRowActionButton"] {
+            "subAddressDelimiter", "fontSize", "mailTextScale", "reduceTransparency", "showRowActionButton"] {
             assert!(v.contains_key(k), "{k} dropped");
         }
-        assert_eq!(v.len(), 13, "{v:?}");
-        for k in ["enabledPlugins", "pluginBindings", "settingsSyncDisabled", "trustedSenders", "externalContentPolicy", "pushRelayUrl", "gravatarAvatars", "doNotDisturb"] {
+        assert_eq!(v.len(), 12, "{v:?}");
+        for k in ["enabledPlugins", "pluginBindings", "pluginGrants", "settingsSyncDisabled", "trustedSenders", "externalContentPolicy",
+            "pushRelayUrl", "gravatarAvatars", "senderFavicons", "doNotDisturb", "readReceiptResponse", "requestReadReceiptDefault",
+            "externalRecipientConfirm", "externalSenderLabel", "showAvatarsInJunk", "deleteAction", "permanentlyDeleteJunk",
+            "sendConfirmation", "sendDelaySeconds", "confirmDelete", "confirmArchive", "confirmBulkDelete", "attachmentReminderEnabled",
+            "emptySubjectWarningEnabled", "placeholderWarningEnabled", "phishingReportAddress", "debugMode", "proofreading"] {
             assert!(!is_synced(k), "{k}");
+            assert!(!blob_for(&obj(json!({k: true})), "a").contains_key(k), "{k} pushed");
         }
         assert!(is_synced("showPreview") && is_synced("preferredIdentityIds") && is_synced("theme"));
     }
@@ -735,7 +982,7 @@ mod tests {
         let v = validate(&obj(json!({
             "showPreview": "yes", "theme": "neon", "density": 3, "firstDayOfWeek": "x", "retentionTrashDays": 99999,
             "calendarWorkingDays": [1, 9], "hoverActions": ["delete", "rm -rf"], "subAddressDelimiter": "ab",
-            "sendDelaySeconds": 7, "timeZone": "z".repeat(MAX_TEXT_CHARS + 1), "folderIcons": [1],
+            "timeZone": "z".repeat(MAX_TEXT_CHARS + 1), "folderIcons": [1],
             "emailKeywords": (0..MAX_ITEMS + 1).map(|i| json!(i)).collect::<Vec<_>>(), "toastDuration": 10,
         })));
         assert_eq!(v, obj(json!({"toastDuration": 10})));
@@ -752,40 +999,33 @@ mod tests {
         assert_eq!(b["showPreview"], Value::Null);
         assert!(!b.contains_key("enabledPlugins") && !b.contains_key(DISABLED_KEY));
         assert!(!blob_for(&prefs, "carl@example.test").contains_key("preferredIdentityIds"));
-    }
-
-    fn state(owner: Option<&str>, base: Option<&str>) -> DeviceState {
-        let mut st = DeviceState { owner: owner.map(String::from), base: base.map(String::from), ..Default::default() };
-        st.start(&Map::new());
-        st
+        // the blob of every synced key at a value fits the cap with room for tags
+        assert!(encode(&b, "2026-11-25T10:00:00.000Z", "aa").is_ok());
     }
 
     #[test]
     fn a_server_copy_with_enabled_plugins_does_not_switch_them_on() {
         let mut st = state(Some("A"), None);
         let mut prefs = obj(json!({"enabledPlugins": [], "theme": "dark"}));
-        let mut raw = Map::new();
-        raw.insert("settings".into(), json!({"enabledPlugins": ["evil"], "pluginBindings": {"evil": "x"}, "theme": "light"}));
-        let (parts, manifest) = encode(raw["settings"].as_object().unwrap(), "2026-11-25T10:00:00.000Z", "cd").unwrap();
-        let remote = decode(&meta_of(&parts, &manifest));
-        let r = st.settle(&mut prefs, "A", "ann@x", Ok(remote), false);
+        let s = obj(json!({"enabledPlugins": ["evil"], "pluginBindings": {"evil": "x"}, "pluginGrants": {"evil": ["fs"]}, "theme": "light"}));
+        let (parts, manifest) = encode(&s, "2026-11-25T10:00:00.000Z", "cd").unwrap();
+        let r = st.settle(&mut prefs, "A", "ann@x", Ok(decode(&meta_of(&parts, &manifest))), false);
         assert!(r.changed);
         assert_eq!(prefs["theme"], "light");
         assert_eq!(prefs["enabledPlugins"], json!([]));
-        assert!(!prefs.contains_key("pluginBindings"));
-        // and merging a hand-made map that slipped past decoding takes nothing denied either
+        assert!(!prefs.contains_key("pluginBindings") && !prefs.contains_key("pluginGrants"));
         let mut d = Map::new();
-        assert!(merge(&mut prefs, &obj(json!({"enabledPlugins": ["evil"], "settingsSyncDisabled": true})), &mut d, 0, "a", false).is_empty());
+        assert!(merge(&mut prefs, &obj(json!({"enabledPlugins": ["evil"], "settingsSyncDisabled": true, "deleteAction": "permanent"})), &mut d, 0, "a", false).is_empty());
     }
 
     #[test]
     fn nothing_stored_pushes_the_local_settings_of_a_device_that_never_synced() {
         let mut st = state(None, None);
+        st.activate(Some("A"));
         let mut prefs = obj(json!({"theme": "light"}));
         let r = st.settle(&mut prefs, "A", "a", Ok(Remote::Nothing), false);
-        assert_eq!(r, Settled { changed: false, push: true, blocked: false });
+        assert_eq!(r, Settled { changed: false, push: true, blocked: false, owner_changed: true });
         assert_eq!(st.owner.as_deref(), Some("A"));
-        assert_eq!(prefs["theme"], "light");
         let p = st.prepare(&mut prefs, "A", "a", &Remote::Nothing, 1_000, false).unwrap();
         assert_eq!(p.blob["theme"], "light");
     }
@@ -794,29 +1034,75 @@ mod tests {
     fn another_accounts_settings_are_never_pushed_under_this_one() {
         // the device mirrors A; B signs in and has nothing stored: defaults, owner B, no push
         let mut st = state(Some("A"), Some("2026-11-20T00:00:00.000Z"));
+        st.activate(Some("B"));
         let mut prefs = obj(json!({"theme": "light", "density": "compact", "enabledPlugins": ["p"], "preferredIdentityIds": {"a@x": "i1"}}));
         st.dirty.insert("theme".into(), json!(5));
         let r = st.settle(&mut prefs, "B", "b@x", Ok(Remote::Nothing), false);
-        assert_eq!(r, Settled { changed: true, push: false, blocked: false });
+        assert_eq!(r, Settled { changed: true, push: false, blocked: false, owner_changed: true });
         assert!(!prefs.contains_key("theme") && !prefs.contains_key("density"));
         assert_eq!(prefs["enabledPlugins"], json!(["p"]), "device settings stay");
         assert_eq!(prefs["preferredIdentityIds"], json!({"a@x": "i1"}));
         assert!(st.dirty.is_empty() && st.base.is_none());
-        // B's pull failed while A's settings were here: defaults, sync blocked, no owner
+        // B's pull failed while A's settings were here: defaults, B holds them blocked
         let mut st = state(Some("A"), None);
         let mut prefs = obj(json!({"theme": "light"}));
         let r = st.settle(&mut prefs, "B", "b@x", Err("offline".into()), false);
-        assert_eq!(r, Settled { changed: true, push: false, blocked: true });
-        assert_eq!(st.owner, None);
+        assert_eq!(r, Settled { changed: true, push: false, blocked: true, owner_changed: true });
+        assert_eq!((st.owner.as_deref(), st.blocked), (Some("B"), true));
         assert!(prefs.is_empty());
-        // and a push for an account the settings are not of is refused
-        let mut st = state(Some("A"), None);
-        assert!(st.prepare(&mut obj(json!({"theme": "light"})), "B", "b@x", &Remote::Nothing, 1, false).is_none());
-        // the same account's failed pull keeps everything (owner set, nothing pushed now)
+        assert!(st.prepare(&mut prefs, "B", "b@x", &Remote::Nothing, 1, false).is_none(), "blocked: no push");
+        assert!(st.prepare(&mut prefs, "A", "a@x", &Remote::Nothing, 1, false).is_none(), "not A's");
+        // the same account's failed pull keeps everything (nothing pushed now)
         let mut st = state(None, None);
         let mut prefs = obj(json!({"theme": "light"}));
-        assert_eq!(st.settle(&mut prefs, "A", "a", Ok(Remote::NotReady), false), Settled::default());
+        let r = st.settle(&mut prefs, "A", "a", Ok(Remote::NotReady), false);
+        assert!(!r.changed && !r.push && !r.blocked);
         assert_eq!((st.owner.as_deref(), prefs["theme"].as_str()), (Some("A"), Some("light")));
+    }
+
+    #[test]
+    fn a_change_made_while_blocked_never_reaches_the_other_account() {
+        // A's settings here; B signs in and its pull fails: blocked for B
+        let mut st = state(Some("A"), Some("2026-11-20T00:00:00.000Z"));
+        let mut prefs = obj(json!({"theme": "light"}));
+        st.start(&prefs);
+        st.activate(Some("B"));
+        st.settle(&mut prefs, "B", "b@x", Err("offline".into()), false);
+        // a change on B's session: not recorded as anyone's to push
+        prefs.insert("density".into(), json!("compact"));
+        let s = st.saved(&prefs, 10);
+        assert!(!s.dirty && st.dirty.is_empty());
+        // back on A: its copy (older than nothing) is taken over defaults, the change is gone
+        st.activate(Some("A"));
+        let r = st.settle(&mut prefs, "A", "a@x", Ok(blob(json!({"theme": "dark"}), "2026-11-21T00:00:00.000Z")), false);
+        assert!(!r.push && !r.blocked);
+        assert_eq!(prefs, obj(json!({"theme": "dark"})));
+        let p = st.prepare(&mut prefs, "A", "a@x", &Remote::Nothing, 1, false).unwrap();
+        assert_eq!(p.blob["density"], Value::Null);
+        assert!(p.sent.is_empty());
+
+        // B could not pull at all (no metadata, or the switch off): a change on B's session
+        // makes the settings B's, blocked, and A's next pull starts over too
+        let mut st = state(Some("A"), Some("2026-11-20T00:00:00.000Z"));
+        let mut prefs = obj(json!({"theme": "light"}));
+        st.start(&prefs);
+        st.activate(Some("B"));
+        prefs.insert("density".into(), json!("compact"));
+        let s = st.saved(&prefs, 10);
+        assert_eq!(s, Saved { dirty: false, holder: true, toggled: None });
+        assert_eq!((st.owner.as_deref(), st.blocked), (Some("B"), true));
+        st.activate(Some("A"));
+        st.settle(&mut prefs, "A", "a@x", Ok(blob(json!({"theme": "dark"}), "2026-11-19T00:00:00.000Z")), false);
+        assert!(!prefs.contains_key("density"), "{prefs:?}");
+        assert_eq!(prefs["theme"], "dark");
+        // and with nobody signed in, a change makes the settings nobody's
+        let mut st = state(Some("A"), None);
+        st.activate(None);
+        let mut prefs = obj(json!({"theme": "x"}));
+        assert!(st.saved(&prefs, 1).holder);
+        assert_eq!(st.owner, None);
+        prefs.insert("theme".into(), json!("y"));
+        assert_eq!(st.saved(&prefs, 2), Saved::default());
     }
 
     #[test]
@@ -834,30 +1120,26 @@ mod tests {
         let mut st = state(Some("A"), Some("2026-11-20T00:00:00.000Z"));
         let mut prefs = obj(json!({"theme": "light", "density": "compact", "showPreview": false}));
         st.start(&prefs);
-        // a local change made after the server copy was written, never pushed (a quit inside the debounce)
         prefs.insert("density".into(), json!("regular"));
         let late = ms_of("2026-11-24T00:00:00.000Z").unwrap();
-        assert!(st.saved(&prefs, late).synced);
-        // and one made before it: the other device changed that setting later
+        assert!(st.saved(&prefs, late).dirty);
         prefs.insert("showPreview".into(), json!(true));
         st.saved(&prefs, ms_of("2026-11-21T00:00:00.000Z").unwrap());
         let server = blob(json!({"theme": "dark", "density": "comfortable", "showPreview": null}), "2026-11-22T00:00:00.000Z");
         let r = st.settle(&mut prefs, "A", "a", Ok(server.clone()), false);
-        assert_eq!(r, Settled { changed: true, push: true, blocked: false });
+        assert_eq!(r, Settled { changed: true, push: true, blocked: false, owner_changed: false });
         assert_eq!(prefs, obj(json!({"theme": "dark", "density": "regular"})));
         assert_eq!(st.dirty.keys().collect::<Vec<_>>(), vec!["density"]);
         assert_eq!(st.base.as_deref(), Some("2026-11-22T00:00:00.000Z"));
-        // the same copy again (or an older one) is not applied over later local edits
         prefs.insert("theme".into(), json!("system"));
         st.saved(&prefs, 1);
         let r = st.settle(&mut prefs, "A", "a", Ok(server), false);
         assert!(!r.changed);
         assert_eq!(prefs["theme"], "system");
-        // the push is never dated before the copy it replaces, and acknowledges what it sent
         let p = st.prepare(&mut prefs, "A", "a", &blob(json!({}), "2026-11-22T00:00:00.000Z"), 0, false).unwrap();
         assert_eq!(p.updated, "2026-11-22T00:00:00.001Z");
         prefs.insert("density".into(), json!("compact"));
-        st.saved(&prefs, late + 1); // changed again while the push was out: stays pending
+        st.saved(&prefs, late + 1);
         st.pushed("A", &p);
         assert_eq!(st.dirty.keys().collect::<Vec<_>>(), vec!["density"]);
         assert_eq!(st.base.as_deref(), Some("2026-11-22T00:00:00.001Z"));
@@ -886,91 +1168,41 @@ mod tests {
 
     #[test]
     fn local_saves_record_changed_synced_keys_and_the_switch() {
-        let mut st = DeviceState::default();
+        let mut st = DeviceState { owner: Some("A".into()), ..Default::default() };
+        st.activate(Some("A"));
         let mut prefs = obj(json!({"theme": "dark"}));
         // before the start nothing is compared
         assert_eq!(st.saved(&prefs, 1), Saved::default());
-        assert!(st.dirty.is_empty());
         prefs.insert("theme".into(), json!("light"));
-        assert!(st.saved(&prefs, 2).synced);
+        assert!(st.saved(&prefs, 2).dirty);
         prefs.insert("enabledPlugins".into(), json!(["p"]));
         prefs.insert("winX".into(), json!(1));
-        assert!(!st.saved(&prefs, 3).synced, "not synced keys are not changes");
+        assert!(!st.saved(&prefs, 3).dirty, "not synced keys are not changes");
         prefs.remove("theme");
-        assert!(st.saved(&prefs, 4).synced);
+        assert!(st.saved(&prefs, 4).dirty);
         assert_eq!(st.dirty, obj(json!({"theme": 4})));
         prefs.insert(DISABLED_KEY.into(), json!(true));
         assert_eq!(st.saved(&prefs, 5).toggled, Some(true));
         prefs.insert(DISABLED_KEY.into(), json!(false));
         assert_eq!(st.saved(&prefs, 6).toggled, Some(false));
-        // the state file keeps owner, base and pending changes, and drops what is not synced
-        let back = DeviceState::from_json(&json!({"owner": "A", "base": "2026-11-25T00:00:00.000Z", "dirty": {"theme": 4, "enabledPlugins": 1, "density": "x"}}));
-        assert_eq!((back.owner.as_deref(), back.base.as_deref(), back.dirty.clone()), (Some("A"), Some("2026-11-25T00:00:00.000Z"), obj(json!({"theme": 4}))));
+        let back = DeviceState::from_json(&json!({"owner": "A", "blocked": true, "base": "2026-11-25T00:00:00.000Z", "dirty": {"theme": 4, "enabledPlugins": 1, "density": "x"}}));
+        assert_eq!((back.owner.as_deref(), back.blocked, back.base.as_deref(), back.dirty.clone()), (Some("A"), true, Some("2026-11-25T00:00:00.000Z"), obj(json!({"theme": 4}))));
         assert_eq!(DeviceState::from_json(&back.to_json()), back);
     }
 
-    type Log = Arc<Mutex<Vec<Value>>>;
-
-    fn fake(caps: &[&str], meta: Value, log: &Log) -> Client {
-        let (log, meta) = (log.clone(), Arc::new(Mutex::new(meta)));
-        Client::fake("https://mail.example.test", "A1", caps, move |calls| {
-            Ok(calls.as_array().unwrap().iter().map(|c| {
-                log.lock().unwrap_or_else(|e| e.into_inner()).push(c.clone());
-                let m = c[0].as_str().unwrap_or("");
-                let a = &c[1];
-                let r = match m {
-                    "Mailbox/get" if a["properties"] == json!(["metadata"]) => json!({"state": "s1", "list": [{"id": "in1", "metadata": meta.lock().unwrap().clone()}]}),
-                    "Mailbox/get" => json!({"state": "s1", "list": [{"id": "in1", "role": "inbox", "name": "Inbox"}]}),
-                    "Mailbox/set" => {
-                        let mut m = meta.lock().unwrap();
-                        if !m.is_object() { *m = json!({}); }
-                        for (k, v) in a["update"]["in1"].as_object().unwrap() {
-                            let k = k.strip_prefix("metadata/").unwrap();
-                            if v.is_null() { m.as_object_mut().unwrap().remove(k); } else { m[k] = v.clone(); }
-                        }
-                        json!({"updated": {"in1": null}})
-                    }
-                    _ => json!({}),
-                };
-                json!([m, r, c[2]])
-            }).collect())
-        })
-    }
-
-    const META: &str = "urn:ietf:params:jmap:metadata";
-
     #[test]
-    fn requests_write_parts_then_the_manifest_and_drop_old_parts() {
-        let log: Log = Default::default();
-        let c = fake(&["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail", META], json!({"org.barbican.settings.part.old.0": "x", "org.bulwarkmail.template.t": {"name": "T"}}), &log);
-        assert!(supported(&c));
-        let (r, old) = fetch(&c).unwrap();
-        assert_eq!((r, old.clone()), (Remote::Nothing, vec!["org.barbican.settings.part.old.0".to_string()]));
-        let mut s = Map::new();
-        s.insert("theme".into(), json!("light"));
-        s.insert("emailKeywords".into(), json!((0..200).map(|i| json!({"id": format!("k{i}"), "label": "x".repeat(40)})).collect::<Vec<_>>()));
-        log.lock().unwrap().clear();
-        store_gen(&c, &s, "2026-11-25T10:00:00.000Z", &old, "beef").unwrap();
-        let calls: Vec<Value> = log.lock().unwrap().iter().filter(|c| c[0] == "Mailbox/set").cloned().collect();
-        assert_eq!(calls.len(), 2);
-        let first = calls[0][1]["update"]["in1"].as_object().unwrap();
-        assert!(first.len() > 1 && first.keys().all(|k| k.starts_with("metadata/org.barbican.settings.part.beef.")), "{first:?}");
-        assert_eq!(calls[0][1]["accountId"], "A1");
-        let second = calls[1][1]["update"]["in1"].as_object().unwrap();
-        assert_eq!(second["metadata/org.barbican.settings.manifest"]["gen"], "beef");
-        assert_eq!(second["metadata/org.barbican.settings.part.old.0"], Value::Null);
-        assert_eq!(second.len(), 2);
-        // read back: the same settings; Bulwark's template entry is untouched
-        let (r, keys) = fetch(&c).unwrap();
-        let Remote::Blob { settings, manifest } = r else { panic!() };
-        assert_eq!(settings, s);
-        assert_eq!(manifest.updated, "2026-11-25T10:00:00.000Z");
-        assert!(keys.iter().all(|k| k.contains(".beef.")));
-        let meta_now = log.lock().unwrap().iter().rev().find(|c| c[0] == "Mailbox/get").cloned().unwrap();
-        assert_eq!(meta_now[1]["properties"], json!(["metadata"]));
-        // without the metadata capability the sync is off
-        let c = fake(&["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail"], Value::Null, &log);
-        assert!(!supported(&c));
+    fn the_last_sign_out_forgets_the_synced_settings() {
+        let mut st = state(Some("A"), Some("2026-11-25T00:00:00.000Z"));
+        let mut prefs = obj(json!({"theme": "light", "enabledPlugins": ["p"], "winX": 3}));
+        assert!(!st.forget(&mut prefs, "A", true), "sync off: nothing was uploaded, nothing forgotten");
+        assert!(!st.forget(&mut prefs, "B", false), "not B's");
+        assert!(st.forget(&mut prefs, "A", false));
+        assert_eq!(prefs, obj(json!({"enabledPlugins": ["p"], "winX": 3})));
+        assert_eq!((st.owner.clone(), st.base.clone(), st.blocked), (None, None, false));
+        // the next account adopts what is here (a device that never synced)
+        st.activate(Some("B"));
+        let r = st.settle(&mut prefs, "B", "b", Ok(Remote::Nothing), false);
+        assert!(r.push && !r.changed);
     }
 
     #[test]
@@ -981,14 +1213,203 @@ mod tests {
         assert!(!may_push(false, false, true, false), "pull not settled");
         assert!(!may_push(true, true, true, false), "blocked after another account's failed pull");
         assert!(!may_push(true, false, false, false), "no metadata");
-        // switching it is noticed (switching back on pulls again), and is not a synced change
         let mut st = state(Some("A"), None);
         let mut prefs = obj(json!({DISABLED_KEY: false}));
         st.start(&prefs);
         prefs.insert(DISABLED_KEY.into(), json!(true));
-        let s = st.saved(&prefs, 1);
-        assert_eq!(s, Saved { synced: false, toggled: Some(true) });
+        assert_eq!(st.saved(&prefs, 1), Saved { dirty: false, holder: false, toggled: Some(true) });
         assert!(st.dirty.is_empty(), "the switch itself is not synced");
         assert!(!blob_for(&prefs, "a").contains_key(DISABLED_KEY));
+    }
+
+    // ---------------------------------------------------------------- against the fake server
+
+    type Log = Arc<Mutex<Vec<Value>>>;
+
+    /// The fake's Inbox: its metadata, how many manifest writes it refuses with stateMismatch, and
+    /// what Mailbox/get of the metadata answers (None: the usual).
+    #[derive(Default)]
+    struct Srv { meta: Value, refuse: usize, get: Option<Value> }
+
+    fn fake(caps: &[&str], srv: Srv, log: &Log) -> (Client, Arc<Mutex<Srv>>) {
+        let (log, srv) = (log.clone(), Arc::new(Mutex::new(srv)));
+        let s2 = srv.clone();
+        let c = Client::fake("https://mail.example.test", "A1", caps, move |calls| {
+            Ok(calls.as_array().unwrap().iter().map(|c| {
+                log.lock().unwrap_or_else(|e| e.into_inner()).push(c.clone());
+                let m = c[0].as_str().unwrap_or("");
+                let a = &c[1];
+                let mut s = s2.lock().unwrap();
+                let r = match m {
+                    "Mailbox/get" if a["properties"] == json!(["metadata"]) => s.get.clone().unwrap_or_else(|| json!({"state": "s1", "list": [{"id": "in1", "metadata": s.meta.clone()}]})),
+                    "Mailbox/get" => json!({"state": "s1", "list": [{"id": "in1", "role": "inbox", "name": "Inbox"}]}),
+                    "Mailbox/set" => {
+                        let upd = a["update"]["in1"].as_object().unwrap();
+                        if a.get("ifInState").is_some() && s.refuse > 0 {
+                            s.refuse -= 1;
+                            return json!(["error", {"type": "stateMismatch"}, c[2]]);
+                        }
+                        if !s.meta.is_object() { s.meta = json!({}); }
+                        for (k, v) in upd {
+                            let k = k.strip_prefix("metadata/").unwrap();
+                            if v.is_null() { s.meta.as_object_mut().unwrap().remove(k); } else { s.meta[k] = v.clone(); }
+                        }
+                        json!({"oldState": "s1", "newState": "s2", "updated": {"in1": null}})
+                    }
+                    _ => json!({}),
+                };
+                json!([m, r, c[2]])
+            }).collect())
+        });
+        (c, srv)
+    }
+
+    const CAPS: &[&str] = &["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail", "urn:ietf:params:jmap:metadata"];
+
+    fn sets(log: &Log) -> Vec<Value> { log.lock().unwrap().iter().filter(|c| c[0] == "Mailbox/set").cloned().collect() }
+
+    #[test]
+    fn requests_write_parts_then_the_manifest_in_their_state_and_drop_old_parts() {
+        let log: Log = Default::default();
+        let (c, _) = fake(CAPS, Srv { meta: json!({"org.barbican.settings.part.old.0": "x", "org.bulwarkmail.template.t": {"name": "T"}}), ..Default::default() }, &log);
+        assert!(supported(&c));
+        let (r, old) = fetch(&c).unwrap();
+        assert_eq!((r, old.clone()), (Remote::Nothing, vec!["org.barbican.settings.part.old.0".to_string()]));
+        let mut s = Map::new();
+        s.insert("theme".into(), json!("light"));
+        s.insert("emailKeywords".into(), json!((0..160).map(|i| json!({"id": format!("k{i}"), "label": "x".repeat(40)})).collect::<Vec<_>>()));
+        log.lock().unwrap().clear();
+        store_gen(&c, &s, "2026-11-25T10:00:00.000Z", &old, "beef").unwrap();
+        let calls = sets(&log);
+        assert_eq!(calls.len(), 2);
+        let first = calls[0][1]["update"]["in1"].as_object().unwrap();
+        assert!(first.len() > 1 && first.keys().all(|k| k.starts_with("metadata/org.barbican.settings.part.beef.")), "{first:?}");
+        assert_eq!(calls[0][1]["accountId"], "A1");
+        assert!(calls[0][1].get("ifInState").is_none());
+        let second = calls[1][1]["update"]["in1"].as_object().unwrap();
+        assert_eq!(second["metadata/org.barbican.settings.manifest"]["gen"], "beef");
+        assert_eq!(second["metadata/org.barbican.settings.part.old.0"], Value::Null);
+        assert_eq!(second.len(), 2);
+        assert_eq!(calls[1][1]["ifInState"], "s2", "the state the parts left");
+        let (r, keys) = fetch(&c).unwrap();
+        let Remote::Blob { settings, manifest } = r else { panic!() };
+        assert_eq!(settings, s);
+        assert_eq!(manifest.updated, "2026-11-25T10:00:00.000Z");
+        assert!(keys.iter().all(|k| k.contains(".beef.")));
+        let (c, _) = fake(&["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail"], Srv::default(), &log);
+        assert!(!supported(&c));
+    }
+
+    #[test]
+    fn a_missing_inbox_or_metadata_is_an_error_not_nothing_stored() {
+        let log: Log = Default::default();
+        for get in [json!({"state": "s1", "list": [], "notFound": ["in1"]}), json!({"state": "s1", "list": [{"id": "in1"}]}), json!({"state": "s1", "list": [{"id": "other", "metadata": {}}]})] {
+            let (c, _) = fake(CAPS, Srv { get: Some(get.clone()), ..Default::default() }, &log);
+            assert!(fetch(&c).is_err(), "{get}");
+        }
+        // metadata that is there and empty is "nothing stored"
+        let (c, _) = fake(CAPS, Srv { get: Some(json!({"state": "s1", "list": [{"id": "in1", "metadata": null}]})), ..Default::default() }, &log);
+        assert_eq!(fetch(&c).unwrap().0, Remote::Nothing);
+        // and a pull that fails so keeps the settings (no "nothing stored" push over them)
+        let mut st = state(Some("A"), Some("2026-11-20T00:00:00.000Z"));
+        let mut prefs = obj(json!({"theme": "light"}));
+        let r = st.settle(&mut prefs, "A", "a", fetch(&fake(CAPS, Srv { get: Some(json!({"list": []})), ..Default::default() }, &log).0).map(|r| r.0), false);
+        assert!(!r.push && !r.changed);
+    }
+
+    /// The program's access, over a plain pair.
+    fn run(c: &Client, owner: &str, pair: &Mutex<(Map<String, Value>, DeviceState)>) -> Result<bool, String> {
+        let mut access = |f: &mut dyn FnMut(&mut Map<String, Value>, &mut DeviceState) -> bool| {
+            let mut g = pair.lock().unwrap();
+            let (p, s) = &mut *g;
+            f(p, s);
+        };
+        push_core(c, owner, "ann@mail.example.test", false, &|| ms_of("2026-11-25T12:00:00.000Z").unwrap(), &mut access)
+    }
+
+    #[test]
+    fn a_flush_sends_the_waiting_change_to_the_account_being_left_only() {
+        // the debounce has not run yet: theme changed on A, then A is left
+        let log: Log = Default::default();
+        let (c, srv) = fake(CAPS, Srv::default(), &log);
+        let mut st = state(Some("A"), None);
+        let mut prefs = obj(json!({"theme": "dark"}));
+        st.start(&prefs);
+        prefs.insert("theme".into(), json!("light"));
+        st.saved(&prefs, 5);
+        st.activate(None); // signed out / switching: the flush goes regardless of who is in now
+        let pair = Mutex::new((prefs, st));
+        assert_eq!(run(&c, "A", &pair), Ok(true));
+        assert_eq!(sets(&log).len(), 2);
+        assert!(pair.lock().unwrap().1.dirty.is_empty());
+        let Remote::Blob { settings, .. } = decode(&srv.lock().unwrap().meta) else { panic!() };
+        assert_eq!(settings["theme"], "light");
+        // a flush for another account than the settings are of sends nothing
+        log.lock().unwrap().clear();
+        assert_eq!(run(&c, "B", &pair), Ok(false));
+        assert!(sets(&log).is_empty());
+    }
+
+    #[test]
+    fn a_newer_format_on_the_server_is_never_overwritten() {
+        let log: Log = Default::default();
+        let (c, _) = fake(CAPS, Srv { meta: json!({"org.barbican.settings.manifest": {"format": 2, "updatedAt": "2026-11-25T00:00:00.000Z"}}), ..Default::default() }, &log);
+        let mut st = state(Some("A"), None);
+        st.dirty.insert("theme".into(), json!(1));
+        let pair = Mutex::new((obj(json!({"theme": "light"})), st));
+        assert_eq!(run(&c, "A", &pair), Err(NEWER.to_string()));
+        assert!(sets(&log).is_empty());
+        // and a pull of it keeps the local settings
+        let mut st = state(Some("A"), None);
+        let mut prefs = obj(json!({"theme": "light"}));
+        let r = st.settle(&mut prefs, "A", "a", fetch(&c).map(|r| r.0), false);
+        assert!(!r.changed && !r.push);
+        assert_eq!(prefs["theme"], "light");
+    }
+
+    #[test]
+    fn a_write_from_another_computer_in_between_is_read_and_merged_then_retried_once() {
+        let log: Log = Default::default();
+        let (c, srv) = fake(CAPS, Srv { refuse: 1, ..Default::default() }, &log);
+        let mut st = state(Some("A"), None);
+        let mut prefs = obj(json!({"theme": "dark"}));
+        st.start(&prefs);
+        prefs.insert("theme".into(), json!("light"));
+        st.saved(&prefs, ms_of("2026-11-25T11:00:00.000Z").unwrap());
+        // the other computer's copy lands while the first try is out (here: before the retry's read)
+        let other = obj(json!({"density": "compact", "theme": "system"}));
+        let (parts, manifest) = encode(&other, "2026-11-25T10:00:00.000Z", "0123").unwrap();
+        srv.lock().unwrap().meta = meta_of(&parts, &manifest);
+        let pair = Mutex::new((prefs, st));
+        assert_eq!(run(&c, "A", &pair), Ok(true));
+        let calls = sets(&log);
+        assert_eq!(calls.len(), 4, "parts, refused manifest, parts, manifest");
+        assert!(calls[1][1]["ifInState"].is_string() && calls[3][1]["ifInState"].is_string());
+        // the other computer's density came in; this computer's later theme stayed
+        let g = pair.lock().unwrap();
+        assert_eq!((g.0["density"].as_str(), g.0["theme"].as_str()), (Some("compact"), Some("light")));
+        let Remote::Blob { settings, .. } = decode(&srv.lock().unwrap().meta) else { panic!() };
+        assert_eq!((settings["density"].as_str(), settings["theme"].as_str()), (Some("compact"), Some("light")));
+        drop(g);
+        // refused twice: an error, and the change stays waiting
+        let log: Log = Default::default();
+        let (c, _) = fake(CAPS, Srv { refuse: 2, ..Default::default() }, &log);
+        let mut st = state(Some("A"), None);
+        st.dirty.insert("theme".into(), json!(1));
+        let pair = Mutex::new((obj(json!({"theme": "light"})), st));
+        assert_eq!(run(&c, "A", &pair), Err(RACED.to_string()));
+        assert!(!pair.lock().unwrap().1.dirty.is_empty());
+    }
+
+    #[test]
+    fn flushes_are_waited_for() {
+        let t = std::time::Instant::now();
+        counted(|| std::thread::sleep(std::time::Duration::from_millis(150)));
+        wait_flushes(std::time::Duration::from_secs(5));
+        assert!(t.elapsed() >= std::time::Duration::from_millis(140));
+        // nothing running: no wait
+        let t = std::time::Instant::now();
+        wait_flushes(std::time::Duration::from_secs(5));
+        assert!(t.elapsed() < std::time::Duration::from_secs(1));
     }
 }

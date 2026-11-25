@@ -1233,8 +1233,6 @@ fn main() -> Result<(), slint::PlatformError> {
             g.take()
         };
         server_settings::reset(&srv_out);
-        // nothing more is pushed to (or pulled from) the account signed out
-        settings_sync::end();
         let u = w.unwrap();
         SESSION_GEN.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         // nothing of this account's out-of-office page stays to be shown or written elsewhere
@@ -1243,10 +1241,11 @@ fn main() -> Result<(), slint::PlatformError> {
         let account = u.get_account().to_string();
         let mut owner = None;
         let mut server = String::new();
+        let mut revoke = None;
         if let Some(c) = taken {
             server = c.base.clone();
             owner = Some(reminders::owner_key(&c.base, &c.username));
-            if let Some(t) = c.tokens() { std::thread::spawn(move || oauth::revoke(&c.base, &t)); }
+            revoke = c.tokens().map(|t| (c.base.clone(), t));
         }
         // the reminder runner would write its state again after the wipe
         reminders::stop();
@@ -1255,6 +1254,16 @@ fn main() -> Result<(), slint::PlatformError> {
         let keep = KEEP_SAVED_SIGN_IN.load(std::sync::atomic::Ordering::SeqCst);
         let forgot = if keep { signout::Forgot { last: false, cleared: true } } else { signout::forget_keyring(&[login.as_str(), account.as_str()], &server) };
         let last = forgot.last;
+        // settings changed in the last seconds go to this account (not the next one); after the
+        // last account, its synced settings go back to defaults (Bulwark flushSync,
+        // forgetSyncedSettings)
+        settings_sync::leave(last);
+        if let Some((base, t)) = revoke {
+            std::thread::spawn(move || {
+                settings_sync::wait_flushes(std::time::Duration::from_secs(8));
+                oauth::revoke(&base, &t);
+            });
+        }
         if last { avatars::cancel_pending(); }
         // a chat answer still coming must not write the account's file again
         CHAT_USER.lock().unwrap().clear();
@@ -1338,6 +1347,8 @@ fn main() -> Result<(), slint::PlatformError> {
         u.set_show_settings(false);
         u.set_app(0);
         u.set_busy(true);
+        // settings changed in the last seconds go to the account being left first
+        settings_sync::flush();
         restore_session(w.clone(), st.clone(), v, true, None);
     });
     let (w, st, srv_add) = (ui.as_weak(), state.clone(), server_cache.clone());
@@ -1346,7 +1357,8 @@ fn main() -> Result<(), slint::PlatformError> {
         let u = w.unwrap();
         SESSION_GEN.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         *st.lock().unwrap() = None;
-        settings_sync::end();
+        // what is still waiting goes to the account being left; the next one's pull waits for it
+        settings_sync::leave(false);
         server_settings::set_account(&srv_add, "");
         u.set_user("".into());
         u.set_login_password("".into());

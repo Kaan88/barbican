@@ -250,11 +250,13 @@ impl Settings {
         let _ = std::fs::remove_file(crate::config_dir().join("settings.json"));
     }
 
-    /// Store one value (None removes it) and save, outside the settings page's own controls.
+    /// Store one value (None removes it) and save, outside the settings page's own controls:
+    /// through the live settings, so the program's next save keeps it (and the sync sees it).
     pub fn put(key: &str, value: Option<Value>) {
-        let mut s = Settings::load();
-        match value { Some(v) => { s.prefs.insert(key.into(), v); } None => { s.prefs.remove(key); } }
-        s.save();
+        with_live(|s| {
+            match value { Some(v) => { s.prefs.insert(key.into(), v); } None => { s.prefs.remove(key); } }
+            s.save();
+        });
     }
 
     pub fn bool(&self, key: &str, default: bool) -> bool {
@@ -844,6 +846,13 @@ mod tests {
         assert!(on_disk.prefs.get("trustedSenders").is_none());
         assert_eq!(on_disk.str("externalContentPolicy", ""), "block");
         assert_eq!(on_disk.str("theme", ""), "dark");
+        // a value put from elsewhere (the tag list) goes through the live settings: their next save keeps it
+        Settings::put("emailKeywords", Some(json!([{"id": "work", "label": "Work"}])));
+        assert_eq!(live.lock().unwrap().prefs["emailKeywords"], json!([{"id": "work", "label": "Work"}]));
+        live.lock().unwrap().remember("theme", json!("light"));
+        assert_eq!(Settings::load().prefs["emailKeywords"], json!([{"id": "work", "label": "Work"}]));
+        Settings::put("emailKeywords", None);
+        assert!(live.lock().unwrap().prefs.get("emailKeywords").is_none());
         if let Ok(mut l) = LIVE.lock() { *l = None; }
 
         s.reset();
