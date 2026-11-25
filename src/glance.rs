@@ -7,7 +7,7 @@ use crate::jmap::Client;
 use crate::{AppWindow, PRow};
 use chrono::{Local, Timelike};
 use serde_json::{json, Value};
-use slint::{Model, ModelRc, VecModel};
+use slint::{Model, ModelRc};
 use std::cell::RefCell;
 use std::sync::Arc;
 

@@ -152,6 +152,19 @@ pub fn current() -> Option<Arc<Client>> { CURRENT.lock().unwrap_or_else(|e| e.in
 pub fn current_key() -> Option<String> { current().map(|c| c.state_key()) }
 pub fn is_current(owner: &str) -> bool { current_key().as_deref() == Some(owner) }
 
+/// Whether a view that holds `owner`'s data is still current for the session `current`: a switch
+/// to it can render from the cache and rely on push to keep it fresh, but another login's data
+/// (or an empty view) needs a full load.
+pub fn holds(owner: &str, current: Option<&str>) -> bool {
+    !owner.is_empty() && current == Some(owner)
+}
+
+/// Whether `view` already holds the current session's data (so a switch to it need not reload).
+pub fn cache_current(view: View, c: &Client) -> bool {
+    let key = c.state_key();
+    is_current(&key) && holds(&owner(view), Some(&key))
+}
+
 /// A full load of `view` for `owner` landed (UI thread): record its states, tell the
 /// notifications waiting for that list, and run a delta asked for while it loaded.
 pub fn loaded(u: &AppWindow, view: View, owner: &str, states: &[Step]) {
@@ -440,6 +453,20 @@ mod tests {
 
     fn st(t: &str, a: &str, s: &str) -> (String, String, String) { (t.into(), a.into(), s.into()) }
     fn mv(t: &str, a: &str, f: &str, n: &str) -> (String, String, String, String) { (t.into(), a.into(), f.into(), n.into()) }
+
+    #[test]
+    fn a_view_is_current_only_when_it_holds_the_sessions_data() {
+        assert!(!holds("", Some("ann")));
+        assert!(!holds("", None));
+        assert!(holds("ann", Some("ann")));
+        assert!(!holds("ann", Some("bob")));
+        assert!(!holds("ann", None));
+        let mut l = Ledger::default();
+        l.loaded(View::Contacts, "ann", &[]);
+        assert_eq!(l.owner(View::Contacts), "ann");
+        assert!(holds(&l.owner(View::Contacts), Some("ann")));
+        assert!(!holds(&l.owner(View::Contacts), Some("bob")), "another login's data is not current");
+    }
 
     #[test]
     fn states_are_kept_per_view_type_account_and_login() {

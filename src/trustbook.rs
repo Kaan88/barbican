@@ -684,7 +684,7 @@ pub fn refresh(w: slint::Weak<AppWindow>, c: Arc<Client>, force: bool) {
                 ask = AGAIN.lock().unwrap_or_else(|e| e.into_inner()).take();
             }
             // a forced refresh asked for just as the loop ended is not lost
-            guard = None;
+            drop(guard.take());
             let late = AGAIN.lock().unwrap_or_else(|e| e.into_inner()).take();
             match late {
                 None => break,

@@ -514,7 +514,7 @@ pub fn run_command(u: &AppWindow, st: &Shared, id: &str) {
         "cal:view0" => u.invoke_cal_set_view(0),
         "cal:view1" => u.invoke_cal_set_view(1),
         "cal:view2" => u.invoke_cal_set_view(2),
-        "cal:refresh" => u.invoke_app_changed(1),
+        "cal:refresh" => if let Some(c) = c { crate::calendar::load(u.as_weak(), c); },
         "ct:new" => u.invoke_ct_new(),
         "ct:group" => u.invoke_ct_new_group(),
         "fl:upload" => u.invoke_fl_upload(),
@@ -522,7 +522,7 @@ pub fn run_command(u: &AppWindow, st: &Shared, id: &str) {
         "fl:new-folder" => { crate::ctxmenu::request(u, "files-bg", ""); crate::ctxmenu::pick(u, st, "new-folder"); }
         "fl:trash" => if let Some(c) = c { crate::files::open(u, c, crate::files::TRASH_LOC); },
         "fl:empty-trash" => { crate::ctxmenu::request(u, "files-bg", ""); crate::ctxmenu::pick(u, st, "ask:empty-trash"); }
-        "fl:refresh" => if let Some(c) = c { crate::files::open(u, c, &u.get_fl_cwd()); },
+        "fl:refresh" => if let Some(c) = c { crate::files::reload(u, c); },
         _ => {}
     }
 }

@@ -1742,8 +1742,8 @@ fn main() -> Result<(), slint::PlatformError> {
         let Some(c) = st.lock().unwrap().clone() else { return };
         let u = w.unwrap();
         match app {
-            1 => { calendar::render(&u); calendar::load(w.clone(), c); }
-            2 => contacts::load(w.clone(), c),
+            1 => calendar::switch_to(&u, c),
+            2 => contacts::switch_to(&u, c),
             3 => files::open(&u, c, ""),
             4 => admin::load(&u, c, &u.get_admin_section()),
             _ => {}

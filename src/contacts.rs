@@ -110,6 +110,9 @@ fn all(c: &Value, map: &str, field: &str) -> Vec<String> {
 
 /// Hold these books and cards (groups split off, both sorted by name) and redraw.
 fn install(u: &AppWindow, books: Vec<Value>, mut cards: Vec<Value>) {
+    // the birthday calendar reads these same cards, so a contact added or changed here reaches it
+    // without a calendar load (they are only kept while that calendar is on)
+    if crate::settings::bool_pref("showBirthdayCalendar", false) { crate::cal_extra::set_people(cards.clone()); }
     let mut groups: Vec<Value> = cards.iter().filter(|x| x["kind"].as_str() == Some("group")).cloned().collect();
     groups.sort_by_key(|x| full_name(x).to_lowercase());
     cards.retain(|x| x["kind"].as_str() != Some("group"));
@@ -136,6 +139,13 @@ pub fn apply_live(u: &AppWindow, ds: &[crate::livesync::Applied]) {
 
 /// The account the address books were loaded from.
 pub fn account() -> Option<String> { client().map(|c| c.account_for("urn:ietf:params:jmap:contacts")) }
+
+/// Draw the contacts and fetch only when the cache does not already hold this login's data
+/// (livesync keeps it fresh in between). App switch.
+pub fn switch_to(u: &AppWindow, c: Arc<Client>) {
+    render(u);
+    if !crate::livesync::cache_current(crate::livesync::View::Contacts, &c) { load(u.as_weak(), c); }
+}
 
 pub fn load(w: slint::Weak<AppWindow>, c: Arc<Client>) {
     if !c.has("urn:ietf:params:jmap:contacts") { return; }

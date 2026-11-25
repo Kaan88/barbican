@@ -11,7 +11,7 @@ use crate::{AppWindow, FileRow, NavRow};
 use serde_json::{json, Value};
 use slint::{ComponentHandle, SharedString};
 use std::cell::RefCell;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 const CAP: &str = "urn:ietf:params:jmap:filenode";
@@ -61,6 +61,56 @@ pub(crate) fn parent_key(n: &Value) -> String {
     }
 }
 
+/// The nodes indexed by their parent key ("" for roots) and by their own key, in one pass (O(n)).
+/// Rendering reads each folder's children and each key straight out of this instead of rescanning
+/// the whole list, so the tree is O(n) rather than O(n²).
+#[derive(Default, Debug)]
+pub struct NodeIndex {
+    pub by_parent: HashMap<String, Vec<usize>>,
+    pub by_key: HashMap<String, usize>,
+}
+
+/// Build the parent/children and key indexes over `nodes`.
+pub fn index(nodes: &[Value]) -> NodeIndex {
+    let mut ix = NodeIndex::default();
+    for (i, n) in nodes.iter().enumerate() {
+        ix.by_key.insert(key(n), i);
+        ix.by_parent.entry(parent_key(n)).or_default().push(i);
+    }
+    ix
+}
+
+/// One directory of the "My files" sidebar tree.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TreeNode {
+    pub key: String,
+    pub name: String,
+    pub depth: i32,
+    pub has_kids: bool,
+    pub open: bool,
+}
+
+/// The "My files" directory tree (depth-first, name-sorted at each level; the trash folder and
+/// shared drives are left out), walked from the parent index in O(n) rather than rescanning the
+/// nodes per level.
+pub fn dir_tree(nodes: &[Value], ix: &NodeIndex, expanded: &HashSet<String>) -> Vec<TreeNode> {
+    fn walk(nodes: &[Value], ix: &NodeIndex, expanded: &HashSet<String>, parent: &str, depth: i32, out: &mut Vec<TreeNode>) {
+        let mut kids: Vec<&Value> = ix.by_parent.get(parent).map(|idx| idx.iter().map(|&i| &nodes[i]).collect()).unwrap_or_default();
+        kids.retain(|n| !shared(n) && is_dir(n) && !(parent.is_empty() && n["name"] == TRASH_NAME));
+        kids.sort_by_key(|n| n["name"].as_str().unwrap_or("").to_lowercase());
+        for n in kids {
+            let k = key(n);
+            let has_kids = ix.by_parent.get(&k).is_some_and(|idx| idx.iter().any(|&i| is_dir(&nodes[i])));
+            let open = expanded.contains(&k);
+            out.push(TreeNode { key: k.clone(), name: n["name"].as_str().unwrap_or("").to_string(), depth, has_kids, open });
+            if open { walk(nodes, ix, expanded, &k, depth + 1, out); }
+        }
+    }
+    let mut out = vec![];
+    walk(nodes, ix, expanded, "", 1, &mut out);
+    out
+}
+
 /// The Files flows of src/files_x.rs read the view through these: every node (borrowed,
 /// never copied on the UI thread), the folder on screen, whether nodes are created in the
 /// draft-18 shape.
@@ -68,12 +118,21 @@ pub(crate) fn with_nodes<R>(f: impl FnOnce(&[Value]) -> R) -> R { ST.with(|s| f(
 pub(crate) fn cwd() -> String { ST.with(|s| s.borrow().cwd.clone()) }
 pub(crate) fn draft18() -> bool { ST.with(|s| s.borrow().draft18) }
 
+/// The nodes listed in folder `k` (not the trash and what is in it), in node order: the pure form
+/// of [`children`], read through the parent index instead of rescanning the whole list.
+pub fn children_in<'a>(nodes: &'a [Value], ix: &NodeIndex, k: &str, hidden: &HashSet<String>) -> Vec<&'a Value> {
+    ix.by_parent.get(k).map(|idx| idx.iter().map(|&i| &nodes[i])
+        .filter(|n| (!k.is_empty() || !shared(n)) && !hidden.contains(&key(n)))
+        .collect()).unwrap_or_default()
+}
+
 /// The nodes listed in folder `k` (not the trash and what is in it).
 pub(crate) fn children(k: &str) -> Vec<Value> {
     ST.with(|s| {
         let s = s.borrow();
         let hidden = trash_subtree(&s);
-        s.nodes.iter().filter(|n| parent_key(n) == k && (!k.is_empty() || !shared(n)) && !hidden.contains(&key(n))).cloned().collect()
+        let ix = index(&s.nodes);
+        children_in(&s.nodes, &ix, k, &hidden).into_iter().cloned().collect()
     })
 }
 
@@ -217,33 +276,27 @@ fn prepare(mut n: Value, acc: &str, shared: bool) -> Value {
     n
 }
 
-/// Read the folder on screen again.
+/// Re-list the account from the server (after a change, an explicit refresh, or a push that asked
+/// for the full load), then draw the folder on screen.
 pub fn reload(u: &AppWindow, c: Arc<Client>) {
-    let cwd = ST.with(|s| s.borrow().cwd.clone());
-    open(u, c, &cwd);
+    if !c.has(CAP) { crate::mail::show_toast(u, "This server has no file storage.", false); return; }
+    crate::files_view::note_client(&c);
+    fetch(u, c);
 }
 
-/// Apply FileNode deltas of each account to the nodes as the view holds them.
-fn apply_deltas(nodes: &mut Vec<Value>, primary: &str, ds: &[crate::livesync::Applied]) {
-    for (_, acc, _, d) in ds {
-        crate::livesync::apply(nodes, acc, d, |n| (acc_of(n), raw_id(n)), |n| prepare(n, acc, acc != primary));
-    }
-}
-
-/// Live update (livesync): apply the deltas, then redraw.
-pub fn apply_live(u: &AppWindow, ds: &[crate::livesync::Applied]) {
-    ST.with(|s| {
-        let mut s = s.borrow_mut();
-        let primary = s.primary.clone();
-        apply_deltas(&mut s.nodes, &primary, ds);
-    });
-    render(u);
-}
-
+/// Open folder `folder` (app switch, folder click, trash): draw from the cache straight away when
+/// it already holds this login's nodes (livesync keeps them fresh), and list the account only on
+/// the first visit or after a sign-out.
 pub fn open(u: &AppWindow, c: Arc<Client>, folder: &str) {
     ST.with(|s| s.borrow_mut().cwd = folder.to_string());
     if !c.has(CAP) { crate::mail::show_toast(u, "This server has no file storage.", false); return; }
     crate::files_view::note_client(&c);
+    if crate::livesync::cache_current(crate::livesync::View::Files, &c) { render(u); return; }
+    fetch(u, c);
+}
+
+/// The account listing (worker thread), used by the first open and by [`reload`].
+fn fetch(u: &AppWindow, c: Arc<Client>) {
     let w = u.as_weak();
     std::thread::spawn(move || {
         let primary = c.account_for(CAP);
@@ -288,6 +341,23 @@ pub fn open(u: &AppWindow, c: Arc<Client>, folder: &str) {
     });
 }
 
+/// Apply FileNode deltas of each account to the nodes as the view holds them.
+fn apply_deltas(nodes: &mut Vec<Value>, primary: &str, ds: &[crate::livesync::Applied]) {
+    for (_, acc, _, d) in ds {
+        crate::livesync::apply(nodes, acc, d, |n| (acc_of(n), raw_id(n)), |n| prepare(n, acc, acc != primary));
+    }
+}
+
+/// Live update (livesync): apply the deltas, then redraw.
+pub fn apply_live(u: &AppWindow, ds: &[crate::livesync::Applied]) {
+    ST.with(|s| {
+        let mut s = s.borrow_mut();
+        let primary = s.primary.clone();
+        apply_deltas(&mut s.nodes, &primary, ds);
+    });
+    render(u);
+}
+
 fn nav(kind: &str, id: &str, label: &str, icon: &str, depth: i32, header: &str) -> NavRow {
     NavRow { kind: kind.into(), id: id.into(), label: label.into(), icon: icon.into(), count: "".into(), color: Default::default(), depth, header: header.into() }
 }
@@ -302,6 +372,7 @@ pub fn render(u: &AppWindow) {
     ST.with(|s| {
         let s = s.borrow();
         let hidden = trash_subtree(&s);
+        let ix = index(&s.nodes);
         let in_trash = s.cwd == TRASH_LOC;
         let trashed = if in_trash { trashed_items(&s) } else { vec![] };
         let all: Vec<&Value> = if in_trash { trashed.iter().map(|t| &t.0).collect() } else {
@@ -337,11 +408,12 @@ pub fn render(u: &AppWindow) {
         let mut guard = 0;
         while !cur.is_empty() && guard < 64 {
             guard += 1;
-            let Some(n) = s.nodes.iter().find(|n| key(n) == cur) else { break };
+            let Some(&i) = ix.by_key.get(&cur) else { break };
+            let n = &s.nodes[i];
             crumbs.push((cur.clone(), n["name"].as_str().unwrap_or("").to_string()));
             cur = parent_key(n);
         }
-        let in_shared = s.nodes.iter().find(|n| key(n) == s.cwd).is_some_and(shared);
+        let in_shared = ix.by_key.get(&s.cwd).map(|&i| shared(&s.nodes[i])).unwrap_or(false);
         if in_trash { crumbs.push((TRASH_LOC.into(), "Trash".into())); }
         crumbs.push(("".into(), if in_shared { "Shared with me".into() } else { "My files".into() }));
         crumbs.reverse();
@@ -352,20 +424,11 @@ pub fn render(u: &AppWindow) {
 
         // ---- sidebar (Bulwark files-sidebar): My files tree, Favorites, Recent, Shared with me ----
         let mut v = vec![nav("root", "", "My files", "\u{E8B7}", 0, "")];
-        fn tree(s: &State, parent: &str, depth: i32, v: &mut Vec<NavRow>) {
-            let mut kids: Vec<&Value> = s.nodes.iter().filter(|n| !shared(n) && is_dir(n) && parent_key(n) == parent && !(parent.is_empty() && n["name"] == TRASH_NAME)).collect();
-            kids.sort_by_key(|n| n["name"].as_str().unwrap_or("").to_lowercase());
-            for n in kids {
-                let k = key(n);
-                let has_kids = s.nodes.iter().any(|c| is_dir(c) && parent_key(c) == k);
-                let open = s.expanded.contains(&k);
-                let mut r = nav("folder", &k, n["name"].as_str().unwrap_or(""), "\u{E8B7}", depth, "");
-                r.count = if has_kids { if open { "\u{E70D}".into() } else { "\u{E76C}".into() } } else { "".into() };
-                v.push(r);
-                if open { tree(s, &k, depth + 1, v); }
-            }
+        for t in dir_tree(&s.nodes, &ix, &s.expanded) {
+            let mut r = nav("folder", &t.key, &t.name, "\u{E8B7}", t.depth, "");
+            r.count = if t.has_kids { if t.open { "\u{E70D}".into() } else { "\u{E76C}".into() } } else { "".into() };
+            v.push(r);
         }
-        tree(&s, "", 1, &mut v);
         let mut first = true;
         for f in &favs {
             let Some(n) = s.nodes.iter().find(|n| key(n) == *f && !hidden.contains(f)) else { continue };
@@ -477,7 +540,7 @@ pub fn new_folder(u: &AppWindow, c: Arc<Client>, name: &str) {
         let res = create_in(&c, draft, &acc, parent.as_deref(), &name, None);
         let _ = w.upgrade_in_event_loop(move |u| {
             if let Err(e) = res { crate::mail::show_error(&u, &e); }
-            open(&u, c, &cwd);
+            reload(&u, c);
         });
     });
 }
@@ -489,7 +552,6 @@ pub fn start_rename(u: &AppWindow, id: &str) {
 
 /// One FileNode/set on a node's account, reporting the first SetError; then reload.
 fn node_set(u: &AppWindow, c: Arc<Client>, acc: String, args: Value, done: &'static str) {
-    let cwd = ST.with(|s| s.borrow().cwd.clone());
     let w = u.as_weak();
     std::thread::spawn(move || {
         let mut a = args;
@@ -503,7 +565,7 @@ fn node_set(u: &AppWindow, c: Arc<Client>, acc: String, args: Value, done: &'sta
         });
         let _ = w.upgrade_in_event_loop(move |u| {
             match res { Ok(()) => if !done.is_empty() { crate::mail::show_toast(&u, done, false) }, Err(e) => crate::mail::show_error(&u, &e) }
-            open(&u, c, &cwd);
+            reload(&u, c);
         });
     });
 }
@@ -530,7 +592,6 @@ pub fn delete(u: &AppWindow, c: Arc<Client>, id: &str) {
     let (trash, draft) = ST.with(|s| { let s = s.borrow(); (trash_folder(&s).map(raw_id), s.draft18) });
     let acc = acc_of(&n);
     let parent = n["parentId"].as_str().filter(|p| !p.is_empty()).map(String::from);
-    let cwd = ST.with(|s| s.borrow().cwd.clone());
     let w = u.as_weak();
     let item = raw_id(&n);
     std::thread::spawn(move || {
@@ -546,7 +607,7 @@ pub fn delete(u: &AppWindow, c: Arc<Client>, id: &str) {
         })();
         let _ = w.upgrade_in_event_loop(move |u| {
             match res { Ok(()) => crate::mail::show_toast(&u, "Moved to the trash", false), Err(e) => crate::mail::show_error(&u, &e) }
-            open(&u, c, &cwd);
+            reload(&u, c);
         });
     });
 }
@@ -691,7 +752,7 @@ pub fn paste(u: &AppWindow, c: Arc<Client>) {
         }
         let _ = w.upgrade_in_event_loop(move |u| {
             crate::mail::show_toast(&u, &err.map(|e| format!("Paste failed: {e}")).unwrap_or_else(|| if cut { "Moved".into() } else { "Pasted".into() }), false);
-            open(&u, c, &cwd);
+            reload(&u, c);
         });
     });
 }
@@ -705,13 +766,12 @@ pub fn duplicate(u: &AppWindow, c: Arc<Client>, k: &str) {
     let parent = parent_key(&src);
     let (acc, pid) = target(&parent);
     let (acc, pid) = if parent.is_empty() { (acc_of(&src), None) } else { (acc, pid) };
-    let cwd = ST.with(|s| s.borrow().cwd.clone());
     let w = u.as_weak();
     std::thread::spawn(move || {
         let r = copy_tree(&c, draft, &nodes, &src, &acc, pid.as_deref(), &copy);
         let _ = w.upgrade_in_event_loop(move |u| {
             crate::mail::show_toast(&u, &r.err().map(|e| format!("Not duplicated: {e}")).unwrap_or_else(|| "Duplicated".into()), false);
-            open(&u, c, &cwd);
+            reload(&u, c);
         });
     });
 }
@@ -760,7 +820,6 @@ pub fn share(u: &AppWindow, c: Arc<Client>, k: &str, who: &str, write: Option<bo
     let Some(n) = node(k) else { return };
     let legacy = ST.with(|s| s.borrow().legacy.contains(&acc_of(&n)));
     let (acc, id, who, is_principal) = (acc_of(&n), raw_id(&n), who.trim().to_string(), write.is_none());
-    let cwd = ST.with(|s| s.borrow().cwd.clone());
     let w = u.as_weak();
     std::thread::spawn(move || {
         let res: Result<String, String> = (|| {
@@ -774,7 +833,7 @@ pub fn share(u: &AppWindow, c: Arc<Client>, k: &str, who: &str, write: Option<bo
         })();
         let _ = w.upgrade_in_event_loop(move |u| {
             crate::mail::show_toast(&u, &res.unwrap_or_else(|e| format!("Not shared: {e}")), false);
-            open(&u, c, &cwd);
+            reload(&u, c);
         });
     });
 }
@@ -840,5 +899,78 @@ mod tests {
         let used: HashSet<String> = ["a.txt".to_string(), "a (2).txt".to_string()].into();
         assert_eq!(unique_name("a.txt", &used), "a (3).txt");
         assert_eq!(unique_name("b", &used), "b");
+    }
+
+    #[test]
+    fn the_indexed_tree_matches_the_old_recursive_scan() {
+        let n = |id: &str, parent: Option<&str>, name: &str, dir: bool, sh: bool| {
+            let mut v = json!({"id": id, "parentId": parent, "name": name, "_key": if sh { format!("S|{id}") } else { id.to_string() }, "_acc": if sh { "S" } else { "P" }, "_shared": sh});
+            if !dir { v["blobId"] = json!("b"); }
+            v
+        };
+        let nodes = vec![
+            n("docs", None, "Docs", true, false),
+            n("work", None, "Work", true, false),
+            n("trash", None, ".Trash", true, false),
+            n("a", Some("docs"), "a.txt", false, false),
+            n("sub", Some("docs"), "Sub", true, false),
+            n("b", Some("sub"), "b.txt", false, false),
+            n("deep", Some("docs"), "Deep", true, false),
+            n("deeper", Some("deep"), "Deeper", true, false),
+            n("s1", None, "Shared", true, true),
+        ];
+        let expanded: HashSet<String> = ["docs".to_string(), "deep".to_string()].into();
+        // the old, per-level scan, reproduced for the comparison
+        fn old_scan(nodes: &[Value], expanded: &HashSet<String>, parent: &str, depth: i32, out: &mut Vec<TreeNode>) {
+            let mut kids: Vec<&Value> = nodes.iter().filter(|n| !shared(n) && is_dir(n) && parent_key(n) == parent && !(parent.is_empty() && n["name"] == TRASH_NAME)).collect();
+            kids.sort_by_key(|n| n["name"].as_str().unwrap_or("").to_lowercase());
+            for n in kids {
+                let k = key(n);
+                let has_kids = nodes.iter().any(|c| is_dir(c) && parent_key(c) == k);
+                let open = expanded.contains(&k);
+                out.push(TreeNode { key: k.clone(), name: n["name"].as_str().unwrap_or("").to_string(), depth, has_kids, open });
+                if open { old_scan(nodes, expanded, &k, depth + 1, out); }
+            }
+        }
+        let ix = index(&nodes);
+        let new = dir_tree(&nodes, &ix, &expanded);
+        let mut old = vec![];
+        old_scan(&nodes, &expanded, "", 1, &mut old);
+        assert_eq!(new, old);
+        // the index lists each folder's children by key, in node order
+        let kids: Vec<String> = ix.by_parent.get("docs").unwrap().iter().map(|&i| key(&nodes[i])).collect();
+        assert_eq!(kids, ["a", "sub", "deep"]);
+        assert_eq!(ix.by_key.get("deeper").copied(), Some(7usize));
+    }
+
+    #[test]
+    fn a_folder_lists_its_indexed_children_like_the_old_scan() {
+        // the browser's own listing (not the tree): the root shows no shared drive, and what is
+        // in the trash is hidden in every folder
+        let n = |id: &str, parent: Option<&str>, name: &str, dir: bool, sh: bool| {
+            let mut v = json!({"id": id, "parentId": parent, "name": name, "_key": if sh { format!("S|{id}") } else { id.to_string() }, "_acc": if sh { "S" } else { "P" }, "_shared": sh});
+            if !dir { v["blobId"] = json!("b"); }
+            v
+        };
+        let nodes = vec![
+            n("docs", None, "Docs", true, false),
+            n("work", None, "Work", true, false),
+            n("s1", None, "Shared", true, true),
+            n("a", Some("docs"), "a.txt", false, false),
+            n("gone", Some("docs"), "gone.txt", false, false),
+            n("sub", Some("docs"), "Sub", true, false),
+            n("b", Some("sub"), "b.txt", false, false),
+        ];
+        let hidden: HashSet<String> = ["gone".to_string()].into();
+        let ix = index(&nodes);
+        for k in ["", "docs", "sub", "nothing"] {
+            let old: Vec<String> = nodes.iter()
+                .filter(|n| parent_key(n) == k && (!k.is_empty() || !shared(n)) && !hidden.contains(&key(n)))
+                .map(key).collect();
+            let new: Vec<String> = children_in(&nodes, &ix, k, &hidden).into_iter().map(key).collect();
+            assert_eq!(new, old, "folder {k:?}");
+        }
+        assert_eq!(children_in(&nodes, &ix, "", &hidden).len(), 2, "the shared drive is not a child of the root");
+        assert_eq!(children_in(&nodes, &ix, "docs", &hidden).iter().map(|n| key(n)).collect::<Vec<_>>(), ["a", "sub"]);
     }
 }

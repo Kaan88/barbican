@@ -16,8 +16,9 @@ use std::sync::Arc;
 
 thread_local! {
     static SHARED: RefCell<Option<crate::Shared>> = const { RefCell::new(None) };
-    /// contact cards (name, emails, birthdays, group members)
-    static PEOPLE: RefCell<Vec<Value>> = const { RefCell::new(Vec::new()) };
+    /// contact cards (name, emails, birthdays, group members), shared so a rebuild of the
+    /// calendar hands them to its worker instead of copying every card
+    static PEOPLE: RefCell<Arc<Vec<Value>>> = RefCell::new(Arc::new(Vec::new()));
     static IMPORT: RefCell<Option<(String, Vec<Value>)>> = const { RefCell::new(None) };
     static TASK_LISTS: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
     static IMPORT_TARGETS: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
@@ -37,7 +38,11 @@ pub fn fetch_people(c: &Client) -> Result<Vec<Value>, String> {
     c.get_all("ContactCard/get", &acc, &ids, Some(&json!(["id", "uid", "kind", "name", "emails", "anniversaries", "members"])))
 }
 
-pub fn set_people(p: Vec<Value>) { PEOPLE.with(|x| *x.borrow_mut() = p); }
+pub fn set_people(p: Vec<Value>) { PEOPLE.with(|x| *x.borrow_mut() = Arc::new(p)); }
+
+/// The loaded contact cards, shared with the caller (the birthday calendar's worker reads them:
+/// a rebuild must not copy every card on the UI thread).
+pub fn people() -> Arc<Vec<Value>> { PEOPLE.with(|p| Arc::clone(&p.borrow())) }
 
 fn card_name(c: &Value) -> String {
     if let Some(f) = c["name"]["full"].as_str().filter(|s| !s.is_empty()) { return f.to_string(); }
@@ -122,7 +127,7 @@ pub fn birthdays_in(cards: &[Value], from: NaiveDate, to: NaiveDate) -> Vec<Occ>
     out
 }
 
-pub fn birthday_occurrences(from: NaiveDate, to: NaiveDate) -> Vec<Occ> { PEOPLE.with(|p| birthdays_in(&p.borrow(), from, to)) }
+pub fn birthday_occurrences(from: NaiveDate, to: NaiveDate) -> Vec<Occ> { PEOPLE.with(|p| birthdays_in(p.borrow().as_slice(), from, to)) }
 
 /// One birthday by its key ("cardId:anniversaryKey:year").
 pub fn birthday(key: &str) -> Option<Occ> {
@@ -1157,6 +1162,24 @@ mod tests {
         let leap = birthdays_in(&cards, d("2027-02-01"), d("2027-03-01"));
         assert_eq!(leap[0].start.date(), d("2027-02-28"));
         assert_eq!(birthday_parts(&json!({"@type": "Timestamp", "utc": "1985-03-04T00:00:00Z"})), Some((3, 4, Some(1985))));
+    }
+
+    #[test]
+    fn the_birthday_cards_are_shared_not_copied() {
+        // a calendar rebuild hands the cards to its worker, so it takes an Arc, never a copy
+        set_people(vec![
+            json!({"id": "c1", "name": {"full": "Ann Lee"}, "anniversaries": {"b": {"kind": "birth", "date": {"@type": "PartialDate", "year": 1990, "month": 11, "day": 20}}}}),
+            json!({"id": "c2", "name": {"full": "Bob Annex"}}),
+        ]);
+        let a = people();
+        let b = people();
+        assert!(Arc::ptr_eq(&a, &b), "each rebuild shares the cards instead of copying them");
+        assert_eq!(a.len(), 2);
+        // and the birthday calendar still reads the same list
+        let o = birthdays_in(&a, d("2026-11-01"), d("2026-12-01"));
+        assert_eq!(o.len(), 1);
+        assert_eq!(o[0].title, "\u{1F382} Ann Lee (36)");
+        set_people(vec![]);
     }
 
     #[test]

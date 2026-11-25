@@ -1059,8 +1059,8 @@ pub fn moved_away(u: &AppWindow, ids: &[String]) {
     rebuild_list(u);
 }
 
-/// Apply an action to messages: delete, archive, spam, notspam, star, unstar, read, unread,
-/// tag:<id>, untag:<id>, move:<mailboxId>.
+// Actions are delete, archive, spam, notspam, star, unstar, read, unread, tag:<id>, untag:<id>,
+// move:<mailboxId>.
 thread_local! { pub static CONFIRM_BULK: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
 
 /// Put text on the clipboard (platform layer).
