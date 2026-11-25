@@ -1,6 +1,7 @@
 #![cfg_attr(not(test), windows_subsystem = "windows")]
 
 mod a11y;
+mod applock;
 mod vacation;
 mod winstate;
 mod auth;
@@ -1177,6 +1178,7 @@ fn main() -> Result<(), slint::PlatformError> {
         u.set_retry_available(false);
         u.set_status("".into());
         let (server, user, pass, totp) = (server.to_string(), user.to_string(), pass.to_string(), totp.to_string());
+        let gen = SESSION_GEN.load(std::sync::atomic::Ordering::SeqCst);
         std::thread::spawn(move || {
             let res = jmap::Client::connect(&server, &user, &pass, &totp);
             // a 2FA code is single-use, so only the password itself can be remembered; a saved
@@ -1186,7 +1188,7 @@ fn main() -> Result<(), slint::PlatformError> {
                 security::FormEntry::Repair(v) => { if res.is_ok() { oauth::repair_account(&v); } None }
                 security::FormEntry::Nothing => None,
             };
-            finish_login(w, st, res, server, user, rem, oauth::Origin::SignIn);
+            finish_login(w, st, res, server, user, rem, oauth::Origin::SignIn, gen);
         });
     });
 
@@ -1202,10 +1204,11 @@ fn main() -> Result<(), slint::PlatformError> {
         let client = u.get_client_id().trim().to_string();
         let client = if client.is_empty() { "barbican".to_string() } else { client };
         let (server, user) = (server.to_string(), user.to_string());
+        let gen = SESSION_GEN.load(std::sync::atomic::Ordering::SeqCst);
         std::thread::spawn(move || {
             let base = jmap::normalize_base(&server);
             let res = oauth::sign_in(&base, &user, &client).and_then(|t| jmap::Client::connect_oauth(&base, t));
-            finish_login(w, st, res, server, user, remember.then(|| serde_json::json!({"kind": "oauth"})), oauth::Origin::SignIn);
+            finish_login(w, st, res, server, user, remember.then(|| serde_json::json!({"kind": "oauth"})), oauth::Origin::SignIn, gen);
         });
     });
 
@@ -1242,11 +1245,13 @@ fn main() -> Result<(), slint::PlatformError> {
             let mut only = SIGN_OUT_ONLY.lock().unwrap_or_else(|e| e.into_inner());
             if !security::sign_out_applies(g.as_ref().map(|c| c.state_key()).as_deref(), only.as_deref()) { return; }
             *only = None;
+            // under the session's lock: a sign-in finishing now sees the new generation and drops
+            SESSION_GEN.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            admin::bind_session(None);
             g.take()
         };
         server_settings::reset(&srv_out);
         let u = w.unwrap();
-        SESSION_GEN.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         // nothing of this account's out-of-office page stays to be shown or written elsewhere
         server_settings::set_account(&srv_out, "");
         *RESTORE_PENDING.lock().unwrap() = None;
@@ -1276,6 +1281,9 @@ fn main() -> Result<(), slint::PlatformError> {
                 oauth::revoke(&base, &t);
             });
         }
+        // nobody is left to lock for: the app lock's PIN goes with the last account
+        // the sign-out goes on either way; only the lock's removal is reported
+        if last && !applock::forget() { mail::show_toast(&u, applock::NOT_FORGOTTEN, false); }
         if last { avatars::cancel_pending(); }
         // a chat answer still coming must not write the account's file again
         CHAT_USER.lock().unwrap().clear();
@@ -1590,6 +1598,7 @@ fn main() -> Result<(), slint::PlatformError> {
     ui.on_settings_set_toggle(move |key, on| {
         // switching a plugin on asks for consent first; a no leaves it off
         if let Some(id) = key.strip_prefix("plugin:") { if on && !wt.upgrade().is_some_and(|u| plugin_consent(&u, id)) { rs(); return; } }
+        if wt.upgrade().is_some_and(|u| applock::settings_toggle(&u, &key, on)) { rs(); return; }
         if key.starts_with("server.") {
             if let Some(job) = server_settings::edit(&key, &serde_json::json!(on), &srv) { sw(&key, job, 10); }
             rs();
@@ -1627,6 +1636,7 @@ fn main() -> Result<(), slint::PlatformError> {
 
     let (w, pf, cf, rs, srv3, sw3) = (ui.as_weak(), prefs.clone(), cfg.clone(), refresh_settings.clone(), server_cache.clone(), server_write.clone());
     ui.on_settings_set_select(move |key, idx| {
+        if applock::settings_select(&w.unwrap(), &key, idx) { rs(); return; }
         if key.starts_with("server.") {
             if let Some(job) = server_settings::edit(&key, &serde_json::json!(idx), &srv3) { sw3(&key, job, 10); }
             rs();
@@ -1684,6 +1694,7 @@ fn main() -> Result<(), slint::PlatformError> {
             return;
         }
         if desktop::settings_button(&u, &key) { return; }
+        if applock::settings_button(&u, &key) { u.invoke_settings_search(u.get_settings_query()); return; }
         if key == "signout" { u.set_show_settings(false); u.invoke_sign_out(); }
         if key == "mailapp.register" {
             // user-triggered only: writes the HKCU registration (or the Linux .desktop file)
@@ -2460,6 +2471,8 @@ fn main() -> Result<(), slint::PlatformError> {
     ui.global::<Pd>().on_refocus(move || { if let Some(u) = w.upgrade() { u.invoke_focus_keys(); } });
 
     mailview::install_focus_hook(&ui);
+    // a PIN set: the first frame is the lock screen
+    applock::wire(&ui);
     // "Start in the tray" at sign-in leaves the window closed
     // the window comes back where it was (before it is shown, so it never jumps)
     winstate::restore(&ui);
@@ -2728,21 +2741,32 @@ fn restore_session(w: slint::Weak<AppWindow>, st: Shared, v: Value, switching: b
             }
         };
         let origin = oauth::Origin::Restore { read: v["refresh"].as_str().map(String::from) };
-        finish_login(w, st, res, server, user, Some(serde_json::json!({"kind": kind, "pass": v["pass"]})), origin);
+        finish_login(w, st, res, server, user, Some(serde_json::json!({"kind": kind, "pass": v["pass"]})), origin, gen);
     });
 }
 
-fn finish_login(w: slint::Weak<AppWindow>, st: Shared, res: Result<jmap::Client, String>, server: String, user: String, remember: Option<Value>, origin: oauth::Origin) {
+/// `gen`: the [`SESSION_GEN`] the sign-in started in. A sign-out since (a forgotten app-lock PIN
+/// signs everyone out while a start-up restore is still connecting) drops the result: nothing is
+/// remembered again and nobody is signed in.
+fn finish_login(w: slint::Weak<AppWindow>, st: Shared, res: Result<jmap::Client, String>, server: String, user: String, remember: Option<Value>, origin: oauth::Origin, gen: u64) {
+    let current = move || SESSION_GEN.load(std::sync::atomic::Ordering::SeqCst) == gen;
     match res {
+        Ok(_) if !current() => {}
         Ok(c) => {
             // an SSO sign-in may leave the user blank: the server's own name for the login then
             // ties the remembered session (and its rotated tokens) to one account entry
             let user = if user.trim().is_empty() { c.username.clone() } else { user };
             let c = Arc::new(c);
-            *RESTORE_PENDING.lock().unwrap() = None;
-            *st.lock().unwrap() = Some(c.clone());
-            // live updates and notifications are this session's from now on
-            livesync::set_current(Some(c.clone()));
+            {
+                // checked again under the session's lock, which the sign-out takes the session with
+                let mut g = st.lock().unwrap();
+                if !current() { return; }
+                *RESTORE_PENDING.lock().unwrap() = None;
+                *g = Some(c.clone());
+                admin::bind_session(Some(&c));
+                // live updates and notifications are this session's from now on
+                livesync::set_current(Some(c.clone()));
+            }
             // the new session starts now: a "Trust sender" click from here on is this account's
             trustbook::begin(&c);
             // this account's synced settings (pulled in the background; nothing is pushed to it before)
@@ -2752,7 +2776,7 @@ fn finish_login(w: slint::Weak<AppWindow>, st: Shared, res: Result<jmap::Client,
             let p = config_path();
             let _ = std::fs::create_dir_all(p.parent().unwrap());
             let _ = std::fs::write(&p, format!("{server}\n{user}\n"));
-            if let Some(v) = remember { remember_session(&c, v, &server, &user, origin); }
+            if let Some(v) = remember.filter(|_| current()) { remember_session(&c, v, &server, &user, origin); }
             let name = c.username.clone();
             *CHAT_USER.lock().unwrap() = name.clone();
             *LOGIN_USER.lock().unwrap() = user.clone();
@@ -2760,6 +2784,7 @@ fn finish_login(w: slint::Weak<AppWindow>, st: Shared, res: Result<jmap::Client,
             let host = restore::server_host(&server);
             let w2 = w.clone();
             let _ = w.upgrade_in_event_loop(move |u| {
+                if !current() { return; }
                 u.invoke_chat_reload();
                 u.set_accounts(accounts_model());
                 u.set_busy(false);
@@ -2771,8 +2796,11 @@ fn finish_login(w: slint::Weak<AppWindow>, st: Shared, res: Result<jmap::Client,
                 u.set_account(name.clone().into());
                 u.set_initials(initials(&name).into());
                 u.set_server_host(host.into());
+                u.set_admin_enabled(!admin::key().is_empty());
                 u.set_logged_in(true);
             });
+            // signed out meanwhile: nothing is loaded, polled or pushed for it
+            if !current() { return; }
             load_mailboxes(w2.clone(), c.clone(), true);
             {
                 let (w3, c3) = (w2.clone(), c.clone());
@@ -2783,14 +2811,16 @@ fn finish_login(w: slint::Weak<AppWindow>, st: Shared, res: Result<jmap::Client,
             }
             // today's events and open tasks for the mail screen's summary tiles
             calendar::load(w2.clone(), c.clone());
+            if !current() { return; }
             check_new_mail(c.clone(), None);
             {
                 // calendar reminders for this login (Bulwark useCalendarAlerts)
                 let c4 = c.clone();
-                let _ = w2.upgrade_in_event_loop(move |u| reminders::start(&u, c4));
+                let _ = w2.upgrade_in_event_loop(move |u| if current() { reminders::start(&u, c4) });
             }
             // the trusted senders address book (reads it; files this computer's list into it)
             trustbook::refresh(w2.clone(), c.clone(), true);
+            if !current() { return; }
             // shares and event changes waiting on the server, also where push does not work
             notices::fetch(w2.clone(), c.clone());
             start_push(w2, c);

@@ -323,7 +323,7 @@ impl Queue {
 /// The app lock's hook: while it says locked, the bell shows no count and its panel no entries,
 /// and notifications are neither shown nor acknowledged (they stay on the server and are pulled
 /// again once [`fetch`] runs after unlocking).
-pub fn locked() -> bool { false }
+pub fn locked() -> bool { crate::applock::locked() }
 
 static CENTER: Mutex<Option<Center>> = Mutex::new(None);
 /// Shown ids of share and of event notifications.

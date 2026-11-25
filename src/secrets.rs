@@ -19,6 +19,9 @@ pub fn target(profile: &str, name: &str) -> String {
 /// A place secrets can be kept: the real store, or a fake in the tests.
 pub trait Backend {
     fn read(&self, target: &str) -> Option<String>;
+    /// [`Backend::read`], with "nothing stored" told apart from "could not be read" (an error of
+    /// the store, a value that is not text): `Err` for the latter. The app lock fails closed on it.
+    fn read_checked(&self, target: &str) -> Result<Option<String>, ()> { Ok(self.read(target)) }
     fn write(&self, target: &str, value: &str) -> bool;
     fn remove(&self, target: &str);
     /// The 0.1.0 entry (service `Barbican`, user `name`).
@@ -61,6 +64,12 @@ pub fn load_with_source(b: &dyn Backend, profile: &str, name: &str) -> (Option<S
         b.remove_legacy(name);
     }
     (Some(old), Source::Legacy)
+}
+
+/// A secret of `profile` with read errors told apart ([`Backend::read_checked`]); no 0.1.0 entry
+/// is looked at (for entries 0.1.0 never had).
+pub fn load_checked(b: &dyn Backend, profile: &str, name: &str) -> Result<Option<String>, ()> {
+    b.read_checked(&target(profile, name))
 }
 
 /// Store a secret; the default profile also drops a stale 0.1.0 copy. False when it could not
@@ -119,6 +128,7 @@ pub(crate) struct Os;
 
 impl Backend for Os {
     fn read(&self, target: &str) -> Option<String> { os::read(target) }
+    fn read_checked(&self, target: &str) -> Result<Option<String>, ()> { os::read_checked(target) }
     fn write(&self, target: &str, value: &str) -> bool { os::write(target, value) }
     fn remove(&self, target: &str) { os::remove(target) }
     fn read_legacy(&self, name: &str) -> Option<String> {
@@ -136,6 +146,24 @@ mod os {
     };
 
     fn wide(s: &str) -> Vec<u16> { s.encode_utf16().chain(std::iter::once(0)).collect() }
+
+    /// Only "no such credential" is nothing stored; any other failure, and a value that is not
+    /// UTF-8, is an error.
+    pub fn read_checked(target: &str) -> Result<Option<String>, ()> {
+        use windows_sys::Win32::Foundation::{GetLastError, ERROR_NOT_FOUND};
+        let t = wide(target);
+        let mut p: *mut CREDENTIALW = std::ptr::null_mut();
+        if unsafe { CredReadW(t.as_ptr(), CRED_TYPE_GENERIC, 0, &mut p) } == 0 || p.is_null() {
+            return if unsafe { GetLastError() } == ERROR_NOT_FOUND { Ok(None) } else { Err(()) };
+        }
+        let out = unsafe {
+            let c = &*p;
+            let bytes = if c.CredentialBlob.is_null() { &[][..] } else { std::slice::from_raw_parts(c.CredentialBlob, c.CredentialBlobSize as usize) };
+            String::from_utf8(bytes.to_vec()).map(Some).map_err(|_| ())
+        };
+        unsafe { CredFree(p as *const _) };
+        out
+    }
 
     pub fn read(target: &str) -> Option<String> {
         let t = wide(target);
@@ -184,6 +212,13 @@ mod os {
 mod os {
     fn entry(target: &str) -> Option<keyring::Entry> { keyring::Entry::new("Barbican", target).ok() }
     pub fn read(target: &str) -> Option<String> { entry(target)?.get_password().ok() }
+    pub fn read_checked(target: &str) -> Result<Option<String>, ()> {
+        match entry(target).ok_or(())?.get_password() {
+            Ok(v) => Ok(Some(v)),
+            Err(keyring::Error::NoEntry) => Ok(None),
+            Err(_) => Err(()),
+        }
+    }
     pub fn write(target: &str, value: &str) -> bool { entry(target).is_some_and(|e| e.set_password(value).is_ok()) }
     pub fn remove(target: &str) { if let Some(e) = entry(target) { let _ = e.delete_credential(); } }
 }
@@ -197,10 +232,14 @@ pub(crate) mod testkit {
     use std::collections::HashMap;
 
     #[derive(Default)]
-    pub struct Fake { pub new: RefCell<HashMap<String, String>>, pub old: RefCell<HashMap<String, String>>, pub fail_writes: Cell<bool> }
+    pub struct Fake { pub new: RefCell<HashMap<String, String>>, pub old: RefCell<HashMap<String, String>>, pub fail_writes: Cell<bool>, pub fail_reads: Cell<bool> }
 
     impl Backend for Fake {
         fn read(&self, t: &str) -> Option<String> { self.new.borrow().get(t).cloned() }
+        fn read_checked(&self, t: &str) -> Result<Option<String>, ()> {
+            if self.fail_reads.get() { return Err(()); }
+            Ok(self.read(t))
+        }
         fn write(&self, t: &str, v: &str) -> bool {
             if self.fail_writes.get() { return false; }
             self.new.borrow_mut().insert(t.into(), v.into());
