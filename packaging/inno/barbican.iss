@@ -14,8 +14,12 @@
 ; uninstall (see [Registry]).
 ;
 ; It never ends a Barbican process: the app can need up to 15 s to write the open draft when it
-; quits, and a force-kill would lose it. Instead setup waits, and gives up with a message when
-; Barbican is still running (see StopBarbican below).
+; quits, and a force-kill would lose it. Instead setup asks Barbican to quit and waits, and gives
+; up with a message when Barbican is still running (see StopBarbican below). The ask is a quit
+; signal: every Barbican creates the named event Local\Barbican.Quit.<pid> (src/platform/win.rs
+; quit_event_name) and quits the way its tray's Quit item does (saving an open draft) when the
+; event is set. That works for a Barbican hidden in the tray, where closing the window does not
+; quit. A Barbican older than that has no event: it gets the window-close request instead.
 
 #ifndef AppVersion
   #define AppVersion "0.0.0-dev"
@@ -131,9 +135,12 @@ begin
   StringChangeEx(S, #$201B, #$201B#$201B, True);
 end;
 
-// Ask this install's Barbican to close its window and wait until the process is gone. Barbican
-// writes the open draft when it quits (up to 15 s, src/desktop.rs quit_saving_draft), and with
-// closeToTray its close button only hides the window, so the process may outlive the request.
+// Ask this install's Barbican to quit and wait until the process is gone. First the quit signal:
+// the named event Local\Barbican.Quit.<pid> is opened and set (the app then quits like the tray's
+// Quit item, src/desktop.rs). The PID is an integer from Get-Process, so splicing it into the name
+// cannot inject anything. An older Barbican has no such event (OpenExisting throws); it is asked
+// to close its window instead, which quits it unless closeToTray only hides the window.
+// Barbican writes the open draft when it quits (up to 15 s, src/desktop.rs quit_saving_draft).
 // It is never force-killed: a kill would lose the draft. After 30 s of polling this returns a
 // message and the caller stops the install (or the uninstall) instead of going on.
 // Only the exe in {app} is asked: another copy, such as a development build, is left alone.
@@ -154,7 +161,9 @@ begin
     '$ErrorActionPreference = ''SilentlyContinue''; ' +
     '$e = ''' + Exe + '''; ' +
     'if (-not (Get-Process -Name barbican | Where-Object { $_.Path -eq $e })) { exit 0 }; ' +
-    'Get-Process -Name barbican | Where-Object { $_.Path -eq $e } | ForEach-Object { [void]$_.CloseMainWindow() }; ' +
+    'Get-Process -Name barbican | Where-Object { $_.Path -eq $e } | ForEach-Object { ' +
+      '$pr = $_; try { [void][System.Threading.EventWaitHandle]::OpenExisting(''Local\Barbican.Quit.'' + $pr.Id).Set() } ' +
+      'catch { [void]$pr.CloseMainWindow() } }; ' +
     'for ($i = 0; $i -lt 60; $i++) { ' +
       'Start-Sleep -Milliseconds 500; ' +
       'if (-not (Get-Process -Name barbican | Where-Object { $_.Path -eq $e })) { exit 0 } }; ' +

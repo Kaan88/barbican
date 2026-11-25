@@ -89,6 +89,12 @@ pub fn init(ui: &AppWindow, state: Shared) {
         TRAY.with(|t| *t.borrow_mut() = tray::Tray::new());
     }
 
+    // the installer's quit signal: the same graceful quit as the tray's Quit item (saves an open
+    // draft first), whether or not the window is hidden in the tray
+    platform::start_quit_listener(|| {
+        let _ = slint::invoke_from_event_loop(|| if let Some(u) = app() { quit_saving_draft(&u, || Ok(())); });
+    });
+
     // closing the window: to the tray (setting) or quit
     ui.window().on_close_requested(|| {
         // the window's place is saved whichever way it closes

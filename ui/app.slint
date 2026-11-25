@@ -17,8 +17,8 @@ export { Pd, KeyRow, PaletteRow, SuggestRow, SearchChip, DndAcct }
 import { RxBanners, RX, RxTheme, RxBannerData, RxAction } from "reader.slint";
 export { RX, RxTheme, RxBannerData, RxAction }
 import { Rcpt, RChip, RSugg, RecipientField, RecipientSuggest } from "recipients.slint";
-import { CompX, SaveState, SPreset, ScheduleDialog, ScheduledBar } from "compose-extras.slint";
-export { CTheme, Rcpt, RChip, RSugg, CompX, SPreset }
+import { CompX, SaveState, SPreset, TplField, ScheduleDialog, ScheduledBar, TplFillDialog, TplSaveDialog, SubAddrDialog } from "compose-extras.slint";
+export { CTheme, Rcpt, RChip, RSugg, CompX, SPreset, TplField }
 // p2-pim: contacts / files / filters depth (new UI lives in its own files)
 import { PimTheme } from "pim-theme.slint";
 import { CtX, CtLine, CtField, CtDupe, ContactCardView, ContactEditor, ContactDupes, ContactImportDialog } from "pim-contacts.slint";
@@ -39,6 +39,8 @@ export struct Folder {
     count: string,
     chevron: int,
     muted: bool,
+    pinned: bool,
+    quiet: bool,
 }
 
 export struct Tag {
@@ -434,14 +436,16 @@ component FolderRow inherits Rectangle {
         }
         Text {
             text: f.name;
-            color: root.fg;
+            // an unsubscribed folder reads dimmed, unless it is the open one
+            color: f.muted && !root.selected ? Theme.faint : root.fg;
             vertical-alignment: center;
             overflow: elide;
             horizontal-stretch: 1;
             font-size: (Theme.nordic ? 14.5px : 13.5px) * Prefs.fs;
             font-weight: selected ? (Theme.nordic ? 700 : 600) : (Theme.nordic ? 500 : 400);
         }
-        if f.muted: Icon { text: "\u{E7ED}"; font-size: 10px; color: Theme.faint; }
+        if f.quiet: Icon { text: "\u{E74F}"; font-size: 10px; color: Theme.faint; }
+        if f.pinned: Icon { text: "\u{E718}"; font-size: 10px; color: Theme.faint; }
         Text {
             text: f.count;
             color: f.unread > 0 || root.selected ? root.fg : Theme.faint;
@@ -1785,6 +1789,8 @@ export component AppWindow inherits Window {
     callback refresh();
     callback compose-new();
     callback open-settings();
+    // Settings was closed (the app forgets what its pages cached, such as a new app password)
+    callback settings-closed();
     callback save-settings();
     callback ai-reader(string);
     callback ai-compose(string);
@@ -1864,6 +1870,8 @@ export component AppWindow inherits Window {
     callback add-account();
     in property <[string]> tpl-names: ["Insert template…"];
     in-out property <int> tpl-index;
+    // what the Templates menu says instead of "No templates yet": "Loading…" or the load error
+    in property <string> tpl-note;
     callback tpl-refresh();
     callback tpl-insert(int);
     in-out property <bool> sf-open;
@@ -2231,6 +2239,7 @@ export component AppWindow inherits Window {
     callback send-mail(string, string, string);
     in-out property <bool> composing: false;
     changed composing => { if composing { app = 0; show-settings = false; } else { c-ai-closed = false; } }
+    changed show-settings => { if !show-settings { root.settings-closed(); } }
     in property <bool> sending: false;
     in-out property <string> c-to;
     // recipient chips follow the field text (src/chips.rs)
@@ -3461,6 +3470,19 @@ export component AppWindow inherits Window {
                                                 VerticalLayout { alignment: center; SIcon { commands: Icons.chevron-down; size: 12px; weight: 2; tint: frta.has-hover ? Theme.text : Theme.dim; } }
                                             }
                                         }
+                                        // the sub-address in use, and a pill that takes it off again
+                                        if CompX.sub-tag != "": Rectangle { width: 6px; }
+                                        if CompX.sub-tag != "": VerticalLayout {
+                                            alignment: center;
+                                            Rectangle {
+                                                height: 24px;
+                                                width: subtag-l.preferred-width + 20px;
+                                                border-radius: 12px;
+                                                background: subtag-ta.has-hover ? Theme.hover : Theme.tile2;
+                                                subtag-ta := TouchArea { clicked => { CompX.sub-clear(); } }
+                                                subtag-l := Text { text: "Remove tag ×"; color: Theme.dim; font-size: 11.5px * Prefs.fs; font-weight: 600; vertical-alignment: center; }
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -3473,6 +3495,7 @@ export component AppWindow inherits Window {
                                         padding: 4px;
                                         for id[i] in root.c-identities: MenuItem { text: id; checkable: true; checked: i == root.c-from-index; clicked => { root.c-from-index = i; } }
                                         Rectangle { height: 1px; background: Theme.line; }
+                                        MenuItem { text: "Use a sub-address…"; glyph: "\u{E8EC}"; clicked => { CompX.sub-open-compose(); } }
                                         MenuItem { text: "Edit sender…"; glyph: "\u{E70F}"; clicked => { root.c-from-edit(); } }
                                     }
                                 }
@@ -3856,9 +3879,11 @@ export component AppWindow inherits Window {
                             }
                         } }
                         VerticalLayout { alignment: center; BarButton { icon: Icons.tpl; label: "Templates"; compact: cmp.tight; clicked => { root.tpl-refresh(); tpl-pop.show(); }
-                            tpl-pop := PopupWindow { y: -(max(1, root.tpl-names.length - 1) * 30px + 24px); width: 240px;
+                            tpl-pop := PopupWindow { y: -(max(1, root.tpl-names.length - 1) * 30px + 24px + 38px); width: 240px;
                                 MenuPanel { VerticalLayout { padding: 4px;
-                                    if root.tpl-names.length <= 1: MenuItem { text: "No templates yet"; enabled: false; }
+                                    MenuItem { text: "Save as template…"; clicked => { CompX.tpl-save-open-compose(); } }
+                                    Rectangle { height: 1px; background: Theme.line; }
+                                    if root.tpl-names.length <= 1: MenuItem { text: root.tpl-note != "" ? root.tpl-note : "No templates yet"; enabled: false; }
                                     for t[i] in root.tpl-names: MenuItem {
                                         visible: i > 0;
                                         height: i > 0 ? 30px : 0px;
@@ -6228,4 +6253,8 @@ export component AppWindow inherits Window {
     }
     // schedule send / reschedule (src/schedule.rs), over everything
     if CompX.sched-open: ScheduleDialog { x: 0; y: 0; width: root.width; height: root.height; }
+    // template placeholders and save as template (src/tplflow.rs)
+    if CompX.tpl-fill-open: TplFillDialog { x: 0; y: 0; width: root.width; height: root.height; }
+    if CompX.tpl-save-open: TplSaveDialog { x: 0; y: 0; width: root.width; height: root.height; }
+    if CompX.sub-open: SubAddrDialog { x: 0; y: 0; width: root.width; height: root.height; }
 }

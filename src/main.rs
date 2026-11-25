@@ -37,9 +37,13 @@ mod contact_merge;
 mod vcard;
 mod pim;
 mod ctxmenu;
+mod folders;
 mod copymsg;
 mod files;
 mod glance;
+mod identities;
+mod masked;
+mod subaddr;
 mod jmap;
 mod lite;
 mod mailview;
@@ -57,10 +61,12 @@ mod plugin_package;
 mod plugin_catalog;
 #[cfg(test)]
 mod plugin_catalog_check;
+mod security;
 mod server_settings;
 mod settings;
 mod sieve;
 mod templates;
+mod tplflow;
 mod spam;
 // composer extras (p2-composer)
 mod autosave;
@@ -420,7 +426,7 @@ pub fn html_to_text(h: &str) -> String {
 thread_local! { pub(crate) static WV_UNAVAILABLE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
 thread_local! { static RESET_ARMED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
 thread_local! { static SERVER_DEBOUNCE: slint::Timer = slint::Timer::default(); }
-thread_local! { static TEMPLATES: std::cell::RefCell<Vec<Value>> = const { std::cell::RefCell::new(Vec::new()) }; }
+thread_local! { static TEMPLATES: std::cell::RefCell<(String, Vec<Value>)> = const { std::cell::RefCell::new((String::new(), Vec::new())) }; }
 thread_local! { static THREAD_ID: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) }; }
 
 /// Load the open message's conversation (unless threading is turned off, like Bulwark's disableThreading).
@@ -926,13 +932,14 @@ fn check_new_mail(c: Arc<jmap::Client>, w: Option<slint::Weak<AppWindow>>) {
     // folder except Junk, Trash, Sent and Drafts)
     let sound = prefs.bool("emailNotificationSound", true);
     let inbox_only = prefs.bool("pushNotifyInboxOnly", false);
+    let prefs_mutes = prefs.prefs.get(folders::KEY_MUTES).cloned();
     std::thread::spawn(move || {
         let Ok(roles) = c.role_ids() else { return };
         let Some(inbox) = roles.get("inbox") else { return };
         let place = if inbox_only {
             json!({"inMailbox": inbox})
         } else {
-            let skip: Vec<String> = ["junk", "trash", "sent", "drafts"].iter().filter_map(|r| roles.get(*r).cloned()).collect();
+            let skip: Vec<String> = ["junk", "trash", "sent", "drafts", "archive"].iter().filter_map(|r| roles.get(*r).cloned()).collect();
             json!({"inMailboxOtherThan": skip})
         };
         let Ok((list, _, _)) = c.list(json!({"operator": "AND", "conditions": [place, {"notKeyword": "$seen"}]}), 0, 10) else { return };
@@ -940,9 +947,14 @@ fn check_new_mail(c: Arc<jmap::Client>, w: Option<slint::Weak<AppWindow>>) {
         let first_run = guard.is_none();
         let seen = guard.get_or_insert_with(Default::default);
         let mut batch = vec![];
+        // per-folder notification mutes (Bulwark notificationMutes, lib/desktop/new-mail.ts:42-47)
+        let mutes = folders::Mutes::decode(prefs_mutes.as_ref());
+        let skip: Vec<String> = ["junk", "trash", "sent", "drafts", "archive"].iter().filter_map(|r| roles.get(*r).cloned()).collect();
         for m in list.iter().rev() {
             let id = m["id"].as_str().unwrap_or("").to_string();
-            if seen.insert(id.clone()) && !first_run {
+            // a muted message is still marked as told about: unmuting later must not replay it
+            let counted = folders::counted_mailboxes(&folders::mailbox_ids(m), inbox_only, inbox, &skip);
+            if seen.insert(id.clone()) && !first_run && !folders::silenced(&mutes, &c.account, &counted) {
                 batch.push(notify::NewMail {
                     id,
                     mailbox: gsearch::hit_folder(m, std::slice::from_ref(inbox)),
@@ -1100,12 +1112,12 @@ fn main() -> Result<(), slint::PlatformError> {
         PLUGIN_ERRORS.with(|e| *e.borrow_mut() = errors);
         plugins_synced();
         // plugins used to be on by default: tell upgraders once why theirs are off now
-        let mut st = settings::Settings::load();
+        let st = settings::Settings::load();
         if st.prefs.get("pluginsOffNoticeShown").is_none() {
             let en = enabled_plugins();
             if PLUGINS.with(|p| plugins::has_unenabled(&p.borrow(), &en)) {
                 mail::show_toast(&ui, "Plugins are now off until you switch them on in Settings > Add-ons.", false);
-                st.remember("pluginsOffNoticeShown", serde_json::json!(true));
+                settings::set_pref("pluginsOffNoticeShown", serde_json::json!(true));
             }
         }
     }
@@ -1147,8 +1159,13 @@ fn main() -> Result<(), slint::PlatformError> {
         let (server, user, pass, totp) = (server.to_string(), user.to_string(), pass.to_string(), totp.to_string());
         std::thread::spawn(move || {
             let res = jmap::Client::connect(&server, &user, &pass, &totp);
-            // a 2FA code is single-use, so only the password itself can be remembered
-            let rem = (remember && totp.trim().is_empty()).then(|| serde_json::json!({"kind": "password", "server": server, "user": user, "pass": pass}));
+            // a 2FA code is single-use, so only the password itself can be remembered; a saved
+            // sign-in whose password was cleared gets back one that worked on its own
+            let rem = match security::form_sign_in_entry(&oauth::accounts(), &server, &user, &pass, &totp, remember) {
+                security::FormEntry::Remember(v) => Some(v),
+                security::FormEntry::Repair(v) => { if res.is_ok() { oauth::repair_account(&v); } None }
+                security::FormEntry::Nothing => None,
+            };
             finish_login(w, st, res, server, user, rem, oauth::Origin::SignIn);
         });
     });
@@ -1172,16 +1189,48 @@ fn main() -> Result<(), slint::PlatformError> {
         });
     });
 
+    // what the settings pages cached (the account security page holds secrets): reset when Settings
+    // closes and on sign-out, sign-in and account switches
+    let server_cache: server_settings::Shared = Default::default();
     let w = ui.as_weak();
     let st = state.clone();
+    let srv_out = server_cache.clone();
+    // a password change that ended the session signs out through the same flow, then says why
+    let w_hook = ui.as_weak();
+    security::set_sign_out_hook(Box::new(move |key, msg| {
+        let _ = w_hook.upgrade_in_event_loop(move |u| {
+            // only the account whose session ended: the sign-out checks it under the same lock it
+            // takes the session with, so after a switch meanwhile the account now in use (its
+            // session, its saved sign-in) is left alone
+            *SIGN_OUT_ONLY.lock().unwrap_or_else(|e| e.into_inner()) = Some(key);
+            // the saved sign-in stays unless the password change cleared it (security.rs decided)
+            KEEP_SAVED_SIGN_IN.store(true, std::sync::atomic::Ordering::SeqCst);
+            u.invoke_sign_out();
+            KEEP_SAVED_SIGN_IN.store(false, std::sync::atomic::Ordering::SeqCst);
+            // still set: the sign-out did not apply, and there is nothing to say
+            if SIGN_OUT_ONLY.lock().unwrap_or_else(|e| e.into_inner()).take().is_some() { return; }
+            // after the sign-out's own line, so a keychain warning is not hidden
+            u.set_status(security::append_status(u.get_status().as_str(), &msg).into());
+        });
+    }));
     ui.on_sign_out(move || {
+        // the check and the take under one lock: a switch that finishes on its worker thread
+        // cannot put another account in between
+        let taken = {
+            let mut g = st.lock().unwrap_or_else(|e| e.into_inner());
+            let mut only = SIGN_OUT_ONLY.lock().unwrap_or_else(|e| e.into_inner());
+            if !security::sign_out_applies(g.as_ref().map(|c| c.state_key()).as_deref(), only.as_deref()) { return; }
+            *only = None;
+            g.take()
+        };
+        server_settings::reset(&srv_out);
         let u = w.unwrap();
         SESSION_GEN.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         *RESTORE_PENDING.lock().unwrap() = None;
         let account = u.get_account().to_string();
         let mut owner = None;
         let mut server = String::new();
-        if let Some(c) = st.lock().unwrap().take() {
+        if let Some(c) = taken {
             server = c.base.clone();
             owner = Some(reminders::owner_key(&c.base, &c.username));
             if let Some(t) = c.tokens() { std::thread::spawn(move || oauth::revoke(&c.base, &t)); }
@@ -1190,7 +1239,8 @@ fn main() -> Result<(), slint::PlatformError> {
         reminders::stop();
         // the account list is keyed by the name typed on the login form
         let login = std::mem::take(&mut *LOGIN_USER.lock().unwrap());
-        let forgot = signout::forget_keyring(&[login.as_str(), account.as_str()], &server);
+        let keep = KEEP_SAVED_SIGN_IN.load(std::sync::atomic::Ordering::SeqCst);
+        let forgot = if keep { signout::Forgot { last: false, cleared: true } } else { signout::forget_keyring(&[login.as_str(), account.as_str()], &server) };
         let last = forgot.last;
         if last { avatars::cancel_pending(); }
         // a chat answer still coming must not write the account's file again
@@ -1205,6 +1255,14 @@ fn main() -> Result<(), slint::PlatformError> {
         // what was read from the account's address book; the book itself stays on the server
         trustbook::clear();
         signout::wipe(signout::Who { user: account, owner, last, webview_live: mailview::is_built() || platform::other_of_profile_running() });
+        // the template and sub-address dialogs are drawn over the sign-in page too; the composer's template list
+        // was this account's
+        tplflow::reset(&u);
+        subaddr::reset(&u);
+        TEMPLATES.with(|t| *t.borrow_mut() = (String::new(), Vec::new()));
+        u.set_tpl_names(ModelRc::new(VecModel::from(vec![slint::SharedString::from("Insert template…")])));
+        u.set_tpl_index(0);
+        u.set_tpl_note("".into());
         // nobody at this computer finds the last person's password or code in the form
         u.set_login_password("".into());
         u.set_login_otp("".into());
@@ -1256,8 +1314,9 @@ fn main() -> Result<(), slint::PlatformError> {
     ui.set_accounts(accounts_model());
 
     // account switcher (Bulwark's account menu)
-    let (w, st) = (ui.as_weak(), state.clone());
+    let (w, st, srv_sw) = (ui.as_weak(), state.clone(), server_cache.clone());
     ui.on_switch_account(move |user| {
+        server_settings::reset(&srv_sw);
         let Some(v) = oauth::accounts().into_iter().find(|a| a["user"].as_str() == Some(user.as_str())) else { return };
         let u = w.unwrap();
         // the current session (and its push stream) stays until the new one is up: a failed
@@ -1268,8 +1327,9 @@ fn main() -> Result<(), slint::PlatformError> {
         u.set_busy(true);
         restore_session(w.clone(), st.clone(), v, true, None);
     });
-    let (w, st) = (ui.as_weak(), state.clone());
+    let (w, st, srv_add) = (ui.as_weak(), state.clone(), server_cache.clone());
     ui.on_add_account(move || {
+        server_settings::reset(&srv_add);
         let u = w.unwrap();
         SESSION_GEN.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         *st.lock().unwrap() = None;
@@ -1345,7 +1405,6 @@ fn main() -> Result<(), slint::PlatformError> {
         }
     };
     let account_info = Arc::new(account_info);
-    let server_cache: server_settings::Shared = Default::default();
     // load a server-backed settings page in the background, then redraw
     let load_server_page = {
         let (w, st, srv) = (ui.as_weak(), state.clone(), server_cache.clone());
@@ -1360,9 +1419,12 @@ fn main() -> Result<(), slint::PlatformError> {
     };
     // rebuild the current settings page (or search results)
     let refresh_settings = {
-        let (w, pf, cf, acc, srv) = (ui.as_weak(), prefs.clone(), cfg.clone(), account_info.clone(), server_cache.clone());
+        let (w, pf, cf, acc, srv, stc) = (ui.as_weak(), prefs.clone(), cfg.clone(), account_info.clone(), server_cache.clone(), state.clone());
         Arc::new(move || {
             let u = w.unwrap();
+            // the page shows the signed-in account's identities and masked addresses only:
+            // another account's are dropped before anything is drawn
+            if let Some(c) = stc.lock().unwrap().clone() { server_settings::claim(&srv, &c.state_key(), &c.username, &c.base); }
             let p = pf.lock().unwrap();
             let c = cf.lock().unwrap().clone();
             let adv = u.get_show_advanced_settings();
@@ -1372,8 +1434,14 @@ fn main() -> Result<(), slint::PlatformError> {
                 let tab = u.get_settings_tab().to_string();
                 u.set_settings_title(p.title(&tab).into());
                 let mut rows = p.rows(&tab, &c, &acc());
+                if tab == "security" { srv.lock().unwrap_or_else(|e| e.into_inner()).sec.advanced = adv; }
                 if let Some(extra) = server_settings::rows(&tab, &srv) {
-                    if tab == "account" || tab == "composing" { rows.extend(extra); } else { rows = extra; }
+                    if tab == "account" || tab == "composing" { rows.extend(extra); }
+                    else if tab == "security" {
+                        // the server's account security (and masked addresses) replaces the schema's empty headings it covers
+                        rows.retain(|r| !(r.kind == "section" && matches!(r.label.as_str(), "Account security" | "Encryption")));
+                        rows.splice(0..0, extra);
+                    } else { rows = extra; }
                 }
                 rows
             } else {
@@ -1397,8 +1465,11 @@ fn main() -> Result<(), slint::PlatformError> {
         let reload: filters_x::Reload = Arc::new(move |tab: String| lsp(tab));
         filters_x::wire(&ui, state.clone(), server_cache.clone(), reload);
     }
-    let (w, rs, lsp) = (ui.as_weak(), refresh_settings.clone(), load_server_page.clone());
+    let srv_closed = server_cache.clone();
+    ui.on_settings_closed(move || server_settings::reset(&srv_closed));
+    let (w, rs, lsp, srv_open) = (ui.as_weak(), refresh_settings.clone(), load_server_page.clone(), server_cache.clone());
     ui.on_open_settings(move || {
+        server_settings::reset(&srv_open);
         let u = w.unwrap();
         u.set_settings_query("".into());
         rs();
@@ -1517,8 +1588,9 @@ fn main() -> Result<(), slint::PlatformError> {
     ui.on_settings_button(move |key| {
         let u = w.unwrap();
         if key.starts_with("server.") {
-            let Some(job) = server_settings::button(&key, &srv) else { return };
+            // the client first: a job that marks the page busy must also run and clear it
             let Some(c) = st.lock().unwrap().clone() else { return };
+            let Some(job) = server_settings::button(&key, &srv) else { return };
             let (w2, srv2, lsp2, tab) = (w.clone(), srv.clone(), lsp.clone(), u.get_settings_tab().to_string());
             u.invoke_settings_search(u.get_settings_query());
             std::thread::spawn(move || {
@@ -2117,12 +2189,23 @@ fn main() -> Result<(), slint::PlatformError> {
     // templates in the composer
     let (w, st) = (ui.as_weak(), state.clone());
     ui.on_tpl_refresh(move || {
-        let Some(c) = st.lock().unwrap().clone() else { return };
+        let Some(c) = compose_client(&st) else { return };
         let w = w.clone();
+        // the list on show belongs to another account (or none yet): empty it until this one's arrives
+        let key = format!("{}|{}", c.username, c.account);
+        if TEMPLATES.with(|t| t.borrow().0 != key) {
+            TEMPLATES.with(|t| *t.borrow_mut() = (String::new(), Vec::new()));
+            if let Some(u) = w.upgrade() { u.set_tpl_names(ModelRc::new(VecModel::from(vec![slint::SharedString::from("Insert template…")]))); u.set_tpl_index(0); }
+        }
+        if let Some(u) = w.upgrade() { if TEMPLATES.with(|t| t.borrow().0 != key) { u.set_tpl_note("Loading…".into()); } }
+        let st = st.clone();
         std::thread::spawn(move || {
-            let list = templates::list(&c).unwrap_or_default();
+            let list = match templates::list(&c) { Ok(l) => l, Err(e) => { let _ = w.upgrade_in_event_loop(move |u| u.set_tpl_note(format!("Could not load templates: {e}").into())); return; } };
             let _ = w.upgrade_in_event_loop(move |u| {
-                TEMPLATES.with(|t| *t.borrow_mut() = list.clone());
+                // results can arrive out of order: only the composing account's list is kept
+                if compose_client(&st).map(|c| format!("{}|{}", c.username, c.account)).as_deref() != Some(key.as_str()) { return; }
+                u.set_tpl_note("".into());
+                TEMPLATES.with(|t| *t.borrow_mut() = (key, list.clone()));
                 let mut names: Vec<slint::SharedString> = vec!["Insert template…".into()];
                 names.extend(list.iter().map(|t| t["name"].as_str().unwrap_or("(unnamed)").into()));
                 u.set_tpl_names(ModelRc::new(VecModel::from(names)));
@@ -2130,17 +2213,18 @@ fn main() -> Result<(), slint::PlatformError> {
             });
         });
     });
-    let w = ui.as_weak();
+    let (w, st) = (ui.as_weak(), state.clone());
     ui.on_tpl_insert(move |i| {
         let u = w.unwrap();
         if i <= 0 { return; }
-        let Some(t) = TEMPLATES.with(|x| x.borrow().get(i as usize - 1).cloned()) else { return };
-        if u.get_c_subject().trim().is_empty() { u.set_c_subject(t["subject"].as_str().unwrap_or("").into()); }
-        let body = t["body"].as_str().unwrap_or("");
-        let blocks = if t["isHTML"] == true { rte::html::import(body) } else { rte::html::import_text(body) };
-        rte::insert_blocks(&u, blocks);
+        // only a list loaded for the account the draft is written in
+        let key = compose_client(&st).map(|c| format!("{}|{}", c.username, c.account)).unwrap_or_default();
+        let Some(t) = TEMPLATES.with(|x| { let x = x.borrow(); if x.0 == key { x.1.get(i as usize - 1).cloned() } else { None } }) else { u.set_tpl_index(0); return };
         u.set_tpl_index(0);
+        tplflow::insert(&u, t);
     });
+    tplflow::wire(&ui, state.clone());
+    subaddr::wire(&ui);
 
     // ---------------- mail actions ----------------
     let w = ui.as_weak();
@@ -2464,6 +2548,15 @@ fn accounts_model() -> ModelRc<SharedString> {
 
 use jmap::auth_rejected;
 
+/// Set while the account security page ends a session: the sign-out then keeps the saved sign-in
+/// (an app password still works), and the form is shown.
+static KEEP_SAVED_SIGN_IN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Set while the account security page ends a session: the `state_key` of that account. The
+/// sign-out applies only while it is the session in use (checked and taken under the session's
+/// lock), and clears this when it does.
+static SIGN_OUT_ONLY: Mutex<Option<String>> = Mutex::new(None);
+
 /// The stored session a start-up restore could not use for lack of a network: "Try again" runs it again.
 static RESTORE_PENDING: Mutex<Option<Value>> = Mutex::new(None);
 
@@ -2494,6 +2587,9 @@ fn restore_session(w: slint::Weak<AppWindow>, st: Shared, v: Value, switching: b
                     user: user.clone(),
                 };
                 jmap::Client::connect_oauth(&server, t)
+            } else if let Some(e) = jmap::cleared_password_rejection(&v) {
+                // a password that was cleared (two-step sign-in was turned on): nothing to try
+                Err(e)
             } else {
                 jmap::Client::connect(&server, &user, v["pass"].as_str().unwrap_or(""), "")
             };
@@ -2595,7 +2691,7 @@ fn finish_login(w: slint::Weak<AppWindow>, st: Shared, res: Result<jmap::Client,
             {
                 let (w3, c3) = (w2.clone(), c.clone());
                 std::thread::spawn(move || {
-                    let ids = c3.identities().unwrap_or_default();
+                    let ids = identities::ordered_for(&c3.identities().unwrap_or_default(), &c3.username, &c3.base);
                     let addrs: Vec<String> = ids.iter().filter_map(|i| i["email"].as_str().map(String::from)).collect();
                     let _ = w3.upgrade_in_event_loop(move |u| { MY_ADDRS.with(|a| *a.borrow_mut() = addrs); glance::set_name(&u, &ids); });
                 });

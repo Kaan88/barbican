@@ -890,10 +890,11 @@ pub fn set_color(u: &AppWindow, c: Arc<Client>, id: &str, color: &str) {
     let Some(cal) = calendar(id) else { return };
     if cal["_shared"] == true {
         let key = shared_color_key(&c.username, cal["_acc"].as_str().unwrap_or(""), cal["_rid"].as_str().unwrap_or(""));
-        let mut map = crate::settings::Settings::load().prefs.get("sharedCalendarColors").cloned().unwrap_or(json!({}));
-        if !map.is_object() { map = json!({}); }
-        map[key] = json!(color);
-        crate::settings::set_pref("sharedCalendarColors", map);
+        crate::settings::update_pref("sharedCalendarColors", |v| {
+            let mut map = v.cloned().filter(|m| m.is_object()).unwrap_or(json!({}));
+            map[key] = json!(color);
+            map
+        });
         ST.with(|s| if let Some(x) = s.borrow_mut().calendars.iter_mut().find(|x| x["id"] == id) { x["_color"] = json!(color); });
         rebuild(u);
         return;

@@ -18,6 +18,10 @@ struct State {
     in_reply_to: Vec<String>,
     references: Vec<String>,
     identities: Vec<String>,
+    identity_ids: Vec<String>,
+    identity_names: Vec<String>,
+    /// The identity a template chose; it survives the identity list being fetched again.
+    template_identity: Option<String>,
     /// (text, html) signature per identity.
     signatures: Vec<(String, String)>,
     kind_new: bool,
@@ -28,6 +32,8 @@ struct State {
     tags: Vec<bool>,
     /// Inline (cid) parts of the quoted original of a reply/forward, sent again when the quote keeps them.
     quoted_inline: Vec<(String, Attachment)>,
+    /// Bulwark's sub-address tag: From goes out as `user{delimiter}tag@domain` of the identity.
+    sub_tag: String,
 }
 
 thread_local! {
@@ -291,6 +297,8 @@ fn load_identities(u: &AppWindow, c: Arc<Client>, reply: ReplyFrom) {
 }
 
 fn apply_identities(u: &AppWindow, c: &Client, ids: &[Value], reply: &ReplyFrom) {
+    // the user's order: the login's own first, the default sender in front (Bulwark)
+    let ids = &crate::identities::ordered_for(ids, &c.username, &c.base)[..];
     let sigs: Vec<(String, String)> = ids.iter().map(|i| (i["textSignature"].as_str().unwrap_or("").to_string(), i["htmlSignature"].as_str().unwrap_or("").to_string())).collect();
     let list: Vec<String> = ids.iter().map(|i| {
         let (n, e) = (i["name"].as_str().unwrap_or(""), i["email"].as_str().unwrap_or(""));
@@ -298,16 +306,14 @@ fn apply_identities(u: &AppWindow, c: &Client, ids: &[Value], reply: &ReplyFrom)
     }).collect();
     // the From and signature the composer starts with are no edit of the user's
     let unedited = crate::autosave::unedited(u);
-    ST.with(|s| { let mut s = s.borrow_mut(); s.identities = list.clone(); s.signatures = sigs; });
-    let model: Vec<SharedString> = list.iter().map(|x| x.as_str().into()).collect();
-    crate::listsync::sync_into(&u.get_c_identities(), model, |r| r.to_string(), |a, b| a == b, |m| u.set_c_identities(m));
-    // default to the identity of the signed-in address, as Bulwark does
-    let me = c.username.to_lowercase();
+    ST.with(|s| { let mut s = s.borrow_mut(); s.identities = list.clone(); s.identity_ids = ids.iter().map(|i| i["id"].as_str().unwrap_or("").to_string()).collect(); s.identity_names = ids.iter().map(|i| i["name"].as_str().unwrap_or("").to_string()).collect(); s.signatures = sigs; });
+    show_from_list(u);
+    // default to the first in the user's order (the default sender, else the signed-in
+    // address's own identity), as Bulwark does
     let p = crate::settings::Settings::load();
     let resolved = resolve_reply_identity(ids, reply, p.bool("autoSelectReplyIdentity", false), &p.str("replyIdentityMatch", "domain"));
-    let idx = resolved.as_ref().map(|r| r.0)
-        .or_else(|| ids.iter().position(|i| i["email"].as_str().is_some_and(|e| e.to_lowercase() == me)))
-        .unwrap_or(0);
+    let idx = resolved.as_ref().map(|r| r.0).unwrap_or(0);
+    let idx = ST.with(|s| s.borrow().template_identity.clone()).and_then(|t| identity_position(&t)).unwrap_or(idx);
     u.set_c_from_index(idx as i32);
     // Bulwark: the catch-all rewrite (or a draft's own sender) turns From into a
     // name and an address to edit, sent through the anchor identity
@@ -319,6 +325,37 @@ fn apply_identities(u: &AppWindow, c: &Client, ids: &[Value], reply: &ReplyFrom)
     // the signature of the identity just picked
     apply_signature(u);
     if unedited { crate::autosave::rebase(u); }
+}
+
+/// The From list as shown: each identity, with the sub-address tag applied when there is one
+/// (Bulwark shows every option sub-addressed).
+fn show_from_list(u: &AppWindow) {
+    let (list, tag) = ST.with(|s| { let s = s.borrow(); (s.identities.clone(), s.sub_tag.clone()) });
+    let delim = crate::identities::delimiter();
+    let model: Vec<SharedString> = list.iter().map(|x| SharedString::from(with_tag(x, &tag, &delim))).collect();
+    crate::listsync::sync_into(&u.get_c_identities(), model, |r| r.to_string(), |a, b| a == b, |m| u.set_c_identities(m));
+    u.global::<crate::CompX>().set_sub_tag(tag.into());
+}
+
+/// "Name <user@x>" with the address sub-addressed by `tag`.
+fn with_tag(entry: &str, tag: &str, delim: &str) -> String {
+    if tag.is_empty() { return entry.to_string(); }
+    match entry.rsplit_once('<') {
+        Some((n, e)) => format!("{n}<{}>", crate::identities::generate_sub_address(e.trim_end_matches('>').trim(), tag, delim)),
+        None => crate::identities::generate_sub_address(entry.trim(), tag, delim),
+    }
+}
+
+/// The address of the identity picked in the From list (without a sub-address tag).
+pub fn from_address(u: &AppWindow) -> String {
+    let from = ST.with(|s| s.borrow().identities.get(u.get_c_from_index().max(0) as usize).cloned()).unwrap_or_default();
+    from.rsplit_once('<').map(|(_, e)| e.trim_end_matches('>').trim().to_string()).unwrap_or_else(|| from.trim().to_string())
+}
+
+/// Set (or with "" remove) the sub-address tag of the message being written.
+pub fn set_sub_tag(u: &AppWindow, tag: &str) {
+    ST.with(|s| s.borrow_mut().sub_tag = tag.to_string());
+    show_from_list(u);
 }
 
 /// Insert the identity's signature once (as rich blocks), following Bulwark's signature settings.
@@ -390,6 +427,8 @@ fn reset(u: &AppWindow) {
     }
     u.global::<crate::CompX>().set_saved("".into());
     ST.with(|s| { let ids = s.borrow().identities.clone(); *s.borrow_mut() = State { identities: ids, ..Default::default() }; });
+    show_from_list(u);
+    u.global::<crate::CompX>().set_sub_open(false);
     crate::chips::reset(u);
     u.set_c_from_custom(false);
     u.set_c_from_name("".into());
@@ -436,7 +475,7 @@ pub fn open(u: &AppWindow, c: Arc<Client>, kind: ComposeKind, m: Option<&Value>)
     u.set_dock_above(if dock { u.get_by() } else { 0.0 });
     CLIENT.with(|x| *x.borrow_mut() = Some(c.clone()));
     crate::chips::prefetch(u, c.clone());
-    ST.with(|s| s.borrow_mut().kind_new = matches!(kind, ComposeKind::New));
+    ST.with(|s| { let mut s = s.borrow_mut(); s.kind_new = matches!(kind, ComposeKind::New); s.template_identity = None; });
     // replies and forwards come from the identity the message reached (Bulwark)
     let reply = match (&kind, m) {
         (ComposeKind::Reply | ComposeKind::ReplyAll | ComposeKind::Forward, Some(m)) => {
@@ -665,6 +704,12 @@ fn outgoing(u: &AppWindow) -> Outgoing {
             },
             from_override: (u.get_c_from_custom() && u.get_c_from_email().contains('@'))
                 .then(|| (u.get_c_from_name().trim().to_string(), u.get_c_from_email().trim().to_string())),
+            // a typed sender replaces the tag (Bulwark: the helper is hidden with the override)
+            sub_address: (!s.sub_tag.is_empty() && !u.get_c_from_custom()).then(|| {
+                let base = s.identities.get(u.get_c_from_index() as usize).cloned().unwrap_or_default();
+                let base = base.rsplit_once('<').map(|(_, e)| e.trim_end_matches('>').trim().to_string()).unwrap_or(base);
+                crate::identities::generate_sub_address(&base, &s.sub_tag, &crate::identities::delimiter())
+            }).filter(|a| a.contains('@')),
         }
     })
 }
@@ -678,6 +723,7 @@ pub fn cheap_key(u: &AppWindow) -> u64 {
     (u.get_c_to().as_str(), u.get_c_cc().as_str(), u.get_c_bcc().as_str(), u.get_c_subject().as_str()).hash(&mut h);
     (u.get_c_from_index(), u.get_c_plain(), u.get_c_read_receipt()).hash(&mut h);
     (u.get_c_from_custom(), u.get_c_from_name().as_str(), u.get_c_from_email().as_str()).hash(&mut h);
+    ST.with(|s| s.borrow().sub_tag.clone()).hash(&mut h);
     u.get_c_tag_on().iter().collect::<Vec<_>>().hash(&mut h);
     ST.with(|s| s.borrow().attachments.iter().map(|a| (a.name.clone(), a.size)).collect::<Vec<_>>()).hash(&mut h);
     h.finish()
@@ -690,7 +736,7 @@ pub fn content_key(u: &AppWindow) -> u64 {
     let o = outgoing(u);
     let mut h = std::collections::hash_map::DefaultHasher::new();
     (&o.from, &o.to, &o.cc, &o.bcc, &o.subject, o.html.as_ref().unwrap_or(&o.text)).hash(&mut h);
-    o.from_override.hash(&mut h);
+    (&o.from_override, &o.sub_address).hash(&mut h);
     o.attachments.iter().map(|a| (&a.name, &a.mime, a.size)).collect::<Vec<_>>().hash(&mut h);
     (&o.keywords, o.read_receipt).hash(&mut h);
     h.finish()
@@ -1090,6 +1136,7 @@ pub fn undo_send(u: &AppWindow, c: Arc<Client>) {
                 after_send(&u, c4);
                 let (doc, plain, tags) = (snap.body_doc.clone().unwrap_or_default(), snap.plain, snap.tags.clone());
                 ST.with(|s| { *s.borrow_mut() = snap; s.borrow_mut().draft_id = restored; });
+                show_from_list(&u);
                 u.set_c_plain(plain);
                 u.set_c_read_receipt(o.read_receipt);
                 let (fname, femail) = o.from_override.clone().unwrap_or_default();
@@ -1338,6 +1385,13 @@ mod tests {
     }
 
     #[test]
+    fn the_from_list_shows_the_sub_address() {
+        assert_eq!(with_tag("Ann <ann@example.test>", "shop", "+"), "Ann <ann+shop@example.test>");
+        assert_eq!(with_tag("ann@example.test", "shop", "-"), "ann-shop@example.test");
+        assert_eq!(with_tag("Ann <ann@example.test>", "", "+"), "Ann <ann@example.test>");
+    }
+
+    #[test]
     fn resending_a_reopened_draft_keeps_cid_and_attachment() {
         let (plan, _, quoted) = reopen(&saved_draft());
         assert!(quoted.is_empty());
@@ -1580,3 +1634,22 @@ mod gate_tests {
         assert_eq!(b, f(&|_| {}));
     }
 }
+
+/// The open composer is a new message (not a reply or forward).
+pub fn is_new_message() -> bool { ST.with(|s| s.borrow().kind_new) }
+
+/// The sender's name for {{sender_name}}: the custom sender's, else the selected identity's.
+pub fn sender_name(u: &AppWindow) -> String {
+    if u.get_c_from_custom() { return u.get_c_from_name().trim().to_string(); }
+    ST.with(|s| s.borrow().identity_names.get(u.get_c_from_index().max(0) as usize).cloned()).unwrap_or_default().trim().to_string()
+}
+
+/// A template picked this identity: select it and keep it when the identities are fetched again.
+pub fn choose_identity(u: &AppWindow, id: &str) {
+    // remembered even when the identities are not fetched yet: apply_identities applies it then
+    ST.with(|s| s.borrow_mut().template_identity = Some(id.to_string()));
+    if let Some(i) = identity_position(id) { u.set_c_from_index(i as i32); }
+}
+
+/// Position of identity `id` in the composing account's From list.
+pub fn identity_position(id: &str) -> Option<usize> { ST.with(|s| s.borrow().identity_ids.iter().position(|x| x == id)) }

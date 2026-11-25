@@ -220,9 +220,51 @@ pub fn set_overlay(hwnd: isize, rgba: Option<(&[u8], u32)>, label: &str) {
     }
 }
 
+// ---- the quit signal (the installer asks a running Barbican to quit, tray or not) ----
+
+/// Name of the auto-reset event a Barbican process listens on for "quit gracefully".
+/// The installer (packaging/inno/barbican.iss StopBarbican) opens `Local\Barbican.Quit.<pid>` and sets it.
+pub fn quit_event_name(pid: u32) -> String { format!(r"Local\Barbican.Quit.{pid}") }
+
+/// Create this process's quit event and wait for it on a background thread. Each signal calls
+/// `on_signal` on that thread (it must hand the work to the UI thread itself). A failure to create
+/// the event only means the installer falls back to closing the window.
+pub fn start_quit_listener(on_signal: fn()) {
+    use windows::Win32::Foundation::{HANDLE, WAIT_OBJECT_0};
+    use windows::Win32::System::Threading::{CreateEventW, WaitForSingleObject, INFINITE};
+    let name = wide(&quit_event_name(std::process::id()));
+    // auto-reset, not signalled; the handle lives as long as the process
+    let Ok(h) = (unsafe { CreateEventW(None, false, false, PCWSTR(name.as_ptr())) }) else { return };
+    let raw = h.0 as isize;
+    let _ = std::thread::Builder::new().name("quit-signal".into()).spawn(move || loop {
+        let h = HANDLE(raw as *mut _);
+        if unsafe { WaitForSingleObject(h, INFINITE) } != WAIT_OBJECT_0 { return; }
+        on_signal();
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn quit_event_name_is_session_local_and_per_pid() {
+        assert_eq!(quit_event_name(4242), r"Local\Barbican.Quit.4242");
+        assert_ne!(quit_event_name(1), quit_event_name(2));
+    }
+
+    #[test]
+    fn quit_event_can_be_signalled_from_outside() {
+        use windows::Win32::System::Threading::{OpenEventW, SetEvent, EVENT_MODIFY_STATE};
+        use std::sync::atomic::{AtomicBool, Ordering};
+        static HIT: AtomicBool = AtomicBool::new(false);
+        start_quit_listener(|| HIT.store(true, Ordering::SeqCst));
+        let name = wide(&quit_event_name(std::process::id()));
+        let h = unsafe { OpenEventW(EVENT_MODIFY_STATE, false, PCWSTR(name.as_ptr())) }.expect("event exists");
+        unsafe { SetEvent(h).unwrap(); let _ = windows::Win32::Foundation::CloseHandle(h); }
+        for _ in 0..100 { if HIT.load(Ordering::SeqCst) { break; } std::thread::sleep(std::time::Duration::from_millis(50)); }
+        assert!(HIT.load(Ordering::SeqCst), "the listener ran");
+    }
 
     #[test]
     fn another_holder_is_told_from_my_own_hold() {
