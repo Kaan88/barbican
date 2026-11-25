@@ -1031,6 +1031,23 @@ impl Client {
             let r = f(&json!([["blob/download", {"accountId": account, "blobId": blob_id}, "d"]]))?;
             return r.first().and_then(|x| x[1]["text"].as_str()).map(|t| t.as_bytes().to_vec()).ok_or_else(|| "Download failed (404)".into());
         }
+        Ok(self.download_response(account, blob_id, name, mime)?.bytes().map_err(e)?.to_vec())
+    }
+
+    /// Download a blob straight into `out` (a zip being written), never holding it whole in
+    /// memory; returns the bytes written. A write error (a cancel) stops the download.
+    pub fn download_to(&self, account: &str, blob_id: &str, name: &str, mime: &str, out: &mut dyn std::io::Write) -> R<u64> {
+        #[cfg(test)]
+        if self.fake.is_some() {
+            let b = self.download_from(account, blob_id, name, mime)?;
+            out.write_all(&b).map_err(|x| x.to_string())?;
+            return Ok(b.len() as u64);
+        }
+        let mut resp = self.download_response(account, blob_id, name, mime)?;
+        std::io::copy(&mut resp, out).map_err(|x| x.to_string())
+    }
+
+    fn download_response(&self, account: &str, blob_id: &str, name: &str, mime: &str) -> R<reqwest::blocking::Response> {
         let t = self.url_template("downloadUrl").ok_or("The server has no download URL.")?;
         let enc = pct;
         let url = t.replace("{accountId}", &enc(account)).replace("{blobId}", &enc(blob_id))
@@ -1051,7 +1068,7 @@ impl Client {
         }
         if resp.status() == 401 { return Err(self.reject()); }
         if !resp.status().is_success() { return Err(format!("Download failed ({})", resp.status())); }
-        Ok(resp.bytes().map_err(e)?.to_vec())
+        Ok(resp)
     }
 
     pub fn upload(&self, data: Vec<u8>, mime: &str) -> R<(String, usize)> {

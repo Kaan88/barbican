@@ -115,8 +115,21 @@ pub fn safe_file_name(name: &str) -> String {
 }
 
 /// The name a saved copy of an attachment gets: a renamed one as the user typed it, cleaned up.
-pub fn save_name(a: &Value) -> String {
+pub fn save_name(a: &Value) -> String { save_name_with(a, &crate::dlnames::Opts::load()) }
+
+/// The name a copy of an attachment gets in a zip or a folder (Bulwark attachmentCopyName,
+/// email-viewer.tsx:499-502): no template and no transforms, only made safe for this disk.
+pub fn copy_name(a: &Value) -> String {
     safe_file_name(a["name"].as_str().filter(|n| !n.is_empty()).unwrap_or("attachment"))
+}
+
+/// The saved name by the "Downloads" settings: a renamed attachment as typed (Bulwark
+/// renamedAttachmentFilename), any other through attachmentDownloadFilename
+/// (email-viewer.tsx:3323-3330); then made safe for this disk.
+pub fn save_name_with(a: &Value, o: &crate::dlnames::Opts) -> String {
+    let raw = a["name"].as_str().filter(|n| !n.is_empty()).unwrap_or("attachment");
+    if a["renamed"] == true { return safe_file_name(raw); }
+    safe_file_name(&crate::dlnames::attachment_download_filename(raw, o))
 }
 
 /// The name of attachment `i` of the open message (UI thread).
@@ -305,6 +318,16 @@ mod tests {
         // a device name that also needs the cap keeps its prefix
         assert!(safe_file_name(&format!("con.{}", "x".repeat(300))).starts_with("_con."));
         assert_eq!(save_name(&json!({})), "attachment");
+    }
+
+    #[test]
+    fn saved_names_follow_the_download_settings_unless_renamed() {
+        use crate::dlnames::{Opts, Space};
+        let o = Opts { space: Space::Underscore, lowercase: true, strip_diacritics: true, collapse: true };
+        assert_eq!(save_name_with(&json!({"name": "Résumé  Final.PDF"}), &o), "resume_final.pdf");
+        // a name the user typed is kept as typed (Bulwark renamedAttachmentFilename)
+        assert_eq!(save_name_with(&json!({"name": "Résumé Final.PDF", "renamed": true}), &o), "Résumé Final.PDF");
+        assert_eq!(save_name_with(&json!({"name": "con.txt"}), &Opts::default()), "_con.txt");
     }
 
     #[test]

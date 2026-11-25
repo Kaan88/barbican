@@ -424,7 +424,8 @@ pub fn request(u: &AppWindow, kind: &str, id: &str) {
                     header(&name),
                     it(G_OPEN, "Open", "", "open"),
                 ];
-                if !is_folder { v.push(it(G_DOWNLOAD, "Download", "", "download")); }
+                // a folder downloads as one zip (Bulwark files.download_zip)
+                v.push(it(G_DOWNLOAD, if is_folder { "Download as zip" } else { "Download" }, "", "download"));
                 if may_share || (is_folder && !shared_in) { v.push(sep()); }
                 if may_share { v.push(sub(G_SHARE, "Share", "sub:share")); }
                 if is_folder && !shared_in {
@@ -452,8 +453,10 @@ pub fn request(u: &AppWindow, kind: &str, id: &str) {
         ],
         "files-bg" => vec![
             it(G_NEW_FOLDER, "New folder", "", "new-folder"),
+            it(G_RENAME, "New text file", "", "new-text-file"),
             it(G_UPLOAD, "Upload files", "", "upload"),
             it(G_UPLOAD, "Upload folder", "", "upload-folder"),
+            off(it(G_DOWNLOAD, "Download all as zip", "", "zip-all"), u.get_files().row_count() > 0),
             sep(),
             off(it(G_PASTE, "Paste", "Ctrl+V", "paste"), files::has_clipboard()),
             it(G_REFRESH, "Refresh", "", "refresh"),
@@ -1245,15 +1248,20 @@ pub fn pick(u: &AppWindow, st: &Shared, action: &str) {
             "eml" => {
                 let Some(c) = crate::client_for(st, id) else { return };
                 let Some(m) = mail::email(id) else { return };
-                let subj = m["subject"].as_str().filter(|s| !s.is_empty()).unwrap_or("message");
-                let name = format!("{}.eml", crate::sanitize_name(subj));
+                // Bulwark emailExportFilename by the Downloads settings
+                let name = crate::sanitize_name(&crate::dlnames::eml_save_name(&m));
                 let Some(path) = rfd::FileDialog::new().set_file_name(&name).save_file() else { return };
                 let blob = m["blobId"].as_str().unwrap_or("").to_string();
-                let w = u.as_weak();
+                let (w, st2, mid) = (u.as_weak(), st.clone(), id.to_string());
                 std::thread::spawn(move || {
                     let res = c.download(&blob, &name, "message/rfc822").and_then(|b| std::fs::write(&path, b).map_err(|e| e.to_string()));
+                    let ok = res.is_ok();
                     let msg = match res { Ok(()) => format!("Saved {name}"), Err(e) => format!("Could not save: {e}") };
-                    let _ = w.upgrade_in_event_loop(move |u| mail::show_toast(&u, &msg, false));
+                    let _ = w.upgrade_in_event_loop(move |u| {
+                        mail::show_toast(&u, &msg, false);
+                        // "After export" (postExportAction)
+                        if let Some(a) = crate::dlnames::post_export().filter(|_| ok) { crate::apply_routed(&u, &st2, vec![mid], a); }
+                    });
                 });
             }
             "copy-sender" | "find-from" => {
@@ -1617,6 +1625,8 @@ pub fn pick(u: &AppWindow, st: &Shared, action: &str) {
         }
         "files-bg" => match action {
             "new-folder" => prompt(u, "New folder", "", "new-file-folder", ""),
+            "new-text-file" => { if let Some(c) = client(st) { crate::files_x::open_new_file(u, c); } }
+            "zip-all" => { if let Some(c) = client(st) { crate::files_x::download_zip_of(u, c, &[]); } }
             "upload" => u.invoke_fl_upload(),
             "upload-folder" => u.invoke_fl_upload_folder(),
             "empty-trash" => u.invoke_fl_empty_trash(),

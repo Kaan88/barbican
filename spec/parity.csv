@@ -14,10 +14,10 @@ G-012,contacts,"Security review of contacts input: vCard parsing of untrusted fi
 G-013,files,In-app preview (files open externally today),file-preview-modal.tsx; image-preview-modal.tsx; eml-preview.tsx,missing,,G-013 (GAPS P1-3),4,M
 G-014,files,Details panel,file-details-panel.tsx,missing,,G-014 (GAPS P1-3),4,M
 G-015,files,"Grid and list views, sort, search, thumbnails (Show files as, Default sort, thumbnails, hidden files)",file-views.tsx,missing,,G-015 (GAPS P1-3),4,M
-G-016,files,Upload conflict dialog,upload-conflict-dialog.tsx,missing,,G-016 (GAPS P1-3),4,M
-G-017,files,Zip download,lib/files-zip.ts,missing,,G-017 (GAPS P1-3),4,M
-G-018,files,New text file,new-file-dialog.tsx,missing,,G-018 (GAPS P1-3),4,M
-G-019,files,"Filename download rules (filenameSpaceReplacement and siblings, postExportAction)",files-settings.ts,missing,,G-019 (GAPS P1-3),4,M
+G-016,files,Upload conflict dialog,upload-conflict-dialog.tsx,done,"src/files_x.rs (conflicts, ask_next, run; replace via FileNode/set modified:null), ui/files-dialogs.slint UploadConflictDialog",G-016 (GAPS P1-3),4,M
+G-017,files,Zip download,lib/files-zip.ts,partial,"src/files_x.rs (plan_zip, save_zip, StreamZip); no multi-select in Files, ""Download all as zip"" stands in; no ZIP64",G-017 (GAPS P1-3),4,M
+G-018,files,New text file,new-file-dialog.tsx,done,"src/files_x.rs (name_problem, new_file_create), ui/files-dialogs.slint NewFileDialog",G-018 (GAPS P1-3),4,M
+G-019,files,"Filename download rules (filenameSpaceReplacement and siblings, postExportAction)",files-settings.ts,done,"src/dlnames.rs (sanitize_part, apply_transforms, email_export_filename), src/attachments.rs save_name; templates themselves are G-068",G-019 (GAPS P1-3),4,M
 G-020,sieve,Filters: 'reject' offered even when the server does not list the reject extension,filter-rule-modal.tsx,done,src/sieve.rs action_offered; src/filters_x.rs,G-020 (GAPS P1-4),1,S
 G-021,sieve,"Vacation UI: reply-to audience, forward while away, keep in inbox, HTML body, templates",vacation-settings.tsx; vacation-template-picker.tsx; lib/vacation-audience.ts; vacation-forward.ts,partial,"src/vacation.rs, src/server_settings.rs (audience, forwarding, keep in Inbox, HTML body, start/end times; no template picker)",G-021 (GAPS P1-5),3,S/M
 G-022,sieve,Vacation: calendar out-of-office block (vacationBlockCalendar),vacation-calendar-block.tsx,done,"src/vacation.rs (sync_block: busy event for the dates, vacationBlockCalendar)",G-022 (GAPS P1-5),3,S/M
@@ -191,11 +191,11 @@ S-writingLanguage,settings-composing,Writing language,stores/settings-store.ts: 
 S-groupContactsByLetter,settings-contacts,Group by first letter,stores/settings-store.ts: groupContactsByLetter,done,src/contacts.rs:236,S-groupContactsByLetter,0,S
 S-showContactsDirectory,settings-contacts,Show the directory,stores/settings-store.ts: showContactsDirectory,done,src/contacts_x.rs:851,S-showContactsDirectory,0,S
 S-sortContactsByLastName,settings-contacts,Sort by last name,stores/settings-store.ts: sortContactsByLastName,done,src/contacts.rs:237,S-sortContactsByLastName,0,S
-S-filenameCollapseSeparators,settings-files,Collapse repeated separators,stores/settings-store.ts: filenameCollapseSeparators,missing,,S-filenameCollapseSeparators,4,S
-S-filenameLowercase,settings-files,Lowercase,stores/settings-store.ts: filenameLowercase,missing,,S-filenameLowercase,4,S
-S-filenameSpaceReplacement,settings-files,Spaces,stores/settings-store.ts: filenameSpaceReplacement,missing,,S-filenameSpaceReplacement,4,S
-S-filenameStripDiacritics,settings-files,Strip diacritics,stores/settings-store.ts: filenameStripDiacritics,missing,,S-filenameStripDiacritics,4,S
-S-postExportAction,settings-files,After export,stores/settings-store.ts: postExportAction,missing,,S-postExportAction,4,S
+S-filenameCollapseSeparators,settings-files,Collapse repeated separators,stores/settings-store.ts: filenameCollapseSeparators,done,src/dlnames.rs apply_transforms,S-filenameCollapseSeparators,4,S
+S-filenameLowercase,settings-files,Lowercase,stores/settings-store.ts: filenameLowercase,done,src/dlnames.rs apply_transforms,S-filenameLowercase,4,S
+S-filenameSpaceReplacement,settings-files,Spaces,stores/settings-store.ts: filenameSpaceReplacement,done,src/dlnames.rs apply_transforms,S-filenameSpaceReplacement,4,S
+S-filenameStripDiacritics,settings-files,Strip diacritics,stores/settings-store.ts: filenameStripDiacritics,done,"src/dlnames.rs apply_transforms (NFD, marks stripped)",S-filenameStripDiacritics,4,S
+S-postExportAction,settings-files,After export,stores/settings-store.ts: postExportAction,done,"src/files_x.rs / reader.rs: after a single .eml save, apply_routed archive or delete",S-postExportAction,4,S
 S-dateFormat,settings-general,Date format,stores/settings-store.ts: dateFormat,done,src/mail.rs:66,S-dateFormat,0,S
 S-dateLocale,settings-general,Date format region,stores/settings-store.ts: dateLocale,missing,,S-dateLocale,6,S
 S-firstDayOfWeek,settings-general,First day of week,stores/settings-store.ts: firstDayOfWeek,done,src/calendar.rs:170,S-firstDayOfWeek,0,S
@@ -266,11 +266,11 @@ S-keyless-010,settings-account,Sub-addressing,settings-schema.json (page account
 S-keyless-011,settings-security,Two-step sign-in,settings-schema.json (page security),missing,,S-keyless-011,3,S
 S-keyless-012,settings-security,Two-step sign-in,settings-schema.json (page security),missing,,S-keyless-012,3,S
 S-keyless-013,settings-security,Lock with a PIN,settings-schema.json (page security),done,"src/applock.rs (PIN: PBKDF2, backoff, lock screen)",S-keyless-013,3,S
-S-keyless-014,settings-security,Unlock with Windows Hello,settings-schema.json (page security),done,"src/applock.rs (Windows Hello via UserConsentVerifier)",S-keyless-014,3,S
-S-keyless-015,settings-security,Lock after,settings-schema.json (page security),partial,"src/applock.rs (no "When the screen locks" option)",S-keyless-015,3,S
-S-keyless-016,settings-security,Lock now,settings-schema.json (page security),done,"src/applock.rs (Lock now)",S-keyless-016,3,S
-S-keyless-017,settings-security,PIN,settings-schema.json (page security),done,"src/applock.rs (change PIN)",S-keyless-017,3,S
-S-keyless-018,settings-security,Passkey,settings-schema.json (page security),wont-do,"browser WebAuthn passkey; not applicable to a desktop app",S-keyless-018,3,S
+S-keyless-014,settings-security,Unlock with Windows Hello,settings-schema.json (page security),done,src/applock.rs (Windows Hello via UserConsentVerifier),S-keyless-014,3,S
+S-keyless-015,settings-security,Lock after,settings-schema.json (page security),partial,src/applock.rs (no 'When the screen locks' option),S-keyless-015,3,S
+S-keyless-016,settings-security,Lock now,settings-schema.json (page security),done,src/applock.rs (Lock now),S-keyless-016,3,S
+S-keyless-017,settings-security,PIN,settings-schema.json (page security),done,src/applock.rs (change PIN),S-keyless-017,3,S
+S-keyless-018,settings-security,Passkey,settings-schema.json (page security),wont-do,browser WebAuthn passkey; not applicable to a desktop app,S-keyless-018,3,S
 S-keyless-019,settings-notifications,Turn on for this device,settings-schema.json (page notifications),missing,,S-keyless-019,6,S
 S-keyless-020,settings-general,Introductory tour,settings-schema.json (page general),missing,,S-keyless-020,6,S
 S-keyless-021,settings-general,Language,settings-schema.json (page general),missing,,S-keyless-021,7,S
@@ -293,14 +293,14 @@ S-keyless-037,settings-accessibility,Do not disturb,settings-schema.json (page a
 S-keyless-038,settings-accessibility,Sounds and the unread badge,settings-schema.json (page accessibility),unverified,,S-keyless-038,6,S
 S-keyless-039,settings-message_list,Message list order,settings-schema.json (page message_list),unverified,,S-keyless-039,6,S
 S-keyless-040,settings-composing,Check spelling and grammar while I type,settings-schema.json (page composing),unverified,,S-keyless-040,6,S
-S-keyless-041,settings-vacation,Reply automatically,settings-schema.json (page vacation),done,"src/server_settings.rs vacation_rows (Settings > Out of office)",S-keyless-041,3,S
-S-keyless-042,settings-vacation,Reply to,settings-schema.json (page vacation),done,"src/server_settings.rs vacation_rows (Settings > Out of office)",S-keyless-042,3,S
-S-keyless-043,settings-vacation,From (optional),settings-schema.json (page vacation),done,"src/server_settings.rs vacation_rows (Settings > Out of office)",S-keyless-043,3,S
-S-keyless-044,settings-vacation,Until (optional),settings-schema.json (page vacation),done,"src/server_settings.rs vacation_rows (Settings > Out of office)",S-keyless-044,3,S
-S-keyless-045,settings-vacation,Subject,settings-schema.json (page vacation),done,"src/server_settings.rs vacation_rows (Settings > Out of office)",S-keyless-045,3,S
-S-keyless-046,settings-vacation,Forward messages,settings-schema.json (page vacation),done,"src/server_settings.rs vacation_rows (Settings > Out of office)",S-keyless-046,3,S
-S-keyless-047,settings-vacation,Forward to,settings-schema.json (page vacation),done,"src/server_settings.rs vacation_rows (Settings > Out of office)",S-keyless-047,3,S
-S-keyless-048,settings-vacation,Keep in inbox,settings-schema.json (page vacation),done,"src/server_settings.rs vacation_rows (Settings > Out of office)",S-keyless-048,3,S
+S-keyless-041,settings-vacation,Reply automatically,settings-schema.json (page vacation),done,src/server_settings.rs vacation_rows (Settings > Out of office),S-keyless-041,3,S
+S-keyless-042,settings-vacation,Reply to,settings-schema.json (page vacation),done,src/server_settings.rs vacation_rows (Settings > Out of office),S-keyless-042,3,S
+S-keyless-043,settings-vacation,From (optional),settings-schema.json (page vacation),done,src/server_settings.rs vacation_rows (Settings > Out of office),S-keyless-043,3,S
+S-keyless-044,settings-vacation,Until (optional),settings-schema.json (page vacation),done,src/server_settings.rs vacation_rows (Settings > Out of office),S-keyless-044,3,S
+S-keyless-045,settings-vacation,Subject,settings-schema.json (page vacation),done,src/server_settings.rs vacation_rows (Settings > Out of office),S-keyless-045,3,S
+S-keyless-046,settings-vacation,Forward messages,settings-schema.json (page vacation),done,src/server_settings.rs vacation_rows (Settings > Out of office),S-keyless-046,3,S
+S-keyless-047,settings-vacation,Forward to,settings-schema.json (page vacation),done,src/server_settings.rs vacation_rows (Settings > Out of office),S-keyless-047,3,S
+S-keyless-048,settings-vacation,Keep in inbox,settings-schema.json (page vacation),done,src/server_settings.rs vacation_rows (Settings > Out of office),S-keyless-048,3,S
 S-keyless-049,settings-calendar,Calendar opens in,settings-schema.json (page calendar),unverified,,S-keyless-049,6,S
 S-keyless-050,settings-calendar,Organize invitations as,settings-schema.json (page calendar),unverified,,S-keyless-050,6,S
 S-keyless-051,settings-calendar,Working days,settings-schema.json (page calendar),unverified,,S-keyless-051,6,S

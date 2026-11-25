@@ -34,7 +34,8 @@ rustls-pki-types = { version = "1", features = ["std"] }
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 arboard = "3.7"
 # the app lock's PIN hash (src/applock.rs): PBKDF2 and a constant-time compare; already in the
-# tree through rustls, as icu_normalizer is through idna (the PIN is compared as NFKC, like Bulwark)
+# tree through rustls, as icu_normalizer is through idna (the PIN is compared as NFKC, like Bulwark;
+# NFD for the "Strip diacritics" download setting, src/dlnames.rs)
 ring = "0.17"
 icu_normalizer = { version = "2", default-features = false, features = ["compiled_data"] }
 # clears the copies of a typed PIN the app lock makes (already in the tree)
