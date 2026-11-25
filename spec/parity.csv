@@ -57,7 +57,7 @@ G-055,popout,Pop-out windows: message and composer in their own windows,popout/,
 G-056,jmap,"Truncated bodies: a notice shows, but the full body is never fetched",lib/email (isTruncated),done,src/reader.rs; src/bodycache.rs (full-body refetch),G-056 (GAPS P1-14),1,S
 G-057,jmap,Quota is fetched but not shown (storage usage on the Account page),Account page,done,src/quota.rs; src/server_settings.rs,G-057 (GAPS P1-14),1,S
 G-058,composer,"cid: images in a re-opened draft: ROADMAP says placeholders, commit b9b3e99 says restored; re-check",composer draft reopen,done,src/compose.rs (draft cid restore),G-058 (GAPS P1-14),1,S
-G-059,settings-unwired,"Unwired: notificationSoundChoice, pushRelayUrl",settings-store.ts,missing,,G-059 (GAPS P2-1),6,S
+G-059,settings-unwired,"Unwired: notificationSoundChoice, pushRelayUrl",settings-store.ts,partial,notificationSoundChoice done (src/notify.rs); pushRelayUrl still unwired,G-059 (GAPS P2-1),6,S
 G-060,settings-unwired,Unwired: dateLocale (showOnboardingOnNewDevices wired by G-085),settings-store.ts,missing,,G-060 (GAPS P2-1),6,S
 G-061,settings-unwired,"Unwired: toolbarPosition, sidebarAccountSwitcher, showSharedMailAccounts, compactSharedMailboxes, keepAppsLoaded",settings-store.ts,missing,,G-061 (GAPS P2-1),6,M
 G-062,settings-unwired,"Unwired: listColumns, messageListOrderScope",settings-store.ts,missing,,G-062 (GAPS P2-1),6,S
@@ -233,7 +233,7 @@ S-keepRunningInTray,settings-notifications,Keep running in the tray when the win
 S-desktopOpenOnDoubleClick,settings-general,Open messages in a new window on double-click,stores/settings-store.ts: desktopOpenOnDoubleClick,missing,,S-desktopOpenOnDoubleClick,6,S
 S-desktopComposeInWindow,settings-general,Always write messages in a new window,stores/settings-store.ts: desktopComposeInWindow,missing,,S-desktopComposeInWindow,6,S
 S-desktopRestoreWindows,settings-general,Reopen windows at start,stores/settings-store.ts: desktopRestoreWindows,missing,,S-desktopRestoreWindows,6,S
-S-notificationSoundChoice,settings-notifications,Tone,stores/settings-store.ts: notificationSoundChoice,missing,,S-notificationSoundChoice,6,S
+S-notificationSoundChoice,settings-notifications,Tone,stores/settings-store.ts: notificationSoundChoice,done,"src/notify.rs (Tone, desktop_sound_name), src/reminders.rs; no preview",S-notificationSoundChoice,6,S
 S-pushNotifyInboxOnly,settings-notifications,Inbox only,stores/settings-store.ts: pushNotifyInboxOnly,done,src/main.rs:568,S-pushNotifyInboxOnly,0,S
 S-pushRelayUrl,settings-notifications,Push relay,stores/settings-store.ts: pushRelayUrl,missing,,S-pushRelayUrl,6,S
 S-unreadBadgeAllAccounts,settings-notifications,Count unread mail in all accounts,stores/settings-store.ts: unreadBadgeAllAccounts,done,src/mail.rs:189,S-unreadBadgeAllAccounts,0,S
@@ -290,7 +290,7 @@ S-keyless-034,settings-accessibility,Marking mail as read,settings-schema.json (
 S-keyless-035,settings-accessibility,Warnings before sending,settings-schema.json (page accessibility),partial,src/compose.rs:902-1026 (send delay and warnings); link row to the other settings page not drawn,S-keyless-035,6,S
 S-keyless-036,settings-accessibility,Asking before deleting several messages,settings-schema.json (page accessibility),partial,"src/mail.rs:1086, src/ctxmenu.rs:595 (confirmBulkDelete); link row to the other settings page not drawn",S-keyless-036,6,S
 S-keyless-037,settings-accessibility,Do not disturb,settings-schema.json (page accessibility),done,"src/main.rs:967, src/reminders.rs:593 (doNotDisturb on the Notifications page, where Bulwark keeps it)",S-keyless-037,6,S
-S-keyless-038,settings-accessibility,Sounds and the unread badge,settings-schema.json (page accessibility),partial,"src/main.rs:970, src/reminders.rs:593, src/mail.rs:207-208, src/unified.rs:214; notificationSoundChoice never read (G-059)",S-keyless-038,6,S
+S-keyless-038,settings-accessibility,Sounds and the unread badge,settings-schema.json (page accessibility),done,"src/main.rs:970, src/reminders.rs:593, src/mail.rs:207-208, src/unified.rs:214; tone read through notify::Tone",S-keyless-038,6,S
 S-keyless-039,settings-message_list,Message list order,settings-schema.json (page message_list),missing,jmap.rs list_sort hardcodes receivedAt desc; no messageListOrder presets or scope,S-keyless-039,6,S
 S-keyless-040,settings-composing,Check spelling and grammar while I type,settings-schema.json (page composing),partial,"src/settings.rs:49,353 shown; proofreading add-on path not built (local spellCheck works, src/rte/spell.rs)",S-keyless-040,6,S
 S-keyless-041,settings-vacation,Reply automatically,settings-schema.json (page vacation),done,src/server_settings.rs vacation_rows (Settings > Out of office),S-keyless-041,3,S
@@ -315,5 +315,5 @@ S-keyless-059,settings-files,Show thumbnails,settings-schema.json (page files),d
 S-keyless-060,settings-files,Show hidden files,settings-schema.json (page files),done,"src/files_view.rs (row_key, row_options, row_value, set_field), lib/files-settings.ts:4-45; synced as filesSettings",S-keyless-060,4,S
 S-keyless-061,settings-about,Export settings,settings-schema.json (page about),done,src/settings.rs:470 backup.export -> src/main.rs:1754 Settings::export,S-keyless-061,6,S
 S-keyless-062,settings-about,Import settings,settings-schema.json (page about),done,src/settings.rs:471 backup.import -> src/main.rs:1761 Settings::import,S-keyless-062,6,S
-S-keyless-063,settings-about,Refresh cached data,settings-schema.json (page about),missing,no clear-cached-data action (Bulwark about-data-settings clearCachedData),S-keyless-063,6,S
+S-keyless-063,settings-about,Refresh cached data,settings-schema.json (page about),done,"src/cachedata.rs (refresh), Settings > About > Fix problems",S-keyless-063,6,S
 S-keyless-064,settings-about,Reset settings,settings-schema.json (page about),done,src/settings.rs:473 backup.reset -> src/main.rs:1772 Settings::reset,S-keyless-064,6,S

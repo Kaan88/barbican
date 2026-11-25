@@ -21,7 +21,7 @@ Sizes: S = up to 2 days, M = up to a week, L = several weeks. Two tracks run sid
 
 This order replaces the release table below wherever they disagree. Phases 0-4 and plugin steps B1-B3 are merged.
 
-1. **Finish what is in flight, then stop the plugin track.** B4 part 1 (mail and composer hooks) goes through review and is merged. So do calendar and contact print (G-008, G-010) and the notification tone plus "Refresh cached data" (S-notificationSoundChoice, S-keyless-063). After that, no new plugin work until step 3.
+1. **Finish what is in flight, then stop the plugin track.** B4 part 1 (mail and composer hooks) and the notification tone plus "Refresh cached data" (S-notificationSoundChoice, S-keyless-063) are merged. No new plugin work until step 3. Calendar and contact print (G-008, G-010) is parked at step 6.
 2. **UI push (track A, the main work).** In this order:
    1. **Jank, everywhere.** The audit is done: docs/JANK-AUDIT.md (ranked issues and work batches; do batch B, the settings cache, first, then A, the WebView, overlays and focus). Start from an audit that ranks every problem found in these four areas:
       - **Slow:** work on the UI thread, folder/app/message switches, scrolling long lists, freezes while loading.
@@ -52,6 +52,7 @@ This order replaces the release table below wherever they disagree. Phases 0-4 a
 3. **Plugin track resumes:** the rest of B4, then B5 slots on the finished screens, B6 host calls, B7 ported proof plugins.
 4. **Phase 7 large areas**, in their value order: offline and outbox, i18n and time zone, admin writes, delegation and Pro, Files sync and WOPI.
 5. **Last: the settings that show but do nothing** (G-059 to G-069, the desktop window options, swipe, push relay). Each one is wired, or marked `wont-do` with a reason (for example, the mobile-only swipe actions and the web push relay).
+6. **Printing, after everything else (owner, 2026-11-25: "I never use it").** Calendar and contact print sits unmerged on branch v05-print (round 2 review: two medium fixes left, a narrow-window week print loses days and a search left over from another view hijacks the Tasks print; plus two low ones). Conversation print (G-074) comes after it.
 
 ## Schedule
 
