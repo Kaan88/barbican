@@ -35,7 +35,7 @@ thread_local! { static ST: RefCell<State> = RefCell::new(State::default()); }
 
 pub const PROPS: [&str; 13] = ["id", "parentId", "name", "type", "blobId", "size", "created", "modified", "nodeType", "@type", "mediaType", "shareWith", "myRights"];
 
-fn is_dir(n: &Value) -> bool {
+pub(crate) fn is_dir(n: &Value) -> bool {
     match n["nodeType"].as_str().or(n["@type"].as_str().map(|t| match t { "Directory" => "directory", "File" => "file", _ => "other" })) {
         Some("directory") => true,
         Some(_) => false,
@@ -43,17 +43,17 @@ fn is_dir(n: &Value) -> bool {
     }
 }
 
-fn mime(n: &Value) -> String {
+pub(crate) fn mime(n: &Value) -> String {
     n["type"].as_str().or(n["mediaType"].as_str()).unwrap_or("application/octet-stream").to_string()
 }
 
-fn key(n: &Value) -> String { n["_key"].as_str().unwrap_or("").to_string() }
-fn acc_of(n: &Value) -> String { n["_acc"].as_str().unwrap_or("").to_string() }
-fn raw_id(n: &Value) -> String { n["id"].as_str().unwrap_or("").to_string() }
+pub(crate) fn key(n: &Value) -> String { n["_key"].as_str().unwrap_or("").to_string() }
+pub(crate) fn acc_of(n: &Value) -> String { n["_acc"].as_str().unwrap_or("").to_string() }
+pub(crate) fn raw_id(n: &Value) -> String { n["id"].as_str().unwrap_or("").to_string() }
 fn shared(n: &Value) -> bool { n["_shared"] == true }
 
 /// The key of a node's parent (empty for a root).
-fn parent_key(n: &Value) -> String {
+pub(crate) fn parent_key(n: &Value) -> String {
     match n["parentId"].as_str() {
         None | Some("") => String::new(),
         Some(p) if shared(n) => format!("{}|{p}", acc_of(n)),
@@ -61,7 +61,22 @@ fn parent_key(n: &Value) -> String {
     }
 }
 
-fn node(k: &str) -> Option<Value> { ST.with(|s| s.borrow().nodes.iter().find(|n| key(n) == k).cloned()) }
+/// What the Files flows of src/files_x.rs read of the view: every node, the folder on
+/// screen, whether nodes are created in the draft-18 shape.
+pub(crate) fn view() -> (Vec<Value>, String, bool) {
+    ST.with(|s| { let s = s.borrow(); (s.nodes.clone(), s.cwd.clone(), s.draft18) })
+}
+
+/// The nodes listed in folder `k` (not the trash and what is in it).
+pub(crate) fn children(k: &str) -> Vec<Value> {
+    ST.with(|s| {
+        let s = s.borrow();
+        let hidden = trash_subtree(&s);
+        s.nodes.iter().filter(|n| parent_key(n) == k && (!k.is_empty() || !shared(n)) && !hidden.contains(&key(n))).cloned().collect()
+    })
+}
+
+pub(crate) fn node(k: &str) -> Option<Value> { ST.with(|s| s.borrow().nodes.iter().find(|n| key(n) == k).cloned()) }
 
 // ---------------- trash (Bulwark lib/files-trash.ts) ----------------
 //
@@ -396,7 +411,8 @@ pub fn activate(u: &AppWindow, c: Arc<Client>, id: &str) {
 
 pub fn download(u: &AppWindow, c: Arc<Client>, id: &str) {
     let Some(n) = node(id) else { return };
-    if is_dir(&n) { return; }
+    // a folder comes as one zip (Bulwark onDownloadFolder, file-browser.tsx:1185)
+    if is_dir(&n) { crate::files_x::download_zip_of(u, c, &[id.to_string()]); return; }
     let name = crate::sanitize_name(n["name"].as_str().unwrap_or("file"));
     let Some(path) = rfd::FileDialog::new().set_file_name(&name).save_file() else { return };
     let w = u.as_weak();
@@ -408,13 +424,13 @@ pub fn download(u: &AppWindow, c: Arc<Client>, id: &str) {
 }
 
 /// The (account, raw id) a new node goes into for a folder key ("" = the primary root).
-fn target(k: &str) -> (String, Option<String>) {
+pub(crate) fn target(k: &str) -> (String, Option<String>) {
     if k.is_empty() { return (ST.with(|s| s.borrow().primary.clone()), None); }
     match node(k) { Some(n) => (acc_of(&n), Some(raw_id(&n))), None => (ST.with(|s| s.borrow().primary.clone()), None) }
 }
 
 /// Create a node; returns the new raw id.
-fn create_in(c: &Client, draft: bool, acc: &str, parent: Option<&str>, name: &str, blob: Option<(&str, &str)>) -> Result<String, String> {
+pub(crate) fn create_in(c: &Client, draft: bool, acc: &str, parent: Option<&str>, name: &str, blob: Option<(&str, &str)>) -> Result<String, String> {
     let p = parent.map(|p| json!(p)).unwrap_or(Value::Null);
     let node = match (blob, draft) {
         (None, false) => json!({"parentId": p, "name": name}),
@@ -426,27 +442,8 @@ fn create_in(c: &Client, draft: bool, acc: &str, parent: Option<&str>, name: &st
     r[0][1]["created"]["n"]["id"].as_str().map(String::from).ok_or_else(|| crate::jmap::set_error(&r[0][1]["notCreated"]["n"]))
 }
 
-pub fn upload(u: &AppWindow, c: Arc<Client>) {
-    if ST.with(|s| s.borrow().cwd == TRASH_LOC) { crate::mail::show_toast(u, "Nothing can be added to the trash.", false); return; }
-    let Some(files) = crate::automation::pick_files() else { return };
-    let (cwd, draft) = ST.with(|s| (s.borrow().cwd.clone(), s.borrow().draft18));
-    let (acc, parent) = target(&cwd);
-    let w = u.as_weak();
-    crate::mail::show_toast(u, "Uploading…", false);
-    std::thread::spawn(move || {
-        let mut err = None;
-        for f in files {
-            let name = f.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "file".into());
-            let t = crate::compose::mime_for(&name);
-            let r = std::fs::read(&f).map_err(|e| e.to_string()).and_then(|b| c.upload_to(&acc, b, t)).and_then(|(blob, _)| create_in(&c, draft, &acc, parent.as_deref(), &name, Some((&blob, t))));
-            if let Err(e) = r { err = Some(e); break; }
-        }
-        let _ = w.upgrade_in_event_loop(move |u| {
-            crate::mail::show_toast(&u, &err.map(|e| format!("Upload failed: {e}")).unwrap_or_else(|| "Uploaded".into()), false);
-            open(&u, c, &cwd);
-        });
-    });
-}
+/// Upload files into the folder on screen; a taken name asks first (src/files_x.rs, G-016).
+pub fn upload(u: &AppWindow, c: Arc<Client>) { crate::files_x::upload_files(u, c); }
 
 pub fn new_folder(u: &AppWindow, c: Arc<Client>, name: &str) {
     if ST.with(|s| s.borrow().cwd == TRASH_LOC) { crate::mail::show_toast(u, "Nothing can be added to the trash.", false); return; }
@@ -584,52 +581,8 @@ pub fn empty_trash(u: &AppWindow, c: Arc<Client>) {
 }
 
 /// Upload a folder from disk with everything in it into the folder on screen, recreating its
-/// subfolders (Bulwark uploadFolder).
-pub fn upload_folder(u: &AppWindow, c: Arc<Client>) {
-    let Some(root) = rfd::FileDialog::new().pick_folder() else { return };
-    let (cwd, draft) = ST.with(|s| (s.borrow().cwd.clone(), s.borrow().draft18));
-    if cwd == TRASH_LOC { crate::mail::show_toast(u, "Nothing can be added to the trash.", false); return; }
-    let (acc, parent) = target(&cwd);
-    let w = u.as_weak();
-    crate::mail::show_toast(u, "Uploading folder…", false);
-    std::thread::spawn(move || {
-        let (mut done, mut failed) = (0usize, vec![]);
-        let res: Result<(), String> = (|| {
-            let top = root.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "Folder".into());
-            let top_id = create_in(&c, draft, &acc, parent.as_deref(), &top, None)?;
-            // breadth-first: each directory is created before what is inside it
-            let mut queue = vec![(root.clone(), top_id)];
-            while let Some((dir, id)) = queue.pop() {
-                let mut entries: Vec<_> = std::fs::read_dir(&dir).map_err(|e| e.to_string())?.filter_map(|e| e.ok()).collect();
-                entries.sort_by_key(|e| e.file_name());
-                for e in entries {
-                    let name = e.file_name().to_string_lossy().to_string();
-                    let Ok(ft) = e.file_type() else { continue };
-                    if ft.is_symlink() { continue; }
-                    if ft.is_dir() {
-                        match create_in(&c, draft, &acc, Some(&id), &name, None) {
-                            Ok(sub) => queue.push((e.path(), sub)),
-                            Err(err) => failed.push(format!("{name}: {err}")),
-                        }
-                    } else {
-                        let t = crate::compose::mime_for(&name);
-                        let r = std::fs::read(e.path()).map_err(|x| x.to_string())
-                            .and_then(|b| c.upload_to(&acc, b, t))
-                            .and_then(|(blob, _)| create_in(&c, draft, &acc, Some(&id), &name, Some((&blob, t))));
-                        match r { Ok(_) => done += 1, Err(err) => failed.push(format!("{name}: {err}")) }
-                    }
-                }
-            }
-            Ok(())
-        })();
-        let msg = match (res, failed.first()) {
-            (Err(e), _) => format!("Upload failed: {e}"),
-            (Ok(()), Some(f)) => format!("Uploaded {done} files; {} failed ({f})", failed.len()),
-            (Ok(()), None) => format!("Uploaded {done} files"),
-        };
-        let _ = w.upgrade_in_event_loop(move |u| { crate::mail::show_toast(&u, &msg, false); open(&u, c, &cwd); });
-    });
-}
+/// subfolders (Bulwark uploadFolder); a folder of the same name asks first (src/files_x.rs).
+pub fn upload_folder(u: &AppWindow, c: Arc<Client>) { crate::files_x::upload_folder(u, c); }
 
 // ---------------- move, cut / copy / paste, duplicate ----------------
 

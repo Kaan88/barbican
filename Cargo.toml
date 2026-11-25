@@ -27,6 +27,8 @@ ed25519-dalek = { version = "2", default-features = false, features = ["std"] }
 resvg = { version = "0.48", default-features = false }
 parley = "=0.11.1"
 idna = "1.1"
+# NFD for the "Strip diacritics" download setting (src/dlnames.rs); already in the tree through idna
+icu_normalizer = { version = "2", default-features = false, features = ["compiled_data"] }
 # the BIMI verified badge (src/bimi.rs): the mark certificate chain, against pinned roots; the
 # same versions reqwest's rustls already builds
 webpki = { package = "rustls-webpki", version = "0.103", default-features = false, features = ["ring", "std"] }

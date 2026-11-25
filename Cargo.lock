@@ -586,6 +586,7 @@ dependencies = [
  "getrandom 0.2.17",
  "gtk",
  "iana-time-zone",
+ "icu_normalizer",
  "idna",
  "image",
  "keyring",

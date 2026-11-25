@@ -28,6 +28,9 @@ export { PimTheme, CtX, CtLine, CtField, CtDupe, FilterX, FCond, FAct }
 import { MxTok, AttCard, FromOverride, AttCards, ReplyDockBar, ReplyDockHandle } from "mailextras.slint";
 import { ShareX, ShareRow, SharePerson, ShareDialog } from "share.slint";
 export { ShareX, ShareRow, SharePerson }
+// Files: upload conflicts, zip progress, new text file (src/files_x.rs)
+import { FilesX, UploadConflictDialog, ZipProgressCard, NewFileDialog } from "files-dialogs.slint";
+export { FilesX }
 export { AttCard }
 // the notification centre: bell in the rail (src/notices.rs)
 import { Notices, NoticeRow, NotificationBell } from "notices.slint";
@@ -2312,6 +2315,9 @@ export component AppWindow inherits Window {
     capture-key-pressed(e) => {
         // the share dialog holds the keyboard (ui/share.slint); a key that still lands here does nothing
         if ShareX.open { if e.text == Key.Escape { ShareX.close(); } return accept; }
+        // the Files dialogs hold the keyboard too (ui/files-dialogs.slint)
+        if FilesX.conflict-open { if e.text == Key.Escape { FilesX.conflict-answer("", false); } return accept; }
+        if FilesX.newfile-open { if e.text == Key.Escape { FilesX.newfile-open = false; } return accept; }
         // Ctrl+K opens the command palette whichever field or menu has the focus (not in the composer: link)
         if e.modifiers.control && !e.modifiers.shift && !e.modifiers.alt && e.text == "k" && !root.composing && !Pd.palette-open {
             if Pd.key-hook(e.text, false, true, false) { return accept; }
@@ -6267,4 +6273,8 @@ export component AppWindow inherits Window {
     if CompX.sub-open: SubAddrDialog { x: 0; y: 0; width: root.width; height: root.height; }
     // share a folder, calendar or address book (src/share.rs)
     if ShareX.open: ShareDialog { x: 0; y: 0; width: root.width; height: root.height; }
+    // Files: zip progress, upload conflict, new text file (src/files_x.rs)
+    if FilesX.zip-open: ZipProgressCard { x: root.width - self.width - 20px; y: root.height - self.height - 20px; }
+    if FilesX.conflict-open: UploadConflictDialog { x: 0; y: 0; width: root.width; height: root.height; }
+    if FilesX.newfile-open: NewFileDialog { x: 0; y: 0; width: root.width; height: root.height; }
 }

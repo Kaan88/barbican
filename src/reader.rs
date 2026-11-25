@@ -990,19 +990,24 @@ fn show_parsed(u: &AppWindow, m: &Value) {
 fn save_eml(u: &AppWindow, st: &Shared) {
     let (c, m, id) = ST.with(|s| (s.borrow().client.clone(), s.borrow().msg.clone(), s.borrow().id.clone()));
     let Some(c) = c.or_else(|| crate::client_for(st, &id)) else { return };
-    let subj = m["subject"].as_str().filter(|s| !s.is_empty()).unwrap_or("message");
-    let name = format!("{}.eml", crate::sanitize_name(subj));
+    // Bulwark emailExportFilename by the Downloads settings
+    let name = crate::sanitize_name(&crate::dlnames::eml_save_name(&m));
     let Some(path) = crate::automation::save_file(&name, "", &[]) else { return };
     let blob = m["blobId"].as_str().unwrap_or("").to_string();
     // the copy shown in the source view saves without a second download
     // (the raw bytes, not the text: an 8-bit message must stay byte-identical for its signatures)
     let have = ST.with(|s| if let View::Source { raw, .. } = &s.borrow().view { Some(raw.clone()) } else { None });
-    let w = u.as_weak();
+    let (w, st2) = (u.as_weak(), st.clone());
     std::thread::spawn(move || {
         let res = match have { Some(t) => Ok(t.to_vec()), None => c.download(&blob, &name, "message/rfc822") }
             .and_then(|b| std::fs::write(&path, b).map_err(|e| e.to_string()));
+        let ok = res.is_ok();
         let msg = match res { Ok(()) => format!("Saved {name}"), Err(e) => format!("Could not save: {e}") };
-        let _ = w.upgrade_in_event_loop(move |u| mail::show_toast(&u, &msg, false));
+        let _ = w.upgrade_in_event_loop(move |u| {
+            mail::show_toast(&u, &msg, false);
+            // "After export" (postExportAction): archive or delete the saved message
+            if let Some(a) = crate::dlnames::post_export().filter(|_| ok && !id.is_empty()) { crate::apply_routed(&u, &st2, vec![id], a); }
+        });
     });
 }
 
@@ -1310,7 +1315,7 @@ pub fn pick(u: &AppWindow, st: &Shared, action: &str, target_id: &str) {
             let Some(c) = crate::login_for(st, &id) else { return };
             let Some((m, _)) = crate::CUR_MSG.with(|x| x.borrow().clone()) else { return };
             crate::COMPOSE_CLIENT.with(|r| *r.borrow_mut() = Some(c.clone()));
-            if !crate::compose::open_forward_as_attachment(u, c, &m, &eml_export_name(&m), &forward_subject(m["subject"].as_str().unwrap_or(""))) {
+            if !crate::compose::open_forward_as_attachment(u, c, &m, &crate::dlnames::forward_name(&m), &forward_subject(m["subject"].as_str().unwrap_or(""))) {
                 mail::show_toast(u, "This message can't be attached.", false);
             }
         }
