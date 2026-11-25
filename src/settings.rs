@@ -23,6 +23,9 @@ struct Cache {
     seq: u64,
     /// The newest save has not landed in the file yet ([`Settings::flush`] writes it at exit).
     pending: bool,
+    /// The file could not be read when the session started: the values are the defaults, not
+    /// the user's, so this session never writes the file (saves change the memory only).
+    untrusted: bool,
 }
 
 type CacheCell = std::sync::Mutex<Option<Cache>>;
@@ -78,7 +81,7 @@ impl CacheScope {
         let n = N.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let file = crate::config_dir().join(format!("prefs-scope-{n}.json"));
         let _ = std::fs::remove_file(&file);
-        let _ = std::fs::remove_file(bad_path(&file));
+        for b in bad_copies(&file) { let _ = std::fs::remove_file(b); }
         let path = TEST_PATH.with(|t| t.replace(Some(file.clone())));
         let cell = TEST_CACHE.with(|t| t.replace(Some(std::sync::Arc::new(std::sync::Mutex::new(None)))));
         CacheScope { file, prev: Some((path, cell)) }
@@ -91,69 +94,124 @@ impl CacheScope {
 #[cfg(test)]
 impl Drop for CacheScope {
     fn drop(&mut self) {
+        debug_assert!(TEST_PATH.with(|t| t.borrow().as_deref() == Some(self.file.as_path())), "scopes end in the order they began");
         if let Some((path, cell)) = self.prev.take() {
             TEST_CACHE.with(|t| *t.borrow_mut() = cell);
             TEST_PATH.with(|t| *t.borrow_mut() = path);
         }
         let _ = std::fs::remove_file(&self.file);
-        let _ = std::fs::remove_file(bad_path(&self.file));
+        for b in bad_copies(&self.file) { let _ = std::fs::remove_file(b); }
     }
 }
 
-/// Where a prefs file that could not be read is kept (prefs.json.bad).
-fn bad_path(p: &std::path::Path) -> std::path::PathBuf {
-    let mut s = p.as_os_str().to_owned();
-    s.push(".bad");
-    s.into()
+/// The copies [`back_up`] made of `p` (`prefs.json.<time>.bad`), oldest first.
+#[cfg(test)]
+fn bad_copies(p: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let (Some(dir), Some(name)) = (p.parent(), p.file_name()) else { return vec![] };
+    let pre = format!("{}.", name.to_string_lossy());
+    let mut v: Vec<std::path::PathBuf> = std::fs::read_dir(dir).map(|rd| rd.flatten()
+        .filter(|e| { let n = e.file_name().to_string_lossy().to_string(); n.starts_with(&pre) && n.ends_with(".bad") })
+        .map(|e| e.path()).collect()).unwrap_or_default();
+    v.sort_by_key(|p| std::fs::metadata(p).and_then(|m| m.modified()).ok());
+    v
 }
 
-/// Keep a copy of a prefs file that could not be read, before anything can save over it. Only
-/// once: a copy already there is never replaced. Whether a copy is there now.
-fn back_up(p: &std::path::Path) -> bool {
+/// Keep `bytes`, a damaged prefs file, beside it before anything can save over it: each one
+/// under a name of its own (`prefs.json.<unix time>.bad`, `-2`, `-3`... in the same second), so
+/// an older copy never makes a newer one go. Whether these bytes are on disk now.
+fn back_up(p: &std::path::Path, bytes: &[u8]) -> bool {
     use std::io::Write;
-    let bad = bad_path(p);
-    let Ok(bytes) = std::fs::read(p) else { return bad.exists() };
-    match std::fs::OpenOptions::new().write(true).create_new(true).open(&bad) {
-        Ok(mut f) => f.write_all(&bytes).and_then(|_| f.sync_all()).is_ok(),
-        Err(e) => e.kind() == std::io::ErrorKind::AlreadyExists,
+    let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    let mut name = p.as_os_str().to_owned();
+    name.push(format!(".{secs}"));
+    for i in 1..100 {
+        let mut b = name.clone();
+        if i > 1 { b.push(format!("-{i}")); }
+        b.push(".bad");
+        match std::fs::OpenOptions::new().write(true).create_new(true).open(std::path::PathBuf::from(b)) {
+            Ok(mut f) => return f.write_all(bytes).and_then(|_| f.sync_all()).is_ok(),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(_) => return false,
+        }
     }
+    false
 }
 
-/// The prefs in the file, or None when they cannot be used for the session:
-/// - no file: no prefs yet (`{}`);
-/// - a file that is not a settings object (corrupt): copied to prefs.json.bad first, then `{}`
-///   for the session (reading it again would give the same), so the next save cannot lose it;
-///   when no copy could be made, None;
-/// - a file that cannot be read now (locked by another program, access denied): None, and the
-///   next load tries again. Keeping `{}` there would let the next save replace the real
-///   settings with the defaults over what is most likely a passing lock.
-fn read_file(p: &std::path::Path) -> Option<Map<String, Value>> {
+/// What reading the prefs file gave.
+enum Read {
+    /// The prefs, or none yet (no file).
+    Prefs(Map<String, Value>),
+    /// Not a settings object; a copy was kept (see [`back_up`]): reading again gives the same.
+    Damaged,
+    /// Could not be read (locked by another program, access denied), or a damaged file that no
+    /// copy could be made of: nothing may be written over it.
+    Unusable,
+}
+
+fn read_file(p: &std::path::Path) -> Read {
     #[cfg(test)]
     DISK_READS.with(|n| n.set(n.get() + 1));
     let bytes = match std::fs::read(p) {
         Ok(b) => b,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Some(Map::new()),
-        Err(_) => { back_up(p); return None; }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Read::Prefs(Map::new()),
+        Err(_) => return Read::Unusable,
     };
     match serde_json::from_slice::<Value>(&bytes) {
-        Ok(Value::Object(m)) => Some(m),
-        _ => back_up(p).then(Map::new),
+        Ok(Value::Object(m)) => Read::Prefs(m),
+        _ if back_up(p, &bytes) => Read::Damaged,
+        _ => Read::Unusable,
     }
 }
 
-/// The prefs in `cell` for the file `p`, read from it when the cache has nothing for it yet
-/// (under the cache's lock, so a save meanwhile is never replaced by the older file). Prefs that
-/// cannot be used (see [`read_file`]) are `{}` for this call and not kept.
+/// Tries of a prefs file that cannot be read when the session starts, and the pause between.
+const READ_TRIES: u32 = 3;
+const READ_PAUSE: std::time::Duration = std::time::Duration::from_millis(50);
+
+/// The prefs in `cell` for the file `p`, read from it once, when the cache has nothing for it yet
+/// (under the cache's lock, so a save meanwhile is never replaced by the older file). That one
+/// read decides the session: every copy of the settings comes from it.
+/// - A damaged file: the defaults, the file kept as a `.bad` copy (the next save replaces it).
+/// - A file that cannot be read, tried [`READ_TRIES`] times (a virus scanner or a sync tool may
+///   hold it a moment): the defaults, and the session is untrusted, so nothing ever writes the
+///   file: saving the defaults would replace the user's real settings. [`unsaved_session`] says so.
 fn fill(cell: &CacheCell, p: &std::path::Path) -> Snapshot {
     let mut c = lock(cell);
     if let Some(c) = c.as_ref().filter(|c| c.path == p) { return c.prefs.clone(); }
-    match read_file(p) {
-        Some(m) => {
-            let prefs: Snapshot = std::sync::Arc::new(m);
-            *c = Some(Cache { path: p.to_path_buf(), prefs: prefs.clone(), seq: 0, pending: false });
-            prefs
-        }
-        None => std::sync::Arc::new(Map::new()),
+    remove_stale_temp(p);
+    let mut read = read_file(p);
+    for _ in 1..READ_TRIES {
+        if !matches!(read, Read::Unusable) { break; }
+        std::thread::sleep(READ_PAUSE);
+        read = read_file(p);
+    }
+    let (m, untrusted) = match read { Read::Prefs(m) => (m, false), Read::Damaged => (Map::new(), false), Read::Unusable => (Map::new(), true) };
+    let prefs: Snapshot = std::sync::Arc::new(m);
+    *c = Some(Cache { path: p.to_path_buf(), prefs: prefs.clone(), seq: 0, pending: false, untrusted });
+    prefs
+}
+
+/// The settings file could not be read when this session started: changes are kept until the
+/// program quits but never saved (the app says so once).
+pub(crate) fn unsaved_session() -> bool {
+    let p = path();
+    let cell = cache();
+    let _ = fill(&cell, &p);
+    let c = lock(&cell);
+    c.as_ref().is_some_and(|c| c.path == p && c.untrusted)
+}
+
+/// Remove the temporary files an earlier run left when it stopped mid-write
+/// (`prefs.json.<pid>-<n>.tmp` of another process; this one's may be in use).
+fn remove_stale_temp(p: &std::path::Path) {
+    let (Some(dir), Some(name)) = (p.parent(), p.file_name()) else { return };
+    let pre = format!("{}.", name.to_string_lossy());
+    let Ok(rd) = std::fs::read_dir(dir) else { return };
+    for e in rd.flatten() {
+        let n = e.file_name().to_string_lossy().to_string();
+        let Some(mid) = n.strip_prefix(&pre).and_then(|r| r.strip_suffix(".tmp")) else { continue };
+        let Some((pid, seq)) = mid.split_once('-') else { continue };
+        if pid.parse::<u32>().is_err() || seq.parse::<u64>().is_err() { continue; }
+        if pid != std::process::id().to_string() { let _ = std::fs::remove_file(e.path()); }
     }
 }
 
@@ -167,19 +225,22 @@ pub(crate) fn snapshot() -> Snapshot { current() }
 type Writer<'a> = &'a dyn Fn(&std::path::Path, &Map<String, Value>) -> std::io::Result<()>;
 
 /// Start a save: from now on every load gets `prefs`; the file is still to be written. The save's
-/// number, for [`write_save`].
-fn begin_save(cell: &CacheCell, path: std::path::PathBuf, prefs: Snapshot) -> u64 {
+/// number, for [`write_save`], and whether the session is untrusted (the file is never written).
+/// The caller has filled the cache for `path` first ([`fill`]), so the session's one read
+/// decided that.
+fn begin_save(cell: &CacheCell, path: std::path::PathBuf, prefs: Snapshot) -> (u64, bool) {
     let mut c = lock(cell);
     let seq = c.as_ref().map_or(0, |c| c.seq) + 1;
-    *c = Some(Cache { path, prefs, seq, pending: true });
-    seq
+    let untrusted = c.as_ref().is_some_and(|c| c.path == path && c.untrusted);
+    *c = Some(Cache { path, prefs, seq, pending: true, untrusted });
+    (seq, untrusted)
 }
 
 /// Write save `seq` to its file (the caller holds [`WRITE`]): nothing when a newer save
-/// superseded it (that one's own write follows) or it has landed already (a flush). A write that
-/// fails stays pending, for the flush at exit. Whether it wrote.
+/// superseded it (that one's own write follows), it has landed already (a flush) or the session
+/// is untrusted. A write that fails stays pending, for the flush at exit. Whether it wrote.
 fn write_save(cell: &CacheCell, seq: u64, write: Writer) -> bool {
-    let job = lock(cell).as_ref().filter(|c| c.seq == seq && c.pending).map(|c| (c.path.clone(), c.prefs.clone()));
+    let job = lock(cell).as_ref().filter(|c| c.seq == seq && c.pending && !c.untrusted).map(|c| (c.path.clone(), c.prefs.clone()));
     let Some((p, prefs)) = job else { return false };
     if write(&p, &prefs).is_err() { return false; }
     if let Some(c) = lock(cell).as_mut().filter(|c| c.seq == seq) { c.pending = false; }
@@ -230,9 +291,24 @@ fn write_file(p: &std::path::Path, prefs: &Map<String, Value>) -> std::io::Resul
     // a name of its own per write: tests write the shared file from several threads
     let tmp = dir.join(format!("{name}.{}-{}.tmp", std::process::id(), N.fetch_add(1, std::sync::atomic::Ordering::SeqCst)));
     let res = std::fs::File::create(&tmp).and_then(|mut f| { f.write_all(text.as_bytes())?; f.sync_all() })
-        .and_then(|_| std::fs::rename(&tmp, p));
+        .and_then(|_| rename_over(&tmp, p));
     if res.is_err() { let _ = std::fs::remove_file(&tmp); }
     res
+}
+
+/// Rename `from` over `to`, again after a moment while another program (a virus scanner, the
+/// search indexer) has `to` open, which Windows reports as access denied.
+fn rename_over(from: &std::path::Path, to: &std::path::Path) -> std::io::Result<()> {
+    let mut tries = 0;
+    loop {
+        match std::fs::rename(from, to) {
+            Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied && tries + 1 < READ_TRIES => {
+                tries += 1;
+                std::thread::sleep(READ_PAUSE);
+            }
+            r => return r,
+        }
+    }
 }
 
 pub struct Account {
@@ -407,18 +483,22 @@ impl Settings {
     /// Saves the settings: the cache serves every later `load` at once, and the file is written
     /// off the UI thread, the newest save always winning. Tests write synchronously.
     pub(crate) fn save(&self) {
-        let cell = cache();
-        let seq = begin_save(&cell, path(), std::sync::Arc::new(self.prefs.clone()));
+        let (cell, p) = (cache(), path());
+        // the session's one read of the file comes first: it decides whether the file may be written
+        let _ = fill(&cell, &p);
+        let (seq, untrusted) = begin_save(&cell, p, std::sync::Arc::new(self.prefs.clone()));
         #[cfg(test)]
         {
+            let _ = untrusted;
             let _w = WRITE.lock();
             write_save(&cell, seq, &write_file);
         }
         #[cfg(not(test))]
         {
             // a change to a synced setting goes to the account (debounced); after the cache has
-            // it, so whatever that reads back is the new values
-            crate::settings_sync::local_saved(&self.prefs);
+            // it, so whatever that reads back is the new values. Not in an untrusted session:
+            // its values started from the defaults, not from the user's settings.
+            if !untrusted { crate::settings_sync::local_saved(&self.prefs); }
             std::thread::spawn(move || {
                 let _w = WRITE.lock();
                 write_save(&cell, seq, &write_file);
@@ -1348,7 +1428,7 @@ mod cache_tests {
     fn reads() -> u32 { DISK_READS.with(|n| n.get()) }
 
     /// What the scope's prefs file holds now.
-    fn on_disk(scope: &CacheScope) -> Map<String, Value> { read_file(scope.file()).expect("a readable prefs file") }
+    fn on_disk(scope: &CacheScope) -> Map<String, Value> { file_prefs(scope.file()) }
 
     #[test]
     fn a_load_after_a_save_comes_from_memory() {
@@ -1487,6 +1567,7 @@ mod save_order_tests {
 
     fn prefs(v: Value) -> Snapshot { std::sync::Arc::new(v.as_object().unwrap().clone()) }
     fn cell() -> CacheCell { std::sync::Mutex::new(None) }
+    fn begin(c: &CacheCell, p: std::path::PathBuf, s: Snapshot) -> u64 { begin_save(c, p, s).0 }
     fn file() -> std::path::PathBuf { std::path::PathBuf::from("prefs.json") }
     fn pending(c: &CacheCell) -> bool { lock(c).as_ref().is_some_and(|c| c.pending) }
     fn cached(c: &CacheCell) -> Value { Value::Object((*lock(c).as_ref().unwrap().prefs).clone()) }
@@ -1496,8 +1577,8 @@ mod save_order_tests {
         let written = RefCell::new(vec![]);
         let w = |_: &std::path::Path, m: &Map<String, Value>| { written.borrow_mut().push(Value::Object(m.clone())); Ok(()) };
         let c = cell();
-        let first = begin_save(&c, file(), prefs(json!({"v": 1})));
-        let second = begin_save(&c, file(), prefs(json!({"v": 2})));
+        let first = begin(&c, file(), prefs(json!({"v": 1})));
+        let second = begin(&c, file(), prefs(json!({"v": 2})));
         assert_eq!(cached(&c), json!({"v": 2}), "a load sees the newest save at once");
         // the second save's thread runs first, then the first one's
         assert!(write_save(&c, second, &w));
@@ -1508,8 +1589,8 @@ mod save_order_tests {
         // in order: the older write finds itself superseded, the newer one writes
         let c = cell();
         written.borrow_mut().clear();
-        let first = begin_save(&c, file(), prefs(json!({"v": 1})));
-        let second = begin_save(&c, file(), prefs(json!({"v": 2})));
+        let first = begin(&c, file(), prefs(json!({"v": 1})));
+        let second = begin(&c, file(), prefs(json!({"v": 2})));
         assert!(!write_save(&c, first, &w));
         assert!(pending(&c), "the newest save has not landed yet");
         assert!(write_save(&c, second, &w));
@@ -1521,7 +1602,7 @@ mod save_order_tests {
         let written = RefCell::new(vec![]);
         let w = |_: &std::path::Path, m: &Map<String, Value>| { written.borrow_mut().push(Value::Object(m.clone())); Ok(()) };
         let c = cell();
-        let seq = begin_save(&c, file(), prefs(json!({"v": 1})));
+        let seq = begin(&c, file(), prefs(json!({"v": 1})));
         assert!(flush_save(&c, &w));
         assert!(!pending(&c));
         // the background write comes after the flush: nothing left to write
@@ -1536,7 +1617,7 @@ mod save_order_tests {
         let w = |_: &std::path::Path, _: &Map<String, Value>| { *written.borrow_mut() += 1; Ok(()) };
         let c = cell();
         assert!(!flush_save(&c, &w), "nothing saved, nothing to flush");
-        let seq = begin_save(&c, file(), prefs(json!({"v": 1})));
+        let seq = begin(&c, file(), prefs(json!({"v": 1})));
         assert!(write_save(&c, seq, &w));
         assert!(!flush_save(&c, &w));
         assert_eq!(*written.borrow(), 1);
@@ -1545,7 +1626,7 @@ mod save_order_tests {
     #[test]
     fn a_failed_write_stays_pending_for_the_flush() {
         let c = cell();
-        let seq = begin_save(&c, file(), prefs(json!({"v": 1})));
+        let seq = begin(&c, file(), prefs(json!({"v": 1})));
         let fail = |_: &std::path::Path, _: &Map<String, Value>| Err(std::io::Error::other("disk full"));
         assert!(!write_save(&c, seq, &fail));
         assert!(pending(&c));
@@ -1563,8 +1644,14 @@ mod save_order_tests {
         let scope = CacheScope::new();
         for i in 0..5 { Settings::load().remember("n", json!(i)); }
         Settings::flush();
-        assert_eq!(read_file(scope.file()).unwrap()["n"], 4);
+        assert_eq!(file_prefs(scope.file())["n"], 4);
     }
+}
+
+/// What a readable prefs file holds (tests).
+#[cfg(test)]
+fn file_prefs(p: &std::path::Path) -> Map<String, Value> {
+    match read_file(p) { Read::Prefs(m) => m, _ => panic!("{} is not a readable prefs file", p.display()) }
 }
 
 /// A prefs file that cannot be read is never replaced by the defaults.
@@ -1582,40 +1669,72 @@ mod bad_file_tests {
         let before = reads();
         let _ = Settings::load();
         assert_eq!(reads(), before, "an empty start is kept");
-        assert!(!bad_path(scope.file()).exists());
+        assert!(bad_copies(scope.file()).is_empty());
+        assert!(!unsaved_session());
     }
 
     #[test]
-    fn a_corrupt_file_is_kept_as_bad_before_a_save_replaces_it() {
+    fn each_damaged_file_is_kept_before_a_save_replaces_it() {
         let scope = CacheScope::new();
-        let bad = bad_path(scope.file());
         std::fs::write(scope.file(), "{\"theme\": \"dark\"").unwrap();
         assert!(Settings::load().prefs.is_empty(), "the session starts from the defaults");
-        assert_eq!(std::fs::read_to_string(&bad).unwrap(), "{\"theme\": \"dark\"");
+        let copies = bad_copies(scope.file());
+        assert_eq!(copies.len(), 1);
+        assert_eq!(std::fs::read_to_string(&copies[0]).unwrap(), "{\"theme\": \"dark\"");
         let before = reads();
         let _ = Settings::load();
         assert_eq!(reads(), before, "and keeps them: reading the same file again gives the same");
+        assert!(!unsaved_session(), "a damaged file that was kept may be saved over");
         Settings::load().remember("density", json!("compact"));
-        assert_eq!(read_file(scope.file()).unwrap()["density"], "compact");
-        assert_eq!(std::fs::read_to_string(&bad).unwrap(), "{\"theme\": \"dark\"", "the copy is untouched");
-        // a later bad file never replaces the first copy
+        assert_eq!(file_prefs(scope.file())["density"], "compact");
+        assert_eq!(std::fs::read_to_string(&copies[0]).unwrap(), "{\"theme\": \"dark\"", "the copy is untouched");
+        // a later damaged file gets a copy of its own (also within the same second)
         std::fs::write(scope.file(), "[1, 2]").unwrap();
-        assert_eq!(read_file(scope.file()), Some(Map::new()));
-        assert_eq!(std::fs::read_to_string(&bad).unwrap(), "{\"theme\": \"dark\"");
+        assert!(matches!(read_file(scope.file()), Read::Damaged));
+        let copies = bad_copies(scope.file());
+        assert_eq!(copies.len(), 2);
+        let texts: Vec<String> = copies.iter().map(|c| std::fs::read_to_string(c).unwrap()).collect();
+        assert!(texts.contains(&"{\"theme\": \"dark\"".to_string()) && texts.contains(&"[1, 2]".to_string()), "{texts:?}");
     }
 
     #[test]
-    fn an_unreadable_file_is_tried_again() {
+    fn an_unreadable_file_at_the_start_is_never_written() {
         let scope = CacheScope::new();
         // a folder where the file should be: reading it fails with something other than NotFound
         std::fs::create_dir_all(scope.file()).unwrap();
         let before = reads();
         assert!(Settings::load().prefs.is_empty());
-        assert!(Settings::load().prefs.is_empty());
-        assert_eq!(reads(), before + 2, "nothing was kept, each load tries again");
+        assert_eq!(reads(), before + READ_TRIES, "tried a few times at the start");
+        assert!(unsaved_session());
+        // the session goes on from the defaults, in memory only, and never reads again
+        Settings::load().remember("theme", json!("light"));
+        assert_eq!(str_pref("theme", ""), "light");
+        assert_eq!(reads(), before + READ_TRIES);
         std::fs::remove_dir(scope.file()).unwrap();
-        std::fs::write(scope.file(), r#"{"theme":"light"}"#).unwrap();
-        assert_eq!(Settings::load().str("theme", ""), "light");
+        Settings::load().remember("theme", json!("dark"));
+        Settings::flush();
+        assert!(!scope.file().exists(), "neither a save nor the flush wrote the file");
+        assert!(bad_copies(scope.file()).is_empty());
+    }
+
+    /// The real case: another program holds the file open (no sharing) while the session starts.
+    #[cfg(windows)]
+    #[test]
+    fn a_file_locked_at_the_start_keeps_its_content() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let scope = CacheScope::new();
+        let original = r#"{"theme":"dark","density":"compact"}"#;
+        std::fs::write(scope.file(), original).unwrap();
+        let held = std::fs::OpenOptions::new().read(true).share_mode(0).open(scope.file()).unwrap();
+        assert!(Settings::load().prefs.is_empty());
+        assert!(unsaved_session());
+        Settings::load().remember("theme", json!("light"));
+        drop(held); // the other program lets go: the file is readable again
+        Settings::load().remember("density", json!("regular"));
+        Settings::flush();
+        assert_eq!(std::fs::read_to_string(scope.file()).unwrap(), original, "the real settings are still there");
+        assert_eq!(str_pref("theme", ""), "light", "the session keeps its changes in memory");
+        assert!(bad_copies(scope.file()).is_empty());
     }
 
     #[test]
@@ -1626,12 +1745,28 @@ mod bad_file_tests {
         write_file(scope.file(), &m).unwrap();
         m.insert("a".into(), json!(2));
         write_file(scope.file(), &m).unwrap();
-        assert_eq!(read_file(scope.file()).unwrap()["a"], 2);
+        assert_eq!(file_prefs(scope.file())["a"], 2);
         let name = scope.file().file_name().unwrap().to_string_lossy().to_string();
         let left: Vec<String> = std::fs::read_dir(scope.file().parent().unwrap()).unwrap().flatten()
             .map(|e| e.file_name().to_string_lossy().to_string())
             .filter(|n| n.starts_with(&name) && n.ends_with(".tmp")).collect();
         assert!(left.is_empty(), "{left:?}");
+    }
+
+    #[test]
+    fn the_first_read_removes_temporary_files_of_earlier_runs() {
+        let scope = CacheScope::new();
+        let dir = scope.file().parent().unwrap().to_path_buf();
+        let name = scope.file().file_name().unwrap().to_string_lossy().to_string();
+        let other = dir.join(format!("{name}.{}-7.tmp", std::process::id().wrapping_add(1)));
+        let mine = dir.join(format!("{name}.{}-7.tmp", std::process::id()));
+        let unrelated = dir.join(format!("{name}.notes.tmp"));
+        for f in [&other, &mine, &unrelated] { std::fs::write(f, "{}").unwrap(); }
+        let _ = Settings::load();
+        assert!(!other.exists(), "another run's leftover goes");
+        assert!(mine.exists(), "this run's may be in use");
+        assert!(unrelated.exists(), "a name that is not ours stays");
+        for f in [&mine, &unrelated] { let _ = std::fs::remove_file(f); }
     }
 
     #[test]

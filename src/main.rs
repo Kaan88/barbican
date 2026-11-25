@@ -1530,6 +1530,17 @@ fn main() -> Result<(), slint::PlatformError> {
 
     let prefs = Arc::new(Mutex::new(settings::Settings::load()));
     settings::register_live(prefs.clone());
+    if settings::unsaved_session() {
+        // prefs.json could not be read (another program held it): this session runs on the
+        // defaults and never writes the file, so the real settings are there next time
+        eprintln!("barbican: the settings file could not be read; settings changes will not be saved this session");
+        let w = ui.as_weak();
+        slint::Timer::single_shot(std::time::Duration::from_secs(2), move || {
+            if let Some(u) = w.upgrade() {
+                mail::show_toast(&u, "Your settings could not be read, so the defaults are in use. Changes you make now will not be saved; restart Barbican to load your settings.", false);
+            }
+        });
+    }
     {
         // settings pulled from the account: redraw what they shape
         let w = ui.as_weak();
