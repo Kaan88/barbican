@@ -290,14 +290,16 @@ fn is_rejection(e: &str) -> bool {
 /// stored token below still covers a rotation by someone else).
 struct RefreshLock(std::fs::File);
 impl RefreshLock {
-    fn acquire() -> Option<RefreshLock> {
+    fn acquire() -> Option<RefreshLock> { RefreshLock::acquire_within(Duration::from_secs(15)) }
+    /// The lock, waiting at most `wait` for another Barbican holding it.
+    fn acquire_within(wait: Duration) -> Option<RefreshLock> {
         let dir = crate::config_dir();
         let _ = std::fs::create_dir_all(&dir);
         let f = std::fs::OpenOptions::new().write(true).create(true).truncate(false).open(dir.join("oauth-refresh.lock")).ok()?;
         let start = Instant::now();
         loop {
             if f.try_lock().is_ok() { return Some(RefreshLock(f)); }
-            if start.elapsed() > Duration::from_secs(15) { return None; }
+            if start.elapsed() > wait { return None; }
             std::thread::sleep(Duration::from_millis(100));
         }
     }
@@ -628,14 +630,38 @@ const RETIRED_LOCK_MARKER: &str = "appLock";
 const RETIRED_MARKED_KEYS: [&str; 2] = ["stalwart-admin-key", "ai-api-key"];
 /// The app lock's own entry: the PIN's salted hash, the count of wrong tries and its options.
 pub const RETIRED_LOCK_ENTRY: &str = "applock";
+/// Written to the profile's config folder once everything the app lock kept is gone: later
+/// starts skip the clean-up.
+pub const APP_LOCK_RETIRED_FILE: &str = "app-lock-retired";
+/// The app lock's own file in the config folder (it serialised the PIN checks).
+const RETIRED_LOCK_FILE: &str = "applock.lock";
+/// How long a start waits for another Barbican holding the refresh lock: busy means "next start".
+const RETIRE_LOCK_WAIT: Duration = Duration::from_millis(300);
 
-/// Take away what the removed app lock kept in the profile's secret store: its own entry, and
-/// the marker it put on the session, the account list and the kept keys. Everything else in
-/// those entries stays as it is; an entry without a marker is not written. A user who had the
-/// lock on simply gets no lock. False when an entry that needed it could not be written (the
-/// next start tries again; a marker left behind is ignored meanwhile).
-pub fn retire_app_lock_in(b: &dyn crate::secrets::Backend, profile: &str) -> bool {
-    if b.read(&crate::secrets::target(profile, RETIRED_LOCK_ENTRY)).is_some() { crate::secrets::forget(b, profile, RETIRED_LOCK_ENTRY); }
+/// What a start's clean-up of the app lock did.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Retire {
+    /// Done before (the marker file is there): nothing was looked at.
+    AlreadyDone,
+    /// Everything is gone now, and the marker file was written.
+    Done,
+    /// Not finished (a write failed, the refresh lock was busy, or the marker file could not be
+    /// written): the next start tries again.
+    Later,
+}
+
+/// Take away what the removed app lock kept, once per profile: first the marker it put on the
+/// session, the account list and the kept keys (everything else in those entries stays; an entry
+/// without a marker is not written), and only when every one of those writes worked, its own
+/// entry in the secret store (unconditionally, so an entry that does not read as text goes too)
+/// and its lock file. Then `dir` gets [`APP_LOCK_RETIRED_FILE`].
+///
+/// The order matters: a marker left with the entry gone would keep an older build that still has
+/// the lock locked for good, while an entry left with the markers gone only asks that build for
+/// the PIN that opens it. A user who had the lock on simply gets no lock. The caller holds the
+/// [`RefreshLock`].
+pub fn retire_app_lock_in(b: &dyn crate::secrets::Backend, profile: &str, dir: &std::path::Path) -> Retire {
+    if dir.join(APP_LOCK_RETIRED_FILE).exists() { return Retire::AlreadyDone; }
     let strip = |v: &mut Value| v.as_object_mut().is_some_and(|o| o.remove(RETIRED_LOCK_MARKER).is_some());
     let mut ok = true;
     let mut all = accounts_in(b, profile);
@@ -649,13 +675,22 @@ pub fn retire_app_lock_in(b: &dyn crate::secrets::Backend, profile: &str) -> boo
             if strip(&mut v) { ok &= put_in(b, profile, name, &v.to_string()); }
         }
     }
-    ok
+    if !ok { return Retire::Later; }
+    crate::secrets::forget(b, profile, RETIRED_LOCK_ENTRY);
+    let _ = std::fs::remove_file(dir.join(RETIRED_LOCK_FILE));
+    let _ = std::fs::create_dir_all(dir);
+    if std::fs::write(dir.join(APP_LOCK_RETIRED_FILE), b"").is_err() { return Retire::Later; }
+    Retire::Done
 }
 
-/// [`retire_app_lock_in`] on the real store, under the refresh lock.
-pub fn retire_app_lock() -> bool {
-    let _lock = RefreshLock::acquire();
-    retire_app_lock_in(crate::secrets::store(), crate::profile::current())
+/// [`retire_app_lock_in`] on the real store and this profile's config folder, under the refresh
+/// lock. A start never waits long for it: when another Barbican holds the lock, the clean-up is
+/// left to the next start.
+pub fn retire_app_lock() -> Retire {
+    let dir = crate::config_dir();
+    if dir.join(APP_LOCK_RETIRED_FILE).exists() { return Retire::AlreadyDone; }
+    let Some(_lock) = RefreshLock::acquire_within(RETIRE_LOCK_WAIT) else { return Retire::Later };
+    retire_app_lock_in(crate::secrets::store(), crate::profile::current(), &dir)
 }
 
 /// The stored session, told apart: nothing stored, something stored that cannot be read, or the
@@ -1244,18 +1279,35 @@ mod tests {
         assert!(crate::jmap::auth_rejected(&err), "{err}");
     }
 
-    #[test]
-    fn what_the_removed_app_lock_kept_is_taken_away() {
+    /// A fresh config folder of its own for one retire test.
+    fn retire_dir(name: &str) -> std::path::PathBuf {
+        let d = std::env::temp_dir().join(format!("barbican-retire-test-{}-{name}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    /// A store as the app lock left it: its entry, and its marker on every sign-in and kept key.
+    fn locked_store() -> Fake {
         let b = Fake::default();
-        // a store as the app lock left it: its entry, and its marker on every sign-in and kept key
         let ann = json!({"kind": "password", "server": HOST, "user": "ann@example.test", "pass": "pw", "appLock": "f1"});
         assert!(crate::secrets::save(&b, P, "session", &ann.to_string()));
         assert!(crate::secrets::save(&b, P, "accounts", &json!([ann, {"kind": "password", "server": HOST, "user": "bob@example.test", "pass": "pw"}]).to_string()));
         assert!(crate::secrets::save(&b, P, "ai-api-key", &json!({"key": "sk-test", "appLock": "f1"}).to_string()));
         assert!(crate::secrets::save(&b, P, "stalwart-admin-key", &json!({"key": "adm", "base": HOST, "account": "a", "appLock": "f1"}).to_string()));
         assert!(crate::secrets::save(&b, P, RETIRED_LOCK_ENTRY, r#"{"salt":"x","hash":"y","failures":0}"#));
-        assert!(retire_app_lock_in(&b, P));
+        b
+    }
+
+    #[test]
+    fn what_the_removed_app_lock_kept_is_taken_away_once() {
+        let b = locked_store();
+        let dir = retire_dir("once");
+        std::fs::write(dir.join(RETIRED_LOCK_FILE), b"").unwrap();
+        assert_eq!(retire_app_lock_in(&b, P, &dir), Retire::Done);
         assert_eq!(crate::secrets::load(&b, P, RETIRED_LOCK_ENTRY), None);
+        assert!(!dir.join(RETIRED_LOCK_FILE).exists());
+        assert!(dir.join(APP_LOCK_RETIRED_FILE).exists());
         // the rest of every entry stays as it was
         let s = remembered_in(&b, P).unwrap();
         assert_eq!((s.get("appLock"), s["user"].as_str(), s["pass"].as_str()), (None, Some("ann@example.test"), Some("pw")));
@@ -1266,20 +1318,54 @@ mod tests {
         assert_eq!(ai, json!({"key": "sk-test"}));
         let admin: Value = serde_json::from_str(&crate::secrets::load(&b, P, "stalwart-admin-key").unwrap()).unwrap();
         assert_eq!(admin, json!({"key": "adm", "base": HOST, "account": "a"}));
-        // nothing left: nothing is written (a store that refuses writes is never asked)
+        // done once: a later start looks at nothing, whatever the store holds
+        assert!(crate::secrets::save(&b, P, RETIRED_LOCK_ENTRY, "{}"));
+        assert_eq!(retire_app_lock_in(&b, P, &dir), Retire::AlreadyDone);
+        assert_eq!(crate::secrets::load(&b, P, RETIRED_LOCK_ENTRY).as_deref(), Some("{}"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_half_finished_retire_keeps_the_lock_entry_and_tries_again() {
+        let b = locked_store();
+        let dir = retire_dir("half");
+        // the markers can't be taken away: the lock's entry stays (an older build can still be
+        // opened with its PIN), and no marker file says it is done
         b.fail_writes.set(true);
-        assert!(retire_app_lock_in(&b, P));
-        // an older bare AI key is no JSON object and stays as it is
+        assert_eq!(retire_app_lock_in(&b, P, &dir), Retire::Later);
+        assert!(crate::secrets::load(&b, P, RETIRED_LOCK_ENTRY).is_some());
+        assert!(remembered_in(&b, P).unwrap().get("appLock").is_some());
+        assert!(!dir.join(APP_LOCK_RETIRED_FILE).exists());
+        // the next start finishes it
         b.fail_writes.set(false);
-        assert!(crate::secrets::save(&b, P, "ai-api-key", "sk-bare"));
-        assert!(retire_app_lock_in(&b, P));
-        assert_eq!(crate::secrets::load(&b, P, "ai-api-key").as_deref(), Some("sk-bare"));
-        // a marker that cannot be taken away is reported, and taken the next time
-        assert!(crate::secrets::save(&b, P, "session", &json!({"kind": "password", "server": HOST, "user": "ann@example.test", "pass": "pw", "appLock": "f1"}).to_string()));
-        b.fail_writes.set(true);
-        assert!(!retire_app_lock_in(&b, P));
-        b.fail_writes.set(false);
-        assert!(retire_app_lock_in(&b, P));
+        assert_eq!(retire_app_lock_in(&b, P, &dir), Retire::Done);
+        assert_eq!(crate::secrets::load(&b, P, RETIRED_LOCK_ENTRY), None);
         assert!(remembered_in(&b, P).unwrap().get("appLock").is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn retire_removes_an_entry_that_does_not_read_and_keeps_a_bare_key() {
+        use crate::secrets::Backend;
+        /// The lock's entry is there but reads as nothing (not text, say): only a remove reaches it.
+        struct Unreadable(Fake);
+        impl crate::secrets::Backend for Unreadable {
+            fn read(&self, t: &str) -> Option<String> { if t.ends_with("/applock") { None } else { self.0.read(t) } }
+            fn write(&self, t: &str, v: &str) -> bool { self.0.write(t, v) }
+            fn remove(&self, t: &str) { self.0.remove(t) }
+            fn read_legacy(&self, n: &str) -> Option<String> { self.0.read_legacy(n) }
+            fn remove_legacy(&self, n: &str) { self.0.remove_legacy(n) }
+        }
+        let b = Unreadable(Fake::default());
+        assert!(crate::secrets::save(&b.0, P, RETIRED_LOCK_ENTRY, "x"));
+        // an older bare AI key is no JSON object and stays as it is
+        assert!(crate::secrets::save(&b.0, P, "ai-api-key", "sk-bare"));
+        let dir = retire_dir("unreadable");
+        // nothing carries a marker: nothing is written, so a store that refuses writes is fine
+        b.0.fail_writes.set(true);
+        assert_eq!(retire_app_lock_in(&b, P, &dir), Retire::Done);
+        assert!(b.0.new.borrow().get(&crate::secrets::target(P, RETIRED_LOCK_ENTRY)).is_none());
+        assert_eq!(crate::secrets::load(&b.0, P, "ai-api-key").as_deref(), Some("sk-bare"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

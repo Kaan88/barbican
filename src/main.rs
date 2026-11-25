@@ -1190,11 +1190,11 @@ fn main() -> Result<(), slint::PlatformError> {
     // while another Barbican of this profile runs: its mail view may have that profile open
     // (every path swept is this profile's own, so another profile running does not matter)
     if first_of_profile { signout::sweep_pending(); }
-    // the app lock is gone: what it kept (its PIN entry in the profile's secret store, the marker
-    // it put on the sign-ins and kept keys, its lock file) goes, and a lock that was on is simply off
-    if first_of_profile {
-        if !oauth::retire_app_lock() { eprintln!("app lock: what it kept could not all be removed; tried again at the next start"); }
-        let _ = std::fs::remove_file(config_dir().join("applock.lock"));
+    // the app lock is gone: what it kept (the marker it put on the sign-ins and kept keys, then its
+    // PIN entry in the profile's secret store and its lock file) goes once, and a lock that was on
+    // is simply off. Never a long wait: a busy store or lock leaves it to the next start.
+    if first_of_profile && oauth::retire_app_lock() == oauth::Retire::Later {
+        eprintln!("app lock: what it kept could not all be removed yet; tried again at the next start");
     }
     let ui = AppWindow::new()?;
     apply_theme(&ui);
@@ -1611,6 +1611,7 @@ fn main() -> Result<(), slint::PlatformError> {
                         rows.splice(0..0, extra);
                     } else { rows = extra; }
                 }
+                if tab == "security" { rows = settings::security_or_note(rows); }
                 rows
             } else {
                 u.set_settings_title(format!("Search: {q}").into());
