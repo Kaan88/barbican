@@ -34,9 +34,79 @@ See `plugins/spam-score` for a complete Rust example (port of Bulwark's Spam Sco
 ## API v2 (design, ROADMAP Phase 5 step B1)
 
 Status: B2 is built (the manifest checks, the consent dialog and `pluginGrants`, package install and uninstall:
-`src/plugins.rs`, `src/plugin_package.rs`); the rest is design, and steps B3-B7 build it. Until B3/B4 an installed API 2
-plugin is listed and consented to but not loaded. API 1 (above) keeps loading until Barbican
+`src/plugins.rs`, `src/plugin_package.rs`), and so is B3, the core host API (`src/plugin_host.rs`, "What B3 built"
+below): an installed API 2 plugin that the user switched on is loaded, gets the host table and `init_json`, and can use
+storage, its settings, toasts, alert and confirm dialogs, `http.fetch` and the account. No message is sent to it yet:
+hooks (B4) and slots (B5) are the next steps. API 1 (above) keeps loading until Barbican
 1.0 and is dropped at 1.0 (decided; see "Decisions" below), so API 1 plugins have until then to move to v2.
+
+### What B3 built
+
+- **Loading.** Switching an installed API 2 package on (with a grant that covers it) loads its library on the plugin's
+  own host thread, within the load budget (3 s, as for API 1). The library must export `barbican_plugin_manifest`,
+  `barbican_plugin_init`, `barbican_plugin_handle` and `barbican_plugin_free`; its own manifest must agree with the
+  package's `manifest.json` (id, version, permissions, optional permissions, `httpOrigins`, hooks and slots), or it is
+  not started. Then `barbican_plugin_init(host, init_json)` runs once; an error reply, a panic or an overrun leaves the
+  plugin off (shown under "Could not load") until it is switched off and on again, and an init that returns after its
+  budget is shut down at once. `barbican_plugin_handle` is looked up but never called in this step. Switching the
+  plugin off makes every later host call answer `disabled` at once and calls `barbican_plugin_shutdown` on its host
+  thread; switching it on again loads and initialises it again (the library itself stays mapped, as for API 1). A
+  library is in use from its load until its host thread ends (after `shutdown` returned, or after a failed or late
+  `init`): a new instance of it, from the same list entry or a re-read one, waits for that within the load budget, so
+  its `init` never overlaps the old `shutdown`. Quitting the app switches every API 2 plugin off and gives their
+  `shutdown` 1 s in all.
+  `init_json.features` lists the host methods below and no hooks or slots. `init_json.accounts` is filled only with
+  `account:read`; `regional` has the locale only.
+- **The gate.** Every `host->call` is checked, in this order, and fails closed: switched off (`disabled`); more than
+  50 calls in a second (`rate_limited`; over that budget in 3 one-second windows in a row switches the plugin off for
+  the session with the same notice as 3 failed calls in a row, shuts it down, and switching it off and on does not load
+  it again until the next start); not a catalogued, non-skipped method (`unsupported`);
+  the method's catalogue permission not granted (`denied`); not built yet (`unsupported`). What counts as granted is
+  what both the manifest and the user's grant name, plus `ui:observe` and `app:lifecycle`.
+- **Methods answered:** `app.getInfo`; `plugin.getConfig`; `storage.get/set/remove/keys`; `toast.info/success/warning/error`;
+  `ui.alert` and `ui.confirm`; `http.fetch`; `user.getSelf` and `user.getAccounts`. Every other method answers
+  `unsupported` (after its permission check). `host->post` checks the envelope and answers 0 (the result is dropped
+  until B4 sends messages that can be deferred) or -1, and -3 once the plugin is off. `host->log` writes one plain
+  line of at most 300 characters to Barbican's log, 20 lines a second.
+- **Storage** is as "Consent and storage" says: per plugin and login, keys of 1-256 characters, 1 MiB per plugin per
+  login counted as the stored JSON's bytes (a set over it answers `quota` and changes nothing), in
+  `plugin-data\<id>\<hash of the login>.json`, written to a temporary file and renamed over the old one. Without a
+  signed-in login, storage answers `not_found`. Only a missing file is empty storage: one that cannot be read (locked)
+  or is not a JSON object answers `internal`, and nothing is written over it. Uninstalling removes `plugin-data\<id>\`; signing out removes the
+  login's file in every plugin's folder, and the last account's sign-out removes `plugin-data` as a whole. Profiles
+  have their own config folder, so their plugin data is already apart. The sign-out removes plugin data under the
+  storage lock, and a write checks under that lock that its login is still the signed-in one, so a write in flight
+  never puts a file back.
+- **Settings.** The manifest's `settings` are drawn under the plugin's switch in Settings > Add-ons (a boolean as a
+  switch, a select as a list, a string or number as a text field; a number outside `min..max` or half-typed keeps the
+  last good value) and kept in the `pluginSettings` pref, which never syncs, is left out of a settings export (an
+  import keeps the local values) and goes when the package is uninstalled.
+  `plugin.getConfig` (and `init_json.settings`) gives every non-secret field: the user's value when it is valid, else
+  its default. `secret` fields are not drawn or handed over yet (`secrets.*` is a later step). A change is read at the
+  next `plugin.getConfig`; the `settings` message comes with B4.
+- **Toasts and dialogs** are drawn by the host. Text is made plain (control characters become spaces; direction,
+  zero-width and other invisible characters go): a toast is one line of at most 300 characters after the plugin's
+  name, at most 5 per plugin in 10 seconds (more are `rate_limited`, not queued). `ui.alert({title, message,
+  confirmLabel})` and `ui.confirm({..., cancelLabel})` (a plain string is the message) show a native dialog: a title
+  of at most 100 characters, at most 30 lines of 500 characters (2000 in all), button labels of at most 40, and a last
+  line "This message is from the plugin <name>." that the plugin's text cannot reach. One dialog per plugin at a time
+  (`busy`), at most 3 a minute, none during `init` (the UI waits for init), at most 10 minutes of waiting.
+  `ui.prompt`, `ui.openDialog` (views, B5) and progress toasts are not built yet.
+- **`http.fetch(url, {method, headers, body | bodyBase64})`** answers `{ok, status, statusText, url, headers, bodyText,
+  bodyBase64}`. https only; no user name or password in the address; never an IP literal, in any spelling; the origin
+  must match an accepted `httpOrigins` entry as Bulwark matches it (same port; `*.example.org` covers exactly one more
+  label). The name is resolved once, within the fetch's time limit; when it is a private name (`localhost`, a single label, `.lan` and the like) or any
+  address is not public (the `src/feed_guard.rs` and `ip_is_public` ranges, IPv4 inside IPv6 included), the hop goes
+  ahead only when that exact origin, not a wildcard, was accepted as a private host (also when a wildcard entry
+  matches first). The connection goes only to the
+  checked addresses. Redirects (at most 5) are not followed by the HTTP client: each one is checked again the same way,
+  a redirect to another origin drops `Authorization`, and 303 (or 301/302 after a POST) goes on as GET without a body.
+  No system proxy, no cookie store, no Barbican sign-in or header; `Host`, `Cookie`, `Proxy-*`, `Sec-*` and the
+  connection headers a plugin sets are dropped, and `Set-Cookie` is not handed back. Request and response bodies are at
+  most 1 MiB (larger ones answer `quota`; blobs are a later step); all hops together have 120 s.
+- **`user.getSelf`** (`account:read`) answers `{accountId, email, name, login, server}`: the signed-in login, the first
+  identity's name (else the login) and the server address. `user.getAccounts` answers that one account in Bulwark's
+  shape. Never a token, password or the storage key.
 
 Bulwark 1.21.2 is the reference vocabulary, not a compatibility target. Hook, slot, host-method and permission names
 are Bulwark's, so a port rewrites the logic, not the API. Which catalogue rows v2 takes is the `barbican_status` column

@@ -402,6 +402,14 @@ pub fn identities(w: slint::Weak<AppWindow>, c: Arc<Client>) { follow(View::Iden
 static IDENTITIES: Mutex<(String, Vec<Value>)> = Mutex::new((String::new(), Vec::new()));
 static SETTINGS: OnceLock<crate::server_settings::Shared> = OnceLock::new();
 
+/// The name of the first identity that has one, for the login `owner` ([`Client::state_key`]) when its identities
+/// are the ones last read (what a plugin's `user.getSelf` calls the user, as Bulwark does).
+pub fn identity_name(owner: &str) -> Option<String> {
+    let g = IDENTITIES.lock().unwrap_or_else(|e| e.into_inner());
+    if g.0 != owner { return None; }
+    g.1.iter().filter_map(|i| i["name"].as_str()).map(str::trim).find(|n| !n.is_empty()).map(String::from)
+}
+
 /// The settings pages' cache, so an identity change reaches an open Identities page.
 pub fn set_settings_cache(srv: crate::server_settings::Shared) { let _ = SETTINGS.set(srv); }
 

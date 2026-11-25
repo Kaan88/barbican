@@ -79,7 +79,7 @@ G-077,composer-extras,Composer: message priority and classification labels,lib/m
 G-078,composer-extras,Composer: proofreading (next and previous issue; proofreadingPlugins),proofreading/,missing,,G-078 (GAPS P2-6),6,S/M
 G-079,composer-extras,Composer: link to Files,n/a,unverified,,G-079 (GAPS P2-6),6,S/M
 G-080,admin,"Admin writes: create and edit accounts, groups, lists, domains (DKIM and DNS), API keys, OAuth clients, settings editor, spam training, queue retry",admin/; Stalwart WebUI,partial,,G-080 (GAPS P3 (Admin)),7,L
-G-081,plugins,"Plugins: web plugin runtime (slots, hooks, sandbox, OAuth, secrets, settings); Rust has native DLL plugins with two hooks",lib/plugin-*.ts,partial,,G-081 (GAPS P3 (Plugins)),5,L
+G-081,plugins,"Plugins: web plugin runtime (slots, hooks, sandbox, OAuth, secrets, settings); Rust has native DLL plugins with two hooks",lib/plugin-*.ts,partial,"src/plugins.rs, src/plugin_package.rs, src/plugin_host.rs (API 2: packages, grants, core host calls B3); hooks B4, slots B5, more host calls B6 to come",G-081 (GAPS P3 (Plugins)),5,L
 G-082,offline,Offline mode and outbox,offline/; lib/offline,missing,,G-082 (GAPS P3),7,L
 G-083,files-sync,"Files sync, WebDAV and WOPI editing",files-sync/; lib/webdav,missing,,G-083 (GAPS P3),7,L
 G-084,delegation,Delegation and impersonation,settings/delegates/; impersonation/,missing,,G-084 (GAPS P3),7,M
