@@ -14,7 +14,44 @@ use std::sync::{Arc, Mutex};
 
 #[derive(Default)]
 pub struct Cache {
+    /// The account the pages are for (`Client::state_key`), set as the signed-in account changes
+    /// (see [`set_account`]).
+    pub account: String,
+    /// Whose out-of-office data the `vac*` / `fwd*` fields hold ("" none yet).
+    pub vac_account: String,
+    /// Bumped whenever the out-of-office fields are dropped, so a load or save that started before
+    /// writes nothing back.
+    pub vac_epoch: u64,
     pub vacation: Option<Value>,
+    /// What the filters script holds for the out-of-office page (audience, forwarding).
+    pub vac_filters: Option<crate::vacation::Filters>,
+    /// The account's own domains (its identities), for "internal" / "external" senders.
+    pub vac_domains: Vec<String>,
+    pub fwd_enabled: bool,
+    pub fwd_to: String,
+    pub fwd_keep: bool,
+    /// The reply as the server has it (the page's "on" includes the filters script's include).
+    pub vac_saved: Option<crate::vacation::Reply>,
+    /// What was typed last: 1 the plain text, 2 the HTML, 0 neither.
+    pub vac_src: u8,
+    /// The date fields as typed (shown as typed, saved once both read as dates).
+    pub vac_from_txt: Option<String>,
+    pub vac_to_txt: Option<String>,
+    /// The typed date is not saved yet (not a date, or the end is not after the start). A saved
+    /// one keeps its text as typed, so the field is never rewritten while the user types in it.
+    pub vac_from_pending: bool,
+    pub vac_to_pending: bool,
+    pub vac_reply_dirty: bool,
+    pub vac_forward_dirty: bool,
+    pub vac_audience_dirty: Option<Option<Value>>,
+    /// The filters script still has to follow the reply (its last write failed).
+    pub vac_sync_dirty: bool,
+    /// The forwarding address was typed and not stored yet (a save with forwarding off and
+    /// nothing stored keeps it in the field only, as Bulwark does).
+    pub fwd_typed: bool,
+    /// The last write switched the reply off on the server but the filters script still runs it
+    /// (the page shows "Still running"). Cleared by the next write of the filters part that works.
+    pub vac_off_failed: bool,
     pub scripts: Vec<Value>,
     pub script_text: String,
     pub script_status: String,
@@ -376,9 +413,27 @@ pub fn reset(cache: &Shared) {
     // the identity generation keeps counting too: a save answered after the reset, once this
     // account is claimed again, must not close or touch the new form
     let generation = g.id_gen + 1;
-    *g = Cache::default();
+    let old = std::mem::take(&mut *g);
     g.sec.epoch = epoch;
     g.id_gen = generation;
+    // the out-of-office page is kept: an edit still waiting for its debounce is written after
+    // Settings closes. It holds no secret, and [`set_account`] drops it when the account changes.
+    keep_vacation(&mut g, old);
+}
+
+fn keep_vacation(g: &mut Cache, old: Cache) {
+    g.account = old.account;
+    g.vac_account = old.vac_account;
+    g.vac_epoch = old.vac_epoch;
+    g.vacation = old.vacation;
+    g.vac_filters = old.vac_filters;
+    g.vac_domains = old.vac_domains;
+    (g.fwd_enabled, g.fwd_to, g.fwd_keep) = (old.fwd_enabled, old.fwd_to, old.fwd_keep);
+    g.vac_saved = old.vac_saved;
+    g.vac_src = old.vac_src;
+    (g.vac_from_txt, g.vac_to_txt, g.vac_from_pending, g.vac_to_pending) = (old.vac_from_txt, old.vac_to_txt, old.vac_from_pending, old.vac_to_pending);
+    (g.vac_reply_dirty, g.vac_forward_dirty, g.vac_audience_dirty) = (old.vac_reply_dirty, old.vac_forward_dirty, old.vac_audience_dirty);
+    (g.vac_sync_dirty, g.fwd_typed, g.vac_off_failed) = (old.vac_sync_dirty, old.fwd_typed, old.vac_off_failed);
 }
 
 fn s(v: &str) -> SharedString { SharedString::from(v) }
@@ -395,6 +450,36 @@ fn quota_rows(list: &[Value]) -> Vec<SRow> {
         r
     }).collect()
 }
+
+/// The account the pages are for from now on (`Client::state_key`, "" when signed out). Another
+/// account drops the out-of-office data held for the one before, so none of it is shown, edited
+/// or written to the new one.
+pub fn set_account(cache: &Shared, key: &str) {
+    let mut k = cache.lock().unwrap_or_else(|e| e.into_inner());
+    if k.account == key { return; }
+    k.account = key.to_string();
+    clear_vacation(&mut k);
+}
+
+fn clear_vacation(k: &mut Cache) {
+    k.vac_epoch += 1;
+    k.vac_account.clear();
+    k.vacation = None;
+    k.vac_filters = None;
+    k.vac_domains.clear();
+    (k.fwd_enabled, k.fwd_keep) = (false, false);
+    k.fwd_to.clear();
+    k.vac_saved = None;
+    k.vac_src = 0;
+    (k.vac_from_txt, k.vac_to_txt, k.vac_from_pending, k.vac_to_pending) = (None, None, false, false);
+    (k.vac_reply_dirty, k.vac_forward_dirty, k.vac_audience_dirty) = (false, false, None);
+    (k.vac_sync_dirty, k.fwd_typed, k.vac_off_failed) = (false, false, false);
+}
+
+/// The out-of-office fields are loaded and belong to the account the pages are for.
+fn vac_current(k: &Cache) -> bool { k.vacation.is_some() && !k.vac_account.is_empty() && k.vac_account == k.account }
+
+fn vac_dirty(k: &Cache) -> bool { k.vac_reply_dirty || k.vac_forward_dirty || k.vac_audience_dirty.is_some() || k.vac_sync_dirty }
 
 /// Settings > Password & sign-in's masked addresses (Bulwark masked-email-settings.tsx): hidden
 /// on an account without them. Its result is dropped when the page changed account or was reset.
@@ -429,15 +514,66 @@ fn load_masked(c: &Client, cache: &Shared) {
 
 /// Fetch what a page needs. Runs on a background thread.
 pub fn load(tab: &str, c: &Client, cache: &Shared) {
+    let key = c.state_key();
+    let epoch = cache.lock().unwrap_or_else(|e| e.into_inner()).vac_epoch;
     // typed passwords, codes and a secret just created are kept only while their page is open
     if tab != "security" { cache.lock().unwrap_or_else(|e| e.into_inner()).sec.forget_secrets(); }
     let res: Result<(), String> = (|| {
         match tab {
-            "vacation" => {
+            // with the account's out-of-office writes held: a write taken from the page (its waiting
+            // flags cleared) and not yet on the server would otherwise be overwritten by what the
+            // server had before it, and sent back stale with the next edit
+            "vacation" => crate::vacation::serialized(c, || -> Result<(), String> {
                 let acc = c.account_for("urn:ietf:params:jmap:vacationresponse");
                 let r = c.call(json!([["VacationResponse/get", {"accountId": acc, "ids": ["singleton"]}, "v"]]))?;
-                cache.lock().unwrap_or_else(|e| e.into_inner()).vacation = Some(r[0][1]["list"][0].clone());
-            }
+                let mut vac = r[0][1]["list"][0].clone();
+                let emails: Vec<String> = c.identities().unwrap_or_default().iter().filter_map(|i| i["email"].as_str().map(String::from)).collect();
+                let domains = crate::vacation::own_domains(&emails);
+                let filters = crate::vacation::load_filters(c);
+                // running from the filters script leaves the server's own script inactive, so the server reports "off"
+                let on = vac["isEnabled"] == true || filters.as_ref().is_some_and(|f| f.includes_vacation);
+                vac["isEnabled"] = json!(on);
+                {
+                    let mut k = cache.lock().unwrap_or_else(|e| e.into_inner());
+                    // the pages moved on to another account (or signed out) meanwhile: not its data
+                    if k.account != key || k.vac_epoch != epoch { return Ok(()); }
+                    let ours = k.vac_account == key && k.vacation.is_some();
+                    // what is typed and not written yet stays (a write still waiting, or one that failed)
+                    let mut filters = filters;
+                    if !(ours && k.vac_forward_dirty) {
+                        k.vac_forward_dirty = false;
+                        let f = filters.as_ref().and_then(|f| f.forward.as_ref());
+                        k.fwd_enabled = f.is_some_and(|f| f["enabled"] == true);
+                        k.fwd_keep = f.is_some_and(|f| f["keepCopy"] == true);
+                        // an address typed while nothing is stored stays in the field (Bulwark keeps it
+                        // too); once the server has one, the field shows that
+                        if !(ours && k.fwd_typed && f.is_none()) {
+                            k.fwd_typed = false;
+                            k.fwd_to = f.and_then(|f| f["to"].as_str()).unwrap_or("").to_string();
+                        }
+                    }
+                    if !ours { (k.vac_audience_dirty, k.vac_sync_dirty) = (None, false); }
+                    if let (Some(a), Some(f)) = (k.vac_audience_dirty.clone(), filters.as_mut()) { f.audience = a; }
+                    k.vac_filters = filters;
+                    k.vac_domains = domains;
+                    k.vac_saved = Some(reply_of(&vac, on));
+                    if !(ours && k.vac_reply_dirty) {
+                        k.vac_reply_dirty = false;
+                        k.vac_src = 0;
+                        k.vacation = Some(vac.clone());
+                    }
+                    // the date fields keep what was typed that is not a date (or not saved) yet
+                    // a saved date shows as the server has it now; one not saved yet stays as typed
+                    if !(ours && k.vac_from_pending) { (k.vac_from_txt, k.vac_from_pending) = (None, false); }
+                    if !(ours && k.vac_to_pending) { (k.vac_to_txt, k.vac_to_pending) = (None, false); }
+                    k.vac_account = key.clone();
+                }
+                // the reply may have been set in another client: bring the calendar block in line, once per run
+                if first_load(&c.key_for(&acc)) {
+                    let _ = crate::vacation::sync_block(c, &reply_of(&vac, on), crate::vacation::Trigger::Load, None);
+                }
+                Ok(())
+            })?,
             "filters" => {
                 let acc = c.account_for("urn:ietf:params:jmap:sieve");
                 let r = c.call(json!([["SieveScript/get", {"accountId": acc, "ids": null, "properties": ["id", "name", "blobId", "isActive"]}, "s"]]))?;
@@ -532,13 +668,16 @@ pub fn load(tab: &str, c: &Client, cache: &Shared) {
         Ok(())
     })();
     let mut k = cache.lock().unwrap_or_else(|e| e.into_inner());
-    // a failed load of another account's page does not speak for this one
-    if matches!(tab, "account" | "composing" | "security") && k.owner != c.state_key() { return; }
+    // a load for an account the pages are no longer for leaves their error line alone, and a
+    // failed load of another account's page does not speak for this one
+    if k.account != key { return; }
+    if matches!(tab, "account" | "composing" | "security") && k.owner != key { return; }
     k.error = res.err().unwrap_or_default();
 }
 
-/// Rows for server-backed pages; `None` for pages this module doesn't own.
-pub fn rows(tab: &str, cache: &Shared) -> Option<Vec<SRow>> {
+/// Rows for server-backed pages; `None` for pages this module doesn't own. `prefs` are the
+/// settings the caller holds: nothing here takes their lock again.
+pub fn rows(tab: &str, cache: &Shared, prefs: &crate::settings::Settings) -> Option<Vec<SRow>> {
     let k = cache.lock().unwrap_or_else(|e| e.into_inner());
     let mut out = vec![];
     if !k.error.is_empty() { out.push(row("value", "", "Could not load from the server", &k.error, "", false)); }
@@ -554,15 +693,7 @@ pub fn rows(tab: &str, cache: &Shared) -> Option<Vec<SRow>> {
             out.extend(masked.unwrap_or_default());
             return Some(out);
         }
-        "vacation" => {
-            out.push(row("section", "", "Out of office", "Sends an automatic reply to people who write to you while you are away.", "", false));
-            let Some(v) = k.vacation.as_ref() else { out.push(row("value", "", "Loading…", "", "", false)); return Some(out) };
-            out.push(row("toggle", "server.vacation.isEnabled", "Automatic reply", "On while the dates below apply (or always, without dates).", "", v["isEnabled"] == true));
-            out.push(row("text", "server.vacation.subject", "Subject", "Leave empty to reuse the original subject.", v["subject"].as_str().unwrap_or(""), false));
-            out.push(row("textarea", "server.vacation.textBody", "Message", "", v["textBody"].as_str().unwrap_or(""), false));
-            out.push(row("text", "server.vacation.fromDate", "First day", "YYYY-MM-DD, empty for no start date.", v["fromDate"].as_str().map(|d| &d[..10.min(d.len())]).unwrap_or(""), false));
-            out.push(row("text", "server.vacation.toDate", "Last day", "YYYY-MM-DD, empty for no end date.", v["toDate"].as_str().map(|d| &d[..10.min(d.len())]).unwrap_or(""), false));
-        }
+        "vacation" => return Some(vacation_rows(&k, out, crate::vacation::block_setting_in(prefs))),
         "filters" => {
             out.push(row("section", "", "Filters", "Rules the server applies to incoming mail, written in Sieve (RFC 5228).", "", false));
             let active = k.scripts.iter().find(|x| x["isActive"] == true).and_then(|x| x["name"].as_str()).unwrap_or("none");
@@ -732,25 +863,14 @@ pub fn rows(tab: &str, cache: &Shared) -> Option<Vec<SRow>> {
 
 /// Apply an edit locally (instant) and return a server write to run in the background.
 pub fn edit(key: &str, value: &Value, cache: &Shared) -> Option<Box<dyn FnOnce(&Client) -> Result<(), String> + Send>> {
+    // a device setting, through the live settings: before the cache's lock, never under it
+    if key == "server.vacation.block" { crate::settings::set_pref("vacationBlockCalendar", json!(value.as_bool().unwrap_or(true))); }
     let mut k = cache.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(field) = key.strip_prefix("server.sec.") {
         crate::security::edit(&mut k.sec, field, value);
         return None;
     }
-    if let Some(field) = key.strip_prefix("server.vacation.") {
-        let f = field.to_string();
-        let mut v = value.clone();
-        if (f == "fromDate" || f == "toDate") && v.is_string() {
-            let d = v.as_str().unwrap_or("").trim().to_string();
-            if d.is_empty() { v = Value::Null; } else if d.len() == 10 { v = json!(format!("{d}T00:00:00Z")); } else { return None; }
-        }
-        if let Some(vac) = k.vacation.as_mut() { vac[&f] = v.clone(); }
-        return Some(Box::new(move |c: &Client| {
-            let acc = c.account_for("urn:ietf:params:jmap:vacationresponse");
-            let (_, bad) = c.update("VacationResponse/set", &acc, vec![("singleton".into(), json!({ f: v }))])?;
-            if bad.is_empty() { Ok(()) } else { Err(bad.join("; ")) }
-        }));
-    }
+    if let Some(field) = key.strip_prefix("server.vacation.") { return edit_vacation(field, value, &mut k, cache.clone()); }
     match key {
         "server.nr.name" => { k.nr_name = value.as_str().unwrap_or("").into(); return None; }
         "server.nr.value" => { k.nr_value = value.as_str().unwrap_or("").into(); return None; }
@@ -1008,6 +1128,20 @@ fn identity_button(key: &str, cache: &Shared) -> Option<Option<Job>> {
 
 /// Button actions on server pages. Returns true when the page should reload from the server.
 pub fn button(key: &str, cache: &Shared) -> Option<Box<dyn FnOnce(&Client, &Shared) -> Result<(), String> + Send>> {
+    if key == "server.vacation.retry" {
+        // the filters part is written again (with whatever else waits)
+        { let mut k = cache.lock().unwrap_or_else(|e| e.into_inner()); if vac_current(&k) { k.vac_sync_dirty = true; } }
+        return Some(Box::new(|c: &Client, k: &Shared| vacation_run(c, k)));
+    }
+    if key == "server.vacation.forwardSave" {
+        let edit = apply_edit("forwardSave", &Value::Null, &mut cache.lock().unwrap_or_else(|e| e.into_inner()));
+        return match edit {
+            // what else is waiting still goes out
+            Edit::Refuse(m) => Some(Box::new(move |c: &Client, k: &Shared| refused(c, k, m))),
+            Edit::Save => Some(Box::new(|c: &Client, k: &Shared| vacation_run(c, k))),
+            Edit::Local => None,
+        };
+    }
     if let Some(job) = identity_button(key, cache) { return job; }
     if let Some(what) = key.strip_prefix("server.sec.") { return crate::security::button(&mut cache.lock().unwrap_or_else(|e| e.into_inner()).sec, what); }
     if key == "server.folder.create" {
@@ -1182,6 +1316,424 @@ pub fn button(key: &str, cache: &Shared) -> Option<Box<dyn FnOnce(&Client, &Shar
     None
 }
 
+type EditJob = Box<dyn FnOnce(&Client) -> Result<(), String> + Send>;
+
+/// The calendar block is brought in line once per run and account when the page is first loaded.
+/// `account` is `Client::key_for` (server, login, account id): short ids repeat across servers.
+fn first_load(account: &str) -> bool {
+    static SEEN: std::sync::OnceLock<Mutex<std::collections::HashSet<String>>> = std::sync::OnceLock::new();
+    SEEN.get_or_init(Default::default).lock().unwrap_or_else(|e| e.into_inner()).insert(account.to_string())
+}
+
+fn vacation_rows(k: &Cache, mut out: Vec<SRow>, block_on: bool) -> Vec<SRow> {
+    use crate::vacation as vac;
+    out.push(row("section", "", "Out of office", "Sends an automatic reply to people who write to you while you are away. Shared with Bulwark.", "", false));
+    // another account's reply is never shown (an edit would write it to this one)
+    let Some(v) = k.vacation.as_ref().filter(|_| vac_current(k)) else { out.push(row("value", "", "Loading…", "", "", false)); return out };
+    let f = k.vac_filters.clone().unwrap_or_default();
+    let tz = vac::user_tz();
+    out.push(row("toggle", "server.vacation.isEnabled", "Automatic reply", "On while the dates below apply (or always, without dates).", "", v["isEnabled"] == true));
+    if k.vac_off_failed && v["isEnabled"] != true && f.includes_vacation {
+        // switching off reached the server, but the filters script still includes its vacation
+        // script (an edit not written yet is not a failure: the script still has it until then)
+        out.push(row("button", "server.vacation.retry", "Still running", "The reply is off here, but the filters script still sends it: switching it off there did not go through. It is tried again with your next change.", "Try again", false));
+    }
+    if f.not_running {
+        out.push(row("value", "", "Not running yet", "Forwarding or reply recipients are stored, but the server's own vacation script took over. Switch the reply off and on to set it right.", "", false));
+    }
+    if f.audience_available && !k.vac_domains.is_empty() {
+        let opts = ["Everyone".to_string(), format!("Only people at {}", k.vac_domains.join(", ")), "Only people outside those domains".to_string()];
+        let opts: Vec<&str> = opts.iter().map(String::as_str).collect();
+        out.push(sel("server.vacation.audience", "Reply to", &opts, vac::audience_choice(f.audience.as_ref())));
+    }
+    let day = |key: &str, typed: &Option<String>| typed.clone().unwrap_or_else(|| v[key].as_str().map(|d| vac::show_moment(d, tz)).unwrap_or_default());
+    let note = |pending: bool, hint: &str| if pending { "Not saved yet: the end must be after the start, and both must be dates.".to_string() } else { hint.to_string() };
+    out.push(row("text", "server.vacation.fromDate", "From (optional)", &note(k.vac_from_pending, "YYYY-MM-DD, or YYYY-MM-DD HH:MM; empty for no start. Your time zone."), &day("fromDate", &k.vac_from_txt), false));
+    out.push(row("text", "server.vacation.toDate", "Until (optional)", &note(k.vac_to_pending, "YYYY-MM-DD, or YYYY-MM-DD HH:MM; empty for no end."), &day("toDate", &k.vac_to_txt), false));
+    if v["fromDate"].is_string() && v["toDate"].is_string() {
+        out.push(row("toggle", "server.vacation.block", "Block my calendar", "Keeps a busy event in your default calendar for these dates (shared with Bulwark).", "", block_on));
+    }
+    out.push(row("section", "", "Message", "", "", false));
+    out.push(row("text", "server.vacation.subject", "Subject", "Leave empty to reuse the original subject.", v["subject"].as_str().unwrap_or(""), false));
+    out.push(row("textarea", "server.vacation.textBody", "Message", "Plain text. Editing it replaces the formatted version.", v["textBody"].as_str().unwrap_or(""), false));
+    out.push(row("textarea", "server.vacation.htmlBody", "Message (HTML)", "The formatted version recipients see. Only basic formatting and http, https and mailto links are kept; the plain text is made from it.", v["htmlBody"].as_str().unwrap_or(""), false));
+    if f.forward_available {
+        out.push(row("section", "", "Forward while away", "Sends a copy of incoming mail to another address while the reply is on.", "", false));
+        out.push(row("toggle", "server.vacation.forwardEnabled", "Forward messages", "", "", k.fwd_enabled));
+        // the field differs from what the server has: say so
+        let stored = f.forward.as_ref();
+        let hint = if k.fwd_to == stored.and_then(|x| x["to"].as_str()).unwrap_or("") { "Type the address, then press Save forwarding." }
+            else if stored.is_none() && !k.fwd_enabled { "Not stored yet: it is saved when you switch forwarding on." }
+            else { "Not saved yet: press Save forwarding." };
+        out.push(row("text", "server.vacation.forwardTo", "Forward to", hint, &k.fwd_to, false));
+        out.push(row("button", "server.vacation.forwardSave", "", "", "Save forwarding", false));
+        if k.fwd_enabled {
+            out.push(row("toggle", "server.vacation.forwardKeep", "Keep in inbox", "Keep a copy here as well as forwarding it.", "", k.fwd_keep));
+        }
+    }
+    out
+}
+
+/// The reply as the calendar block reads it.
+fn reply_of(v: &Value, on: bool) -> crate::vacation::Reply {
+    crate::vacation::Reply { is_enabled: on, from: v["fromDate"].as_str().map(String::from), to: v["toDate"].as_str().map(String::from), subject: v["subject"].as_str().unwrap_or("").into() }
+}
+
+/// A forwarding address that can be saved: a valid address whose domain has a dot.
+pub fn forward_usable(to: &str) -> bool {
+    crate::sieve::valid_forward(&json!({"enabled": true, "to": to, "keepCopy": false})) && to.rsplit_once('@').is_some_and(|(_, d)| d.contains('.'))
+}
+
+/// What the stored message parts are: `(textBody, htmlBody)` as a save sends them. `src` is what
+/// was typed last (1 the plain text, 2 the HTML, 0 neither).
+fn body_parts(cur: &Value, src: u8) -> (String, Option<String>) {
+    use crate::vacation as vac;
+    let (text, html) = (cur["textBody"].as_str().unwrap_or(""), cur["htmlBody"].as_str().filter(|h| !h.trim().is_empty()));
+    match src {
+        1 => vac::parts_from_text(text),
+        2 => match html { Some(h) => { let (t, h) = vac::parts_from_html(h); (t, h) } None => (text.to_string(), None) },
+        _ => (text.to_string(), html.map(String::from)),
+    }
+}
+
+/// The result of an edit on the page.
+#[derive(Debug, PartialEq)]
+pub enum Edit {
+    /// Kept in the cache only (typing that is not complete, or waiting for a Save).
+    Local,
+    /// Nothing is stored and the page goes back to what the server has.
+    Refuse(String),
+    /// The cache changed: write it.
+    Save,
+}
+
+/// Apply one edit of the out-of-office page to the cache. Nothing here talks to the server: the
+/// cache holds everything typed, and one write sends all of it (see [`take_run_plan`]).
+pub fn apply_edit(field: &str, value: &Value, k: &mut Cache) -> Edit { apply_edit_in(field, value, k, crate::vacation::user_tz()) }
+
+/// [`apply_edit`] with the dates read in `tz`.
+fn apply_edit_in(field: &str, value: &Value, k: &mut Cache, tz: chrono_tz::Tz) -> Edit {
+    use crate::vacation as vac;
+    // not loaded, or another account's: nothing to edit
+    if !vac_current(k) { return Edit::Local; }
+    let Some(mut cur) = k.vacation.clone() else { return Edit::Local };
+    let shown_on = cur["isEnabled"] == true;
+    let text = value.as_str().unwrap_or("").to_string();
+    let mut src = k.vac_src;
+    match field {
+        "isEnabled" => {
+            let on = value.as_bool().unwrap_or(false);
+            let (t, h) = body_parts(&cur, src);
+            if let Err(e) = vac::check_message(on, cur["subject"].as_str().unwrap_or(""), &t, h.as_deref()) { return Edit::Refuse(e); }
+            cur["isEnabled"] = json!(on);
+        }
+        "subject" => {
+            if let Err(e) = vac::check_message(false, &text, "", None) { return Edit::Refuse(e); }
+            cur["subject"] = json!(text);
+        }
+        "textBody" => {
+            let (t, h) = vac::parts_from_text(&text);
+            if let Err(e) = vac::check_message(shown_on, "", &t, h.as_deref()) { return Edit::Refuse(e); }
+            cur["textBody"] = json!(text);
+            cur["htmlBody"] = json!(h);
+            src = 1;
+        }
+        "htmlBody" => {
+            if text.trim().is_empty() {
+                // the plain text alone is the message now: no HTML made from it again
+                cur["htmlBody"] = Value::Null;
+                src = 0;
+            } else {
+                let (t, h) = vac::parts_from_html(&text);
+                if let Err(e) = vac::check_message(shown_on, "", &t, h.as_deref()) { return Edit::Refuse(e); }
+                cur["textBody"] = json!(t);
+                cur["htmlBody"] = json!(text);
+                src = 2;
+            }
+        }
+        "fromDate" | "toDate" => {
+            let other_typed = if field == "fromDate" { k.vac_to_pending } else { k.vac_from_pending };
+            if field == "fromDate" { (k.vac_from_txt, k.vac_from_pending) = (Some(text), true); } else { (k.vac_to_txt, k.vac_to_pending) = (Some(text), true); }
+            // a field that was not typed in keeps its stored instant: its text can name two moments
+            // (02:30 twice when the clocks go back), and reading it again could move it by an hour
+            let moment = |typed: &Option<String>, key: &str| match (typed, cur[key].as_str()) {
+                (Some(t), _) => vac::parse_moment_dt(t, tz),
+                (None, None) => Ok(None),
+                (None, Some(d)) => vac::moment_instant(d).map(|x| Ok(Some(x))).unwrap_or_else(|| vac::parse_moment_dt(&vac::show_moment(d, tz), tz)),
+            };
+            // text that is not a date yet stays in the field and is not saved
+            let pending = |t: &Option<String>, p: bool| if p { t.clone() } else { None };
+            let (Ok(f), Ok(t)) = (moment(&pending(&k.vac_from_txt, k.vac_from_pending), "fromDate"), moment(&pending(&k.vac_to_txt, k.vac_to_pending), "toDate")) else { return Edit::Local };
+            if let (Some(f), Some(t)) = (f, t) {
+                if t <= f {
+                    // both typed: refused, and the page goes back to what is stored. Only this one typed:
+                    // it waits (marked "not saved yet") until the other date is set to match
+                    if other_typed {
+                        (k.vac_from_txt, k.vac_to_txt, k.vac_from_pending, k.vac_to_pending) = (None, None, false, false);
+                        return Edit::Refuse("The end must be after the start.".into());
+                    }
+                    return Edit::Local;
+                }
+            }
+            let iso = |d: Option<chrono::DateTime<chrono::Utc>>| d.map(|d| json!(d.format("%Y-%m-%dT%H:%M:%S.000Z").to_string())).unwrap_or(Value::Null);
+            cur["fromDate"] = iso(f);
+            cur["toDate"] = iso(t);
+            // saved: the fields show the stored dates again, and the next edit is judged on its own
+            // the texts stay as typed (the field is not rewritten under the caret: "2026-10-05 " is
+            // saved as the day, and typing goes on to the time)
+            (k.vac_from_pending, k.vac_to_pending) = (false, false);
+        }
+        "audience" => {
+            if !k.vac_filters.as_ref().is_some_and(|f| f.audience_available) || k.vac_domains.is_empty() { return Edit::Local; }
+            let a = vac::audience_for(value.as_i64().unwrap_or(0) as i32, &k.vac_domains);
+            if let Some(f) = k.vac_filters.as_mut() { f.audience = a.clone(); }
+            k.vac_audience_dirty = Some(a);
+            return Edit::Save;
+        }
+        "forwardEnabled" => {
+            let on = value.as_bool().unwrap_or(false);
+            if on && !forward_usable(&k.fwd_to) { return Edit::Refuse("Enter the address to forward to first.".into()); }
+            k.fwd_enabled = on;
+            k.vac_forward_dirty = true;
+            return Edit::Save;
+        }
+        "forwardKeep" => {
+            k.fwd_keep = value.as_bool().unwrap_or(false);
+            k.vac_forward_dirty = true;
+            return Edit::Save;
+        }
+        // the address is committed by "Save forwarding" (or by switching forwarding on), never per keystroke
+        "forwardTo" => { k.fwd_to = text.trim().to_string(); k.fwd_typed = true; return Edit::Local; }
+        "forwardSave" => {
+            if !forward_usable(&k.fwd_to) { return Edit::Refuse("That is not an address mail can be forwarded to.".into()); }
+            k.vac_forward_dirty = true;
+            return Edit::Save;
+        }
+        _ => return Edit::Local,
+    }
+    k.vacation = Some(cur);
+    k.vac_src = src;
+    k.vac_reply_dirty = true;
+    Edit::Save
+}
+
+/// Everything a write sends, taken from the cache when the write runs.
+#[derive(Debug)]
+pub struct RunPlan {
+    pub reply_dirty: bool,
+    /// The forwarding could not go out (no usable address): it waits, the rest is written.
+    pub refused: Option<String>,
+    pub patch: serde_json::Map<String, Value>,
+    pub saved: crate::vacation::Reply,
+    pub after: crate::vacation::Reply,
+    pub forward: Option<Option<Value>>,
+    pub audience: Option<Option<Value>>,
+    pub touches_filters: bool,
+    pub touches_block: bool,
+}
+
+/// The one write for all that is waiting: the whole reply as typed (so a write that replaced an
+/// earlier timer loses nothing), the filters part, and whether the calendar block follows.
+/// A plan that is refused leaves everything waiting (the next edit tries again).
+pub fn take_run_plan(k: &mut Cache) -> Result<Option<RunPlan>, String> {
+    use crate::vacation as vac;
+    if !vac_dirty(k) { return Ok(None); }
+    let (reply_dirty, forward_dirty, sync_dirty) = (k.vac_reply_dirty, k.vac_forward_dirty, k.vac_sync_dirty);
+    let cur = k.vacation.clone().ok_or("The page is not loaded.")?;
+    let on = cur["isEnabled"] == true;
+    let saved = k.vac_saved.clone().unwrap_or_else(|| reply_of(&cur, false));
+    let (text, html) = body_parts(&cur, k.vac_src);
+    let subject = cur["subject"].as_str().unwrap_or("");
+    vac::check_message(on, subject, &text, html.as_deref())?;
+    let after = reply_of(&cur, on);
+    let dates_changed = !vac::same_opt_moment(saved.from.as_deref(), after.from.as_deref()) || !vac::same_opt_moment(saved.to.as_deref(), after.to.as_deref());
+    let mut patch = serde_json::Map::new();
+    if reply_dirty {
+        if on != saved.is_enabled { patch.insert("isEnabled".into(), json!(on)); }
+        patch.insert("subject".into(), json!(subject));
+        patch.insert("textBody".into(), json!(text));
+        patch.insert("htmlBody".into(), json!(html));
+        patch.insert("fromDate".into(), cur["fromDate"].clone());
+        patch.insert("toDate".into(), cur["toDate"].clone());
+    }
+    // forwarding as a save stores it: an address that is off is kept for next time if it is usable
+    let stored_forward = k.vac_filters.as_ref().is_some_and(|f| f.forward.is_some());
+    let mut refused = None;
+    let forward = if !forward_dirty { None } else if k.fwd_enabled || (forward_usable(&k.fwd_to) && stored_forward) {
+        if forward_usable(&k.fwd_to) { Some(Some(json!({"enabled": k.fwd_enabled, "to": k.fwd_to, "keepCopy": k.fwd_keep}))) }
+        else { refused = Some("Enter the address to forward to first.".to_string()); None }
+    } else { Some(None) };
+    // a half-typed address holds back the forwarding only, never the reply or the rest
+    if let Some(m) = &refused {
+        if !reply_dirty && !sync_dirty && k.vac_audience_dirty.is_none() { return Err(m.clone()); }
+    }
+    // every check passed: what is sent is no longer waiting
+    let audience = k.vac_audience_dirty.take();
+    (k.vac_reply_dirty, k.vac_forward_dirty, k.vac_sync_dirty) = (false, refused.is_some(), false);
+    // an address that goes to the server is stored from now on; one a save drops stays typed
+    if matches!(forward, Some(Some(_))) { k.fwd_typed = false; }
+    let enabled_changed = on != saved.is_enabled;
+    Ok(Some(RunPlan {
+        reply_dirty,
+        refused,
+        touches_filters: (reply_dirty && (enabled_changed || dates_changed)) || forward.is_some() || audience.is_some() || sync_dirty,
+        touches_block: reply_dirty && (enabled_changed || dates_changed || after.subject != saved.subject),
+        patch, saved, after, forward, audience,
+    }))
+}
+
+/// The out-of-office data is `key`'s and still the one a job started from.
+fn same_vacation(k: &Cache, key: &str, epoch: u64) -> bool { k.vac_epoch == epoch && vac_current(k) && k.vac_account == key }
+
+pub const OTHER_ACCOUNT: &str = "The account changed before the out-of-office change was written; nothing was sent.";
+
+/// Write what is waiting in the cache: the reply, its filters part, the calendar block. Only to
+/// the account the waiting data is of.
+pub fn vacation_run(c: &Client, shared: &Shared) -> Result<(), String> {
+    use crate::vacation as vac;
+    vac::serialized(c, || {
+        let key = c.state_key();
+        let (plan, epoch) = {
+            let mut k = shared.lock().unwrap_or_else(|e| e.into_inner());
+            let epoch = k.vac_epoch;
+            if !same_vacation(&k, &key, epoch) {
+                // the page is still loading for `c`: nothing typed yet. Otherwise it holds another
+                // account's data, and nothing of it goes to `c`
+                return if k.account == key && k.vacation.is_none() { Ok(()) } else { Err(OTHER_ACCOUNT.into()) };
+            }
+            // a refused plan leaves what is typed waiting, and the page as it is
+            match take_run_plan(&mut k) { Ok(Some(p)) => (p, epoch), Ok(None) => return Ok(()), Err(e) => return Err(e) }
+        };
+        if !plan.patch.is_empty() {
+            let acc = c.account_for("urn:ietf:params:jmap:vacationresponse");
+            let r = c.update("VacationResponse/set", &acc, vec![("singleton".into(), Value::Object(plan.patch.clone()))]);
+            if let Err(e) = r.and_then(|(_, bad)| if bad.is_empty() { Ok(()) } else { Err(bad.join("; ")) }) {
+                // nothing was written: all of it waits for the next try, and stays on the page
+                {
+                    let mut k = shared.lock().unwrap_or_else(|e| e.into_inner());
+                    if same_vacation(&k, &key, epoch) { wait_again(&mut k, &plan, true); }
+                }
+                load("vacation", c, shared);
+                return Err(e);
+            }
+        }
+        let mut res = Ok(());
+        if plan.touches_filters {
+            let req = vac::SyncRequest { enabled: plan.after.is_enabled, forward: plan.forward.clone(), audience: plan.audience.clone(), from: plan.after.from.as_deref(), until: plan.after.to.as_deref() };
+            res = vac::sync_filters(c, &req).map_err(|e| format!("The reply was saved, but its filters part was not: {e}"));
+        }
+        // read before the cache's lock is taken: the page never waits for the server
+        let filters = vac::load_filters(c);
+        let mut still_running = false;
+        if let Some(e) = res.as_ref().err().cloned() {
+            // switched off, and the filters script still runs the reply: the page says so
+            if !plan.after.is_enabled && filters.as_ref().is_some_and(|f| f.includes_vacation) {
+                still_running = true;
+                res = Err(format!("The reply is still being sent: switching it off in the filters script did not go through ({e}). It is tried again with your next change."));
+            }
+        }
+        {
+            let mut k = shared.lock().unwrap_or_else(|e| e.into_inner());
+            if same_vacation(&k, &key, epoch) {
+                k.vac_saved = Some(plan.after.clone());
+                // only a write of the filters part speaks for it (a failed one is written again next);
+                // a failed one whose script could not be read again keeps what was known
+                if plan.after.is_enabled || (plan.touches_filters && (filters.is_some() || res.is_ok())) { k.vac_off_failed = still_running; }
+                // the reply is on the server, its filters part is not: all of it waits to be written
+                // again as set on the page (Bulwark keeps forwarding and recipients too), and a
+                // reload keeps the page's "off" rather than showing what the script still does
+                if res.is_err() { wait_again(&mut k, &plan, true); }
+                if let Some(mut f) = filters {
+                    // a reply-recipients choice made meanwhile is still the page's
+                    if let Some(a) = k.vac_audience_dirty.clone() { f.audience = a; }
+                    k.vac_filters = Some(f);
+                }
+            }
+        }
+        if plan.touches_block {
+            let prev = Some((plan.saved.from.clone(), plan.saved.to.clone()));
+            if let Err(e) = vac::sync_block(c, &plan.after, vac::Trigger::Save, prev) { eprintln!("out-of-office calendar block: {e}"); }
+        }
+        if let Some(m) = &plan.refused { res = res.and(Err(m.clone())); }
+        res
+    })
+}
+
+/// A write that did not go through: what it took from the page waits again. `reply`: the
+/// reply itself too (it was not written).
+fn wait_again(k: &mut Cache, plan: &RunPlan, reply: bool) {
+    if reply { k.vac_reply_dirty |= plan.reply_dirty; }
+    k.vac_forward_dirty |= plan.forward.is_some();
+    if matches!(plan.forward, Some(Some(_))) { k.fwd_typed = true; }
+    if k.vac_audience_dirty.is_none() { k.vac_audience_dirty = plan.audience.clone(); }
+    k.vac_sync_dirty |= plan.touches_filters;
+}
+
+/// An edit on the out-of-office page: applied to the cache at once, written by one job that sends
+/// the whole cache.
+fn edit_vacation(field: &str, value: &Value, k: &mut Cache, shared: Shared) -> Option<EditJob> {
+    use crate::vacation as vac;
+    // every job runs the waiting write first: it replaces the debounce timer of a write still
+    // waiting (typing, then a switch within the delay), which would then never run
+    if field == "block" {
+        // the setting itself was stored by `edit`
+        if !vac_current(k) { return None; }
+        return Some(Box::new(move |c: &Client| {
+            vac::serialized(c, || {
+                let run = vacation_run(c, &shared);
+                // the reply as the server has it now (after the write above)
+                let reply = { let k = shared.lock().unwrap_or_else(|e| e.into_inner()); if vac_current(&k) && k.vac_account == c.state_key() { k.vac_saved.clone() } else { None } };
+                let Some(reply) = reply else { return run.and(Err(OTHER_ACCOUNT.into())) };
+                let prev = Some((reply.from.clone(), reply.to.clone()));
+                let block = vac::sync_block(c, &reply, vac::Trigger::Save, prev).map(|_| ());
+                run.and(block)
+            })
+        }));
+    }
+    match apply_edit(field, value, k) {
+        Edit::Local => None,
+        Edit::Refuse(m) => Some(Box::new(move |c: &Client| refused(c, &shared, m))),
+        Edit::Save => Some(Box::new(move |c: &Client| vacation_run(c, &shared))),
+    }
+}
+
+/// A refused edit: what else is waiting is written, then the refusal is the error.
+fn refused(c: &Client, shared: &Shared, m: String) -> Result<(), String> {
+    match vacation_run(c, shared) { Ok(()) => Err(m), Err(e) => Err(format!("{m} {e}")) }
+}
+
+/// Text fields whose note changes while typing (a date that does not read as one yet, an end
+/// before the start): the page is redrawn after each edit so the note shows at once.
+pub fn redraw_on_text(key: &str) -> bool { matches!(key, "server.vacation.fromDate" | "server.vacation.toDate") }
+
+/// Which waiting server write a new one replaces: the out-of-office page's edits are one write
+/// (each sends the whole page), any other key only its own earlier keystrokes.
+pub fn job_slot(key: &str) -> String {
+    if key.starts_with("server.vacation.") { "server.vacation".into() } else { key.to_string() }
+}
+
+/// The longest a waiting server write is held back while other edits keep restarting the timer.
+pub const MAX_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// The debounce delay for a new edit when the oldest waiting write has waited `waited`: never
+/// past [`MAX_WAIT`] in all.
+pub fn debounce_delay(delay: std::time::Duration, waited: std::time::Duration) -> std::time::Duration {
+    delay.min(MAX_WAIT.saturating_sub(waited))
+}
+
+/// Server writes waiting for the debounce: one per slot ([`job_slot`]), in the order they came;
+/// a new one replaces only the one of its own slot, so an edit on another page never drops it.
+pub struct PendingJobs<J> { items: Vec<(String, J)> }
+
+impl<J> Default for PendingJobs<J> { fn default() -> Self { PendingJobs { items: vec![] } } }
+
+impl<J> PendingJobs<J> {
+    pub fn put(&mut self, slot: String, job: J) {
+        match self.items.iter_mut().find(|(s, _)| *s == slot) { Some(x) => x.1 = job, None => self.items.push((slot, job)) }
+    }
+    pub fn take_all(&mut self) -> Vec<(String, J)> { std::mem::take(&mut self.items) }
+}
+
 /// Calendar/set or AddressBook/set with the account filled in; the first SetError is the error.
 pub fn collection_set(c: &Client, book: bool, mut args: Value) -> Result<(), String> {
     let (method, cap) = if book { ("AddressBook/set", "urn:ietf:params:jmap:contacts") } else { ("Calendar/set", "urn:ietf:params:jmap:calendars") };
@@ -1219,7 +1771,7 @@ mod tests {
             json!({"id": "1", "resourceType": "octets", "scope": "account", "types": ["Email"], "used": 1024 * 1024, "hardLimit": 4 * 1024 * 1024}),
             json!({"id": "2", "resourceType": "count", "scope": "account", "types": ["ContactCard"], "used": 3, "hardLimit": 10}),
         ];
-        let rows = rows("account", &cache_with(q, vec![])).expect("the account page has rows");
+        let rows = rows("account", &cache_with(q, vec![]), &crate::settings::Settings::with_prefs(Default::default())).expect("the account page has rows");
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[0].kind.as_str(), "meter");
         assert_eq!(rows[0].label.as_str(), "Storage usage");
@@ -1232,12 +1784,12 @@ mod tests {
 
     #[test]
     fn no_quota_adds_nothing_and_other_pages_never_show_it() {
-        assert!(rows("account", &cache_with(vec![], vec![])).is_none());
+        assert!(rows("account", &cache_with(vec![], vec![]), &crate::settings::Settings::with_prefs(Default::default())).is_none());
         let q = vec![json!({"resourceType": "octets", "used": 1, "hardLimit": 2})];
-        assert!(rows("composing", &cache_with(q.clone(), vec![])).is_none());
+        assert!(rows("composing", &cache_with(q.clone(), vec![]), &crate::settings::Settings::with_prefs(Default::default())).is_none());
         // with identities the storage lines come first, then the identities
         let ids = vec![json!({"id": "i1", "email": "ann@example.test", "name": "Ann"})];
-        let r = rows("account", &cache_with(q, ids)).unwrap();
+        let r = rows("account", &cache_with(q, ids), &crate::settings::Settings::with_prefs(Default::default())).unwrap();
         assert_eq!(r[0].kind.as_str(), "meter");
         assert!(r.iter().any(|x| x.label.as_str() == "Ann" && x.desc.as_str().starts_with("ann@example.test")));
     }
@@ -1260,7 +1812,7 @@ mod tests {
 
     #[test]
     fn the_identity_list_puts_the_login_first_and_guards_the_primary() {
-        let r = rows("account", &identities_page()).unwrap();
+        let r = rows("account", &identities_page(), &crate::settings::Settings::with_prefs(Default::default())).unwrap();
         let b = keys(&r);
         // the login's own address is the primary: no Set as primary, no Delete
         assert_eq!(b[0], "server.ident.edit:ann=Edit");
@@ -1276,7 +1828,7 @@ mod tests {
         let c = identities_page();
         assert!(button("server.ident.delete:alias", &c).is_some());
         assert_eq!(c.lock().unwrap_or_else(|e| e.into_inner()).confirm_delete, "ident:alias");
-        assert!(keys(&rows("account", &c).unwrap()).contains(&"server.ident.delete:alias=Click again to delete".to_string()));
+        assert!(keys(&rows("account", &c, &crate::settings::Settings::with_prefs(Default::default())).unwrap()).contains(&"server.ident.delete:alias=Click again to delete".to_string()));
     }
 
     #[test]
@@ -1290,13 +1842,13 @@ mod tests {
         assert!(button("server.ident.save", &c).is_some());
         let err = c.lock().unwrap_or_else(|e| e.into_inner()).id_form.as_ref().unwrap().error.clone();
         assert!(err.contains("valid email address") && err.contains("nope"), "{err}");
-        assert!(rows("account", &c).unwrap().iter().any(|x| x.label.as_str() == "Not saved"));
+        assert!(rows("account", &c, &crate::settings::Settings::with_prefs(Default::default())).unwrap().iter().any(|x| x.label.as_str() == "Not saved"));
         // typing clears the error; one click on another identity does not throw the input away
         edit("server.ident.f.email", &json!("new@example.test"), &c);
         assert!(c.lock().unwrap_or_else(|e| e.into_inner()).id_form.as_ref().unwrap().error.is_empty());
         button("server.ident.edit:alias", &c);
         assert!(c.lock().unwrap_or_else(|e| e.into_inner()).id_form.as_ref().unwrap().id.is_empty(), "the first click only asks");
-        assert!(keys(&rows("account", &c).unwrap()).contains(&"server.ident.edit:alias=Click again to discard what you typed".to_string()));
+        assert!(keys(&rows("account", &c, &crate::settings::Settings::with_prefs(Default::default())).unwrap()).contains(&"server.ident.edit:alias=Click again to discard what you typed".to_string()));
         button("server.ident.edit:alias", &c);
         let k = c.lock().unwrap_or_else(|e| e.into_inner());
         let x = k.id_form.as_ref().unwrap();
@@ -1316,7 +1868,7 @@ mod tests {
         edit("server.ident.f.email", &json!("other@example.test"), &c);
         assert_eq!(c.lock().unwrap_or_else(|e| e.into_inner()).id_form.as_ref().unwrap().f.email, "new@example.test");
         assert!(button("server.ident.cancel", &c).is_none() && button("server.ident.edit:alias", &c).is_none() && button("server.ident.delete:alias", &c).is_none());
-        let r = rows("account", &c).unwrap();
+        let r = rows("account", &c, &crate::settings::Settings::with_prefs(Default::default())).unwrap();
         assert!(r.iter().any(|x| x.label.as_str() == "Saving…"));
         assert!(!r.iter().any(|x| x.key.starts_with("server.ident.f.") || x.key.as_str() == "server.ident.save" || x.key.starts_with("server.ident.delete:")));
         // an answer for another account's page changes nothing here
@@ -1349,9 +1901,9 @@ mod tests {
     fn a_delete_waits_too_and_a_missing_may_delete_is_kept() {
         let c = identities_page();
         c.lock().unwrap_or_else(|e| e.into_inner()).identities.push(json!({"id": "nokey", "email": "old@example.test", "name": ""}));
-        let b = keys(&rows("account", &c).unwrap());
+        let b = keys(&rows("account", &c, &crate::settings::Settings::with_prefs(Default::default())).unwrap());
         assert!(!b.iter().any(|x| x.starts_with("server.ident.delete:nokey")), "{b:?}");
-        assert!(rows("account", &c).unwrap().iter().any(|x| x.key.as_str() == "server.ident.edit:nokey" && x.desc.as_str().contains("cannot be deleted")));
+        assert!(rows("account", &c, &crate::settings::Settings::with_prefs(Default::default())).unwrap().iter().any(|x| x.key.as_str() == "server.ident.edit:nokey" && x.desc.as_str().contains("cannot be deleted")));
         // refused before anything is sent
         c.lock().unwrap_or_else(|e| e.into_inner()).confirm_delete = "ident:nokey".into();
         assert!(button("server.ident.delete:nokey", &c).is_some());
@@ -1359,7 +1911,7 @@ mod tests {
         button("server.ident.delete:alias", &c);
         assert!(button("server.ident.delete:alias", &c).is_some());
         assert!(c.lock().unwrap_or_else(|e| e.into_inner()).id_busy);
-        assert!(rows("account", &c).unwrap().iter().any(|x| x.label.as_str() == "Deleting…"));
+        assert!(rows("account", &c, &crate::settings::Settings::with_prefs(Default::default())).unwrap().iter().any(|x| x.label.as_str() == "Deleting…"));
         let g = c.lock().unwrap_or_else(|e| e.into_inner()).id_gen;
         identity_done(&mut c.lock().unwrap_or_else(|e| e.into_inner()), "A", g, &Ok(()), false, Some("alias"));
         assert!(!c.lock().unwrap_or_else(|e| e.into_inner()).id_busy && !c.lock().unwrap_or_else(|e| e.into_inner()).id_deleting);
@@ -1367,7 +1919,7 @@ mod tests {
         button("server.ident.edit:team", &c);
         button("server.ident.delete:alias", &c);
         button("server.ident.delete:alias", &c);
-        let r = rows("account", &c).unwrap();
+        let r = rows("account", &c, &crate::settings::Settings::with_prefs(Default::default())).unwrap();
         assert!(r.iter().any(|x| x.label.as_str() == "Deleting…") && !r.iter().any(|x| x.label.as_str() == "Saving…"));
     }
 
@@ -1421,7 +1973,7 @@ mod tests {
             assert!(!k.id_busy && !k.id_deleting && !k.masked_busy && !k.masked_shown && k.masked_new_desc.is_empty());
             assert!(k.id_gen > first, "the generation keeps counting across a reset");
         }
-        assert!(rows("security", &c).is_none());
+        assert!(rows("security", &c, &crate::settings::Settings::with_prefs(Default::default())).is_none());
         // the same account again, a new form; the old save answers only now
         claim(&c, "A", "ann@example.test", "https://mail.example.test");
         button("server.ident.new", &c);
@@ -1441,7 +1993,7 @@ mod tests {
         edit("server.ident.f.html", &json!(true), &c);
         let sig = c.lock().unwrap_or_else(|e| e.into_inner()).id_form.as_ref().unwrap().f.signature.clone();
         assert!(sig.contains('<') && sig.contains("Sales"), "{sig}");
-        let r = rows("account", &c).unwrap();
+        let r = rows("account", &c, &crate::settings::Settings::with_prefs(Default::default())).unwrap();
         assert!(r.iter().any(|x| x.key.as_str() == "server.ident.f.sig" && x.label.as_str() == "Signature (HTML)"));
         assert!(r.iter().any(|x| x.label.as_str() == "Plain-text version" && x.desc.as_str().contains("Sales")));
         edit("server.ident.f.html", &json!(false), &c);
@@ -1464,8 +2016,8 @@ mod tests {
         assert_eq!((k.owner.as_str(), k.owner_key.as_str()), ("B", "bob@example.test@other.example.test"));
         drop(k);
         // nothing of A's shows for B while B's list loads
-        assert!(rows("account", &c).is_none());
-        assert!(rows("security", &c).is_none());
+        assert!(rows("account", &c, &crate::settings::Settings::with_prefs(Default::default())).is_none());
+        assert!(rows("security", &c, &crate::settings::Settings::with_prefs(Default::default())).is_none());
     }
 
     fn masked_page(n: usize) -> Shared {
@@ -1482,18 +2034,18 @@ mod tests {
     #[test]
     fn masked_addresses_page_by_ten_and_open_one_at_a_time() {
         let c = masked_page(12);
-        let r = rows("security", &c).unwrap();
+        let r = rows("security", &c, &crate::settings::Settings::with_prefs(Default::default())).unwrap();
         assert!(r.iter().any(|x| x.label.as_str() == "12 addresses"));
         assert_eq!(r.iter().filter(|x| x.key.starts_with("server.masked.open:")).count(), 10);
         assert!(r.iter().any(|x| x.key.as_str() == "server.masked.open:m0" && x.desc.as_str() == "No description · shop.example · Enabled"));
         assert!(r.iter().any(|x| x.key.as_str() == "server.masked.open:m1" && x.desc.as_str().ends_with("Disabled")));
         assert!(r.iter().any(|x| x.label.as_str() == "Page 1 of 2"));
         button("server.masked.next", &c);
-        let r = rows("security", &c).unwrap();
+        let r = rows("security", &c, &crate::settings::Settings::with_prefs(Default::default())).unwrap();
         assert_eq!(r.iter().filter(|x| x.key.starts_with("server.masked.open:")).count(), 2);
         assert!(!keys(&r).contains(&"server.masked.next=Next".to_string()));
         button("server.masked.open:m10", &c);
-        let b = keys(&rows("security", &c).unwrap());
+        let b = keys(&rows("security", &c, &crate::settings::Settings::with_prefs(Default::default())).unwrap());
         assert!(b.contains(&"server.masked.toggle:m10=Disable".to_string()) && b.contains(&"server.masked.delete:m10=Delete".to_string()));
         // an id that is not in the list just read is not touched
         assert!(button("server.masked.toggle:zzz", &c).is_some());
@@ -1501,7 +2053,7 @@ mod tests {
         // a delete asks first, then runs; one change at a time
         button("server.masked.delete:m10", &c);
         assert!(!c.lock().unwrap_or_else(|e| e.into_inner()).masked_busy);
-        assert!(keys(&rows("security", &c).unwrap()).contains(&"server.masked.delete:m10=Delete permanently".to_string()));
+        assert!(keys(&rows("security", &c, &crate::settings::Settings::with_prefs(Default::default())).unwrap()).contains(&"server.masked.delete:m10=Delete permanently".to_string()));
         assert!(button("server.masked.delete:m10", &c).is_some());
         assert!(c.lock().unwrap_or_else(|e| e.into_inner()).masked_busy);
         assert!(button("server.masked.toggle:m10", &c).is_none(), "busy: no second change");
@@ -1510,15 +2062,641 @@ mod tests {
     #[test]
     fn masked_addresses_hidden_until_the_server_has_them() {
         let c = Shared::default();
-        assert!(rows("security", &c).is_none());
+        assert!(rows("security", &c, &crate::settings::Settings::with_prefs(Default::default())).is_none());
         let c = masked_page(0);
-        let r = rows("security", &c).unwrap();
+        let r = rows("security", &c, &crate::settings::Settings::with_prefs(Default::default())).unwrap();
         assert!(r.iter().any(|x| x.label.as_str() == "No masked addresses yet."));
         assert!(keys(&r).contains(&"server.masked.create=Create masked address".to_string()));
         // a delete that could not be confirmed is not offered again before a fresh read
         let c = masked_page(1);
         { let mut k = c.lock().unwrap_or_else(|e| e.into_inner()); k.masked_needs_refresh = true; k.masked_open = "m0".into(); }
-        assert!(!keys(&rows("security", &c).unwrap()).iter().any(|x| x.starts_with("server.masked.delete:")));
+        assert!(!keys(&rows("security", &c, &crate::settings::Settings::with_prefs(Default::default())).unwrap()).iter().any(|x| x.starts_with("server.masked.delete:")));
         assert!(button("server.masked.delete:m0", &c).is_none());
+    }
+
+    #[test]
+    fn closing_settings_keeps_a_waiting_out_of_office_edit_and_an_account_change_drops_it() {
+        let mut k = vac_cache(true, "typed");
+        k.vac_reply_dirty = true;
+        k.sec.epoch = 4;
+        let shared: Shared = Arc::new(Mutex::new(k));
+        reset(&shared);
+        {
+            let k = shared.lock().unwrap();
+            assert!(k.vac_reply_dirty && vac_current(&k));
+            assert_eq!(k.vacation.as_ref().unwrap()["textBody"], "typed");
+            assert_eq!(k.sec.epoch, 5);
+        }
+        set_account(&shared, &key_of("B"));
+        let k = shared.lock().unwrap();
+        assert!(k.vacation.is_none() && !k.vac_reply_dirty);
+    }
+
+    fn vac_cache(on: bool, text: &str) -> Cache {
+        let mut k = Cache::default();
+        k.vacation = Some(json!({"isEnabled": on, "subject": "Away", "textBody": text, "htmlBody": null, "fromDate": null, "toDate": null}));
+        k.vac_saved = Some(reply_of(k.vacation.as_ref().unwrap(), on));
+        k.account = key_of("A");
+        k.vac_account = key_of("A");
+        k
+    }
+
+    /// The calls a fake server got: (method, arguments).
+    type Log = Arc<Mutex<Vec<(String, Value)>>>;
+
+    /// A client of account `acc` whose server answers from `answer` (method, arguments) and logs every call.
+    fn fake(acc: &str, log: &Log, answer: impl Fn(&str, &Value) -> Value + Send + Sync + 'static) -> Client {
+        let log = log.clone();
+        Client::fake("https://mail.example.test", acc, &["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail", "urn:ietf:params:jmap:vacationresponse"], move |calls| {
+            Ok(calls.as_array().unwrap().iter().map(|c| {
+                let m = c[0].as_str().unwrap_or("").to_string();
+                log.lock().unwrap_or_else(|e| e.into_inner()).push((m.clone(), c[1].clone()));
+                json!([m, answer(&m, &c[1]), c[2]])
+            }).collect())
+        })
+    }
+
+    /// The usual answers: the set succeeds, the get returns `server`.
+    fn server(server: Value) -> impl Fn(&str, &Value) -> Value + Send + Sync + 'static {
+        move |m, _| match m {
+            "VacationResponse/set" => json!({"updated": {"singleton": null}}),
+            "VacationResponse/get" => json!({"list": [server.clone()]}),
+            "Identity/get" => json!({"list": [{"id": "i1", "email": "ann@example.test"}]}),
+            _ => json!({}),
+        }
+    }
+
+    fn key_of(acc: &str) -> String { fake(acc, &Log::default(), |_, _| json!({})).state_key() }
+
+    fn sets(log: &Log) -> Vec<Value> { log.lock().unwrap_or_else(|e| e.into_inner()).iter().filter(|(m, _)| m == "VacationResponse/set").map(|(_, a)| a.clone()).collect() }
+
+    #[test]
+    fn the_page_reads_the_block_setting_from_the_settings_held() {
+        // refresh_settings holds the program's settings while it asks for the rows; with both dates
+        // set the page shows "Block my calendar", which once read them through the live settings
+        // (the same lock again: a hang)
+        let shared: Shared = Arc::new(Mutex::new(vac_cache(true, "x")));
+        {
+            let mut k = shared.lock().unwrap_or_else(|e| e.into_inner());
+            let v = k.vacation.as_mut().unwrap();
+            v["fromDate"] = json!("2026-10-01T00:00:00.000Z");
+            v["toDate"] = json!("2026-10-08T00:00:00.000Z");
+        }
+        let prefs = Arc::new(Mutex::new(crate::settings::Settings::with_prefs(Default::default())));
+        for on in [false, true] {
+            let mut held = prefs.lock().unwrap_or_else(|e| e.into_inner());
+            held.prefs.insert("vacationBlockCalendar".into(), json!(on));
+            let before = crate::settings::LIVE_USES.with(|n| n.get());
+            let r = rows("vacation", &shared, &held).unwrap();
+            assert_eq!(crate::settings::LIVE_USES.with(|n| n.get()), before, "the rows went through the live settings");
+            assert_eq!(r.iter().find(|r| r.key.as_str() == "server.vacation.block").map(|r| r.on), Some(on));
+        }
+    }
+
+    #[test]
+    fn another_accounts_reply_is_never_shown_edited_or_sent() {
+        let shared: Shared = Arc::new(Mutex::new(vac_cache(false, "Away until Monday")));
+        let prefs = crate::settings::Settings::with_prefs(Default::default());
+        assert!(rows("vacation", &shared, &prefs).unwrap().iter().any(|r| r.key.as_str() == "server.vacation.textBody"));
+        // switched to B: A's reply is gone at once, the page waits for B's
+        set_account(&shared, &key_of("B"));
+        let r = rows("vacation", &shared, &prefs).unwrap();
+        assert!(r.iter().any(|r| r.label.as_str() == "Loading…") && !r.iter().any(|r| r.key.as_str() == "server.vacation.textBody"));
+        assert_eq!(apply_edit("isEnabled", &json!(true), &mut shared.lock().unwrap_or_else(|e| e.into_inner())), Edit::Local);
+        // A's data back in the cache (a load that finished late) still is not B's
+        { let mut k = shared.lock().unwrap_or_else(|e| e.into_inner()); let a = vac_cache(false, "A's"); k.vacation = a.vacation; k.vac_account = key_of("A"); k.vac_reply_dirty = true; }
+        assert!(rows("vacation", &shared, &prefs).unwrap().iter().any(|r| r.label.as_str() == "Loading…"));
+        assert_eq!(apply_edit("textBody", &json!("x"), &mut shared.lock().unwrap_or_else(|e| e.into_inner())), Edit::Local);
+        // a write for B with the cache holding A's: nothing is sent
+        let log = Log::default();
+        let b = fake("B", &log, server(json!({})));
+        assert_eq!(vacation_run(&b, &shared), Err(OTHER_ACCOUNT.into()));
+        assert!(log.lock().unwrap_or_else(|e| e.into_inner()).is_empty());
+        // a write for A after the switch: nothing is sent either
+        let a = fake("A", &log, server(json!({})));
+        assert!(vacation_run(&a, &shared).is_err());
+        assert!(log.lock().unwrap_or_else(|e| e.into_inner()).is_empty());
+    }
+
+    #[test]
+    fn a_load_or_save_of_the_account_before_writes_nothing_back() {
+        let shared: Shared = Arc::new(Mutex::new(vac_cache(false, "x")));
+        // A's save is under way when the user switches to B (set_account runs while the request is out)
+        let log = Log::default();
+        let sh = shared.clone();
+        let b_key = key_of("B");
+        let a = fake("A", &log, move |m, _| {
+            if m == "VacationResponse/set" { set_account(&sh, &b_key); }
+            json!({"updated": {"singleton": null}})
+        });
+        assert_eq!(apply_edit("isEnabled", &json!(false), &mut shared.lock().unwrap_or_else(|e| e.into_inner())), Edit::Save);
+        assert_eq!(apply_edit("textBody", &json!("Back on Monday"), &mut shared.lock().unwrap_or_else(|e| e.into_inner())), Edit::Save);
+        assert!(vacation_run(&a, &shared).is_ok());
+        assert_eq!(sets(&log).len(), 1);
+        {
+            let k = shared.lock().unwrap_or_else(|e| e.into_inner());
+            assert!(k.vacation.is_none() && k.vac_saved.is_none() && k.vac_account.is_empty(), "A's save wrote into B's page");
+        }
+        // B's page loads; then A's late load finishes: B's stays
+        let b = fake("B", &Log::default(), server(json!({"isEnabled": true, "subject": "B away", "textBody": "B", "fromDate": null, "toDate": null})));
+        load("vacation", &b, &shared);
+        let a = fake("A", &Log::default(), server(json!({"isEnabled": false, "subject": "A", "textBody": "A", "fromDate": null, "toDate": null})));
+        load("vacation", &a, &shared);
+        let k = shared.lock().unwrap_or_else(|e| e.into_inner());
+        assert_eq!(k.vac_account, key_of("B"));
+        assert_eq!(k.vacation.as_ref().unwrap()["subject"], "B away");
+        assert_eq!(k.vac_saved.as_ref().map(|s| s.is_enabled), Some(true));
+    }
+
+    #[test]
+    fn the_block_switch_and_a_refusal_send_what_is_waiting_first() {
+        // typing starts a write 0.9 s later; the switch's (or a refusal's) job replaces that timer
+        for refusal in [false, true] {
+            let shared: Shared = Arc::new(Mutex::new(vac_cache(false, "")));
+            {
+                let mut k = shared.lock().unwrap_or_else(|e| e.into_inner());
+                let v = k.vacation.as_mut().unwrap();
+                v["fromDate"] = json!("2026-10-01T00:00:00.000Z");
+                v["toDate"] = json!("2026-10-08T00:00:00.000Z");
+                k.vac_saved = Some(reply_of(v, false));
+            }
+            assert!(edit_vacation("textBody", &json!("Back on Monday"), &mut shared.lock().unwrap_or_else(|e| e.into_inner()), shared.clone()).is_some());
+            let job = if refusal {
+                edit_vacation("subject", &json!("s".repeat(600)), &mut shared.lock().unwrap_or_else(|e| e.into_inner()), shared.clone())
+            } else {
+                edit_vacation("block", &json!(false), &mut shared.lock().unwrap_or_else(|e| e.into_inner()), shared.clone())
+            }.expect("a job");
+            let log = Log::default();
+            let res = job(&fake("A", &log, server(json!({}))));
+            if refusal { assert!(matches!(&res, Err(m) if m.contains("subject")), "{res:?}"); } else { assert_eq!(res, Ok(())); }
+            let s = sets(&log);
+            assert_eq!(s.len(), 1, "the typed message was not sent");
+            assert_eq!(s[0]["update"]["singleton"]["textBody"], "Back on Monday");
+            assert!(!shared.lock().unwrap_or_else(|e| e.into_inner()).vac_reply_dirty);
+        }
+    }
+
+    #[test]
+    fn a_refused_or_failed_write_keeps_what_is_typed() {
+        // forwarding switched on, then its address made unusable: the forwarding waits, the reply
+        // still goes out (a half-typed address never holds back the rest)
+        let make = || {
+            let mut k = vac_cache(false, "x");
+            k.vac_filters = Some(crate::vacation::Filters { forward_available: true, ..Default::default() });
+            k.fwd_to = "ann@example.test".into();
+            assert_eq!(apply_edit("forwardEnabled", &json!(true), &mut k), Edit::Save);
+            assert_eq!(apply_edit("textBody", &json!("Back soon"), &mut k), Edit::Save);
+            assert_eq!(apply_edit("forwardTo", &json!("ann@"), &mut k), Edit::Local);
+            k
+        };
+        let mut k = make();
+        let plan = take_run_plan(&mut k).unwrap().unwrap();
+        assert_eq!(plan.patch["textBody"], "Back soon");
+        assert!(plan.forward.is_none() && plan.refused.is_some());
+        assert!(!k.vac_reply_dirty && k.vac_forward_dirty);
+        // the forwarding alone: refused, still waiting
+        assert!(take_run_plan(&mut k).is_err());
+        assert!(k.vac_forward_dirty);
+        // vacation_run: the reply is written, the refusal is the error, nothing reloaded over it
+        let shared: Shared = Arc::new(Mutex::new(make()));
+        let log = Log::default();
+        let res = vacation_run(&fake("A", &log, server(json!({"textBody": "old"}))), &shared);
+        assert!(matches!(&res, Err(e) if e.contains("address")), "{res:?}");
+        assert_eq!(sets(&log).len(), 1);
+        assert!(!log.lock().unwrap_or_else(|e| e.into_inner()).iter().any(|(m, _)| m == "VacationResponse/get"));
+        assert_eq!(shared.lock().unwrap_or_else(|e| e.into_inner()).vacation.as_ref().unwrap()["textBody"], "Back soon");
+        assert!(shared.lock().unwrap_or_else(|e| e.into_inner()).vac_forward_dirty);
+        assert!(vacation_run(&fake("A", &log, server(json!({}))), &shared).is_err());
+        assert_eq!(sets(&log).len(), 1);
+        // the server turns the write down: the text stays on the page and waits; the reload keeps it
+        let shared: Shared = Arc::new(Mutex::new(vac_cache(false, "x")));
+        assert_eq!(apply_edit("textBody", &json!("Back soon"), &mut shared.lock().unwrap_or_else(|e| e.into_inner())), Edit::Save);
+        let log = Log::default();
+        let old = json!({"isEnabled": false, "subject": "Away", "textBody": "old", "fromDate": null, "toDate": null});
+        let refuse = move |m: &str, a: &Value| if m == "VacationResponse/set" { json!({"notUpdated": {"singleton": {"type": "invalidProperties"}}}) } else { server(old.clone())(m, a) };
+        assert!(vacation_run(&fake("A", &log, refuse), &shared).is_err());
+        assert_eq!(sets(&log).len(), 1);
+        assert!(log.lock().unwrap_or_else(|e| e.into_inner()).iter().any(|(m, _)| m == "VacationResponse/get"), "reloaded");
+        let k = shared.lock().unwrap_or_else(|e| e.into_inner());
+        assert!(k.vac_reply_dirty);
+        assert_eq!(k.vacation.as_ref().unwrap()["textBody"], "Back soon");
+        assert_eq!(k.vac_saved.as_ref().map(|s| s.subject.as_str()), Some("Away"));
+    }
+
+    #[test]
+    fn a_load_keeps_waiting_edits_and_typed_dates() {
+        let shared: Shared = Arc::new(Mutex::new(vac_cache(false, "x")));
+        {
+            let mut k = shared.lock().unwrap_or_else(|e| e.into_inner());
+            k.vac_filters = Some(crate::vacation::Filters { forward_available: true, ..Default::default() });
+            k.fwd_to = "ann@example.test".into();
+            assert_eq!(apply_edit("textBody", &json!("Back soon"), &mut k), Edit::Save);
+            assert_eq!(apply_edit("forwardSave", &Value::Null, &mut k), Edit::Save);
+            assert_eq!(apply_edit("fromDate", &json!("2026-1"), &mut k), Edit::Local);
+        }
+        load("vacation", &fake("A", &Log::default(), server(json!({"isEnabled": true, "subject": "Server", "textBody": "old", "fromDate": null, "toDate": null}))), &shared);
+        let k = shared.lock().unwrap_or_else(|e| e.into_inner());
+        assert!(k.vac_reply_dirty && k.vac_forward_dirty);
+        assert_eq!(k.vacation.as_ref().unwrap()["textBody"], "Back soon");
+        assert_eq!(k.fwd_to, "ann@example.test");
+        assert_eq!(k.vac_from_txt.as_deref(), Some("2026-1"));
+        // what the server has is what the next write is judged against
+        assert_eq!(k.vac_saved.as_ref().map(|s| (s.is_enabled, s.subject.as_str())), Some((true, "Server")));
+        drop(k);
+        // with nothing waiting the page shows the server's reply
+        { let mut k = shared.lock().unwrap_or_else(|e| e.into_inner()); k.vac_reply_dirty = false; k.vac_forward_dirty = false; }
+        load("vacation", &fake("A", &Log::default(), server(json!({"isEnabled": false, "subject": "S2", "textBody": "new", "fromDate": null, "toDate": null}))), &shared);
+        assert_eq!(shared.lock().unwrap_or_else(|e| e.into_inner()).vacation.as_ref().unwrap()["textBody"], "new");
+    }
+
+    #[test]
+    fn editing_one_date_keeps_the_other_at_its_stored_instant() {
+        // 2026-10-25 01:30Z is 02:30 CET, the second 02:30 of that night in Berlin; read again from
+        // its text it would be the first (00:30Z)
+        let berlin: chrono_tz::Tz = "Europe/Berlin".parse().unwrap();
+        let shown = crate::vacation::show_moment("2026-10-25T01:30:00.000Z", berlin);
+        assert_eq!(shown, "2026-10-25 02:30");
+        assert_eq!(crate::vacation::parse_moment(&shown, berlin).unwrap().as_deref(), Some("2026-10-25T00:30:00.000Z"));
+        let mut k = vac_cache(false, "x");
+        k.vacation.as_mut().unwrap()["fromDate"] = json!("2026-10-25T01:30:00.000Z");
+        k.vacation.as_mut().unwrap()["toDate"] = json!("2026-10-30T00:00:00.000Z");
+        assert_eq!(apply_edit_in("toDate", &json!("2026-10-31"), &mut k, berlin), Edit::Save);
+        let v = k.vacation.as_ref().unwrap();
+        assert_eq!(v["fromDate"], "2026-10-25T01:30:00.000Z");
+        assert_eq!(v["toDate"], "2026-10-30T23:00:00.000Z");
+    }
+
+    #[test]
+    fn typed_text_and_the_switch_go_out_together() {
+        // the switch's timer replaces the text's, so the one write has to carry both
+        let mut k = vac_cache(false, "");
+        assert_eq!(apply_edit("textBody", &json!("Back on Monday\n\nAnn"), &mut k), Edit::Save);
+        assert_eq!(apply_edit("isEnabled", &json!(true), &mut k), Edit::Save);
+        let plan = take_run_plan(&mut k).unwrap().unwrap();
+        assert_eq!(plan.patch["isEnabled"], true);
+        assert_eq!(plan.patch["textBody"], "Back on Monday\n\nAnn");
+        assert_eq!(plan.patch["htmlBody"], "<p>Back on Monday</p><p>Ann</p>");
+        assert!(plan.touches_filters && plan.touches_block && plan.after.is_enabled && !plan.saved.is_enabled);
+        // nothing is left waiting
+        assert!(take_run_plan(&mut k).unwrap().is_none());
+    }
+
+    #[test]
+    fn an_empty_message_cannot_be_switched_on_or_left_empty_while_on() {
+        let mut k = vac_cache(false, "");
+        assert!(matches!(apply_edit("isEnabled", &json!(true), &mut k), Edit::Refuse(m) if m.contains("message")));
+        assert_eq!(k.vacation.as_ref().unwrap()["isEnabled"], false);
+        // the page shows the reply on although the server says off (the filters include): clearing the text is refused
+        let mut k = vac_cache(true, "Away");
+        assert!(matches!(apply_edit("textBody", &json!("  "), &mut k), Edit::Refuse(_)));
+        assert_eq!(k.vacation.as_ref().unwrap()["textBody"], "Away");
+        assert!(matches!(apply_edit("subject", &json!("s".repeat(600)), &mut k), Edit::Refuse(m) if m.contains("subject")));
+    }
+
+    #[test]
+    fn html_typed_in_the_html_field_is_cleaned_and_the_text_follows() {
+        let mut k = vac_cache(false, "old");
+        assert_eq!(apply_edit("htmlBody", &json!("<p>Hi</p><script>x</script><p onclick=\"y\">there</p>"), &mut k), Edit::Save);
+        let plan = take_run_plan(&mut k).unwrap().unwrap();
+        assert_eq!(plan.patch["htmlBody"], "<p>Hi</p><p>there</p>");
+        assert_eq!(plan.patch["textBody"], "Hi\n\nthere");
+        // emptying the HTML field removes the formatted version only
+        assert_eq!(apply_edit("htmlBody", &json!(""), &mut k), Edit::Save);
+        let plan = take_run_plan(&mut k).unwrap().unwrap();
+        assert_eq!(plan.patch["htmlBody"], Value::Null);
+        assert_eq!(plan.patch["textBody"], "Hi\n\nthere");
+    }
+
+    #[test]
+    fn from_and_until_are_checked_against_each_other() {
+        let mut k = vac_cache(false, "x");
+        // not a date yet: kept in the field, nothing to save
+        assert_eq!(apply_edit("fromDate", &json!("2026-1"), &mut k), Edit::Local);
+        assert_eq!(apply_edit("fromDate", &json!("2026-10-10"), &mut k), Edit::Save);
+        // an end before the saved start waits, marked unsaved; once both are typed and still inverted the
+        // edit is refused and the typed dates are dropped (the page redraws from the cache)
+        assert_eq!(apply_edit("toDate", &json!("2026-10-05"), &mut k), Edit::Local);
+        assert!(k.vac_to_txt.is_some());
+        assert!(matches!(apply_edit("fromDate", &json!("2026-10-20"), &mut k), Edit::Refuse(m) if m.contains("after the start")));
+        assert!(k.vac_from_txt.is_none() && k.vac_to_txt.is_none());
+        assert_eq!(k.vacation.as_ref().unwrap()["toDate"], Value::Null);
+        // both typed before either was saved: judged by what is typed, not by the old stored value
+        let mut k = vac_cache(false, "x");
+        k.vacation.as_mut().unwrap()["fromDate"] = json!("2026-01-01T00:00:00.000Z");
+        k.vacation.as_mut().unwrap()["toDate"] = json!("2026-01-02T00:00:00.000Z");
+        assert_eq!(apply_edit("fromDate", &json!("2026-12-01"), &mut k), Edit::Local); // waits for the end to match
+        assert_eq!(k.vacation.as_ref().unwrap()["fromDate"], "2026-01-01T00:00:00.000Z");
+        assert_eq!(apply_edit("toDate", &json!("2026-12-10"), &mut k), Edit::Save);
+        let plan = take_run_plan(&mut k).unwrap().unwrap();
+        let (f, t) = (plan.patch["fromDate"].as_str().unwrap().to_string(), plan.patch["toDate"].as_str().unwrap().to_string());
+        assert!(f < t && f.starts_with("2026-1") && t.starts_with("2026-12"), "{f} {t}");
+        assert!(!k.vac_from_pending && !k.vac_to_pending);
+    }
+
+    #[test]
+    fn the_forward_address_is_saved_only_on_request() {
+        let mut k = vac_cache(false, "x");
+        k.vac_filters = Some(crate::vacation::Filters { forward_available: true, ..Default::default() });
+        // typing never writes, whatever the text is
+        for t in ["a", "ann@", "ann@example", "ann@example.te", "ann@example.test"] {
+            assert_eq!(apply_edit("forwardTo", &json!(t), &mut k), Edit::Local);
+            assert!(!k.vac_forward_dirty);
+        }
+        assert!(!forward_usable("ann@example") && !forward_usable("ann@") && forward_usable("ann@example.test"));
+        // switching it on with no usable address is refused
+        k.fwd_to = "ann@example".into();
+        assert!(matches!(apply_edit("forwardEnabled", &json!(true), &mut k), Edit::Refuse(_)));
+        assert!(matches!(apply_edit("forwardSave", &Value::Null, &mut k), Edit::Refuse(_)));
+        k.fwd_to = "ann@example.test".into();
+        assert_eq!(apply_edit("forwardEnabled", &json!(true), &mut k), Edit::Save);
+        assert_eq!(apply_edit("forwardKeep", &json!(true), &mut k), Edit::Save);
+        let plan = take_run_plan(&mut k).unwrap().unwrap();
+        assert_eq!(plan.forward, Some(Some(json!({"enabled": true, "to": "ann@example.test", "keepCopy": true}))));
+        assert!(plan.touches_filters && plan.patch.is_empty());
+        // forwarding that is off and was never stored is removed, not saved with an address
+        let mut k = vac_cache(false, "x");
+        k.fwd_to = "ann@example.test".into();
+        assert_eq!(apply_edit("forwardSave", &Value::Null, &mut k), Edit::Save);
+        assert_eq!(take_run_plan(&mut k).unwrap().unwrap().forward, Some(None));
+    }
+
+    #[test]
+    fn the_audience_choice_waits_for_the_write() {
+        let mut k = vac_cache(false, "x");
+        assert_eq!(apply_edit("audience", &json!(1), &mut k), Edit::Local); // not available on this server
+        k.vac_filters = Some(crate::vacation::Filters { audience_available: true, ..Default::default() });
+        k.vac_domains = vec!["example.test".into()];
+        assert_eq!(apply_edit("audience", &json!(2), &mut k), Edit::Save);
+        let plan = take_run_plan(&mut k).unwrap().unwrap();
+        assert_eq!(plan.audience, Some(Some(json!({"only": "external", "domains": ["example.test"]}))));
+        assert_eq!(apply_edit("audience", &json!(0), &mut k), Edit::Save);
+        assert_eq!(take_run_plan(&mut k).unwrap().unwrap().audience, Some(None));
+    }
+
+    fn fake_with(acc: &str, caps: &[&str], log: &Log, answer: impl Fn(&str, &Value) -> Value + Send + Sync + 'static) -> Client {
+        let log = log.clone();
+        Client::fake("https://mail.example.test", acc, caps, move |calls| {
+            Ok(calls.as_array().unwrap().iter().map(|c| {
+                let m = c[0].as_str().unwrap_or("").to_string();
+                log.lock().unwrap_or_else(|e| e.into_inner()).push((m.clone(), c[1].clone()));
+                json!([m, answer(&m, &c[1]), c[2]])
+            }).collect())
+        })
+    }
+
+    #[test]
+    fn a_reload_during_a_write_waits_for_it() {
+        // the page is reopened (a load starts) while the switch's write is out: the load must not
+        // land with the reply as it was before the write
+        let shared: Shared = Arc::new(Mutex::new(vac_cache(false, "Away")));
+        let stored = Arc::new(Mutex::new(json!({"isEnabled": false, "subject": "Away", "textBody": "Away", "htmlBody": null, "fromDate": null, "toDate": null})));
+        let (tx, rx) = std::sync::mpsc::channel::<()>();
+        let tx = Mutex::new(tx);
+        let st = stored.clone();
+        let answer = Arc::new(move |m: &str, a: &Value| -> Value {
+            match m {
+                "VacationResponse/set" => {
+                    let _ = tx.lock().unwrap_or_else(|e| e.into_inner()).send(());
+                    // the server takes its time
+                    std::thread::sleep(std::time::Duration::from_millis(300));
+                    let mut s = st.lock().unwrap_or_else(|e| e.into_inner());
+                    for (k, v) in a["update"]["singleton"].as_object().unwrap() { s[k.as_str()] = v.clone(); }
+                    json!({"updated": {"singleton": null}})
+                }
+                "VacationResponse/get" => json!({"list": [st.lock().unwrap_or_else(|e| e.into_inner()).clone()]}),
+                "Identity/get" => json!({"list": [{"id": "i1", "email": "ann@example.test"}]}),
+                _ => json!({}),
+            }
+        });
+        let log = Log::default();
+        let (a1, a2) = (answer.clone(), answer.clone());
+        let writer = fake("A", &log, move |m, a| a1(m, a));
+        let reader = fake("A", &log, move |m, a| a2(m, a));
+        assert_eq!(apply_edit("isEnabled", &json!(true), &mut shared.lock().unwrap_or_else(|e| e.into_inner())), Edit::Save);
+        let sh = shared.clone();
+        let t = std::thread::spawn(move || vacation_run(&writer, &sh));
+        rx.recv().unwrap(); // the write is out, the page's waiting flags are cleared
+        load("vacation", &reader, &shared);
+        assert_eq!(t.join().unwrap(), Ok(()));
+        let mut k = shared.lock().unwrap_or_else(|e| e.into_inner());
+        assert_eq!(k.vacation.as_ref().unwrap()["isEnabled"], true, "the reload put the reply back to off");
+        assert_eq!(k.vac_saved.as_ref().map(|s| s.is_enabled), Some(true));
+        // and the next edit does not send the old reply back
+        assert_eq!(apply_edit("subject", &json!("Out"), &mut k), Edit::Save);
+        let plan = take_run_plan(&mut k).unwrap().unwrap();
+        assert!(!plan.patch.contains_key("isEnabled"), "{:?}", plan.patch);
+        assert_eq!(stored.lock().unwrap_or_else(|e| e.into_inner())["isEnabled"], true);
+    }
+
+    #[test]
+    fn a_forward_address_saved_while_off_stays_in_the_field() {
+        // Bulwark vacation-settings.tsx: off and nothing stored, a save stores no forwarding but the
+        // field keeps the address, so switching forwarding on afterwards needs no retyping
+        let shared: Shared = Arc::new(Mutex::new(vac_cache(false, "x")));
+        {
+            let mut k = shared.lock().unwrap_or_else(|e| e.into_inner());
+            k.vac_filters = Some(crate::vacation::Filters { forward_available: true, ..Default::default() });
+            assert_eq!(apply_edit("forwardTo", &json!("ann@example.test"), &mut k), Edit::Local);
+            assert_eq!(apply_edit("forwardSave", &Value::Null, &mut k), Edit::Save);
+        }
+        let c = fake("A", &Log::default(), server(json!({"isEnabled": false, "subject": "Away", "textBody": "x", "fromDate": null, "toDate": null})));
+        assert_eq!(vacation_run(&c, &shared), Ok(()));
+        // "Save forwarding" reloads the page
+        load("vacation", &c, &shared);
+        let mut k = shared.lock().unwrap_or_else(|e| e.into_inner());
+        assert_eq!(k.fwd_to, "ann@example.test");
+        assert!(!k.fwd_enabled);
+        assert_eq!(apply_edit("forwardEnabled", &json!(true), &mut k), Edit::Save);
+        assert_eq!(take_run_plan(&mut k).unwrap().unwrap().forward, Some(Some(json!({"enabled": true, "to": "ann@example.test", "keepCopy": false}))));
+    }
+
+    #[test]
+    fn a_failed_filters_write_keeps_forwarding_waiting() {
+        // the server has Sieve without "include": the forwarding cannot be written
+        let shared: Shared = Arc::new(Mutex::new(vac_cache(false, "x")));
+        {
+            let mut k = shared.lock().unwrap_or_else(|e| e.into_inner());
+            k.vac_filters = Some(crate::vacation::Filters { forward_available: true, ..Default::default() });
+            k.fwd_to = "ann@example.test".into();
+            assert_eq!(apply_edit("forwardEnabled", &json!(true), &mut k), Edit::Save);
+        }
+        let log = Log::default();
+        let caps = ["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail", "urn:ietf:params:jmap:vacationresponse", "urn:ietf:params:jmap:sieve"];
+        let c = fake_with("A", &caps, &log, |m, _| if m == "SieveScript/get" { json!({"list": []}) } else { json!({}) });
+        let res = vacation_run(&c, &shared);
+        assert!(matches!(&res, Err(e) if e.contains("filters part")), "{res:?}");
+        // not reloaded over, and still waiting as set on the page
+        assert!(!log.lock().unwrap_or_else(|e| e.into_inner()).iter().any(|(m, _)| m == "VacationResponse/get"));
+        let mut k = shared.lock().unwrap_or_else(|e| e.into_inner());
+        assert!(k.vac_forward_dirty && k.vac_sync_dirty && k.fwd_enabled);
+        assert_eq!(k.fwd_to, "ann@example.test");
+        let plan = take_run_plan(&mut k).unwrap().unwrap();
+        assert!(plan.touches_filters);
+        assert_eq!(plan.forward, Some(Some(json!({"enabled": true, "to": "ann@example.test", "keepCopy": false}))));
+        // a reload (reopening the page) keeps what waits
+        k.vac_forward_dirty = true;
+        drop(k);
+        load("vacation", &fake("A", &Log::default(), server(json!({"isEnabled": false, "subject": "Away", "textBody": "x"}))), &shared);
+        let k = shared.lock().unwrap_or_else(|e| e.into_inner());
+        assert!(k.fwd_enabled && k.fwd_to == "ann@example.test");
+    }
+
+    #[test]
+    fn emptying_the_html_field_leaves_the_plain_text_alone() {
+        let mut k = vac_cache(false, "old");
+        assert_eq!(apply_edit("textBody", &json!("Back on Monday"), &mut k), Edit::Save);
+        assert_eq!(apply_edit("htmlBody", &json!("  "), &mut k), Edit::Save);
+        let plan = take_run_plan(&mut k).unwrap().unwrap();
+        assert_eq!(plan.patch["textBody"], "Back on Monday");
+        assert_eq!(plan.patch["htmlBody"], Value::Null);
+    }
+
+    #[test]
+    fn waiting_writes_of_different_pages_do_not_replace_each_other() {
+        assert!(redraw_on_text("server.vacation.fromDate") && redraw_on_text("server.vacation.toDate") && !redraw_on_text("server.vacation.subject"));
+        let mut p = PendingJobs::default();
+        p.put(job_slot("server.vacation.textBody"), 1);
+        p.put(job_slot("server.identity.name:i1"), 2);
+        p.put(job_slot("server.identity.replyTo:i1"), 3);
+        // the out-of-office page is one write: the switch replaces the typing (it sends all of it)
+        p.put(job_slot("server.vacation.block"), 4);
+        p.put(job_slot("server.identity.name:i1"), 5);
+        let got: Vec<(String, i32)> = p.take_all();
+        assert_eq!(got, vec![("server.vacation".into(), 4), ("server.identity.name:i1".into(), 5), ("server.identity.replyTo:i1".into(), 3)]);
+        assert!(p.take_all().is_empty());
+    }
+
+    #[test]
+    fn the_first_load_sync_is_per_server_and_login() {
+        // two servers hand out the same short account id
+        let a = Client::fake("https://one.example.test", "b", &[], |_| Ok(vec![]));
+        let b = Client::fake("https://two.example.test", "b", &[], |_| Ok(vec![]));
+        assert_ne!(a.key_for("b"), b.key_for("b"));
+        assert!(first_load(&a.key_for("b")));
+        assert!(!first_load(&a.key_for("b")));
+        assert!(first_load(&b.key_for("b")));
+    }
+
+    const SIEVE_CAPS: [&str; 4] = ["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail", "urn:ietf:params:jmap:vacationresponse", "urn:ietf:params:jmap:sieve"];
+
+    /// A server with a filters script (active) and the vacation script; downloads give `script`,
+    /// uploads fail (the fake has no upload URL), so a filters write never goes through.
+    fn sieve_server(script: String, vacation: Value) -> impl Fn(&str, &Value) -> Value + Send + Sync + 'static {
+        move |m, _| match m {
+            "SieveScript/get" => json!({"list": [{"id": "f1", "name": "filters", "blobId": "b1", "isActive": true}, {"id": "v1", "name": "vacation", "blobId": "b2", "isActive": false}]}),
+            "blob/download" => json!({"text": script}),
+            "VacationResponse/set" => json!({"updated": {"singleton": null}}),
+            "VacationResponse/get" => json!({"list": [vacation.clone()]}),
+            "Identity/get" => json!({"list": [{"id": "i1", "email": "ann@example.test"}]}),
+            _ => json!({}),
+        }
+    }
+
+    #[test]
+    fn switched_off_while_the_filters_script_still_runs_the_reply() {
+        let script = crate::sieve::generate_meta(&json!({"version": 1, "rules": [], "includeVacation": true}), "", &[]);
+        let shared: Shared = Arc::new(Mutex::new(vac_cache(true, "Away")));
+        let log = Log::default();
+        let c = fake_with("A", &SIEVE_CAPS, &log, sieve_server(script, json!({"isEnabled": false, "subject": "Away", "textBody": "Away", "fromDate": null, "toDate": null})));
+        shared.lock().unwrap().vac_filters = Some(crate::vacation::Filters { includes_vacation: true, ..Default::default() });
+        assert_eq!(apply_edit("isEnabled", &json!(false), &mut shared.lock().unwrap_or_else(|e| e.into_inner())), Edit::Save);
+        // switched off and not written yet: the script still has the include, which is no failure
+        let prefs = crate::settings::Settings::with_prefs(Default::default());
+        assert!(!rows("vacation", &shared, &prefs).unwrap().iter().any(|r| r.key.as_str() == "server.vacation.retry"));
+        let res = vacation_run(&c, &shared);
+        assert!(matches!(&res, Err(e) if e.contains("still being sent")), "{res:?}");
+        assert_eq!(sets(&log)[0]["update"]["singleton"]["isEnabled"], false);
+        {
+            let k = shared.lock().unwrap_or_else(|e| e.into_inner());
+            assert_eq!(k.vacation.as_ref().unwrap()["isEnabled"], false);
+            assert!(k.vac_filters.as_ref().is_some_and(|f| f.includes_vacation));
+            assert!(k.vac_reply_dirty && k.vac_sync_dirty, "the off waits to be written again");
+        }
+        let r = rows("vacation", &shared, &prefs).unwrap();
+        assert!(r.iter().any(|r| r.key.as_str() == "server.vacation.retry" && r.label.as_str() == "Still running"));
+        // reopening the page keeps "off" (the server's include alone would read as on); the next
+        // write sends it again with the filters part
+        load("vacation", &c, &shared);
+        let mut k = shared.lock().unwrap_or_else(|e| e.into_inner());
+        assert_eq!(k.vacation.as_ref().unwrap()["isEnabled"], false);
+        let plan = take_run_plan(&mut k).unwrap().unwrap();
+        assert_eq!(plan.patch["isEnabled"], false);
+        assert!(plan.touches_filters && !plan.after.is_enabled);
+        // "Try again" asks for that write
+        drop(k);
+        assert!(button("server.vacation.retry", &shared).is_some());
+        assert!(shared.lock().unwrap_or_else(|e| e.into_inner()).vac_sync_dirty);
+    }
+
+    #[test]
+    fn a_typed_forward_address_gives_way_to_the_stored_one() {
+        let stored = json!({"enabled": false, "to": "old@example.test", "keepCopy": false});
+        let shared: Shared = Arc::new(Mutex::new(vac_cache(false, "x")));
+        {
+            let mut k = shared.lock().unwrap_or_else(|e| e.into_inner());
+            k.vac_filters = Some(crate::vacation::Filters { forward_available: true, forward: Some(stored.clone()), ..Default::default() });
+            k.fwd_to = "old@example.test".into();
+            assert_eq!(apply_edit("forwardTo", &json!("new@exam"), &mut k), Edit::Local);
+        }
+        let prefs = crate::settings::Settings::with_prefs(Default::default());
+        let hint = |sh: &Shared| rows("vacation", sh, &prefs).unwrap().iter().find(|r| r.key.as_str() == "server.vacation.forwardTo").map(|r| r.desc.to_string());
+        assert_eq!(hint(&shared).as_deref(), Some("Not saved yet: press Save forwarding."));
+        // a reload with a forwarding stored on the server shows that one (the half-typed one is gone)
+        let script = crate::sieve::generate_meta(&json!({"version": 1, "rules": [], "vacationForward": stored}), "", &[]);
+        load("vacation", &fake_with("A", &SIEVE_CAPS, &Log::default(), sieve_server(script, json!({"isEnabled": false, "subject": "Away", "textBody": "x"}))), &shared);
+        {
+            let mut k = shared.lock().unwrap_or_else(|e| e.into_inner());
+            assert_eq!(k.fwd_to, "old@example.test");
+            assert!(!k.fwd_typed);
+            k.vac_filters.as_mut().unwrap().forward_available = true;
+        }
+        assert_eq!(hint(&shared).as_deref(), Some("Type the address, then press Save forwarding."));
+        // nothing stored, forwarding off: a typed address is kept, and marked
+        let shared: Shared = Arc::new(Mutex::new(vac_cache(false, "x")));
+        shared.lock().unwrap_or_else(|e| e.into_inner()).vac_filters = Some(crate::vacation::Filters { forward_available: true, ..Default::default() });
+        assert_eq!(apply_edit("forwardTo", &json!("ann@example.test"), &mut shared.lock().unwrap_or_else(|e| e.into_inner())), Edit::Local);
+        assert_eq!(hint(&shared).as_deref(), Some("Not stored yet: it is saved when you switch forwarding on."));
+    }
+
+    #[test]
+    fn an_event_whose_times_cannot_be_read_is_left_alone() {
+        let log = Log::default();
+        let caps = ["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail", "urn:ietf:params:jmap:calendars"];
+        let c = fake_with("A", &caps, &log, |m, _| match m {
+            "CalendarEvent/query" => json!({"ids": ["e1"]}),
+            "CalendarEvent/get" => json!({"list": [{"id": "e1", "start": "2026-10-05T00:00:00", "duration": "P99999999D", "showWithoutTime": true, "keywords": {crate::vacation::OOO_KEYWORD: true}}]}),
+            _ => json!({}),
+        });
+        let reply = crate::vacation::Reply { is_enabled: true, from: Some("2026-10-05T00:00:00.000Z".into()), to: Some("2026-10-09T00:00:00.000Z".into()), subject: "Away".into() };
+        for trigger in [crate::vacation::Trigger::Save, crate::vacation::Trigger::Load] {
+            assert_eq!(crate::vacation::sync_block(&c, &reply, trigger, None), Ok("unreadable"));
+        }
+        assert!(!log.lock().unwrap_or_else(|e| e.into_inner()).iter().any(|(m, _)| m == "CalendarEvent/set" || m == "Calendar/get"));
+    }
+
+    #[test]
+    fn typing_a_date_and_time_is_never_rewritten_under_the_caret() {
+        let berlin: chrono_tz::Tz = "Europe/Berlin".parse().unwrap();
+        let shared: Shared = Arc::new(Mutex::new(vac_cache(false, "x")));
+        let prefs = crate::settings::Settings::with_prefs(Default::default());
+        let typed = "2026-10-05 08:30";
+        for n in 1..=typed.len() {
+            let t = &typed[..n];
+            let _ = apply_edit_in("fromDate", &json!(t), &mut shared.lock().unwrap_or_else(|e| e.into_inner()), berlin);
+            let r = rows("vacation", &shared, &prefs).unwrap();
+            let field = r.iter().find(|r| r.key.as_str() == "server.vacation.fromDate").unwrap();
+            assert_eq!(field.text.as_str(), t, "the field was rewritten after {t:?}");
+        }
+        let k = shared.lock().unwrap_or_else(|e| e.into_inner());
+        assert_eq!(k.vacation.as_ref().unwrap()["fromDate"], "2026-10-05T06:30:00.000Z");
+        assert!(!k.vac_from_pending);
+    }
+
+    #[test]
+    fn typing_never_holds_waiting_writes_back_past_the_cap() {
+        use std::time::Duration as D;
+        assert_eq!(debounce_delay(D::from_millis(900), D::ZERO), D::from_millis(900));
+        assert_eq!(debounce_delay(D::from_millis(900), D::from_millis(4500)), D::from_millis(500));
+        assert_eq!(debounce_delay(D::from_millis(900), D::from_secs(7)), D::ZERO);
     }
 }

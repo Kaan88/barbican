@@ -1,6 +1,7 @@
 #![cfg_attr(not(test), windows_subsystem = "windows")]
 
 mod a11y;
+mod vacation;
 mod winstate;
 mod auth;
 mod attachments;
@@ -391,19 +392,19 @@ fn config_path() -> std::path::PathBuf {
 
 pub fn html_to_text(h: &str) -> String {
     let mut out = String::new();
-    let lower = h.to_lowercase();
     let mut i = 0;
     let b = h.as_bytes();
+    // ASCII case-insensitive on the bytes of `h` itself: lower-casing the text first can change its
+    // length (`İ`), which made the positions point into the middle of a character
+    let starts = |i: usize, pat: &str| b.get(i..i + pat.len()).is_some_and(|s| s.eq_ignore_ascii_case(pat.as_bytes()));
     while i < b.len() {
         if b[i] == b'<' {
-            let rest = &lower[i..];
             for (open, close) in [("<style", "</style>"), ("<script", "</script>"), ("<head", "</head>")] {
-                if rest.starts_with(open) {
-                    if let Some(e) = rest.find(close) { i += e; }
+                if starts(i, open) {
+                    if let Some(e) = (i..b.len()).find(|&j| starts(j, close)) { i = e; }
                 }
             }
-            let rest = &lower[i..];
-            if ["<br", "</p", "</div", "</tr", "<li", "</h"].iter().any(|t| rest.starts_with(t)) { out.push('\n'); }
+            if ["<br", "</p", "</div", "</tr", "<li", "</h"].iter().any(|t| starts(i, t)) { out.push('\n'); }
             match h[i..].find('>') { Some(e) => i += e + 1, None => break }
         } else {
             let next = h[i..].find('<').map(|e| i + e).unwrap_or(h.len());
@@ -411,7 +412,7 @@ pub fn html_to_text(h: &str) -> String {
             i = next;
         }
     }
-    let out = out.replace("&nbsp;", " ").replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"").replace("&#39;", "'");
+    let out = out.replace("&nbsp;", " ").replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"").replace("&#39;", "'").replace("&amp;", "&");
     let mut res = String::new();
     let mut blank = 0;
     for l in out.lines().map(str::trim) {
@@ -425,6 +426,12 @@ pub fn html_to_text(h: &str) -> String {
 thread_local! { pub(crate) static WV_UNAVAILABLE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
 thread_local! { static RESET_ARMED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
 thread_local! { static SERVER_DEBOUNCE: slint::Timer = slint::Timer::default(); }
+/// The server writes the debounce timer runs, one per slot (server_settings::job_slot).
+type ServerJob = (Arc<jmap::Client>, Box<dyn FnOnce(&jmap::Client) -> Result<(), String> + Send>);
+thread_local! { static SERVER_PENDING: std::cell::RefCell<server_settings::PendingJobs<ServerJob>> = std::cell::RefCell::new(Default::default()); }
+// When the oldest waiting server write came: typing never holds the others back past
+// server_settings::MAX_WAIT.
+thread_local! { static SERVER_WAITING_SINCE: std::cell::Cell<Option<std::time::Instant>> = const { std::cell::Cell::new(None) }; }
 thread_local! { static TEMPLATES: std::cell::RefCell<(String, Vec<Value>)> = const { std::cell::RefCell::new((String::new(), Vec::new())) }; }
 thread_local! { static THREAD_ID: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) }; }
 
@@ -1017,6 +1024,8 @@ fn main() -> Result<(), slint::PlatformError> {
         server_settings::reset(&srv_out);
         let u = w.unwrap();
         SESSION_GEN.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        // nothing of this account's out-of-office page stays to be shown or written elsewhere
+        server_settings::set_account(&srv_out, "");
         *RESTORE_PENDING.lock().unwrap() = None;
         let account = u.get_account().to_string();
         let mut owner = None;
@@ -1124,6 +1133,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let u = w.unwrap();
         SESSION_GEN.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         *st.lock().unwrap() = None;
+        server_settings::set_account(&srv_add, "");
         u.set_user("".into());
         u.set_login_password("".into());
         u.set_login_otp("".into());
@@ -1201,6 +1211,8 @@ fn main() -> Result<(), slint::PlatformError> {
         let (w, st, srv) = (ui.as_weak(), state.clone(), server_cache.clone());
         Arc::new(move |tab: String| {
             let Some(c) = st.lock().unwrap().clone() else { return };
+            // the pages are for this account now: another one's data is dropped, and is not written back
+            server_settings::set_account(&srv, &c.state_key());
             let (w, srv) = (w.clone(), srv.clone());
             std::thread::spawn(move || {
                 server_settings::load(&tab, &c, &srv);
@@ -1213,8 +1225,10 @@ fn main() -> Result<(), slint::PlatformError> {
         let (w, pf, cf, acc, srv, stc) = (ui.as_weak(), prefs.clone(), cfg.clone(), account_info.clone(), server_cache.clone(), state.clone());
         Arc::new(move || {
             let u = w.unwrap();
-            // the page shows the signed-in account's identities and masked addresses only:
-            // another account's are dropped before anything is drawn
+            // before anything is drawn: another account's out-of-office data, identities and masked
+            // addresses are never shown
+            let key = stc.lock().unwrap().as_ref().map(|c| c.state_key()).unwrap_or_default();
+            server_settings::set_account(&srv, &key);
             if let Some(c) = stc.lock().unwrap().clone() { server_settings::claim(&srv, &c.state_key(), &c.username, &c.base); }
             let p = pf.lock().unwrap();
             let c = cf.lock().unwrap().clone();
@@ -1226,7 +1240,7 @@ fn main() -> Result<(), slint::PlatformError> {
                 u.set_settings_title(p.title(&tab).into());
                 let mut rows = p.rows(&tab, &c, &acc());
                 if tab == "security" { srv.lock().unwrap_or_else(|e| e.into_inner()).sec.advanced = adv; }
-                if let Some(extra) = server_settings::rows(&tab, &srv) {
+                if let Some(extra) = server_settings::rows(&tab, &srv, &p) {
                     if tab == "account" || tab == "composing" { rows.extend(extra); }
                     else if tab == "security" {
                         // the server's account security (and masked addresses) replaces the schema's empty headings it covers
@@ -1280,20 +1294,35 @@ fn main() -> Result<(), slint::PlatformError> {
     let rs = refresh_settings.clone();
     ui.on_settings_search(move |_| rs());
 
-    // writes to the server, debounced for typing
+    // writes to the server, debounced for typing. A new write replaces only the waiting one of
+    // its own slot (a key's earlier keystrokes; the out-of-office page is one slot): the timer
+    // runs every waiting write, in order, on one thread
     let server_write = {
         let (w, st) = (ui.as_weak(), state.clone());
-        Arc::new(move |job: Box<dyn FnOnce(&jmap::Client) -> Result<(), String> + Send>, delay_ms: u64| {
+        Arc::new(move |key: &str, job: Box<dyn FnOnce(&jmap::Client) -> Result<(), String> + Send>, delay_ms: u64| {
             let Some(c) = st.lock().unwrap().clone() else { return };
+            // per account too: a write still waiting for the account before a switch is its own
+            let slot = format!("{}\n{}", c.state_key(), server_settings::job_slot(key));
+            SERVER_PENDING.with(|p| p.borrow_mut().put(slot, (c, job)));
+            let since = SERVER_WAITING_SINCE.with(|s| *s.get().get_or_insert_with(std::time::Instant::now));
+            let delay = server_settings::debounce_delay(std::time::Duration::from_millis(delay_ms), since.elapsed());
             let w = w.clone();
-            let job = std::sync::Mutex::new(Some(job));
-            SERVER_DEBOUNCE.with(|t| t.start(slint::TimerMode::SingleShot, std::time::Duration::from_millis(delay_ms), move || {
-                let Some(job) = job.lock().unwrap().take() else { return };
-                let (w, c) = (w.clone(), c.clone());
+            SERVER_DEBOUNCE.with(|t| t.start(slint::TimerMode::SingleShot, delay, move || {
+                SERVER_WAITING_SINCE.with(|s| s.set(None));
+                let jobs = SERVER_PENDING.with(|p| p.borrow_mut().take_all());
+                if jobs.is_empty() { return; }
+                let w = w.clone();
                 std::thread::spawn(move || {
-                    if let Err(e) = job(&c) {
-                        let _ = w.upgrade_in_event_loop(move |u| mail::show_toast(&u, &format!("Not saved: {e}"), false));
+                    for (_, (c, job)) in jobs {
+                        // one write that panics does not take the ones after it along
+                        let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| job(&c)))
+                            .unwrap_or_else(|_| Err("an internal error stopped this change".into()));
+                        if let Err(e) = res {
+                            let _ = w.upgrade_in_event_loop(move |u| mail::show_toast(&u, &format!("Not saved: {e}"), false));
+                        }
                     }
+                    // what the writes changed (a hint, a "Still running" row) shows without a tab change
+                    let _ = w.upgrade_in_event_loop(|u| u.invoke_settings_search(u.get_settings_query()));
                 });
             }));
         })
@@ -1302,7 +1331,7 @@ fn main() -> Result<(), slint::PlatformError> {
     let (pf, cf, rs, srv, sw, wt, stg) = (prefs.clone(), cfg.clone(), refresh_settings.clone(), server_cache.clone(), server_write.clone(), ui.as_weak(), state.clone());
     ui.on_settings_set_toggle(move |key, on| {
         if key.starts_with("server.") {
-            if let Some(job) = server_settings::edit(&key, &serde_json::json!(on), &srv) { sw(job, 10); }
+            if let Some(job) = server_settings::edit(&key, &serde_json::json!(on), &srv) { sw(&key, job, 10); }
             rs();
             return;
         }
@@ -1339,7 +1368,7 @@ fn main() -> Result<(), slint::PlatformError> {
     let (w, pf, cf, rs, srv3, sw3) = (ui.as_weak(), prefs.clone(), cfg.clone(), refresh_settings.clone(), server_cache.clone(), server_write.clone());
     ui.on_settings_set_select(move |key, idx| {
         if key.starts_with("server.") {
-            if let Some(job) = server_settings::edit(&key, &serde_json::json!(idx), &srv3) { sw3(job, 10); }
+            if let Some(job) = server_settings::edit(&key, &serde_json::json!(idx), &srv3) { sw3(&key, job, 10); }
             rs();
             return;
         }
@@ -1359,10 +1388,13 @@ fn main() -> Result<(), slint::PlatformError> {
     });
 
     // text edits are saved as typed, without rebuilding the page (keeps the caret)
-    let (pf, cf, srv, sw, wk) = (prefs.clone(), cfg.clone(), server_cache.clone(), server_write.clone(), ui.as_weak());
+    let (pf, cf, srv, sw, wk, rs) = (prefs.clone(), cfg.clone(), server_cache.clone(), server_write.clone(), ui.as_weak(), refresh_settings.clone());
     ui.on_settings_set_text(move |key, t| {
         if key.starts_with("server.") {
-            if let Some(job) = server_settings::edit(&key, &serde_json::json!(t.to_string()), &srv) { sw(job, 900); }
+            if let Some(job) = server_settings::edit(&key, &serde_json::json!(t.to_string()), &srv) { sw(&key, job, 900); }
+            // a date that is not one yet, or an end before the start: its note shows at once (the
+            // rows are synced in place, so the field and its caret stay)
+            if server_settings::redraw_on_text(&key) { rs(); }
             return;
         }
         // the book's list is applied by "Save changes", not while typing

@@ -811,6 +811,12 @@ pub fn h12() -> bool {
 /// made from another thread can be made on it instead of on the file.
 static LIVE: std::sync::Mutex<Option<std::sync::Arc<std::sync::Mutex<Settings>>>> = std::sync::Mutex::new(None);
 
+#[cfg(test)]
+thread_local! {
+    /// Tests: how often this thread went through the live settings (and so took their lock).
+    pub static LIVE_USES: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+
 /// Called once at start with the program's settings.
 pub fn register_live(s: std::sync::Arc<std::sync::Mutex<Settings>>) {
     if let Ok(mut l) = LIVE.lock() { *l = Some(s); }
@@ -892,6 +898,8 @@ pub fn set_pref(key: &str, value: Value) {
 /// lock when the program runs, so the settings page's next save cannot bring the old value back,
 /// else on a fresh load.
 pub fn update_pref(key: &str, f: impl FnOnce(Option<&Value>) -> Value) {
+    #[cfg(test)]
+    LIVE_USES.with(|n| n.set(n.get() + 1));
     let live = LIVE.lock().ok().and_then(|l| l.clone());
     match live {
         Some(s) => {
@@ -912,6 +920,8 @@ pub fn update_pref(key: &str, f: impl FnOnce(Option<&Value>) -> Value) {
 /// Run `f` on the live settings under their lock (the program's one settings object), or on a
 /// fresh load when not started, so its saves never race the settings page's.
 pub fn with_live(f: impl FnOnce(&mut Settings)) {
+    #[cfg(test)]
+    LIVE_USES.with(|n| n.set(n.get() + 1));
     let live = LIVE.lock().ok().and_then(|l| l.clone());
     match live {
         Some(s) => f(&mut s.lock().unwrap_or_else(|e| e.into_inner())),

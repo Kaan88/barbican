@@ -28,8 +28,11 @@ pub fn parse(script: &str) -> Parsed {
         if let Some(v) = vacation_only(script) {
             return Parsed { metadata: json!({"version": 1, "rules": [], "vacation": v}), external: String::new(), locked: false };
         }
-        let ext = script.trim();
-        return Parsed { metadata: json!({"version": 1, "rules": []}), external: strip_requires(ext), locked: false };
+        // nothing in it is Bulwark's: every block is kept, whatever its comments say (Bulwark
+        // parseScript filters "# Rule:" / "# Vacation auto-reply" only after its metadata)
+        let metadata = json!({"version": 1, "rules": []});
+        let external = external_blocks(script.trim(), &metadata, false);
+        return Parsed { metadata, external, locked: false };
     };
     let e = script[b..].find(END).map(|i| b + i).unwrap_or(script.len());
     let json_txt = script[b + BEGIN.len()..e].replace("*\\/", "*/");
@@ -37,18 +40,19 @@ pub fn parse(script: &str) -> Parsed {
     let rest = &script[(e + END.len()).min(script.len())..];
     let locked = parsed.as_ref().is_none_or(|m| !metadata_ok(m));
     let metadata = parsed.unwrap_or(json!({"version": 1, "rules": []}));
-    let external = external_blocks(rest, &metadata);
+    let external = external_blocks(rest, &metadata, true);
     Parsed { metadata, external, locked }
 }
 
 /// Everything after the metadata that is not Bulwark's own output, as Bulwark's parser finds it:
 /// every top-level block is scanned (not only what follows the External header), so rules
-/// written by hand between the generated blocks survive a save. Blocks that are Bulwark's
-/// ("# Rule: <name>" of a metadata rule, "# Vacation auto-reply", the vacation forwarding
-/// block while it is on) are dropped; the require tokens are kept ("include" only when an
-/// external block uses it).
-fn external_blocks(rest: &str, meta: &Value) -> String {
-    let rest: String = rest.lines().filter(|l| l.trim() != EXTERNAL).collect::<Vec<_>>().join("\n");
+/// written by hand between the generated blocks survive a save. After Bulwark's metadata
+/// (`after_meta`) the blocks that are Bulwark's ("# Rule: <name>" of a metadata rule,
+/// "# Vacation auto-reply", the vacation forwarding block while it is on) and its External
+/// header are dropped, and "include" is kept only when an external block uses it. A script
+/// without metadata is nobody's output but its author's: all of it is kept.
+fn external_blocks(rest: &str, meta: &Value, after_meta: bool) -> String {
+    let rest: String = if after_meta { rest.lines().filter(|l| l.trim() != EXTERNAL).collect::<Vec<_>>().join("\n") } else { rest.to_string() };
     let names: Vec<String> = meta["rules"].as_array().map(|a| a.iter().map(|r| collapse_ws(r["name"].as_str().unwrap_or("")).trim().to_string()).collect()).unwrap_or_default();
     let forward_on = meta["vacationForward"]["enabled"] == true;
     let mut requires: Vec<String> = vec![];
@@ -64,12 +68,14 @@ fn external_blocks(rest: &str, meta: &Value) -> String {
             let t = t.strip_prefix('#')?.trim_start();
             t.strip_prefix("Rule:").map(|n| collapse_ws(n).trim().to_string())
         });
-        if rule_name.is_some_and(|n| names.contains(&n)) { continue; }
-        if raw.lines().any(|l| l.trim_start().strip_prefix('#').is_some_and(|c| c.trim_start().to_lowercase().starts_with("vacation auto-reply"))) { continue; }
-        if forward_on && raw.lines().any(|l| l.trim() == VACATION_FORWARD_MARKER) { continue; }
+        if after_meta {
+            if rule_name.is_some_and(|n| names.contains(&n)) { continue; }
+            if raw.lines().any(|l| l.trim_start().strip_prefix('#').is_some_and(|c| c.trim_start().to_lowercase().starts_with("vacation auto-reply"))) { continue; }
+            if forward_on && raw.lines().any(|l| l.trim() == VACATION_FORWARD_MARKER) { continue; }
+        }
         kept.push(raw.trim().to_string());
     }
-    if !kept.iter().any(|k| has_word(k, "include")) { requires.retain(|r| r != "include"); }
+    if after_meta && !kept.iter().any(|k| has_word(k, "include")) { requires.retain(|r| r != "include"); }
     let mut out = String::new();
     if !requires.is_empty() && !kept.is_empty() {
         out.push_str(&format!("require [{}];\n", requires.iter().map(|r| format!("\"{r}\"")).collect::<Vec<_>>().join(", ")));
@@ -470,7 +476,7 @@ fn valid_email(e: &str) -> bool {
     !l.is_empty() && l.chars().all(|c| c.is_ascii_alphanumeric() || ".!#$%&'*+/=?^_`{|}~-".contains(c)) && d.split('.').all(label)
 }
 
-fn valid_domain(d: &str) -> bool {
+pub fn valid_domain(d: &str) -> bool {
     let labels: Vec<&str> = d.split('.').collect();
     labels.len() >= 2 && labels.iter().all(|l| !l.is_empty() && l.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
         && !l.starts_with('-') && !l.ends_with('-'))
@@ -833,5 +839,23 @@ mod tests {
         assert!(super::day_boundary("2026-10-05", true).unwrap().unwrap().ends_with(":00.000Z"));
         assert_eq!(super::day_boundary("", false).unwrap(), None);
         assert!(super::day_boundary("5.10.2026", false).is_err());
+    }
+
+    // parser.ts parseScript: without metadata nothing is filtered (only after it are "# Rule:",
+    // "# Vacation auto-reply" and the forwarding block taken for Bulwark's own)
+    #[test]
+    fn a_script_without_metadata_keeps_every_block() {
+        let script = "require [\"fileinto\", \"include\"];\n\n# Vacation auto-reply (mine)\nif header :contains \"subject\" \"ooo\" { fileinto \"Away\"; }\n\n# Rule: News\nif true { keep; }\n\ninclude :personal \"shared\";\n";
+        let p = super::parse(script);
+        assert!(!p.locked);
+        assert!(p.external.contains("# Vacation auto-reply (mine)\nif header :contains \"subject\" \"ooo\" { fileinto \"Away\"; }"), "{}", p.external);
+        assert!(p.external.contains("# Rule: News\nif true { keep; }") && p.external.contains("include :personal \"shared\";"));
+        assert!(p.external.starts_with("require [\"fileinto\", \"include\"];"), "{}", p.external);
+        // the first save keeps them all, and so does the next one
+        let g = super::generate_meta(&p.metadata, &p.external, &[]);
+        assert!(g.contains("# Vacation auto-reply (mine)") && g.contains("\"fileinto\"") && g.contains("include :personal \"shared\";"), "{g}");
+        // after Bulwark's metadata a "# Vacation auto-reply" block is the generator's (written again from the metadata)
+        let again = super::parse(&g);
+        assert!(!again.external.contains("Vacation auto-reply"));
     }
 }

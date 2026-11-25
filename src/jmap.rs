@@ -26,7 +26,13 @@ pub struct Client {
     rejected: Arc<std::sync::atomic::AtomicBool>,
     /// Mailbox role -> id, refreshed by every Mailbox/get of the whole tree.
     roles: std::sync::Mutex<Option<(std::time::Instant, HashMap<String, String>)>>,
+    /// Tests: answers the method calls instead of the server (see [`Client::fake`]).
+    #[cfg(test)]
+    fake: Option<Arc<FakeServer>>,
 }
+
+#[cfg(test)]
+pub type FakeServer = dyn Fn(&Value) -> R<Vec<Value>> + Send + Sync;
 
 type R<T> = Result<T, String>;
 
@@ -209,6 +215,8 @@ impl Client {
             rejected: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             live: std::sync::RwLock::new(s.clone()), session: s,
             roles: std::sync::Mutex::new(None),
+            #[cfg(test)]
+            fake: None,
         })
     }
 
@@ -225,6 +233,26 @@ impl Client {
             rejected: self.rejected.clone(),
             // the role map is per account
             roles: std::sync::Mutex::new(None),
+            #[cfg(test)]
+            fake: self.fake.clone(),
+        }
+    }
+
+    /// Tests: a client of `base` / `account` with the capabilities `caps` whose requests never
+    /// leave the process: `answer` gets each request's method calls and returns the responses.
+    #[cfg(test)]
+    pub fn fake(base: &str, account: &str, caps: &[&str], answer: impl Fn(&Value) -> R<Vec<Value>> + Send + Sync + 'static) -> Client {
+        let s = json!({"apiUrl": format!("{base}/jmap/"), "username": "ann@example.test", "state": "s0",
+            "primaryAccounts": {"urn:ietf:params:jmap:mail": account}, "capabilities": {}});
+        Client {
+            http: http_client(None).expect("http client"), auth: Arc::new(std::sync::Mutex::new(String::new())), oauth: None,
+            base: base.to_string(), account: account.to_string(), username: "ann@example.test".into(),
+            caps: caps.iter().map(|c| c.to_string()).collect(),
+            requests: Arc::new(Gate::new(4)), uploads: Arc::new(Gate::new(4)),
+            rejected: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            live: std::sync::RwLock::new(s.clone()), session: s,
+            roles: std::sync::Mutex::new(None),
+            fake: Some(Arc::new(answer)),
         }
     }
 
@@ -345,6 +373,8 @@ impl Client {
 
     /// `post`, telling the HTTP status of a request the server turned down (`status`).
     fn post_inner(&self, using: &Value, calls: &Value, status: &mut Option<u16>) -> R<Vec<Value>> {
+        #[cfg(test)]
+        if let Some(f) = &self.fake { let _ = using; return f(calls); }
         let body = serde_json::to_vec(&json!({ "using": using, "methodCalls": calls })).map_err(e)?;
         let max = self.limit("maxSizeRequest", 10_000_000);
         if body.len() > max {
@@ -461,9 +491,13 @@ impl Client {
 
     /// Who owns cached sync states: server, user and account. Account ids alone repeat across
     /// servers (Stalwart's are short sequential ids), and a state must never cross accounts.
-    pub fn state_key(&self) -> String { format!("{}
+    pub fn state_key(&self) -> String { self.key_for(&self.account) }
+
+    /// [`state_key`](Self::state_key) for another account this login reaches (the account a
+    /// capability's objects live in): per-account state is kept under it, never the bare id.
+    pub fn key_for(&self, account: &str) -> String { format!("{}
 {}
-{}", self.base, self.username, self.account) }
+{}", self.base, self.username, account) }
 
     /// `X/set` with `update`, split by maxObjectsInSet; returns (updated, failed descriptions).
     pub fn update(&self, method: &str, account: &str, patches: Vec<(String, Value)>) -> R<(usize, Vec<String>)> {
@@ -981,6 +1015,12 @@ impl Client {
 
     /// Download a blob of a given account (a shared account's files).
     pub fn download_from(&self, account: &str, blob_id: &str, name: &str, mime: &str) -> R<Vec<u8>> {
+        // tests: the fake server answers a "blob/download" call with {"text": ...}
+        #[cfg(test)]
+        if let Some(f) = &self.fake {
+            let r = f(&json!([["blob/download", {"accountId": account, "blobId": blob_id}, "d"]]))?;
+            return r.first().and_then(|x| x[1]["text"].as_str()).map(|t| t.as_bytes().to_vec()).ok_or_else(|| "Download failed (404)".into());
+        }
         let t = self.url_template("downloadUrl").ok_or("The server has no download URL.")?;
         let enc = pct;
         let url = t.replace("{accountId}", &enc(account)).replace("{blobId}", &enc(blob_id))
