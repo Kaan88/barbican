@@ -972,11 +972,16 @@ fn main() -> Result<(), slint::PlatformError> {
         });
     });
 
+    // what the server-backed settings pages hold (per account: see server_settings::set_account)
+    let server_cache: server_settings::Shared = Default::default();
     let w = ui.as_weak();
     let st = state.clone();
+    let srv = server_cache.clone();
     ui.on_sign_out(move || {
         let u = w.unwrap();
         SESSION_GEN.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        // nothing of this account's out-of-office page stays to be shown or written elsewhere
+        server_settings::set_account(&srv, "");
         *RESTORE_PENDING.lock().unwrap() = None;
         let account = u.get_account().to_string();
         let mut owner = None;
@@ -1068,11 +1073,12 @@ fn main() -> Result<(), slint::PlatformError> {
         u.set_busy(true);
         restore_session(w.clone(), st.clone(), v, true, None);
     });
-    let (w, st) = (ui.as_weak(), state.clone());
+    let (w, st, srv) = (ui.as_weak(), state.clone(), server_cache.clone());
     ui.on_add_account(move || {
         let u = w.unwrap();
         SESSION_GEN.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         *st.lock().unwrap() = None;
+        server_settings::set_account(&srv, "");
         u.set_user("".into());
         u.set_login_password("".into());
         u.set_login_otp("".into());
@@ -1145,12 +1151,13 @@ fn main() -> Result<(), slint::PlatformError> {
         }
     };
     let account_info = Arc::new(account_info);
-    let server_cache: server_settings::Shared = Default::default();
     // load a server-backed settings page in the background, then redraw
     let load_server_page = {
         let (w, st, srv) = (ui.as_weak(), state.clone(), server_cache.clone());
         Arc::new(move |tab: String| {
             let Some(c) = st.lock().unwrap().clone() else { return };
+            // the pages are for this account now: another one's data is dropped, and is not written back
+            server_settings::set_account(&srv, &c.state_key());
             let (w, srv) = (w.clone(), srv.clone());
             std::thread::spawn(move || {
                 server_settings::load(&tab, &c, &srv);
@@ -1160,9 +1167,12 @@ fn main() -> Result<(), slint::PlatformError> {
     };
     // rebuild the current settings page (or search results)
     let refresh_settings = {
-        let (w, pf, cf, acc, srv) = (ui.as_weak(), prefs.clone(), cfg.clone(), account_info.clone(), server_cache.clone());
+        let (w, pf, cf, acc, srv, st) = (ui.as_weak(), prefs.clone(), cfg.clone(), account_info.clone(), server_cache.clone(), state.clone());
         Arc::new(move || {
             let u = w.unwrap();
+            // before anything is drawn: another account's out-of-office data is never shown
+            let key = st.lock().unwrap().as_ref().map(|c| c.state_key()).unwrap_or_default();
+            server_settings::set_account(&srv, &key);
             let p = pf.lock().unwrap();
             let c = cf.lock().unwrap().clone();
             let adv = u.get_show_advanced_settings();
@@ -1172,7 +1182,8 @@ fn main() -> Result<(), slint::PlatformError> {
                 let tab = u.get_settings_tab().to_string();
                 u.set_settings_title(p.title(&tab).into());
                 let mut rows = p.rows(&tab, &c, &acc());
-                if let Some(extra) = server_settings::rows(&tab, &srv) {
+                // the settings held here are passed in: their lock is not taken a second time
+                if let Some(extra) = server_settings::rows(&tab, &srv, &p) {
                     if tab == "account" || tab == "composing" { rows.extend(extra); } else { rows = extra; }
                 }
                 rows

@@ -26,7 +26,13 @@ pub struct Client {
     rejected: Arc<std::sync::atomic::AtomicBool>,
     /// Mailbox role -> id, refreshed by every Mailbox/get of the whole tree.
     roles: std::sync::Mutex<Option<(std::time::Instant, HashMap<String, String>)>>,
+    /// Tests: answers the method calls instead of the server (see [`Client::fake`]).
+    #[cfg(test)]
+    fake: Option<Arc<FakeServer>>,
 }
+
+#[cfg(test)]
+pub type FakeServer = dyn Fn(&Value) -> R<Vec<Value>> + Send + Sync;
 
 type R<T> = Result<T, String>;
 
@@ -185,6 +191,8 @@ impl Client {
             rejected: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             live: std::sync::RwLock::new(s.clone()), session: s,
             roles: std::sync::Mutex::new(None),
+            #[cfg(test)]
+            fake: None,
         })
     }
 
@@ -201,6 +209,26 @@ impl Client {
             rejected: self.rejected.clone(),
             // the role map is per account
             roles: std::sync::Mutex::new(None),
+            #[cfg(test)]
+            fake: self.fake.clone(),
+        }
+    }
+
+    /// Tests: a client of `base` / `account` with the capabilities `caps` whose requests never
+    /// leave the process: `answer` gets each request's method calls and returns the responses.
+    #[cfg(test)]
+    pub fn fake(base: &str, account: &str, caps: &[&str], answer: impl Fn(&Value) -> R<Vec<Value>> + Send + Sync + 'static) -> Client {
+        let s = json!({"apiUrl": format!("{base}/jmap/"), "username": "ann@example.test", "state": "s0",
+            "primaryAccounts": {"urn:ietf:params:jmap:mail": account}, "capabilities": {}});
+        Client {
+            http: http_client(None).expect("http client"), auth: Arc::new(std::sync::Mutex::new(String::new())), oauth: None,
+            base: base.to_string(), account: account.to_string(), username: "ann@example.test".into(),
+            caps: caps.iter().map(|c| c.to_string()).collect(),
+            requests: Arc::new(Gate::new(4)), uploads: Arc::new(Gate::new(4)),
+            rejected: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            live: std::sync::RwLock::new(s.clone()), session: s,
+            roles: std::sync::Mutex::new(None),
+            fake: Some(Arc::new(answer)),
         }
     }
 
@@ -283,6 +311,8 @@ impl Client {
     /// One POST to the API endpoint: maxSizeRequest, maxConcurrentRequests, OAuth renewal, one
     /// retry of read-only calls after 429/503, request-level errors, and the sessionState check.
     fn post(&self, using: &Value, calls: &Value) -> R<Vec<Value>> {
+        #[cfg(test)]
+        if let Some(f) = &self.fake { let _ = using; return f(calls); }
         let body = serde_json::to_vec(&json!({ "using": using, "methodCalls": calls })).map_err(e)?;
         let max = self.limit("maxSizeRequest", 10_000_000);
         if body.len() > max {

@@ -12,7 +12,7 @@
 //!   the JMAP calls are thin.
 use crate::jmap::Client;
 use crate::sieve;
-use chrono::{DateTime, Duration, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Timelike, Utc};
+use chrono::{DateTime, Duration, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc};
 use chrono_tz::Tz;
 use serde_json::{json, Value};
 
@@ -392,7 +392,8 @@ fn decode_entities(s: &str) -> String {
         let body = &rest[1..];
         let named = [("amp;", '&'), ("lt;", '<'), ("gt;", '>'), ("quot;", '"'), ("apos;", '\''), ("nbsp;", '\u{a0}'),
             ("colon;", ':'), ("tab;", '\t'), ("newline;", '\n'), ("lpar;", '('), ("rpar;", ')'), ("sol;", '/')];
-        if let Some((n, ch)) = named.iter().find(|(n, _)| body.len() >= n.len() && body[..n.len()].eq_ignore_ascii_case(n)) {
+        // on the bytes: the text after `&` may start with a character of several bytes ("&Ü")
+        if let Some((n, ch)) = named.iter().find(|(n, _)| body.as_bytes().get(..n.len()).is_some_and(|x| x.eq_ignore_ascii_case(n.as_bytes()))) {
             out.push(*ch);
             rest = &rest[1 + n.len()..];
             continue;
@@ -401,8 +402,7 @@ fn decode_entities(s: &str) -> String {
             let (hex, digits) = match num.strip_prefix(['x', 'X']) { Some(h) => (true, h), None => (false, num) };
             let len = digits.chars().take_while(|c| if hex { c.is_ascii_hexdigit() } else { c.is_ascii_digit() }).count().min(8);
             if len > 0 {
-                let code = u32::from_str_radix(&digits[..len], if hex { 16 } else { 10 }).ok().and_then(char::from_u32).unwrap_or('\u{fffd}');
-                out.push(code);
+                out.push(u32::from_str_radix(&digits[..len], if hex { 16 } else { 10 }).map_or('\u{fffd}', numeric_char));
                 let used = 1 + 1 + usize::from(hex) + len;
                 rest = &rest[used..];
                 if rest.starts_with(';') { rest = &rest[1..]; }
@@ -414,6 +414,23 @@ fn decode_entities(s: &str) -> String {
     }
     out.push_str(rest);
     out
+}
+
+/// The character a numeric reference stands for, as browsers read it (HTML "numeric character
+/// reference end state"): NUL, surrogates and numbers past Unicode are U+FFFD, 0x80-0x9F are the
+/// Windows-1252 characters. Other control characters but tab, line feed, form feed and carriage
+/// return are U+FFFD too (browsers keep them, but they have no place in a reply's text).
+fn numeric_char(code: u32) -> char {
+    const CP1252: [u32; 32] = [
+        0x20AC, 0, 0x201A, 0x0192, 0x201E, 0x2026, 0x2020, 0x2021, 0x02C6, 0x2030, 0x0160, 0x2039, 0x0152, 0, 0x017D, 0,
+        0, 0x2018, 0x2019, 0x201C, 0x201D, 0x2022, 0x2013, 0x2014, 0x02DC, 0x2122, 0x0161, 0x203A, 0x0153, 0, 0x017E, 0x0178,
+    ];
+    let code = if (0x80..=0x9F).contains(&code) { CP1252[(code - 0x80) as usize] } else { code };
+    match char::from_u32(code) {
+        Some(c) if c.is_control() && !matches!(c, '\t' | '\n' | '\u{c}' | '\r') => '\u{fffd}',
+        Some(c) => c,
+        None => '\u{fffd}',
+    }
 }
 
 fn esc_attr(s: &str) -> String {
@@ -529,21 +546,31 @@ pub fn check_message(enabled: bool, subject: &str, text: &str, html: Option<&str
 /// The user's time zone (the system's), UTC when unknown.
 pub fn user_tz() -> Tz { crate::agent::local_tz().parse().unwrap_or(chrono_tz::UTC) }
 
-/// What the user typed as an instant: `YYYY-MM-DD` (midnight) or `YYYY-MM-DD HH:MM` on the wall
-/// clock of `tz`; `Ok(None)` for empty, `Err` for text that is not a date yet. A time that does not
-/// exist (the hour skipped when the clocks go forward) is read an hour later, the first valid
-/// moment after the gap; one that exists twice is read as its first.
+/// The first moment of `day` in `tz`: midnight, or, where the clocks go forward at midnight
+/// (America/Santiago, America/Havana...), the first time of the day that exists.
+pub fn day_start(day: NaiveDate, tz: Tz) -> Option<DateTime<Utc>> {
+    let midnight = day.and_time(NaiveTime::MIN);
+    (0..=4 * 24).find_map(|q| tz.from_local_datetime(&(midnight + Duration::minutes(15 * q))).earliest()).map(|d| d.with_timezone(&Utc))
+}
+
+/// Whether `t` is the first moment of its day in `tz` (a day the page and the block show alone).
+pub fn is_day_start(t: DateTime<Utc>, tz: Tz) -> bool { day_start(t.with_timezone(&tz).date_naive(), tz) == Some(t) }
+
+/// What the user typed as an instant: `YYYY-MM-DD` (the start of that day) or `YYYY-MM-DD HH:MM`
+/// on the wall clock of `tz`; `Ok(None)` for empty, `Err` for text that is not a date yet. A time
+/// that does not exist (the hour skipped when the clocks go forward) is read an hour later, the
+/// first valid moment after the gap; one that exists twice is read as its first.
 pub fn parse_moment_dt(input: &str, tz: Tz) -> Result<Option<DateTime<Utc>>, ()> {
     let t = input.trim().replace('T', " ");
     if t.is_empty() { return Ok(None); }
-    let naive = if t.len() == 10 {
-        NaiveDate::parse_from_str(&t, "%Y-%m-%d").map_err(|_| ())?.and_time(NaiveTime::MIN)
+    let utc = if t.len() == 10 {
+        // a day alone stays a day where its midnight is skipped, so the block is all-day
+        day_start(NaiveDate::parse_from_str(&t, "%Y-%m-%d").map_err(|_| ())?, tz).ok_or(())?
     } else {
-        NaiveDateTime::parse_from_str(&t, "%Y-%m-%d %H:%M").map_err(|_| ())?
+        let naive = NaiveDateTime::parse_from_str(&t, "%Y-%m-%d %H:%M").map_err(|_| ())?;
+        tz.from_local_datetime(&naive).earliest()
+            .or_else(|| tz.from_local_datetime(&(naive + Duration::hours(1))).earliest()).ok_or(())?.with_timezone(&Utc)
     };
-    let local = tz.from_local_datetime(&naive).earliest()
-        .or_else(|| tz.from_local_datetime(&(naive + Duration::hours(1))).earliest()).ok_or(())?;
-    let utc = local.with_timezone(&Utc);
     if utc.format("%Y").to_string().len() != 4 { return Err(()); }
     Ok(Some(utc))
 }
@@ -561,11 +588,11 @@ pub fn same_opt_moment(a: Option<&str>, b: Option<&str>) -> bool {
     match (a, b) { (None, None) => true, (Some(a), Some(b)) => a == b || matches!((moment_instant(a), moment_instant(b)), (Some(x), Some(y)) if x == y), _ => false }
 }
 
-/// A stored moment as the field shows it: the day alone at midnight, else day and time.
+/// A stored moment as the field shows it: the day alone at its start, else day and time.
 pub fn show_moment(stored: &str, tz: Tz) -> String {
-    let Ok(t) = DateTime::parse_from_rfc3339(stored) else { return stored.chars().take(10).collect() };
+    let Some(t) = moment_instant(stored) else { return stored.chars().take(10).collect() };
     let l = t.with_timezone(&tz);
-    if l.hour() == 0 && l.minute() == 0 && l.second() == 0 { l.format("%Y-%m-%d").to_string() } else { l.format("%Y-%m-%d %H:%M").to_string() }
+    if is_day_start(t, tz) { l.format("%Y-%m-%d").to_string() } else { l.format("%Y-%m-%d %H:%M").to_string() }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -653,11 +680,11 @@ pub fn iso_duration(ms: i64) -> String {
     format!("P{}{}", if days > 0 { format!("{days}D") } else { String::new() }, if time.is_empty() { String::new() } else { format!("T{time}") })
 }
 
-/// The event's time fields for a span: all-day when both ends are midnight in `tz`, timed in the
+/// The event's time fields for a span: all-day when both ends start their day in `tz`, timed in the
 /// zone otherwise (blockTimes).
 pub fn block_times(start: DateTime<Utc>, end: DateTime<Utc>, tz: Tz) -> Value {
     let (a, b) = (start.with_timezone(&tz).naive_local(), end.with_timezone(&tz).naive_local());
-    if a.time() == NaiveTime::MIN && b.time() == NaiveTime::MIN {
+    if is_day_start(start, tz) && is_day_start(end, tz) {
         let days = (b.date() - a.date()).num_days();
         return json!({"start": format!("{}T00:00:00", a.date().format("%Y-%m-%d")), "duration": format!("P{days}D"), "timeZone": null, "showWithoutTime": true});
     }
@@ -692,8 +719,8 @@ pub fn event_span(ev: &Value, tz: Tz) -> Option<(DateTime<Utc>, DateTime<Utc>)> 
     if all_day {
         let day = naive.date();
         let days = (secs as f64 / 86400.0).round() as i64;
-        let s = zone.from_local_datetime(&day.and_time(NaiveTime::MIN)).earliest()?.with_timezone(&Utc);
-        let e = zone.from_local_datetime(&(day + Duration::days(days)).and_time(NaiveTime::MIN)).earliest()?.with_timezone(&Utc);
+        let s = day_start(day, zone)?;
+        let e = day_start(day + Duration::days(days), zone)?;
         return Some((s, e));
     }
     let s = zone.from_local_datetime(&naive).earliest()?.with_timezone(&Utc);
@@ -747,12 +774,16 @@ fn last_written(account: &str) -> Option<(String, String)> {
     r
 }
 
-/// Whether the block is on: the "Block my calendar" setting, on by default.
+/// Whether the block is on: the "Block my calendar" setting, on by default. Takes the live
+/// settings' lock: never call it while holding them (use [`block_setting_in`]).
 pub fn block_setting() -> bool {
     let mut on = true;
-    crate::settings::with_live(|s| on = s.bool("vacationBlockCalendar", true));
+    crate::settings::with_live(|s| on = block_setting_in(s));
     on
 }
+
+/// [`block_setting`] read from settings the caller already holds.
+pub fn block_setting_in(s: &crate::settings::Settings) -> bool { s.bool("vacationBlockCalendar", true) }
 
 /// Runs `f` with the account's out-of-office writes held, so two saves (or a save and the load
 /// sync) never interleave their script and calendar writes. Called again on the same thread it
@@ -1194,5 +1225,56 @@ mod tests {
         let s = live.lock().unwrap();
         assert!(block_record(s.prefs.get("vacationCalendarBlocks"), "a1").is_some());
         assert_eq!(s.prefs["theme"], "dark");
+    }
+
+    #[test]
+    fn entities_next_to_letters_of_several_bytes_do_not_break_the_page() {
+        // "&" before a Turkish letter: the named-entity check once cut the text inside the letter
+        for html in ["<p>Ar-Ge & Ürün</p>", "<p>& Öğle</p>", "<p>&üü</p>", "<p>&ğ;x</p>", "<p>a&</p>", "<p>&#</p>", "<p>&#x</p>"] {
+            let (text, h) = parts_from_html(html);
+            assert!(h.is_some(), "{html}");
+            assert!(has_readable_text(html), "{html}");
+            assert!(!text.is_empty(), "{html}");
+        }
+        assert_eq!(parts_from_html("<p>Ar-Ge & Ürün</p>").0, "Ar-Ge & Ürün");
+        assert_eq!(parts_from_html("<p>&üü</p>").0, "&üü");
+        assert_eq!(parts_from_html("<p>&amp;Öğle &AMP; x</p>").0, "&Öğle & x");
+        // in a link's title and href too
+        let s = sanitize_html(r#"<a href="https://example.test/?a=1&Ü=2" title="R&D Ürün">x</a>"#);
+        assert_eq!(s, r#"<a href="https://example.test/?a=1&amp;Ü=2" rel="noopener noreferrer" title="R&amp;D Ürün">x</a>"#);
+        assert!(safe_href("&Ü").is_none() && safe_href("mailto:a@example.test?subject=Ar-Ge &Ürün").is_some());
+    }
+
+    #[test]
+    fn numeric_references_never_give_control_characters() {
+        // as browsers: NUL, surrogates and numbers past Unicode are U+FFFD, 0x80-0x9F Windows-1252
+        assert_eq!(decode_entities("a&#0;b"), "a\u{fffd}b");
+        assert_eq!(decode_entities("&#x0;&#1;&#x1F;&#127;"), "\u{fffd}\u{fffd}\u{fffd}\u{fffd}");
+        assert_eq!(decode_entities("&#xD800;&#57343;&#x110000;&#99999999;"), "\u{fffd}\u{fffd}\u{fffd}\u{fffd}");
+        assert_eq!(decode_entities("&#128;&#x99;&#x81;&#159;"), "€™\u{fffd}Ÿ");
+        assert_eq!(decode_entities("&#9;&#10;&#13;&#65;&#x130;"), "\t\n\rAİ");
+        assert!(!parts_from_html("<p>x&#0;y&#x7;z</p>").0.chars().any(|c| c.is_control()));
+    }
+
+    #[test]
+    fn a_day_whose_midnight_is_skipped_stays_a_day() {
+        // Chile puts the clocks forward at midnight: 2026-09-06 starts at 01:00 (-03)
+        let scl: Tz = "America/Santiago".parse().unwrap();
+        let day = NaiveDate::from_ymd_opt(2026, 9, 6).unwrap();
+        assert!(scl.from_local_datetime(&day.and_time(NaiveTime::MIN)).single().is_none(), "the test needs a skipped midnight");
+        let start = parse_moment_dt("2026-09-06", scl).unwrap().unwrap();
+        assert_eq!(start, t("2026-09-06T04:00:00Z"));
+        assert!(is_day_start(start, scl));
+        assert_eq!(show_moment("2026-09-06T04:00:00.000Z", scl), "2026-09-06");
+        let end = parse_moment_dt("2026-09-08", scl).unwrap().unwrap();
+        // the block is an all-day event, and reads back as the same span
+        let times = block_times(start, end, scl);
+        assert_eq!(times, json!({"start": "2026-09-06T00:00:00", "duration": "P2D", "timeZone": null, "showWithoutTime": true}));
+        assert_eq!(event_span(&times, scl), Some((start, end)));
+        // an ordinary day and a time of day are unchanged
+        let berlin: Tz = "Europe/Berlin".parse().unwrap();
+        assert_eq!(parse_moment_dt("2026-10-05", berlin).unwrap(), Some(t("2026-10-04T22:00:00Z")));
+        assert_eq!(show_moment("2026-10-05T06:30:00Z", berlin), "2026-10-05 08:30");
+        assert!(!is_day_start(t("2026-09-06T05:00:00Z"), scl));
     }
 }
