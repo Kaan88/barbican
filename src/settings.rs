@@ -185,10 +185,21 @@ fn fill(cell: &CacheCell, p: &std::path::Path) -> Snapshot {
         std::thread::sleep(READ_PAUSE);
         read = read_file(p);
     }
-    let (m, untrusted) = match read { Read::Prefs(m) => (m, false), Read::Damaged => (Map::new(), false), Read::Unusable => (Map::new(), true) };
+    let (mut m, untrusted) = match read { Read::Prefs(m) => (m, false), Read::Damaged => (Map::new(), false), Read::Unusable => (Map::new(), true) };
+    drop_plugin_keys(&mut m);
     let prefs: Snapshot = std::sync::Arc::new(m);
     *c = Some(Cache { path: p.to_path_buf(), prefs: prefs.clone(), seq: 0, pending: false, untrusted });
     prefs
+}
+
+/// What the plugin platform of Barbican 0.2 kept in prefs.json: the switched-on list, the
+/// consent grants and file bindings, each plugin's own settings and a one-off notice.
+const PLUGIN_KEYS: [&str; 5] = ["enabledPlugins", "pluginBindings", "pluginGrants", "pluginSettings", "pluginsOffNoticeShown"];
+
+/// Forget the plugin keys an older Barbican left in the prefs (or in an exported settings file).
+/// Nothing reads them any more; the next save writes the file without them.
+fn drop_plugin_keys(prefs: &mut Map<String, Value>) {
+    for k in PLUGIN_KEYS { prefs.remove(k); }
 }
 
 /// The settings file could not be read when this session started: changes are kept until the
@@ -441,27 +452,6 @@ fn text(kind: &str, key: &str, label: &str, desc: &str, value: &str) -> SRow {
     r
 }
 
-/// Forget the package installed in `package_dir`: the `pluginGrants` and `pluginBindings` entries for `id` go only when
-/// they pin a file inside that folder (a library dropped into the plugins folder under the same id keeps its own), and
-/// `id` leaves the switched-on list once nothing is left that could switch it on. An empty `package_dir` forgets
-/// nothing.
-pub fn forget_package(prefs: &mut serde_json::Map<String, Value>, id: &str, package_dir: &std::path::Path) {
-    if package_dir.as_os_str().is_empty() { return; }
-    // the package's own settings go with it (only API 2 packages have any)
-    if let Some(Value::Object(m)) = prefs.get_mut("pluginSettings") { m.remove(id); }
-    let inside = |path: &str| std::path::Path::new(path).starts_with(package_dir);
-    if let Some(Value::Object(m)) = prefs.get_mut("pluginGrants") {
-        if m.get(id).and_then(|g| g["path"].as_str()).is_some_and(inside) { m.remove(id); }
-    }
-    if let Some(Value::Object(m)) = prefs.get_mut("pluginBindings") {
-        if m.get(id).and_then(|b| b.as_str()).and_then(|b| b.rsplit_once('|')).is_some_and(|(p, _)| inside(p)) { m.remove(id); }
-    }
-    let kept = ["pluginGrants", "pluginBindings"].iter().any(|k| prefs.get(*k).and_then(|m| m.get(id)).is_some());
-    if !kept {
-        if let Some(Value::Array(l)) = prefs.get_mut("enabledPlugins") { l.retain(|x| x.as_str() != Some(id)); }
-    }
-}
-
 impl Settings {
     /// The prefs as last saved, served from memory (the file is read once per process).
     pub fn load() -> Settings {
@@ -516,10 +506,7 @@ impl Settings {
     pub fn export(&self) -> Value {
         let desktop: Value = std::fs::read_to_string(crate::config_dir().join("settings.json")).ok()
             .and_then(|t| serde_json::from_str(&t).ok()).unwrap_or(json!({}));
-        // a plugin's own settings stay on this computer (they can hold what the plugin was told about a server)
-        let mut prefs = self.prefs.clone();
-        prefs.remove("pluginSettings");
-        json!({"app": "barbican", "version": 1, "settings": Value::Object(prefs), "desktop": desktop})
+        json!({"app": "barbican", "version": 1, "settings": Value::Object(self.prefs.clone()), "desktop": desktop})
     }
 
     /// Accepts Barbican exports and Bulwark's own settings export (a flat settings object).
@@ -527,15 +514,8 @@ impl Settings {
         let prefs = if v["app"] == "barbican" { v["settings"].clone() } else if v["settings"].is_object() { v["settings"].clone() } else { v.clone() };
         let Some(obj) = prefs.as_object() else { return Err("This file has no settings.".into()) };
         let mut imported = obj.clone();
-        // Plugin consent is per computer and per file: never copy an allow-list or its file bindings
-        // from a settings file, or an import could switch on code this user has not agreed to run.
-        // The current local values stay, so an import does not switch off plugins enabled here either.
-        for key in ["enabledPlugins", "pluginBindings", "pluginGrants", "pluginSettings"] {
-            match self.prefs.get(key) {
-                Some(v) => { imported.insert(key.into(), v.clone()); }
-                None => { imported.remove(key); }
-            }
-        }
+        // a file exported by an older Barbican may still name plugins
+        drop_plugin_keys(&mut imported);
         // Bulwark's own export: a `false` it never recorded as chosen means "not decided" (on),
         // and a `default` tone it never recorded as chosen was the old default before Involved
         if v["app"] != "barbican" { crate::trustbook::migrate_book_default(&mut imported); crate::notify::migrate_sound_default(&mut imported); }
@@ -588,9 +568,9 @@ impl Settings {
             if id == "contacts" {
                 out.push(("addressbooks".into(), "Address books".into(), "apps".into(), "\u{E82D}".into(), 1));
             }
-            if id == "addons" {
-                out.push(("ai".into(), "AI Assistant".into(), "apps".into(), "\u{E945}".into(), 1));
-                out.push(("spam".into(), "Spam Score".into(), "apps".into(), "\u{E7BA}".into(), 1));
+            if id == "files" {
+                out.push(("ai".into(), "AI Assistant".into(), "apps".into(), "\u{E945}".into(), 0));
+                out.push(("spam".into(), "Spam Score".into(), "apps".into(), "\u{E7BA}".into(), 0));
             }
         }
         out
@@ -730,42 +710,6 @@ impl Settings {
                 out.push(text("textarea", "ai.memoryText", "Remembered notes", "Edit or clear them.", &Config::memory()));
                 out.push(row("section", "", "Translation", ""));
                 out.push(text("text", "ai.lang", "Translate into", "", &cfg.lang));
-            }
-            "addons" => {
-                out.push(row("section", "", "Plugins", "Installed plugins stay off until you switch them on and accept what they ask for. A plugin runs code on your computer: switch on only the ones you trust."));
-                crate::refresh_plugins();
-                let list = crate::plugin_list();
-                if list.is_empty() {
-                    out.push(text("value", "", "No plugins installed", "Install a plugin package below, or copy a plugin .dll into the folder and reopen this page.", ""));
-                }
-                for p in list {
-                    let id = p["id"].as_str().unwrap_or("");
-                    let hooks = p["hooks"].as_array().map(|a| a.iter().filter_map(|h| h.as_str()).collect::<Vec<_>>().join(", ")).unwrap_or_default();
-                    out.push(toggle(&format!("plugin:{id}"), &format!("{} {}", p["name"].as_str().unwrap_or(id), p["version"].as_str().unwrap_or("")),
-                        &format!("{}  (hooks: {hooks})", p["description"].as_str().unwrap_or("")), p["enabled"].as_bool().unwrap_or(false)));
-                    // an API 2 plugin's own settings (its manifest's schema), stored per plugin in `pluginSettings`
-                    let stored = self.prefs.get("pluginSettings").and_then(|m| m.get(id)).cloned().unwrap_or(Value::Null);
-                    let name = p["name"].as_str().unwrap_or(id);
-                    for r in crate::plugin_host::setting_rows(id, &p["settings"], &stored) {
-                        use crate::plugin_host::SettingRow;
-                        out.push(match r {
-                            SettingRow::Toggle { key, label, desc, on } => toggle(&key, &format!("{name}: {label}"), &desc, on),
-                            SettingRow::Text { key, label, desc, value } => text("text", &key, &format!("{name}: {label}"), &desc, &value),
-                            SettingRow::Select { key, label, desc, options, index } =>
-                                select(&key, &format!("{name}: {label}"), &desc, &options.iter().map(String::as_str).collect::<Vec<_>>(), index),
-                        });
-                    }
-                    if p["packaged"].as_bool() == Some(true) {
-                        out.push(text("button", &format!("plugin-uninstall:{id}"), &format!("Uninstall {}", p["name"].as_str().unwrap_or(id)),
-                            "Removes the plugin and everything it stored on this computer.", "Uninstall"));
-                    }
-                }
-                for e in crate::plugin_errors() {
-                    out.push(text("value", "", "Could not load", &e, ""));
-                }
-                out.push(text("button", "plugins.install", "Install plugin", "A plugin package (.zip) with a manifest.json and its library. It is checked, unpacked and listed here, switched off.", "Choose ZIP..."));
-                out.push(text("button", "plugins.installFolder", "Install from a folder", "An unpacked plugin package.", "Choose folder..."));
-                out.push(text("button", "plugins.folder", "Plugins folder", &crate::plugins::dir().display().to_string(), "Open folder"));
             }
             "backup" => {
                 out.push(row("section", "", "Backup", "Save your settings to a file, or bring them back on another computer."));
@@ -960,48 +904,6 @@ impl Settings {
                 self.save();
                 return;
             }
-            k if k.starts_with("pluginForget:") => {
-                // an uninstalled (or replaced) package: its own grant and binding gone, and off
-                forget_package(&mut self.prefs, &k[13..], std::path::Path::new(value.as_str().unwrap_or("")));
-                self.save();
-                return;
-            }
-            k if k.starts_with("pluginSetting:") => {
-                // `pluginSetting:<id>:<field>`: kept only when it is valid for the field (a half-typed number keeps the
-                // last good value); a secret field is never kept here
-                let Some((id, field)) = k[14..].split_once(':') else { return };
-                let Some(schema) = crate::plugin_settings_schema(id) else { return };
-                let Some(v) = crate::plugin_host::setting_value(&schema, field, &value) else { return };
-                let mut all = self.prefs.get("pluginSettings").and_then(|v| v.as_object().cloned()).unwrap_or_default();
-                let mut mine = all.get(id).and_then(|v| v.as_object().cloned()).unwrap_or_default();
-                mine.insert(field.to_string(), v);
-                all.insert(id.to_string(), Value::Object(mine));
-                self.prefs.insert("pluginSettings".into(), Value::Object(all));
-                self.save();
-                crate::plugin_settings_changed(id);
-                return;
-            }
-            k if k.starts_with("plugin:") => {
-                let id = &k[7..];
-                let mut list: Vec<Value> = self.prefs.get("enabledPlugins").and_then(|v| v.as_array().cloned()).unwrap_or_default();
-                list.retain(|x| x.as_str() != Some(id));
-                // switching on records the grant the consent dialog accepted (path + SHA-256 + permissions); without
-                // one the plugin stays off. Switching off keeps the grant, so the same file comes back without asking.
-                let mut grants = self.prefs.get("pluginGrants").and_then(|v| v.as_object().cloned()).unwrap_or_default();
-                if value.as_bool() == Some(true) {
-                    if let Some(g) = crate::take_plugin_grant(id) {
-                        grants.insert(id.to_string(), g);
-                        list.push(json!(id));
-                    }
-                }
-                self.prefs.insert("enabledPlugins".into(), Value::Array(list));
-                self.prefs.insert("pluginGrants".into(), Value::Object(grants));
-                // API 1's bindings are read as grants until a grant replaces them
-                if let Some(Value::Object(b)) = self.prefs.get_mut("pluginBindings") { if value.as_bool() == Some(true) { b.remove(id); } }
-                self.save();
-                crate::plugin_toggled();
-                return;
-            }
             _ => {
                 self.prefs.insert(key.into(), value);
                 self.save();
@@ -1036,8 +938,6 @@ impl Settings {
     /// Value to store for a select row's chosen index.
     pub fn select_value(&self, key: &str, index: i32) -> Value {
         if key.starts_with("ai.") || key.starts_with("desktop.") { return json!(index); }
-        // a plugin's select setting: `set` turns the index into the option through the plugin's own schema
-        if key.starts_with("pluginSetting:") { return json!(index); }
         if key == crate::trust::POLICY_KEY { return crate::trust::ContentPolicy::ALL.get(index as usize).map_or(Value::Null, |p| json!(p.as_str())); }
         if let Some(o) = option_override(key) { return o.get(index as usize).map(|x| x.0.clone()).unwrap_or(Value::Null); }
         for t in self.schema["tabs"].as_array().unwrap() {
@@ -1060,28 +960,6 @@ impl Settings {
 #[cfg(test)]
 mod tests {
     #[test]
-    fn a_plugin_select_setting_is_stored_as_the_chosen_option() {
-        use serde_json::json;
-        crate::TEST_PLUGIN_SCHEMAS.with(|m| m.borrow_mut().insert("demo".into(),
-            json!({"mode": {"type": "select", "label": "Mode", "options": ["fast", "slow"], "default": "fast"}})));
-        let mut s = super::Settings::with_prefs(Default::default());
-        let mut cfg = crate::ai::Config::default();
-        let v = s.select_value("pluginSetting:demo:mode", 1);
-        assert_eq!(v, json!(1));
-        s.set("pluginSetting:demo:mode", v, &mut cfg);
-        assert_eq!(s.prefs["pluginSettings"]["demo"]["mode"], json!("slow"));
-        // out of range: the last good value stays
-        let v = s.select_value("pluginSetting:demo:mode", 7);
-        s.set("pluginSetting:demo:mode", v, &mut cfg);
-        assert_eq!(s.prefs["pluginSettings"]["demo"]["mode"], json!("slow"));
-        // never exported, and an import keeps the local values
-        assert!(s.export()["settings"].get("pluginSettings").is_none());
-        s.import(&json!({"app": "barbican", "version": 1, "settings": {"pluginSettings": {"demo": {"mode": "fast"}}}})).unwrap();
-        assert_eq!(s.prefs["pluginSettings"]["demo"]["mode"], json!("slow"));
-        crate::TEST_PLUGIN_SCHEMAS.with(|m| m.borrow_mut().clear());
-    }
-
-    #[test]
     fn the_trusted_list_changes_through_the_helper_only_when_it_differs() {
         let mut p = serde_json::Map::new();
         assert!(!apply_trusted(&mut p, |_| {}));
@@ -1102,7 +980,7 @@ mod tests {
         let r = rows.iter().find(|r| r.key == crate::settings_sync::DISABLED_KEY).expect("row");
         assert!(r.on, "on by default (Bulwark settingsSyncDisabled: false)");
         assert!(s.is_inverted(crate::settings_sync::DISABLED_KEY));
-        assert!(r.desc.contains("Plugins"), "{}", r.desc);
+        assert!(r.desc.contains("Sign-ins"), "{}", r.desc);
     }
 
     #[test]
@@ -1222,23 +1100,13 @@ mod tests {
         assert!(s.import(&json!("nope")).is_err());
         assert_eq!(s.str("density", ""), "compact");
 
-        // Plugin consent is not imported: with no local consent, the file's allow-list and bindings are dropped.
+        // An older export's plugin keys are dropped; the rest of the file is imported.
         s.import(&json!({"theme": "light", "enabledPlugins": ["spam-score"], "pluginBindings": {"spam-score": "C:/p/a.dll|abc"},
-            "pluginGrants": {"spam-score": {"id": "spam-score", "path": "C:/p/a.dll", "sha256": "abc", "granted": ["email:read"]}}})).unwrap();
+            "pluginGrants": {"spam-score": {"id": "spam-score", "path": "C:/p/a.dll", "sha256": "abc", "granted": ["email:read"]}},
+            "pluginSettings": {"spam-score": {"mode": "fast"}}})).unwrap();
         assert_eq!(s.str("theme", ""), "light");
-        assert!(s.prefs.get("enabledPlugins").is_none() && s.prefs.get("pluginBindings").is_none() && s.prefs.get("pluginGrants").is_none());
+        for k in PLUGIN_KEYS { assert!(s.prefs.get(k).is_none(), "{k} imported"); }
         assert!(Settings::load().prefs.get("enabledPlugins").is_none());
-
-        // Local consent survives an import instead of switching the user's plugins off.
-        s.prefs.insert("enabledPlugins".into(), json!(["local-plugin"]));
-        s.prefs.insert("pluginBindings".into(), json!({"local-plugin": "C:/p/local.dll|hash"}));
-        s.import(&json!({"theme": "dark", "enabledPlugins": ["spam-score"], "pluginBindings": {"spam-score": "C:/p/a.dll|abc"}})).unwrap();
-        assert_eq!(s.str("theme", ""), "dark");
-        assert_eq!(s.prefs["enabledPlugins"], json!(["local-plugin"]));
-        assert_eq!(s.prefs["pluginBindings"], json!({"local-plugin": "C:/p/local.dll|hash"}));
-        let reloaded = Settings::load();
-        assert_eq!(reloaded.prefs["enabledPlugins"], json!(["local-plugin"]));
-        assert_eq!(reloaded.prefs["pluginBindings"], json!({"local-plugin": "C:/p/local.dll|hash"}));
 
         // sign-out forgets only the trusted senders, on the live settings and in the file
         let live = std::sync::Arc::new(std::sync::Mutex::new(Settings { schema: schema(), prefs: Default::default() }));
@@ -1399,34 +1267,6 @@ pub fn with_live(f: impl FnOnce(&mut Settings)) {
 }
 
 #[cfg(test)]
-mod forget_package_tests {
-    use serde_json::json;
-
-    #[test]
-    fn uninstalling_a_package_keeps_a_dropped_in_plugins_grant() {
-        let dir = std::path::Path::new("C:/cfg/plugins/spam-score");
-        let mut prefs = json!({
-            "enabledPlugins": ["spam-score", "other"],
-            "pluginGrants": {"spam-score": {"id": "spam-score", "path": "C:/cfg/plugins/spam.dll", "sha256": "h"}},
-            "pluginBindings": {"spam-score": "C:/cfg/plugins/spam.dll|h"}
-        }).as_object().unwrap().clone();
-        super::forget_package(&mut prefs, "spam-score", dir);
-        assert!(prefs["pluginGrants"].get("spam-score").is_some() && prefs["pluginBindings"].get("spam-score").is_some());
-        assert_eq!(prefs["enabledPlugins"], json!(["spam-score", "other"]), "still switched on: its own grant is left");
-        // the package's own grant and binding go, and it is switched off
-        prefs["pluginGrants"]["spam-score"]["path"] = json!("C:/cfg/plugins/spam-score/spam.dll");
-        prefs["pluginBindings"]["spam-score"] = json!("C:/cfg/plugins/spam-score/spam.dll|h");
-        super::forget_package(&mut prefs, "spam-score", dir);
-        assert!(prefs["pluginGrants"].get("spam-score").is_none() && prefs["pluginBindings"].get("spam-score").is_none());
-        assert_eq!(prefs["enabledPlugins"], json!(["other"]));
-        // no folder given: nothing is forgotten
-        prefs["pluginGrants"]["other"] = json!({"id": "other", "path": "", "sha256": "h"});
-        super::forget_package(&mut prefs, "other", std::path::Path::new(""));
-        assert!(prefs["pluginGrants"].get("other").is_some());
-    }
-}
-
-#[cfg(test)]
 mod cache_tests {
     use super::*;
     use serde_json::json;
@@ -1435,6 +1275,31 @@ mod cache_tests {
 
     /// What the scope's prefs file holds now.
     fn on_disk(scope: &CacheScope) -> Map<String, Value> { file_prefs(scope.file()) }
+
+    #[test]
+    fn a_prefs_file_with_the_old_plugin_keys_loads_and_saves() {
+        let scope = CacheScope::new();
+        std::fs::write(scope.file(), serde_json::to_string(&json!({
+            "theme": "dark", "density": "compact",
+            "enabledPlugins": ["spam-score"], "pluginsOffNoticeShown": true,
+            "pluginBindings": {"spam-score": "C:/cfg/plugins/spam.dll|abc"},
+            "pluginGrants": {"spam-score": {"id": "spam-score", "path": "C:/cfg/plugins/spam.dll", "sha256": "abc", "granted": ["email:read"]}},
+            "pluginSettings": {"spam-score": {"threshold": 5}},
+        })).unwrap()).unwrap();
+        // the other settings load as they were; the plugin keys are gone
+        let mut s = Settings::load();
+        assert_eq!(s.str("theme", ""), "dark");
+        assert_eq!(s.str("density", ""), "compact");
+        for k in PLUGIN_KEYS { assert!(s.prefs.get(k).is_none(), "{k} still loaded"); }
+        // none of them is carried by the settings sync
+        for k in PLUGIN_KEYS { assert!(!crate::settings_sync::is_synced(k), "{k} synced"); }
+        // a save writes the file without them and keeps the rest
+        s.remember("timeFormat", json!("12h"));
+        let disk = on_disk(&scope);
+        assert_eq!(disk["theme"], "dark");
+        assert_eq!(disk["timeFormat"], "12h");
+        for k in PLUGIN_KEYS { assert!(disk.get(k).is_none(), "{k} written back"); }
+    }
 
     #[test]
     fn a_load_after_a_save_comes_from_memory() {

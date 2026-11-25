@@ -2541,19 +2541,6 @@
    ]
   },
   {
-   "id": "addons",
-   "label": "Add-ons",
-   "group": "apps",
-   "icon": "",
-   "rows": [
-    {
-     "kind": "section",
-     "label": "Plugins",
-     "desc": "Plugins are not available in the demo."
-    }
-   ]
-  },
-  {
    "id": "backup",
    "label": "Backup & import",
    "group": "bottom",

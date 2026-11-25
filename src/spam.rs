@@ -1,4 +1,4 @@
-//! Port of Bulwark's spam-score plugin: reads spam headers, gives a verdict.
+//! The spam score, built in (Bulwark has it as its spam-score plugin): reads spam headers, gives a verdict.
 use serde_json::Value;
 
 pub struct Spam {

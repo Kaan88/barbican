@@ -13,6 +13,8 @@ Its theming approach is not worth copying: most of the trouble came from WinUI's
 
 ## 1. Plugins
 
+> **Update 2026-11-25:** the plugin platform is cut and its code removed (docs/FEATURE-CUT.md). Nothing in this section is planned any more; the spam score and the AI assistant are built in. Kept as history only.
+
 > **Update 2026-11-23:** Bulwark plugin compatibility and the web plugin runtime are dropped (too complex). Barbican gets its own native plugin system with a similar API; see ROADMAP.md Phase 5. This section is kept as background. The JavaScript host items (4) and most of the web-view pitfalls no longer apply; the catalogue, the package and permission rules, hook budgets and the send-hook rules do.
 
 **Bulwark's model** (`bulwark-1.21.2/lib/plugin-*.ts`, `lib/plugin-sandbox/`):
