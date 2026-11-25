@@ -2267,7 +2267,7 @@ export component AppWindow inherits Window {
     changed body-visible => { root.webview-sync(); }
     // keyboard focus returns to the app's key handler whenever an overlay closes or the app changes
     // (the focused field or menu went away with it), so Ctrl+K and ? never need a click first
-    property <bool> any-overlay: ctx-open || ev-open || show-settings || composing || CompX.sched-open || Pd.overlay || admin-dlg != "";
+    property <bool> any-overlay: ctx-open || ev-open || show-settings || composing || CompX.sched-open || Pd.overlay || admin-dlg != "" || FilesX.conflict-open || FilesX.newfile-open;
     changed any-overlay => { if !root.any-overlay { kbd.focus(); } }
     changed app => { kbd.focus(); }
     changed logged-in => { root.login-password = ""; root.login-otp = ""; kbd.focus(); }

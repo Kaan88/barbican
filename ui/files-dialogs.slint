@@ -25,6 +25,8 @@ export global FilesX {
     in-out property <bool> newfile-open;
     in-out property <string> newfile-name;
     in-out property <string> newfile-error;
+    // a name is typed (spaces alone are none) and the server would take it
+    in-out property <bool> newfile-ok;
     callback newfile-edited(string);
     callback newfile-create(string);
 }
@@ -157,7 +159,7 @@ export component ZipProgressCard inherits Rectangle {
 /// server would refuse says why under the field and Create waits.
 export component NewFileDialog inherits Rectangle {
     background: CTheme.scrim;
-    property <bool> can: FilesX.newfile-name != "" && FilesX.newfile-error == "";
+    property <bool> can: FilesX.newfile-ok;
     TouchArea { clicked => { FilesX.newfile-open = false; } }
     FxCard {
         parent-width: root.width;

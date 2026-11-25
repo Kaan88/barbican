@@ -1022,7 +1022,7 @@ fn download_all(u: &AppWindow, st: &Shared) {
     mail::show_toast(u, &format!("Downloading {} attachments…", atts.len()), false);
     let w = u.as_weak();
     std::thread::spawn(move || {
-        let names = crate::zip::unique_names(&atts.iter().map(crate::attachments::save_name).collect::<Vec<_>>(), "attachment");
+        let names = crate::zip::unique_names(&atts.iter().map(crate::attachments::copy_name).collect::<Vec<_>>(), "attachment");
         let mut entries = vec![];
         for (a, name) in atts.iter().zip(names) {
             if let Ok(data) = crate::tnef::fetch(&c, a) {

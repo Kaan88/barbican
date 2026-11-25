@@ -31,12 +31,6 @@ pub fn numbered_name(name: &str, used: &HashSet<String>) -> String {
 pub const NEW_FILE_BASE: &str = "new-file";
 pub fn default_new_file_name() -> String { format!("{NEW_FILE_BASE}.txt") }
 
-/// `name` with its extension replaced by `ext` (or added) (Bulwark withExtension).
-pub fn with_extension(name: &str, ext: &str) -> String {
-    let base = match name.rfind('.') { Some(i) if i > 0 => &name[..i], _ => name };
-    format!("{}.{ext}", if base.is_empty() { NEW_FILE_BASE } else { base })
-}
-
 /// The naming rules a server publishes in its filenode capability (Stalwart 0.16.6+;
 /// lib/file-name-rules.ts:17-45).
 #[derive(Clone, Debug, PartialEq)]
@@ -133,7 +127,8 @@ fn is_other(n: &Value) -> bool {
 /// "_"), and no "." or ".." segment or control character an unzip tool could trip on.
 pub fn zip_segment(name: &str) -> String {
     let s: String = name.chars().map(|c| if c == '/' || c == '\\' || is_control(c) { '_' } else { c }).collect();
-    if s.is_empty() || s == "." || s == ".." { "_".into() } else { s }
+    // "", ".", "..", "  ." and the like: what Windows would trim to nothing
+    if s.trim_end_matches(['.', ' ']).is_empty() { "_".into() } else { s }
 }
 
 /// What goes into the zip of `keys`: files as they are, folders with everything below them,
@@ -167,8 +162,9 @@ pub fn plan_zip(nodes: &[Value], keys: &[String]) -> ZipPlan {
         plan.files.push(ZipFile { path, acc: acc_of(n), blob: blob.into(), name: n["name"].as_str().unwrap_or("file").into(), mime: mime(n), size, modified: n["modified"].as_str().map(String::from) });
         plan.total_bytes += size;
     }
+    let by_key: HashMap<&str, &Value> = nodes.iter().filter_map(|n| n["_key"].as_str().map(|k| (k, n))).collect();
     for k in keys {
-        if let Some(n) = nodes.iter().find(|n| key(n) == *k) { add(n, "", &by_parent, &mut plan, &mut used, &mut seen); }
+        if let Some(n) = by_key.get(k.as_str()) { add(n, "", &by_parent, &mut plan, &mut used, &mut seen); }
     }
     plan
 }
@@ -281,10 +277,17 @@ pub enum Step {
     Skip,
 }
 
-/// The steps of a file upload into a folder holding `existing` (file-store.ts:1158-1182).
-pub fn plan_file_uploads(names: &[String], existing: &[(String, bool, String)], choices: &HashMap<String, Choice>) -> Vec<Step> {
+/// Every name taken in a folder, a symlink's included (a new node never takes it).
+pub fn taken_names(children: &[Value]) -> HashSet<String> {
+    children.iter().filter_map(|n| n["name"].as_str().map(String::from)).collect()
+}
+
+/// The steps of a file upload into a folder holding `existing`, whose names are `taken`
+/// (file-store.ts:1158-1182).
+pub fn plan_file_uploads(names: &[String], existing: &[(String, bool, String)], taken: &HashSet<String>, choices: &HashMap<String, Choice>) -> Vec<Step> {
     let replace_ids: HashMap<&str, &str> = existing.iter().filter(|e| !e.1).map(|e| (e.0.as_str(), e.2.as_str())).collect();
-    let mut used: HashSet<String> = existing.iter().map(|e| e.0.clone()).collect();
+    let mut used: HashSet<String> = taken.clone();
+    used.extend(existing.iter().map(|e| e.0.clone()));
     names.iter().map(|n| match choices.get(n) {
         Some(Choice::Skip) => Step::Skip,
         Some(Choice::Replace) if replace_ids.contains_key(n.as_str()) => Step::Replace(replace_ids[n.as_str()].to_string()),
@@ -305,10 +308,33 @@ pub fn replace_blob(c: &Client, acc: &str, id: &str, blob: &str) -> Result<(), S
     Ok(())
 }
 
-/// The id of the child of `parent` (raw id, None: the root) in `acc` named `name` of a kind.
-pub fn child_named(nodes: &[Value], acc: &str, parent: Option<&str>, name: &str, dir: bool) -> Option<String> {
-    nodes.iter().find(|n| acc_of(n) == acc && n["parentId"].as_str().filter(|p| !p.is_empty()) == parent
-        && n["name"] == name && !is_other(n) && is_dir(n) == dir).map(raw_id)
+/// The children of every folder of `acc` by (parent raw id, name, is a folder), for a merge.
+pub type ChildIndex = HashMap<(String, String, bool), String>;
+
+pub fn child_index(nodes: &[Value], acc: &str) -> ChildIndex {
+    nodes.iter().filter(|n| acc_of(n) == acc && !is_other(n))
+        .filter_map(|n| Some(((n["parentId"].as_str().unwrap_or("").to_string(), n["name"].as_str()?.to_string(), is_dir(n)), raw_id(n))))
+        .collect()
+}
+
+/// The id of the child of `parent` (raw id, "" the root) named `name` of a kind.
+pub fn child_named(ix: &ChildIndex, parent: &str, name: &str, dir: bool) -> Option<String> {
+    ix.get(&(parent.to_string(), name.to_string(), dir)).cloned()
+}
+
+/// Files below a folder on disk (links not followed): what a skipped folder upload leaves out.
+pub fn count_files(root: &std::path::Path) -> usize {
+    let mut n = 0;
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        let Ok(rd) = std::fs::read_dir(&d) else { continue };
+        for e in rd.flatten() {
+            let Ok(ft) = e.file_type() else { continue };
+            if ft.is_symlink() { continue; }
+            if ft.is_dir() { stack.push(e.path()); } else { n += 1; }
+        }
+    }
+    n
 }
 
 // ---------------------------------------------------------------- flows
@@ -339,7 +365,7 @@ fn file_name(p: &std::path::Path, fallback: &str) -> String { p.file_name().map(
 
 /// Upload files into the folder on screen, asking first about each name that is taken.
 pub fn upload_files(u: &AppWindow, c: Arc<Client>) {
-    let cwd = crate::files::view().1;
+    let cwd = crate::files::cwd();
     if !no_trash(u, &cwd) { return; }
     let Some(files) = crate::automation::pick_files() else { return };
     let incoming: Vec<Conflict> = files.iter().map(|f| Conflict { name: file_name(f, "file"), kind: Kind::File }).collect();
@@ -349,7 +375,7 @@ pub fn upload_files(u: &AppWindow, c: Arc<Client>) {
 /// Upload a folder from disk with everything in it (Bulwark uploadFolder); a folder of the
 /// same name asks first: Replace merges into it.
 pub fn upload_folder(u: &AppWindow, c: Arc<Client>) {
-    let cwd = crate::files::view().1;
+    let cwd = crate::files::cwd();
     if !no_trash(u, &cwd) { return; }
     let Some(root) = rfd::FileDialog::new().pick_folder() else { return };
     let incoming = [Conflict { name: file_name(&root, "Folder"), kind: Kind::Folder }];
@@ -407,9 +433,15 @@ fn report(done: usize, skipped: usize, failed: &[String]) -> String {
 }
 
 fn run(u: &AppWindow, c: Arc<Client>, job: Job, cwd: String, choices: HashMap<String, Choice>) {
-    let (nodes, _, draft) = crate::files::view();
-    let existing = existing_entries(&crate::files::children(&cwd));
+    let draft = crate::files::draft18();
+    let kids = crate::files::children(&cwd);
+    let (existing, taken) = (existing_entries(&kids), taken_names(&kids));
     let (acc, parent) = crate::files::target(&cwd);
+    // a folder merged into another looks up what is there already
+    let ix = match &job {
+        Job::Folder(root) if choices.get(&file_name(root, "Folder")) == Some(&Choice::Replace) => crate::files::with_nodes(|n| child_index(n, &acc)),
+        _ => ChildIndex::new(),
+    };
     let w = u.as_weak();
     crate::mail::show_toast(u, if matches!(job, Job::Folder(_)) { "Uploading folder…" } else { "Uploading…" }, false);
     std::thread::spawn(move || {
@@ -422,7 +454,7 @@ fn run(u: &AppWindow, c: Arc<Client>, job: Job, cwd: String, choices: HashMap<St
             match job {
                 Job::Files(files) => {
                     let names: Vec<String> = files.iter().map(|f| file_name(f, "file")).collect();
-                    for ((f, name), step) in files.iter().zip(&names).zip(plan_file_uploads(&names, &existing, &choices)) {
+                    for ((f, name), step) in files.iter().zip(&names).zip(plan_file_uploads(&names, &existing, &taken, &choices)) {
                         // one file that fails is noted and the rest go on (D-M5-C06)
                         let r = match step {
                             Step::Skip => { skipped += 1; continue; }
@@ -436,12 +468,9 @@ fn run(u: &AppWindow, c: Arc<Client>, job: Job, cwd: String, choices: HashMap<St
                     let top = file_name(&root, "Folder");
                     let existing_dir = existing.iter().find(|e| e.1 && e.0 == top).map(|e| e.2.clone());
                     let (top_id, merged) = match (choices.get(&top), existing_dir) {
-                        (Some(Choice::Skip), _) => { skipped += 1; return Ok(()); }
+                        (Some(Choice::Skip), _) => { skipped += count_files(&root); return Ok(()); }
                         (Some(Choice::Replace), Some(id)) => (id, true),
-                        _ => {
-                            let used: HashSet<String> = existing.iter().map(|e| e.0.clone()).collect();
-                            (crate::files::create_in(&c, draft, &acc, parent.as_deref(), &numbered_name(&top, &used), None)?, false)
-                        }
+                        _ => (crate::files::create_in(&c, draft, &acc, parent.as_deref(), &numbered_name(&top, &taken), None)?, false),
                     };
                     // breadth-first: each directory is there before what is inside it; a merged
                     // folder reuses its subfolders and replaces files of the same name
@@ -453,7 +482,7 @@ fn run(u: &AppWindow, c: Arc<Client>, job: Job, cwd: String, choices: HashMap<St
                             let name = e.file_name().to_string_lossy().to_string();
                             let Ok(ft) = e.file_type() else { continue };
                             if ft.is_symlink() { continue; }
-                            let there = |d: bool| if merged { child_named(&nodes, &acc, Some(&id), &name, d) } else { None };
+                            let there = |d: bool| if merged { child_named(&ix, &id, &name, d) } else { None };
                             if ft.is_dir() {
                                 match there(true).map(|x| Ok((x, true))).unwrap_or_else(|| crate::files::create_in(&c, draft, &acc, Some(&id), &name, None).map(|x| (x, false))) {
                                     Ok((sub, m)) => queue.push((e.path(), sub, m)),
@@ -474,19 +503,68 @@ fn run(u: &AppWindow, c: Arc<Client>, job: Job, cwd: String, choices: HashMap<St
             Ok(())
         })();
         let msg = match res { Err(e) => format!("Upload failed: {e}"), Ok(()) => report(done, skipped, &failed) };
-        let _ = w.upgrade_in_event_loop(move |u| { crate::mail::show_toast(&u, &msg, false); crate::files::open(&u, c, &cwd); });
+        let _ = w.upgrade_in_event_loop(move |u| { crate::mail::show_toast(&u, &msg, false); refresh_after(&u, c); });
     });
 }
 
-/// Clears the running flag however the zip thread ends, a panic included.
-struct ZipGuard;
-impl Drop for ZipGuard { fn drop(&mut self) { ZIP_RUNNING.store(false, Ordering::SeqCst); } }
+/// A part file beside `target` that is not there yet: "<target>.part", then "<target>.1.part"…
+/// An existing file of that name is never truncated or removed.
+pub fn create_part(target: &std::path::Path) -> std::io::Result<(PathBuf, std::fs::File)> {
+    for i in 0..1000 {
+        let mut p = target.as_os_str().to_owned();
+        if i == 0 { p.push(".part"); } else { p.push(format!(".{i}.part")); }
+        let p = PathBuf::from(p);
+        match std::fs::OpenOptions::new().write(true).create_new(true).open(&p) {
+            Ok(f) => return Ok((p, f)),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(e),
+        }
+    }
+    Err(std::io::Error::new(std::io::ErrorKind::AlreadyExists, "no free name for the part file"))
+}
+
+/// Removes the part file unless the zip was moved into place (a failure, a cancel, a panic).
+struct PartGuard { part: PathBuf, keep: bool }
+impl Drop for PartGuard { fn drop(&mut self) { if !self.keep { let _ = std::fs::remove_file(&self.part); } } }
+
+/// Write the plan's zip to `target`: into a part file beside it first, moved over it only once
+/// complete, so a cancel or a failure never leaves half a zip nor destroys a file the user
+/// chose to replace.
+pub fn save_zip(plan: &ZipPlan, target: &std::path::Path, cancel: &AtomicBool,
+    fetch: &mut dyn FnMut(&ZipFile, &mut dyn std::io::Write) -> Result<u64, String>,
+    progress: &mut dyn FnMut(f32, &str)) -> Result<(), String> {
+    let (part, file) = create_part(target).map_err(|e| format!("Could not create the file: {e}"))?;
+    let mut guard = PartGuard { part, keep: false };
+    let out = write_zip(plan, std::io::BufWriter::with_capacity(1 << 20, file), cancel, fetch, progress)?;
+    let file = out.into_inner().map_err(|e| e.to_string())?;
+    file.sync_all().map_err(|e| e.to_string())?;
+    drop(file);
+    std::fs::rename(&guard.part, target).map_err(|e| format!("Could not write the file: {e}"))?;
+    guard.keep = true;
+    Ok(())
+}
+
+/// However the zip thread ends (a panic included), the card closes and the next zip may start,
+/// both on the UI thread after anything the thread queued before.
+struct ZipDone { w: slint::Weak<AppWindow>, msg: Option<(String, bool)> }
+impl Drop for ZipDone {
+    fn drop(&mut self) {
+        let msg = self.msg.take().unwrap_or_else(|| ("Couldn't download the zip.".into(), true));
+        let r = self.w.upgrade_in_event_loop(move |u| {
+            u.global::<FilesX>().set_zip_open(false);
+            ZIP_RUNNING.store(false, Ordering::SeqCst);
+            if msg.1 { crate::mail::show_error(&u, &msg.0) } else { crate::mail::show_toast(&u, &msg.0, false) }
+        });
+        // no event loop any more: nothing to show, but never stay "running"
+        if r.is_err() { ZIP_RUNNING.store(false, Ordering::SeqCst); }
+    }
+}
 
 /// Download nodes (folders with everything below them) as one zip, written to disk as it is
 /// fetched, with a progress card that can cancel it (Bulwark downloadZip / handleDownloadZip).
 pub fn download_zip(u: &AppWindow, c: Arc<Client>, keys: Vec<String>, zip_name: String) {
     if ZIP_RUNNING.load(Ordering::SeqCst) { crate::mail::show_toast(u, "A zip download is already running.", false); return; }
-    let plan = plan_zip(&crate::files::view().0, &keys);
+    let plan = crate::files::with_nodes(|n| plan_zip(n, &keys));
     if let Some(p) = plan_problem(&plan) { crate::mail::show_error(u, &format!("Couldn't download {zip_name}: {p}")); return; }
     let Some(path) = rfd::FileDialog::new().set_file_name(crate::sanitize_name(&zip_name)).add_filter("Zip", &["zip"]).save_file() else { return };
     ZIP_RUNNING.store(true, Ordering::SeqCst);
@@ -498,53 +576,38 @@ pub fn download_zip(u: &AppWindow, c: Arc<Client>, keys: Vec<String>, zip_name: 
     x.set_zip_open(true);
     let w = u.as_weak();
     std::thread::spawn(move || {
-        let _guard = ZipGuard;
-        // written beside the chosen file and moved over it at the end: a cancel or a failure
-        // never leaves half a zip, nor destroys a file the user chose to replace
-        let mut part = path.clone().into_os_string();
-        part.push(".part");
-        let part = PathBuf::from(part);
-        let res: Result<(), String> = (|| {
-            let file = std::fs::File::create(&part).map_err(|e| format!("Could not create the file: {e}"))?;
-            let out = std::io::BufWriter::with_capacity(1 << 20, file);
-            let mut last = std::time::Instant::now() - std::time::Duration::from_secs(1);
-            let w2 = w.clone();
-            let mut progress = move |p: f32, cur: &str| {
-                if p < 1.0 && last.elapsed() < std::time::Duration::from_millis(150) { return; }
-                last = std::time::Instant::now();
-                let cur = cur.to_string();
-                let _ = w2.upgrade_in_event_loop(move |u| { let x = u.global::<FilesX>(); x.set_zip_progress(p); x.set_zip_current(cur.into()); });
-            };
-            let mut fetch = |f: &ZipFile, out: &mut dyn std::io::Write| c.download_to(&f.acc, &f.blob, &f.name, &f.mime, out);
-            let out = write_zip(&plan, out, &ZIP_CANCEL, &mut fetch, &mut progress)?;
-            let file = out.into_inner().map_err(|e| e.to_string())?;
-            file.sync_all().map_err(|e| e.to_string())?;
-            drop(file);
-            std::fs::rename(&part, &path).map_err(|e| format!("Could not write the file: {e}"))
-        })();
-        if res.is_err() { let _ = std::fs::remove_file(&part); }
-        let cancelled = ZIP_CANCEL.load(Ordering::SeqCst);
-        let _ = w.upgrade_in_event_loop(move |u| {
-            u.global::<FilesX>().set_zip_open(false);
-            match res {
-                Ok(()) => crate::mail::show_toast(&u, &format!("Saved {zip_name}"), false),
-                Err(_) if cancelled => crate::mail::show_toast(&u, "Download cancelled", false),
-                Err(e) => crate::mail::show_error(&u, &format!("Couldn't download {zip_name}: {e}")),
-            }
+        let mut done = ZipDone { w: w.clone(), msg: None };
+        let mut last = std::time::Instant::now() - std::time::Duration::from_secs(1);
+        let mut progress = move |p: f32, cur: &str| {
+            if p < 1.0 && last.elapsed() < std::time::Duration::from_millis(150) { return; }
+            last = std::time::Instant::now();
+            let cur = cur.to_string();
+            let _ = w.upgrade_in_event_loop(move |u| { let x = u.global::<FilesX>(); x.set_zip_progress(p); x.set_zip_current(cur.into()); });
+        };
+        let mut fetch = |f: &ZipFile, out: &mut dyn std::io::Write| c.download_to(&f.acc, &f.blob, &f.name, &f.mime, out);
+        let res = save_zip(&plan, &path, &ZIP_CANCEL, &mut fetch, &mut progress);
+        done.msg = Some(match res {
+            Ok(()) => (format!("Saved {zip_name}"), false),
+            Err(_) if ZIP_CANCEL.load(Ordering::SeqCst) => ("Download cancelled".into(), false),
+            Err(e) => (format!("Couldn't download {zip_name}: {e}"), true),
         });
     });
 }
 
 /// "Download as zip" for a folder, or for everything in the folder on screen (`keys` empty).
 pub fn download_zip_of(u: &AppWindow, c: Arc<Client>, keys: &[String]) {
-    let (keys, folder) = if keys.is_empty() {
-        let (_, cwd, _) = crate::files::view();
-        let kids: Vec<String> = crate::files::children(&cwd).iter().map(key).collect();
+    let (keys, names, folder) = if keys.is_empty() {
+        let kids = crate::files::children(&crate::files::cwd());
         let names = u.get_crumb_names();
         let folder = slint::Model::row_count(&names).checked_sub(1).and_then(|i| slint::Model::row_data(&names, i)).map(|s| s.to_string()).unwrap_or_default();
-        (kids, folder)
-    } else { (keys.to_vec(), String::new()) };
-    let names: Vec<String> = keys.iter().filter_map(|k| crate::files::node(k)).map(|n| n["name"].as_str().unwrap_or("").to_string()).collect();
+        (kids.iter().map(key).collect::<Vec<_>>(), kids.iter().map(|n| n["name"].as_str().unwrap_or("").to_string()).collect::<Vec<_>>(), folder)
+    } else {
+        let names = crate::files::with_nodes(|nodes| {
+            let want: HashSet<&str> = keys.iter().map(String::as_str).collect();
+            nodes.iter().filter(|n| n["_key"].as_str().is_some_and(|k| want.contains(k))).map(|n| n["name"].as_str().unwrap_or("").to_string()).collect::<Vec<_>>()
+        });
+        (keys.to_vec(), names, String::new())
+    };
     if names.is_empty() { crate::mail::show_toast(u, "There is nothing to download.", false); return; }
     download_zip(u, c, keys, zip_name(&names, &folder));
 }
@@ -553,20 +616,25 @@ pub fn cancel_zip() { ZIP_CANCEL.store(true, Ordering::SeqCst); }
 
 /// Open "New text file" for the folder on screen.
 pub fn open_new_file(u: &AppWindow, c: Arc<Client>) {
-    let cwd = crate::files::view().1;
+    let cwd = crate::files::cwd();
     if !no_trash(u, &cwd) { return; }
     let (acc, _) = crate::files::target(&cwd);
-    let rules = rules_from(&c.session["accounts"][&acc]["accountCapabilities"][CAP]);
+    // a shared account may publish no rules of its own: the user's own files account's then
+    let rules = rules_from(&c.session["accounts"][&acc]["accountCapabilities"][CAP])
+        .or_else(|| rules_from(&c.session["accounts"][&c.account_for(CAP)]["accountCapabilities"][CAP]));
     NEWFILE.with(|n| *n.borrow_mut() = Some((c, cwd, rules)));
     let x = u.global::<FilesX>();
     x.set_newfile_name(default_new_file_name().into());
     x.set_newfile_error("".into());
+    x.set_newfile_ok(true);
     x.set_newfile_open(true);
 }
 
 pub fn new_file_edited(u: &AppWindow, typed: &str) {
     let err = NEWFILE.with(|n| n.borrow().as_ref().map(|(_, _, r)| new_file_error(typed, r.as_ref()))).unwrap_or_default();
-    u.global::<FilesX>().set_newfile_error(err.into());
+    let x = u.global::<FilesX>();
+    x.set_newfile_ok(err.is_empty() && !typed.trim().is_empty());
+    x.set_newfile_error(err.into());
 }
 
 /// Create the empty text file (Bulwark createFile: an empty text/plain blob, then the node);
@@ -578,19 +646,22 @@ pub fn new_file_create(u: &AppWindow, typed: &str) {
     if let Some(p) = name_problem(&name, rules.as_ref()) { u.global::<FilesX>().set_newfile_error(problem_text(&p).into()); return; }
     NEWFILE.with(|n| n.borrow_mut().take());
     u.global::<FilesX>().set_newfile_open(false);
-    let used: HashSet<String> = crate::files::children(&cwd).iter().filter_map(|n| n["name"].as_str().map(String::from)).collect();
-    let name = numbered_name(&name, &used);
-    let draft = crate::files::view().2;
+    let name = numbered_name(&name, &taken_names(&crate::files::children(&cwd)));
+    let draft = crate::files::draft18();
     let (acc, parent) = crate::files::target(&cwd);
     let w = u.as_weak();
     std::thread::spawn(move || {
         let r = c.upload_to(&acc, vec![], "text/plain").and_then(|(blob, _)| create_text_node(&c, draft, &acc, parent.as_deref(), &name, &blob));
         let _ = w.upgrade_in_event_loop(move |u| {
             match r { Ok(_) => crate::mail::show_toast(&u, "File created", false), Err(e) => crate::mail::show_error(&u, &format!("Couldn't create the file: {e}")) }
-            crate::files::open(&u, c, &cwd);
+            refresh_after(&u, c);
         });
     });
 }
+
+/// Read the files again once an upload or a new file is done, in whatever folder is on screen
+/// now (the one it went into, or the one the user went to meanwhile): never a jump back.
+fn refresh_after(u: &AppWindow, c: Arc<Client>) { crate::files::reload(u, c); }
 
 /// The node of a new text file, its blob uploaded already.
 pub fn create_text_node(c: &Client, draft: bool, acc: &str, parent: Option<&str>, name: &str, blob: &str) -> Result<String, String> {
@@ -626,8 +697,6 @@ mod tests {
         assert_eq!(numbered_name("Folder", &used), "Folder (1)");
         assert_eq!(numbered_name(".env", &used), ".env (1)");
         assert_eq!(numbered_name("b.txt", &used), "b.txt");
-        assert_eq!(with_extension("notes.md", "txt"), "notes.txt");
-        assert_eq!(with_extension("", "txt"), "new-file.txt");
         assert_eq!(default_new_file_name(), "new-file.txt");
     }
 
@@ -727,10 +796,13 @@ mod tests {
             ("c.txt".to_string(), false, "id-c".to_string()), ("Docs".to_string(), true, "id-d".to_string())];
         let choices: HashMap<String, Choice> = [("a.txt".to_string(), Choice::Replace), ("b.txt".to_string(), Choice::Keep), ("c.txt".to_string(), Choice::Skip)].into();
         let names: Vec<String> = ["a.txt", "b.txt", "c.txt", "new.txt", "new.txt", "Docs"].iter().map(|s| s.to_string()).collect();
-        assert_eq!(plan_file_uploads(&names, &existing, &choices), [
+        assert_eq!(plan_file_uploads(&names, &existing, &HashSet::new(), &choices), [
             Step::Replace("id-a".into()), Step::Create("b (1).txt".into()), Step::Skip,
             Step::Create("new.txt".into()), Step::Create("new (1).txt".into()), Step::Create("Docs (1)".into()),
         ]);
+        // a symlink's name is taken too, though it is never a conflict
+        let taken = taken_names(&[json!({"id": "l", "name": "link.txt", "@type": "Symlink", "_key": "l", "_acc": "A"})]);
+        assert_eq!(plan_file_uploads(&["link.txt".to_string()], &[], &taken, &HashMap::new()), [Step::Create("link (1).txt".into())]);
     }
 
     #[test]
@@ -763,10 +835,105 @@ mod tests {
     #[test]
     fn merge_finds_children_by_kind() {
         let nodes = vec![n("d", None, "Docs", true, 0), n("s", Some("d"), "Sub", true, 0), n("f", Some("d"), "Sub", false, 1), n("g", None, "Sub", true, 0)];
-        assert_eq!(child_named(&nodes, "A", Some("d"), "Sub", true).as_deref(), Some("s"));
-        assert_eq!(child_named(&nodes, "A", Some("d"), "Sub", false).as_deref(), Some("f"));
-        assert_eq!(child_named(&nodes, "A", None, "Sub", true).as_deref(), Some("g"));
-        assert_eq!(child_named(&nodes, "B", Some("d"), "Sub", true), None);
+        let ix = child_index(&nodes, "A");
+        assert_eq!(child_named(&ix, "d", "Sub", true).as_deref(), Some("s"));
+        assert_eq!(child_named(&ix, "d", "Sub", false).as_deref(), Some("f"));
+        assert_eq!(child_named(&ix, "", "Sub", true).as_deref(), Some("g"));
+        assert!(child_named(&child_index(&nodes, "B"), "d", "Sub", true).is_none());
+    }
+
+    #[test]
+    fn zip_segments_never_vanish() {
+        for bad in ["", ".", "..", "...", " .", ". .", "  "] { assert_eq!(zip_segment(bad), "_", "{bad:?}"); }
+        assert_eq!(zip_segment("a/b\\c"), "a_b_c");
+        assert_eq!(zip_segment("a\u{7}b"), "a_b");
+        assert_eq!(zip_segment("notes."), "notes.");
+        assert_eq!(zip_segment(".env"), ".env");
+    }
+
+    fn scratch(tag: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("barbican-files-x-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    /// A fetch that writes each file's bytes in small pieces, as a download stream does.
+    fn chunked(data: &HashMap<String, Vec<u8>>) -> impl FnMut(&ZipFile, &mut dyn std::io::Write) -> Result<u64, String> + '_ {
+        move |f, w| {
+            let b = &data[&f.blob];
+            for c in b.chunks(997) { w.write_all(c).map_err(|e| e.to_string())?; }
+            Ok(b.len() as u64)
+        }
+    }
+
+    #[test]
+    fn streamed_zip_reads_back_in_the_plugin_unpacker() {
+        let nodes = vec![n("d", None, "Docs", true, 0), n("a", Some("d"), "a.txt", false, 40_000), n("e", Some("d"), "Empty", true, 0), n("t", None, "top.bin", false, 5)];
+        let plan = plan_zip(&nodes, &["d".into(), "t".into()]);
+        let data: HashMap<String, Vec<u8>> = [("b-a".to_string(), (0..40_000u32).map(|i| (i % 253) as u8).collect()), ("b-t".to_string(), b"12345".to_vec())].into();
+        let out = write_zip(&plan, Vec::new(), &AtomicBool::new(false), &mut chunked(&data), &mut |_, _| {}).unwrap();
+        let files = crate::plugin_package::read_zip(&out, crate::plugin_package::LIMITS).unwrap();
+        let got: Vec<(&str, &[u8])> = files.iter().map(|f| (f.path.as_str(), f.data.as_slice())).collect();
+        assert_eq!(got, [("Docs/a.txt", data["b-a"].as_slice()), ("top.bin", data["b-t"].as_slice())]);
+    }
+
+    #[test]
+    fn a_cancel_in_the_middle_of_a_file_stops_the_zip() {
+        let nodes = vec![n("a", None, "a.bin", false, 50_000), n("b", None, "b.bin", false, 1)];
+        let plan = plan_zip(&nodes, &["a".into(), "b".into()]);
+        let cancel = AtomicBool::new(false);
+        let mut pieces = 0;
+        let mut fetched = vec![];
+        let mut fetch = |f: &ZipFile, w: &mut dyn std::io::Write| {
+            fetched.push(f.path.clone());
+            for c in vec![7u8; 50_000].chunks(1000) {
+                pieces += 1;
+                if pieces == 3 { cancel.store(true, Ordering::Relaxed); }
+                w.write_all(c).map_err(|e| e.to_string())?;
+            }
+            Ok(50_000)
+        };
+        let r = write_zip(&plan, Vec::new(), &cancel, &mut fetch, &mut |_, _| {});
+        assert!(r.err().is_some_and(|e| e.contains(crate::zip::CANCELLED)));
+        assert_eq!(pieces, 3, "the stream stops at the first write after the cancel");
+        assert_eq!(fetched, ["a.bin"], "no later file is fetched");
+    }
+
+    #[test]
+    fn a_zip_lands_only_when_complete_and_never_clobbers_a_part_file() {
+        let dir = scratch("save");
+        let target = dir.join("Docs.zip");
+        // someone else's file where the part file would go: kept as it is
+        std::fs::write(dir.join("Docs.zip.part"), b"not ours").unwrap();
+        let nodes = vec![n("a", None, "a.txt", false, 3)];
+        let plan = plan_zip(&nodes, &["a".into()]);
+        let data: HashMap<String, Vec<u8>> = [("b-a".to_string(), b"abc".to_vec())].into();
+        save_zip(&plan, &target, &AtomicBool::new(false), &mut chunked(&data), &mut |_, _| {}).unwrap();
+        let files = crate::plugin_package::read_zip(&std::fs::read(&target).unwrap(), crate::plugin_package::LIMITS).unwrap();
+        assert_eq!(files[0].data, b"abc");
+        assert_eq!(std::fs::read(dir.join("Docs.zip.part")).unwrap(), b"not ours");
+        assert!(!dir.join("Docs.zip.1.part").exists(), "our part file became the zip");
+        // a failure half way: the old zip stays, no part file of ours is left
+        let mut failing = |_: &ZipFile, w: &mut dyn std::io::Write| { w.write_all(b"partial").map_err(|e| e.to_string())?; Err("Download failed (500)".to_string()) };
+        let r = save_zip(&plan, &target, &AtomicBool::new(false), &mut failing, &mut |_, _| {});
+        assert_eq!(r.err().as_deref(), Some("Download failed (500)"));
+        assert_eq!(crate::plugin_package::read_zip(&std::fs::read(&target).unwrap(), crate::plugin_package::LIMITS).unwrap()[0].data, b"abc");
+        assert!(!dir.join("Docs.zip.1.part").exists());
+        // a cancel before it starts leaves nothing either
+        let r = save_zip(&plan, &dir.join("New.zip"), &AtomicBool::new(true), &mut chunked(&data), &mut |_, _| {});
+        assert!(r.is_err());
+        assert!(!dir.join("New.zip").exists() && !dir.join("New.zip.part").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_skipped_folder_counts_its_files() {
+        let dir = scratch("count");
+        std::fs::create_dir_all(dir.join("a/b")).unwrap();
+        for f in ["x.txt", "a/y.txt", "a/b/z.txt"] { std::fs::write(dir.join(f), b"1").unwrap(); }
+        assert_eq!(count_files(&dir), 3);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

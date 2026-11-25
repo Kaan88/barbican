@@ -53,11 +53,13 @@ pub const FORWARD_TEMPLATE: &str = "{date}-{subject}";
 const MAX_LEN: usize = 200;
 
 /// Bulwark SAFE_CHARS (download-filename.ts:9): letters, digits and some punctuation stay.
-fn is_safe(c: char) -> bool {
-    c.is_alphabetic() || c.is_numeric() || " _-().,!@#&+=[]{}'".contains(c)
+fn unsafe_chars() -> &'static regex::Regex {
+    static R: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    // \p{L} is letters only: a combining mark is not kept, as in Bulwark's /u regex
+    R.get_or_init(|| regex::Regex::new(r"[^\p{L}\p{N} _\-().,!@#&+=\[\]{}']").expect("safe chars"))
 }
 
-fn replace_unsafe(s: &str) -> String { s.chars().map(|c| if is_safe(c) { c } else { '_' }).collect() }
+fn replace_unsafe(s: &str) -> String { unsafe_chars().replace_all(s, "_").into_owned() }
 
 /// Runs of `c` made one.
 fn squeeze(s: &str, c: char) -> String {
@@ -133,9 +135,14 @@ pub fn email_vars_at(m: &Value, when: Option<chrono::NaiveDateTime>) -> Vec<(&'s
     v
 }
 
+/// Bulwark `dateParts(email.receivedAt || email.sentAt)`: no date is now, a date that does
+/// not parse is None (the zeros).
 fn when_of(m: &Value) -> Option<chrono::NaiveDateTime> {
-    let t = |k: &str| m[k].as_str().and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok()).map(|d| d.with_timezone(&chrono::Local).naive_local());
-    t("receivedAt").or_else(|| t("sentAt"))
+    let iso = m["receivedAt"].as_str().filter(|s| !s.is_empty()).or_else(|| m["sentAt"].as_str().filter(|s| !s.is_empty()));
+    match iso {
+        None => Some(chrono::Local::now().naive_local()),
+        Some(s) => chrono::DateTime::parse_from_rfc3339(s).ok().map(|d| d.with_timezone(&chrono::Local).naive_local()),
+    }
 }
 
 /// Bulwark renderRaw: each {token} is its sanitised value, an unknown one is empty.
@@ -219,13 +226,23 @@ mod tests {
         assert_eq!(sanitize_part("a\tb", 80), "a_b");
         assert_eq!(sanitize_part(&"x".repeat(300), 200).len(), 200);
         assert_eq!(sanitize_part("50% off; now", 80), "50_ off_ now");
+        // a combining mark is not a letter (\p{L}): "e" + U+0301 keeps the e only
+        assert_eq!(sanitize_part("Cafe\u{301}", 80), "Cafe");
+        assert_eq!(sanitize_part("Cafe\u{301}s", 80), "Cafe_s");
     }
 
     #[test]
     fn default_eml_name_is_bulwarks_template() {
         let o = Opts::default();
         assert_eq!(email_export_filename_at(&sample(), at(), DEFAULT_EMAIL_TEMPLATE, &o), "2026-05-22 14.05.33 (Alice Sender-Bob Recipient) Benachrichtigung von Ihrem Gerät.eml");
+        // a date that does not parse: the zeros
         assert_eq!(email_export_filename_at(&json!({}), None, DEFAULT_EMAIL_TEMPLATE, &o), "0000-00-00 00.00.00 (unknown-unknown) no subject.eml");
+        assert_eq!(when_of(&json!({"receivedAt": "junk"})), None);
+        // no date at all: now, as Bulwark's new Date()
+        let now = when_of(&json!({})).unwrap();
+        assert!((chrono::Local::now().naive_local() - now).num_seconds().abs() < 5);
+        // an empty receivedAt falls back to sentAt
+        assert!(when_of(&json!({"receivedAt": "", "sentAt": "2026-05-22T14:05:33Z"})).is_some_and(|t| t.format("%Y-%m").to_string() == "2026-05"));
         // a sender without a name: the user part of the address
         let m = json!({"subject": "Hi", "from": [{"email": "carol@example.com"}], "to": [{"name": " ", "email": "dan@example.com"}]});
         assert_eq!(email_export_filename_at(&m, at(), "{from} {to_email} {nope}{subject}", &o), "carol dan@example.com Hi.eml");
@@ -259,6 +276,17 @@ mod tests {
         assert_eq!(attachment_download_filename("😀", &o), "attachment");
         let all = Opts { space: Space::Dash, lowercase: true, strip_diacritics: true, collapse: true };
         assert_eq!(attachment_download_filename("Résumé  Final.PDF", &all), "resume-final.pdf");
+    }
+
+    #[test]
+    fn options_come_from_the_settings_rows() {
+        let mut m = serde_json::Map::new();
+        assert_eq!(Opts::from_settings(&crate::settings::Settings::with_prefs(m.clone())), Opts::default());
+        m.insert("filenameSpaceReplacement".into(), json!("dash"));
+        m.insert("filenameLowercase".into(), json!(true));
+        m.insert("filenameStripDiacritics".into(), json!(true));
+        m.insert("filenameCollapseSeparators".into(), json!(false));
+        assert_eq!(Opts::from_settings(&crate::settings::Settings::with_prefs(m)), Opts { space: Space::Dash, lowercase: true, strip_diacritics: true, collapse: false });
     }
 
     #[test]

@@ -61,11 +61,12 @@ pub(crate) fn parent_key(n: &Value) -> String {
     }
 }
 
-/// What the Files flows of src/files_x.rs read of the view: every node, the folder on
-/// screen, whether nodes are created in the draft-18 shape.
-pub(crate) fn view() -> (Vec<Value>, String, bool) {
-    ST.with(|s| { let s = s.borrow(); (s.nodes.clone(), s.cwd.clone(), s.draft18) })
-}
+/// The Files flows of src/files_x.rs read the view through these: every node (borrowed,
+/// never copied on the UI thread), the folder on screen, whether nodes are created in the
+/// draft-18 shape.
+pub(crate) fn with_nodes<R>(f: impl FnOnce(&[Value]) -> R) -> R { ST.with(|s| f(&s.borrow().nodes)) }
+pub(crate) fn cwd() -> String { ST.with(|s| s.borrow().cwd.clone()) }
+pub(crate) fn draft18() -> bool { ST.with(|s| s.borrow().draft18) }
 
 /// The nodes listed in folder `k` (not the trash and what is in it).
 pub(crate) fn children(k: &str) -> Vec<Value> {

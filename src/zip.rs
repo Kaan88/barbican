@@ -134,7 +134,6 @@ pub struct StreamZip<W: std::io::Write> {
     count: usize,
 }
 
-const MAX32: u64 = u32::MAX as u64;
 pub const TOO_BIG: &str = "The zip would be larger than 4 GB.";
 
 impl<W: std::io::Write> StreamZip<W> {
