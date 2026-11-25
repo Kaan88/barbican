@@ -65,6 +65,7 @@ mod plugin_catalog_check;
 mod security;
 mod server_settings;
 mod settings;
+mod settings_sync;
 mod sieve;
 mod templates;
 mod tplflow;
@@ -1240,10 +1241,11 @@ fn main() -> Result<(), slint::PlatformError> {
         let account = u.get_account().to_string();
         let mut owner = None;
         let mut server = String::new();
+        let mut revoke = None;
         if let Some(c) = taken {
             server = c.base.clone();
             owner = Some(reminders::owner_key(&c.base, &c.username));
-            if let Some(t) = c.tokens() { std::thread::spawn(move || oauth::revoke(&c.base, &t)); }
+            revoke = c.tokens().map(|t| (c.base.clone(), t));
         }
         // the reminder runner would write its state again after the wipe
         reminders::stop();
@@ -1252,6 +1254,16 @@ fn main() -> Result<(), slint::PlatformError> {
         let keep = KEEP_SAVED_SIGN_IN.load(std::sync::atomic::Ordering::SeqCst);
         let forgot = if keep { signout::Forgot { last: false, cleared: true } } else { signout::forget_keyring(&[login.as_str(), account.as_str()], &server) };
         let last = forgot.last;
+        // settings changed in the last seconds go to this account (not the next one); after the
+        // last account, its synced settings go back to defaults (Bulwark flushSync,
+        // forgetSyncedSettings)
+        settings_sync::leave(last);
+        if let Some((base, t)) = revoke {
+            std::thread::spawn(move || {
+                settings_sync::wait_flushes(std::time::Duration::from_secs(8));
+                oauth::revoke(&base, &t);
+            });
+        }
         if last { avatars::cancel_pending(); }
         // a chat answer still coming must not write the account's file again
         CHAT_USER.lock().unwrap().clear();
@@ -1335,6 +1347,8 @@ fn main() -> Result<(), slint::PlatformError> {
         u.set_show_settings(false);
         u.set_app(0);
         u.set_busy(true);
+        // settings changed in the last seconds go to the account being left first
+        settings_sync::flush();
         restore_session(w.clone(), st.clone(), v, true, None);
     });
     let (w, st, srv_add) = (ui.as_weak(), state.clone(), server_cache.clone());
@@ -1343,6 +1357,8 @@ fn main() -> Result<(), slint::PlatformError> {
         let u = w.unwrap();
         SESSION_GEN.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         *st.lock().unwrap() = None;
+        // what is still waiting goes to the account being left; the next one's pull waits for it
+        settings_sync::leave(false);
         server_settings::set_account(&srv_add, "");
         u.set_user("".into());
         u.set_login_password("".into());
@@ -1405,6 +1421,21 @@ fn main() -> Result<(), slint::PlatformError> {
 
     let prefs = Arc::new(Mutex::new(settings::Settings::load()));
     settings::register_live(prefs.clone());
+    {
+        // settings pulled from the account: redraw what they shape
+        let w = ui.as_weak();
+        settings_sync::init(&prefs.lock().unwrap().prefs, Box::new(move || {
+            let _ = w.upgrade_in_event_loop(|u| {
+                apply_theme(&u);
+                apply_ui_prefs(&u);
+                rte::spell::reload();
+                u.set_show_advanced_settings(settings::Settings::load().bool("showAdvancedSettings", false));
+                mail::rebuild_folders(&u);
+                mail::rebuild_list(&u);
+                u.invoke_settings_search(u.get_settings_query());
+            });
+        }));
+    }
     ui.set_show_advanced_settings(prefs.lock().unwrap().bool("showAdvancedSettings", false));
     let st_acc = state.clone();
     let account_info = move || {
@@ -2694,6 +2725,8 @@ fn finish_login(w: slint::Weak<AppWindow>, st: Shared, res: Result<jmap::Client,
             *st.lock().unwrap() = Some(c.clone());
             // the new session starts now: a "Trust sender" click from here on is this account's
             trustbook::begin(&c);
+            // this account's synced settings (pulled in the background; nothing is pushed to it before)
+            settings_sync::begin(c.clone());
             unified::set_active(&user, c.clone());
             if unified::enabled() { unified::warm_up(Some(w.clone())); }
             let p = config_path();

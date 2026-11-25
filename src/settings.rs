@@ -35,6 +35,13 @@ fn path() -> std::path::PathBuf {
     crate::config_dir().join("prefs.json")
 }
 
+/// The extracted schema, for settings sync's type checks.
+pub(crate) fn schema_value() -> std::sync::Arc<Value> { schema() }
+
+/// The values a select row offers when they come from Barbican's own list (see
+/// `option_override`), for settings sync's type checks.
+pub(crate) fn option_values(key: &str) -> Option<Vec<Value>> { option_override(key).map(|o| o.into_iter().map(|(v, _)| v).collect()) }
+
 /// Keyless controls in the extracted schema that map to a known setting.
 fn key_for_label(label: &str) -> Option<&'static str> {
     match label {
@@ -181,7 +188,7 @@ impl Settings {
 
     /// Writes the settings file off the UI thread. `LATEST` serves `load` until the write lands
     /// and the newest save always wins. Tests write synchronously.
-    fn save(&self) {
+    pub(crate) fn save(&self) {
         #[cfg(test)]
         {
             let _ = std::fs::create_dir_all(crate::config_dir());
@@ -189,6 +196,8 @@ impl Settings {
         }
         #[cfg(not(test))]
         {
+            // a change to a synced setting goes to the account (debounced)
+            crate::settings_sync::local_saved(&self.prefs);
             let seq = SAVE_SEQ.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
             if let Ok(mut l) = LATEST.lock() { *l = Some(self.prefs.clone()); }
             let prefs = self.prefs.clone();
@@ -241,11 +250,13 @@ impl Settings {
         let _ = std::fs::remove_file(crate::config_dir().join("settings.json"));
     }
 
-    /// Store one value (None removes it) and save, outside the settings page's own controls.
+    /// Store one value (None removes it) and save, outside the settings page's own controls:
+    /// through the live settings, so the program's next save keeps it (and the sync sees it).
     pub fn put(key: &str, value: Option<Value>) {
-        let mut s = Settings::load();
-        match value { Some(v) => { s.prefs.insert(key.into(), v); } None => { s.prefs.remove(key); } }
-        s.save();
+        with_live(|s| {
+            match value { Some(v) => { s.prefs.insert(key.into(), v); } None => { s.prefs.remove(key); } }
+            s.save();
+        });
     }
 
     pub fn bool(&self, key: &str, default: bool) -> bool {
@@ -330,7 +341,9 @@ impl Settings {
                     let invert = r["invert"].as_bool() == Some(true);
                     let dflt = r["default"].as_bool().unwrap_or(false);
                     let v = self.bool(key, dflt);
-                    out.push(toggle(key, label, desc, if invert { !v } else { v }));
+                    // Barbican keeps it in the account's metadata, not on Bulwark's web server
+                    let desc = if key == crate::settings_sync::DISABLED_KEY { crate::settings_sync::row_desc() } else { desc.to_string() };
+                    out.push(toggle(key, label, &desc, if invert { !v } else { v }));
                     // desktop: local spell checking (Windows spell checker) next to Bulwark's proofreading add-on toggle
                     if key == "proofreading" {
                         out.push(toggle("spellCheck", "Underline misspelled words",
@@ -719,6 +732,16 @@ mod tests {
 
     use super::*;
 
+    #[test]
+    fn the_settings_sync_row_is_live() {
+        let s = Settings::with_prefs(Map::new());
+        let rows = s.schema_rows("about");
+        let r = rows.iter().find(|r| r.key == crate::settings_sync::DISABLED_KEY).expect("row");
+        assert!(r.on, "on by default (Bulwark settingsSyncDisabled: false)");
+        assert!(s.is_inverted(crate::settings_sync::DISABLED_KEY));
+        assert!(r.desc.contains("Plugins"), "{}", r.desc);
+    }
+
     // One test so the APPDATA override can't race other tests touching config_dir().
     #[test]
     fn retention_parse_and_set() {
@@ -823,6 +846,13 @@ mod tests {
         assert!(on_disk.prefs.get("trustedSenders").is_none());
         assert_eq!(on_disk.str("externalContentPolicy", ""), "block");
         assert_eq!(on_disk.str("theme", ""), "dark");
+        // a value put from elsewhere (the tag list) goes through the live settings: their next save keeps it
+        Settings::put("emailKeywords", Some(json!([{"id": "work", "label": "Work"}])));
+        assert_eq!(live.lock().unwrap().prefs["emailKeywords"], json!([{"id": "work", "label": "Work"}]));
+        live.lock().unwrap().remember("theme", json!("light"));
+        assert_eq!(Settings::load().prefs["emailKeywords"], json!([{"id": "work", "label": "Work"}]));
+        Settings::put("emailKeywords", None);
+        assert!(live.lock().unwrap().prefs.get("emailKeywords").is_none());
         if let Ok(mut l) = LIVE.lock() { *l = None; }
 
         s.reset();
