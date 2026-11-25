@@ -1,7 +1,6 @@
 #![cfg_attr(not(test), windows_subsystem = "windows")]
 
 mod a11y;
-mod applock;
 mod vacation;
 mod winstate;
 mod auth;
@@ -1192,6 +1191,12 @@ fn main() -> Result<(), slint::PlatformError> {
     // while another Barbican of this profile runs: its mail view may have that profile open
     // (every path swept is this profile's own, so another profile running does not matter)
     if first_of_profile { signout::sweep_pending(); }
+    // the app lock is gone: what it kept (its PIN entry in the profile's secret store, the marker
+    // it put on the sign-ins and kept keys, its lock file) goes, and a lock that was on is simply off
+    if first_of_profile {
+        if !oauth::retire_app_lock() { eprintln!("app lock: what it kept could not all be removed; tried again at the next start"); }
+        let _ = std::fs::remove_file(config_dir().join("applock.lock"));
+    }
     let ui = AppWindow::new()?;
     apply_theme(&ui);
     apply_ui_prefs(&ui);
@@ -1363,9 +1368,6 @@ fn main() -> Result<(), slint::PlatformError> {
                 oauth::revoke(&base, &t);
             });
         }
-        // nobody is left to lock for: the app lock's PIN goes with the last account
-        // the sign-out goes on either way; only the lock's removal is reported
-        if last && !applock::forget() { mail::show_toast(&u, applock::NOT_FORGOTTEN, false); }
         if last { avatars::cancel_pending(); }
         // a chat answer still coming must not write the account's file again
         CHAT_USER.lock().unwrap().clear();
@@ -1697,7 +1699,6 @@ fn main() -> Result<(), slint::PlatformError> {
     ui.on_settings_set_toggle(move |key, on| {
         // switching a plugin on asks for consent first; a no leaves it off
         if let Some(id) = key.strip_prefix("plugin:") { if on && !wt.upgrade().is_some_and(|u| plugin_consent(&u, id)) { rs(); return; } }
-        if wt.upgrade().is_some_and(|u| applock::settings_toggle(&u, &key, on)) { rs(); return; }
         if key.starts_with("server.") {
             if let Some(job) = server_settings::edit(&key, &serde_json::json!(on), &srv) { sw(&key, job, 10); }
             rs();
@@ -1736,7 +1737,6 @@ fn main() -> Result<(), slint::PlatformError> {
 
     let (w, pf, cf, rs, srv3, sw3) = (ui.as_weak(), prefs.clone(), cfg.clone(), refresh_settings.clone(), server_cache.clone(), server_write.clone());
     ui.on_settings_set_select(move |key, idx| {
-        if applock::settings_select(&w.unwrap(), &key, idx) { rs(); return; }
         if key.starts_with("server.") {
             if let Some(job) = server_settings::edit(&key, &serde_json::json!(idx), &srv3) { sw3(&key, job, 10); }
             rs();
@@ -1795,7 +1795,6 @@ fn main() -> Result<(), slint::PlatformError> {
             return;
         }
         if desktop::settings_button(&u, &key) { return; }
-        if applock::settings_button(&u, &key) { u.invoke_settings_search(u.get_settings_query()); return; }
         if key == "signout" { u.set_show_settings(false); u.invoke_sign_out(); }
         if key == "mailapp.register" {
             // user-triggered only: writes the HKCU registration (or the Linux .desktop file)
@@ -2603,8 +2602,6 @@ fn main() -> Result<(), slint::PlatformError> {
     ui.global::<Pd>().on_refocus(move || { if let Some(u) = w.upgrade() { u.invoke_focus_keys(); } });
 
     mailview::install_focus_hook(&ui);
-    // a PIN set: the first frame is the lock screen
-    applock::wire(&ui);
     // "Start in the tray" at sign-in leaves the window closed
     // the window comes back where it was (before it is shown, so it never jumps)
     winstate::restore(&ui);

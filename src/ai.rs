@@ -30,7 +30,7 @@ fn path() -> std::path::PathBuf {
 
 const SECRET: &str = "ai-api-key";
 
-/// The key from its entry: `{"key": …}` with the app lock's marker, or an older bare key.
+/// The key from its entry: `{"key": …}`, or an older bare key.
 fn key_of(text: &str) -> String {
     serde_json::from_str::<Value>(text).ok().and_then(|v| v["key"].as_str().map(String::from)).unwrap_or_else(|| text.to_string())
 }
@@ -65,10 +65,7 @@ impl Config {
             "renderMode": self.render_mode, "remoteImages": self.remote_images});
         let _ = std::fs::write(path(), v.to_string());
         if self.key.is_empty() { crate::secrets::delete(SECRET); } else {
-            // kept with the app lock's marker (oauth::MARKED_KEYS)
-            let mut v = json!({"key": self.key});
-            if let Some(m) = crate::oauth::current_lock_marker() { v[crate::oauth::LOCK_MARKER] = json!(m); }
-            crate::secrets::set(SECRET, &v.to_string());
+            crate::secrets::set(SECRET, &json!({"key": self.key}).to_string());
         }
     }
 

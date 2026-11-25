@@ -598,7 +598,6 @@ dependencies = [
  "reqwest",
  "resvg",
  "rfd",
- "ring",
  "rustls-pki-types",
  "rustls-webpki",
  "serde_json",
@@ -608,10 +607,8 @@ dependencies = [
  "slint-build",
  "tray-icon",
  "windows",
- "windows-future",
  "windows-sys 0.60.2",
  "wry",
- "zeroize",
 ]
 
 [[package]]

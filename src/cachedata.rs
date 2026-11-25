@@ -21,8 +21,7 @@
 //!   again): Barbican keeps what it has already rung about.
 //! - `plugins/` and `plugin-data/`: installed plugins and what they stored.
 //! - `profiles/`: other profiles (the default profile's config folder holds them).
-//! - the app lock's files (applock.rs) and the sign-in session (src/secretstore): losing them
-//!   would lock the user out or make them sign in again.
+//! - the sign-in session (src/secretstore): losing it would make the user sign in again.
 //! - the WebView profile (`platform::webview_dir()`): cookies and cache of the mail view, held
 //!   open by the running view; signing out empties it (signout.rs). Deleting it under a live
 //!   view is what the sign-out path avoids for the same reason.
