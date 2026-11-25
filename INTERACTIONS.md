@@ -2,7 +2,7 @@
 
 **Method.** Read-only audit, Nov 2026. Each Bulwark component in `components/` (and `lib/keyboard-shortcuts/`) was read for every user interaction (click, right-click, double-click, hover, drag, keys, passive display that the user acts on). For each one, the Barbican main checkout (`desktop/ui/app.slint`, `src/main.rs`, `src/ctxmenu.rs`, `src/mail.rs`, `src/settings.rs`, `ui/settings-schema.json` and siblings) was searched for an equivalent. Nothing was built or run, so "done" means the code path exists, not that it was clicked through.
 
-Cut since the audit (docs/FEATURE-CUT.md, removed from the code): the plugin platform, the app lock, sharing mail folders, calendars and address books (the Files share stays), all printing, and find a time with the guests' free/busy. Their rows are marked N and are not planned.
+Cut since the audit (docs/FEATURE-CUT.md, removed from the code): the plugin platform, the app lock, sharing mail folders, calendars and address books (the Files share stays), all printing, and find a time with the guests' free/busy. The plugin rows are marked N; the other cut rows keep their audited status for the record and are not planned.
 
 Status: **D** done, **P** partial (exists but narrower, or a setting that is saved but not read), **M** missing, **N** n/a (phone/touch/browser-only, or cut: docs/FEATURE-CUT.md). Rows that bundle several closely related Bulwark interactions are grouped into one line.
 

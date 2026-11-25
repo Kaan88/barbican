@@ -1,8 +1,8 @@
 # Barbican roadmap
 
-**Goal: 1:1 feature parity with Bulwark webmail 1.21.2, including a plugin system with a comparable API.** Barbican has its own native plugin system (C ABI, no web runtime). Bulwark's hooks, slots and host API are the reference vocabulary, so a Bulwark plugin can be ported by hand. Running Bulwark plugins unchanged is **not** a goal (decided 2026-11-23: a web-based plugin runtime is too much complexity).
+**Goal: a functional Bulwark webmail 1.21.2 clone for the features the owner uses, in a UI of its own.** Since 2026-11-25: Slint is being replaced by the owner's toolkit markdown-shared-rs, Barbican no longer copies Bulwark's look, and the features in docs/FEATURE-CUT.md are cut (the plugin platform among them). The AI assistant follows the owner's Thunderbird extension, not Bulwark.
 
-Updated 2026-11-25 (order from here set by the owner); 2026-11-23 (0.1.0 released, schedule added), after the C# port was dropped (PORT-PLAN-DROPPED.md).
+Updated 2026-11-25 (feature cut, UI toolkit move, AI assistant spec; the order below replaces everything after it); 2026-11-23 (0.1.0 released, schedule added), after the C# port was dropped (PORT-PLAN-DROPPED.md).
 
 **Inputs:**
 - GAPS.md: Bulwark gaps, as P0–P3.
@@ -11,50 +11,32 @@ Updated 2026-11-25 (order from here set by the owner); 2026-11-23 (0.1.0 release
 
 **A row is done** when it works end to end in the real app, matches Bulwark's behaviour (cite the Bulwark file:line), and is checked through the hidden automation channel. Server writes are checked live only on the test account.
 
-Sizes: S = up to 2 days, M = up to a week, L = several weeks. Two tracks run side by side:
+Sizes: S = up to 2 days, M = up to a week, L = several weeks. Two tracks ran side by side until 2026-11-25:
 - **A** builds the features.
-- **B** builds the plugin platform. B reaches a slot or hook only once A has built the screen behind it.
+- **B** built the plugin platform. **Cut on 2026-11-25** and removed from the code (docs/FEATURE-CUT.md).
 
 ---
 
-## Order from here (owner's decision, 2026-11-25)
+## Order from here (owner's decisions, 2026-11-25)
 
-This order replaces the release table below wherever they disagree. Phases 0-4 and plugin steps B1-B3 are merged.
+This replaces the release table and the phase lists below wherever they disagree; those are kept as history. Merged on main: phases 0-4, the settings cache, the tone and "Refresh cached data", and the removal of the plugin platform, the app lock, sharing of folders, calendars and address books, printing and Find a time.
 
-1. **Finish what is in flight, then stop the plugin track.** B4 part 1 (mail and composer hooks) and the notification tone plus "Refresh cached data" (S-notificationSoundChoice, S-keyless-063) are merged. No new plugin work until step 3. Calendar and contact print (G-008, G-010) is parked at step 6.
-2. **UI push (track A, the main work).** In this order:
-   1. **Jank, everywhere.** The audit is done: docs/JANK-AUDIT.md (ranked issues and work batches; do batch B, the settings cache, first, then A, the WebView, overlays and focus). Start from an audit that ranks every problem found in these four areas:
-      - **Slow:** work on the UI thread, folder/app/message switches, scrolling long lists, freezes while loading.
-      - **Layout glitches:** jumps, overlaps, misalignment, flicker and size changes while content loads.
-      - **Focus and keyboard:** focus returning after every overlay, shortcuts working without a click, Escape and Enter behaving the same in every dialog.
-      - **Looks off against Bulwark:** spacing, sizes, icons, colours.
-      Fix them worst first.
-   2. **Mail layout:**
-      - `mailLayout` (reading pane right or off, S-mailLayout; bottom cut 2026-11-25);
-      - `toolbarPosition` (S-toolbarPosition);
-      - list columns (S-listColumns, G-062);
-      - density checked against Bulwark;
-      - the sidebar account switcher and shared accounts rows (G-061).
-   3. **Visual polish:**
-      - **Decided (2026-11-25):** Bulwark's look becomes the default theme. The current Bento × Nordic look stays as a built-in alternative. Both get fixed: contrast, the selection, hover, pressed, destructive, success and warning tokens, and one type scale.
-      - merge the Bulwark palette and tuned contrast tokens (`docs/from-csharp/design/legacy-slint/theme.slint`, G-070 part 1);
-      - the font pass (G-092);
-      - icons and density side by side with Bulwark.
-   4. **Shell:**
-      - a sidebar that folds to icons;
-      - a phone-width layout;
-      - pop-out reader and composer windows (G-055);
-      - sidebar apps.
-   5. **Mail list and composer extras:**
-      - list: tabs, hover tag picker, `$pinned`, structured-mail cards (G-073);
-      - composer: @mentions, attach from Files, priority and classification, right-to-left blocks (G-075 to G-079).
-      Then Bulwark's built-in themes, theme import and the tour (G-070, G-085).
-3. **Plugin track resumes:** the rest of B4, then B5 slots on the finished screens, B6 host calls, B7 ported proof plugins.
-4. **Phase 7 large areas**, in their value order: offline and outbox, i18n and time zone, admin writes, delegation and Pro, Files sync and WOPI.
-5. **Last: the settings that show but do nothing** (G-059 to G-069, the desktop window options, swipe, push relay). Each one is wired, or marked `wont-do` with a reason (for example, the mobile-only swipe actions and the web push relay).
-6. **Printing, after everything else (owner, 2026-11-25: "I never use it").** Calendar and contact print sits unmerged on branch v05-print (round 2 review: two medium fixes left, a narrow-window week print loses days and a search left over from another view hijacks the Tasks print; plus two low ones). Conversation print (G-074) comes after it.
+Reference documents:
+- docs/FEATURE-CUT.md: what is cut, kept or later, and why (the reading pane at the bottom is cut too).
+- docs/UI-TOOLKIT-EVAL.md: the move from Slint to markdown-shared-rs, its toolkit items (K), and the milestones (R, U, T, S) with sizes.
+- docs/AI-ASSISTANT-SPEC.md: the AI assistant as a 1:1 clone of the owner's Thunderbird extension, milestones M1-M15.
+- docs/mockups/: HTML mockups in the toolkit's look (not committed; the owner decides on them later).
 
-## Schedule
+1. **Remove the cut code** (UI-TOOLKIT-EVAL R milestones). R1 plugins and R2 app lock, sharing, printing and Find a time are merged. R3 is next: the Blitz light renderer goes, and the Files preview of .eml and HTML files moves to WebView2.
+2. **AI assistant, logic first** (AI-ASSISTANT-SPEC M1-M12): providers, setup, prompts and tools as plain Rust with no UI, tested against a fake server. M1 and M2 (streaming core, OpenAI-compatible client) are merged; M3 (Anthropic) is in progress. The UI milestones (M13-M15) wait for the new toolkit.
+3. **Port preparation on the Slint app** (U0-U3): backend jank fixes, Barbican-owned wrappers for Slint types, a generated stand-in `AppWindow` behind a cargo feature, and the logic in `.slint` bindings moved to Rust. No new UI features on Slint, fixes only.
+4. **Toolkit work and a speed spike** (T1-T4, S1), then the new UI screen by screen (U4-U11, with the AI panel), then the switch-over (U12).
+5. **After the switch:** popups in their own windows (T5, U7). Later decisions: themes (G-070), Linux, the rich signature editor, contact activity.
+6. **Last: the settings that show but do nothing** and are not cut (see FEATURE-CUT.md and the open rows of spec/parity.csv). Each one is wired, or marked `wont-do` with a reason.
+
+The earlier Slint UI push (JANK-AUDIT.md batches, the Bulwark look as the default theme, the font pass) is superseded by the toolkit move. Printing, pop-out windows, the plugin track B and the Phase 7 items offline, i18n, admin writes, delegation and Pro, and Files sync and WOPI are cut.
+
+## Schedule (history, superseded 2026-11-25)
 
 Week 0 is the week of 2026-11-23. Estimates are rough and assume one coordinator, one worker and one reviewer running the branch loop (worker edits in a worktree, Opus reviews, the coordinator merges). A phase starts when the one before it in the same track is merged.
 
@@ -80,7 +62,7 @@ Week 0 is the week of 2026-11-23. Estimates are rough and assume one coordinator
 
 **Decisions needed by week:** LICENSE (week 1); installer decisions from the 0.1.0 handoff (week 1); Linux builds on or off for releases (week 4); plugin distribution format (before 0.3); sandbox (before 1.0).
 
-## Phase 0: foundations (about 1 week, do first)
+## Phase 0: foundations (about 1 week, do first) (history, superseded 2026-11-25)
 
 The repository is public, and every later phase builds on these.
 
@@ -108,7 +90,7 @@ The repository is public, and every later phase builds on these.
    - Old hook names are aliases (`email.details` → `onEmailOpen`, `compose.check` → `onBeforeEmailSend`).
 8. **Tracking (S).** One parity table, `spec/parity.csv`, built from GAPS.md and the C# `gaps.csv` and `settings.csv`. Each row gets an ID, a Bulwark reference, a status and the Rust call site. GAPS.md stays as the narrative.
 
-## Phase 1: P0 leftovers (about 1 week; all S, specs in the C# decisions)
+## Phase 1: P0 leftovers (about 1 week; all S, specs in the C# decisions) (history, superseded 2026-11-25)
 
 | Item | Spec |
 |---|---|
@@ -124,7 +106,7 @@ The repository is public, and every later phase builds on these.
 | vCard limits on untrusted files | D-M5-03, D-M5-A03, D-M5-A04 |
 | Mailto on Linux | GAPS P0-5 (needs a Linux build) |
 
-## Phase 2, track A: reader safety and mail moves (2–3 weeks)
+## Phase 2, track A: reader safety and mail moves (2–3 weeks) (history, superseded 2026-11-25)
 
 - **Per-sender trust (M):** `trustedSenders` and `externalContentPolicy`.
 - **External-sender chip (S).**
@@ -138,7 +120,7 @@ The repository is public, and every later phase builds on these.
   - decode winmail.dat (S).
 - **Reader extras:** retention banner and renaming an attachment (S).
 
-## Phase 3, track A: server settings and account (3–4 weeks)
+## Phase 3, track A: server settings and account (3–4 weeks) (history, superseded 2026-11-25)
 
 **Settings sync first.** Correction (2026-11-24): Bulwark does not keep its settings on Stalwart. It stores them as an encrypted blob on its own web server (lib/settings-sync.ts, app/api/settings/route.ts). Only templates and shared tags live in JMAP mailbox metadata (lib/jmap/bulwark-metadata.ts, namespace `org.bulwarkmail.*`). Owner decision: Barbican syncs its own settings in mailbox metadata under its own namespace, so they follow the account between PCs but are not shared with Bulwark. Templates and shared tags use Bulwark's namespaces, so those are shared. The C# choice to keep identity order and pinned folders under its own keys is **not** followed.
 
@@ -177,7 +159,7 @@ The repository is public, and every later phase builds on these.
   - `ShareNotification` and `CalendarEventNotification`;
   - the bell in the rail.
 
-## Phase 4, track A: Files depth (2 weeks)
+## Phase 4, track A: Files depth (2 weeks) (history, superseded 2026-11-25)
 
 Port the C# pure-logic parts first (`FileTransfer.Zip`/`Upload`, the `FileNames` rules). Then build:
 - an in-app preview of images, text and .eml (no PDF, D-M5-15);
@@ -188,7 +170,7 @@ Port the C# pure-logic parts first (`FileTransfer.Zip`/`Upload`, the `FileNames`
 - a new text file;
 - the filename download rules.
 
-## Phase 5, track B: our own plugin system (5–7 weeks, starts after Phase 0)
+## Phase 5, track B: our own plugin system (5–7 weeks, starts after Phase 0) (history, superseded 2026-11-25)
 
 **Decision (2026-11-23):** no Bulwark plugin compatibility and no web or JavaScript plugin runtime. Plugins are native (C ABI, as today, `src/plugins.rs`). Barbican offers comparable hooks, slots and host calls under Bulwark's names where that is sensible, so porting a Bulwark plugin means rewriting its logic, not reinventing its API.
 
@@ -211,7 +193,7 @@ What we change: no iframes and no postMessage. A plugin cannot draw its own UI. 
 
 Risk: native plugins run in the app's process with its rights, so enabling one is a trust decision. A later step can add a sandbox (see the open decisions).
 
-## Phase 6, track A: shell, list and composer parity (4–6 weeks)
+## Phase 6, track A: shell, list and composer parity (4–6 weeks) (history, superseded 2026-11-25)
 
 Many of the plugin slots live on these screens.
 
@@ -245,7 +227,7 @@ Many of the plugin slots live on these screens.
   - then Bulwark's built-in themes;
   - then theme import.
 
-## Phase 7, track A: large areas (L each, ordered by value)
+## Phase 7, track A: large areas (L each, ordered by value) (history, superseded 2026-11-25)
 
 1. Offline mode and outbox: send exactly once, keyed by Message-ID. A 5xx response means the outcome is unknown, so never re-send blind.
 2. Language (i18n) and a time zone picker.
@@ -253,7 +235,7 @@ Many of the plugin slots live on these screens.
 4. Delegation and impersonation; the Pro interface; organisation announcements.
 5. Files sync, WebDAV and WOPI editing.
 
-## Track C: distribution (alongside, when a release is wanted)
+## Track C: distribution (alongside, when a release is wanted) (history, superseded 2026-11-25)
 
 - Run CI for the first time: Inno installer, portable zip, .deb, AppImage. The MSI is on hold (built only with the repository variable `BUILD_MSI` = true). `packaging/inno/README.md` and Hub's `docs/COMPLIANCE.md` say what a release must carry; `CHANGELOG.md` drives the notes.
 - Run the updater end to end, and add the started-marker rollback (C# ADR 0009).
@@ -262,13 +244,13 @@ Many of the plugin slots live on these screens.
 
 ---
 
-## Open decisions
+## Open decisions (history, superseded 2026-11-25)
 
 1. **Plugin sandbox.** Native plugins run with full trust. Is that acceptable, or do we later move to a sandboxed format (for example WebAssembly) with the same API? Not needed to start; the API in B1 should not rule it out.
 2. **Plugin distribution.** Loose folders and ZIPs only, or also a signed bundle format and a catalogue of plugins?
 3. **JMAP extensions.** Several features use Stalwart-only `x:` extensions (account security, masked addresses). Hide them on other servers, as Bulwark does.
 
-## Polish backlog (from earlier passes)
+## Polish backlog (from earlier passes) (history, superseded 2026-11-25)
 
 - **Design:**
   - some menus and composer buttons still use Segoe Fluent glyphs;
@@ -284,7 +266,7 @@ Many of the plugin slots live on these screens.
   - the calendar Tasks view hides the view switcher.
 - **Fonts:** side-by-side check of font sizes and weights against Bulwark, done through the hidden automation channel.
 
-## Done (summary)
+## Done (summary) (history, superseded 2026-11-25)
 
 Details are in git history and earlier versions of this file.
 - Bento × Nordic design language.
