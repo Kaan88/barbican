@@ -265,6 +265,9 @@ struct Live {
     droppable: bool,
     /// A `result` the plugin posted before its `handle` returned `deferred`: it ends the message when it does.
     early: Option<Value>,
+    /// The envelope, until the host thread hands it to `handle` (the queue carries only the id, so a dropped
+    /// message frees its text at once).
+    text: Option<String>,
 }
 
 #[derive(Default)]
@@ -273,7 +276,7 @@ struct Msgs {
     live: std::collections::HashMap<u64, Live>,
     /// The message whose `handle` ran past its deadline and has not returned (PLUGINS.md "Hung plugin").
     hung: Option<u64>,
-    queue: Option<mpsc::Sender<(u64, String)>>,
+    queue: Option<mpsc::Sender<u64>>,
     /// The deadline watcher runs (it ends once nothing is in flight).
     watching: bool,
 }
@@ -292,8 +295,8 @@ pub enum Outcome {
     Dropped(String),
     /// The plugin was switched off before it answered.
     Disabled,
-    /// The failure limit switched the plugin off for the session before this message (the send check counts it as
-    /// a plugin that cannot check: PLUGINS.md "What B4 built").
+    /// The plugin is switched on but does not run: the failure limit switched it off for the session, or it failed to
+    /// load or start (the send check counts it as a plugin that cannot check: PLUGINS.md "What B4 built").
     Tripped,
     /// The host cancelled it (the user pressed Cancel).
     Cancelled,
@@ -308,7 +311,7 @@ impl Outcome {
             Outcome::TimedOut => Some("it did not answer in time".into()),
             Outcome::Dropped(why) => Some(why.clone()),
             Outcome::Disabled => Some("it was switched off".into()),
-            Outcome::Tripped => Some("it was switched off for this session after repeated failures".into()),
+            Outcome::Tripped => Some("it is not running: it failed to start, or repeated failures switched it off".into()),
             Outcome::Cancelled => Some("the check was cancelled".into()),
         }
     }
@@ -381,6 +384,10 @@ impl HostCtx {
     /// Tests elsewhere: as if the failure limit was reached.
     #[cfg(test)]
     pub(crate) fn trip_for_test(&self) { self.trip("test"); }
+
+    /// Tests: the envelope text the host holds for messages not yet handed to the plugin (bytes).
+    #[cfg(test)]
+    pub(crate) fn waiting_bytes(&self) -> usize { lock(&self.msgs).live.values().filter_map(|l| l.text.as_ref()).map(String::len).sum() }
 
     /// Tests: a shorter hard cap.
     #[cfg(test)]
@@ -638,8 +645,8 @@ impl HostCtx {
                 None => { drop(g); return refuse(done, Outcome::Dropped("too many of its events are waiting".into())); }
             }
         }
-        g.live.insert(id, Live { budget, queued: Instant::now(), phase: Phase::Queued, done, check, hook: kind == "hook", droppable, early: None });
-        let sent = g.queue.as_ref().is_some_and(|q| q.send((id, text)).is_ok());
+        g.live.insert(id, Live { budget, queued: Instant::now(), phase: Phase::Queued, done, check, hook: kind == "hook", droppable, early: None, text: Some(text) });
+        let sent = g.queue.as_ref().is_some_and(|q| q.send(id).is_ok());
         if !sent {
             let d = g.live.remove(&id).and_then(|l| l.done);
             drop(g);
@@ -682,16 +689,16 @@ impl HostCtx {
     }
 
     /// The host thread, for message `id`: call `handle` unless the message ended while it waited.
-    fn deliver(&self, n: &NativeV2, id: u64, text: &str) {
+    fn deliver(&self, n: &NativeV2, id: u64) {
         let start = Instant::now();
-        {
+        let text = {
             let mut g = lock(&self.msgs);
             if self.is_disabled() { return; }
             match g.live.get_mut(&id) {
-                Some(l) if l.phase == Phase::Queued => l.phase = Phase::Running(start),
+                Some(l) if l.phase == Phase::Queued => { l.phase = Phase::Running(start); l.text.take().unwrap_or_default() }
                 _ => return,
             }
-        }
+        };
         self.msgs_cv.notify_all();
         let msg = CString::new(text).unwrap_or_default();
         let reply = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe { (n.handle)(msg.as_ptr()) }));
@@ -1495,7 +1502,7 @@ pub fn start(loader: &V2Loader, path: &Path, expect: Expect, params: Params, env
     };
     let ctx = Arc::new(HostCtx::new(params, env));
     let (done_tx, done_rx) = mpsc::channel::<Result<(), String>>();
-    let (queue_tx, queue_rx) = mpsc::channel::<(u64, String)>();
+    let (queue_tx, queue_rx) = mpsc::channel::<u64>();
     lock(&ctx.msgs).queue = Some(queue_tx);
     let (l, p, c) = (loader.clone(), path.to_path_buf(), ctx.clone());
     // a fixed thread name: manifest text is untrusted
@@ -1530,9 +1537,9 @@ pub fn start(loader: &V2Loader, path: &Path, expect: Expect, params: Params, env
         // the plugin's messages, one at a time, until it is switched off (or the start gave up waiting, which
         // disabled it: then at once)
         if !late {
-            while let Ok((id, text)) = queue_rx.recv() {
+            while let Ok(id) = queue_rx.recv() {
                 if c.is_disabled() { break; }
-                c.deliver(&n, id, &text);
+                c.deliver(&n, id);
             }
         }
         c.disable();
@@ -2528,7 +2535,11 @@ mod hook_tests {
         assert!(until(|| lock(&SEEN).iter().any(|m| m["payload"]["act"] == "sleep")));
         let (waited, waited_rx) = outcome();
         rt.ctx.fire("onEmailOpen", json!({"n": "waited"}), Duration::from_secs(5), Some(waited));
-        for i in 0..MAX_QUEUED + 5 { rt.ctx.fire("onEmailOpen", json!({"n": i}), Duration::from_secs(5), None); }
+        let big = "z".repeat(10_000);
+        for i in 0..MAX_QUEUED + 5 { rt.ctx.fire("onEmailOpen", json!({"n": i, "pad": big}), Duration::from_secs(5), None); }
+        // what waits is bounded: the dropped observers' text is freed, not left in the queue
+        let held = rt.ctx.waiting_bytes();
+        assert!(held < (MAX_QUEUED + 1) * (big.len() + 200), "{held} bytes wait");
         assert_eq!(slow_rx.recv_timeout(Duration::from_secs(2)).unwrap(), Outcome::Answer(Value::Null));
         // the message someone waits for was not dropped; the first observers were, and none counted as a failure
         assert_eq!(waited_rx.recv_timeout(Duration::from_secs(2)).unwrap(), Outcome::Answer(Value::Null));

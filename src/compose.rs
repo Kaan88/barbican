@@ -940,6 +940,10 @@ pub fn send_scheduled(u: &AppWindow, c: Arc<Client>, prefs: &crate::settings::Se
     send_at(u, c, prefs, Some(at));
 }
 
+/// The checks after a transform changed the recipients, in the order they run (TRANSFORM_ACK).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum TStage { Outside, Api1, Recheck }
+
 /// Which check raised the warning the user has just seen.
 /// In the order they run: a confirmed stage also covers the ones before it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -953,10 +957,10 @@ thread_local! {
     /// The API 2 plugins' send check warned for this draft and action (the first check, before the transforms). Kept
     /// apart from API 1's warning (HELD's plugin stage): confirming one never confirms the other.
     static V2_ACK: std::cell::Cell<Option<(u64, Intent)>> = const { std::cell::Cell::new(None) };
-    /// A warning after the outgoing transforms changed the recipients (outside recipients, API 1's check, the second
-    /// API 2 check) was seen for this draft, action and set of added recipients (their hash). Another set of added
-    /// recipients is checked again.
-    static TRANSFORM_ACK: std::cell::Cell<Option<(u64, Intent, u64)>> = const { std::cell::Cell::new(None) };
+    /// A warning after the outgoing transforms changed the recipients was seen for this draft, action and set of
+    /// added recipients (their hash), at this stage: pressing Send again skips that stage and the ones before it,
+    /// the later ones still run (like HELD). Another set of added recipients is checked again from the start.
+    static TRANSFORM_ACK: std::cell::Cell<Option<(u64, Intent, u64, TStage)>> = const { std::cell::Cell::new(None) };
 }
 
 /// The API 2 plugins' warning was seen for exactly this draft and action. API 1's warning (HELD) does not count:
@@ -1000,7 +1004,7 @@ fn gate(held: Option<(u64, Intent, Stage)>, fp: u64, intent: Intent, builtin: im
 fn acknowledged(fp: u64, intent: Intent) -> bool {
     HELD.with(|h| h.get()).is_some_and(|(f, a, _)| f == fp && a == intent)
         || V2_ACK.with(|h| h.get()) == Some((fp, intent))
-        || TRANSFORM_ACK.with(|h| h.get()).is_some_and(|(f, a, _)| f == fp && a == intent)
+        || TRANSFORM_ACK.with(|h| h.get()).is_some_and(|(f, a, _, _)| f == fp && a == intent)
 }
 
 fn send_at(u: &AppWindow, c: Arc<Client>, prefs: &crate::settings::Settings, at: Option<i64>) {
@@ -1055,7 +1059,7 @@ fn send_at(u: &AppWindow, c: Arc<Client>, prefs: &crate::settings::Settings, at:
     let delay = prefs.prefs.get("sendDelaySeconds").and_then(|v| v.as_u64()).unwrap_or(5);
     if crate::plugin_hooks::send_hooked() {
         // API 2 plugins check (and may change) the message; the UI does not wait for them
-        plugin_send(u, SendJob { c, o, fp, ck: 0, intent, at, delay, acked: plugin_acked, t_acked: false, added_key: 0, gen: 0 });
+        plugin_send(u, SendJob { c, o, fp, ck: 0, intent, at, delay, acked: plugin_acked, t_acked: None, added_key: 0, save_wait: None, gen: 0 });
         return;
     }
     clear_acks();
@@ -1081,9 +1085,11 @@ struct SendJob {
     delay: u64,
     /// the user already saw the API 2 plugins' warning for this draft: warnings do not hold it again (refusals do)
     acked: bool,
-    /// the same after the transforms changed the recipients, for this set of added recipients (`added_key`)
-    t_acked: bool,
+    /// the stage of the checks after a recipient change the user confirmed, for this set of added recipients
+    t_acked: Option<TStage>,
     added_key: u64,
+    /// since when the send waits for a draft save in flight
+    save_wait: Option<std::time::Instant>,
     gen: u64,
 }
 
@@ -1207,12 +1213,12 @@ fn after_check(all: &[(String, crate::plugin_host::Outcome)], acked: bool) -> Af
 fn checked(u: &AppWindow, job: SendJob, payload: Value, all: Vec<(String, crate::plugin_host::Outcome)>, recheck: bool) {
     if !still_current(u, &job) { return; }
     crate::plugin_notices(u);
-    match after_check(&all, if recheck { job.t_acked } else { job.acked }) {
+    match after_check(&all, if recheck { job.t_acked >= Some(TStage::Recheck) } else { job.acked }) {
         AfterCheck::Block(m) => { cancel_send_check(u, false); u.set_c_status(m.into()); }
         AfterCheck::Warn(m) => {
             cancel_send_check(u, false);
             if recheck {
-                TRANSFORM_ACK.with(|h| h.set(Some((job.fp, job.intent, job.added_key))));
+                TRANSFORM_ACK.with(|h| h.set(Some((job.fp, job.intent, job.added_key, TStage::Recheck))));
             } else {
                 V2_ACK.with(|h| h.set(Some((job.fp, job.intent))));
             }
@@ -1236,16 +1242,17 @@ enum AfterTransform {
     Send,
     /// not sent: why
     Stop(String),
-    /// held once for this set of added recipients: the warning
-    Hold(String),
+    /// held once for this set of added recipients by this stage: the warning
+    Hold(TStage, String),
     /// the recipients changed and passed the checks here: the plugins' check runs again on the changed message
     Recheck,
 }
 
 /// The send checks again for the recipients a transform changed (ROADMAP B4): every address valid, at least one,
-/// then (unless the user already confirmed this set of added recipients, `t_acked`) the outside-recipient
-/// confirmation for the outside recipients a plugin added (`confirm_outside`: the setting is on) and API 1's check.
-fn after_transform(old: &Outgoing, new: &Outgoing, changed: bool, t_acked: bool, confirm_outside: bool, internal: &[String],
+/// then the outside-recipient confirmation for the outside recipients a plugin added (`confirm_outside`: the setting
+/// is on) and API 1's check. `t_acked`: the stage the user confirmed for this set of added recipients; it and the
+/// stages before it are skipped, the later ones run.
+fn after_transform(old: &Outgoing, new: &Outgoing, changed: bool, t_acked: Option<TStage>, confirm_outside: bool, internal: &[String],
     api1: &dyn Fn(&Outgoing) -> Option<String>) -> AfterTransform {
     if !changed { return AfterTransform::Send; }
     let all = crate::recipients::parse_list(&format!("{}, {}, {}", new.to, new.cc, new.bcc));
@@ -1256,17 +1263,15 @@ fn after_transform(old: &Outgoing, new: &Outgoing, changed: bool, t_acked: bool,
     if crate::jmap::parse_addresses(&format!("{},{},{}", new.to, new.cc, new.bcc)).is_empty() {
         return AfterTransform::Stop("Not sent: a plugin removed every recipient.".into());
     }
-    if t_acked { return AfterTransform::Recheck; }
+    let pending = |st: TStage| t_acked.is_none_or(|a| a < st);
     let outside = |o: &Outgoing| crate::trust::external_recipients(&o.to, &o.cc, &o.bcc, internal).into_iter().map(|r| r.address.to_lowercase()).collect::<Vec<_>>();
     let was = outside(old);
     let added: Vec<String> = outside(new).into_iter().filter(|a| !was.contains(a)).collect();
-    if confirm_outside && !added.is_empty() {
-        return AfterTransform::Hold(format!("A plugin added recipients outside your organisation: {}.", added.join(", ")));
+    if pending(TStage::Outside) && confirm_outside && !added.is_empty() {
+        return AfterTransform::Hold(TStage::Outside, format!("A plugin added recipients outside your organisation: {}.", added.join(", ")));
     }
-    match api1(new) {
-        Some(w) => AfterTransform::Hold(w),
-        None => AfterTransform::Recheck,
-    }
+    if pending(TStage::Api1) { if let Some(w) = api1(new) { return AfterTransform::Hold(TStage::Api1, w); } }
+    AfterTransform::Recheck
 }
 
 /// The key of a transform's added recipients (TRANSFORM_ACK): the sorted bare addresses it added.
@@ -1285,16 +1290,16 @@ fn transformed(u: &AppWindow, mut job: SendJob, before: Value, after: Value) {
     let old = job.o.clone();
     crate::plugin_hooks::apply_outgoing(&mut job.o, &after);
     job.added_key = added_key(&before, &after);
-    job.t_acked = TRANSFORM_ACK.with(|h| h.get()) == Some((job.fp, job.intent, job.added_key));
+    job.t_acked = TRANSFORM_ACK.with(|h| h.get()).filter(|(f, a, k, _)| (*f, *a, *k) == (job.fp, job.intent, job.added_key)).map(|x| x.3);
     let confirm = crate::settings::Settings::load().bool(crate::trust::RECIPIENT_CONFIRM_KEY, false);
     let internal = crate::trust::own_domains(&crate::own_addresses());
     let api1 = |o: &Outgoing| { let w = crate::plugin_compose_check(&api1_draft(o)); crate::plugin_notices(u); w };
     match after_transform(&old, &job.o, changed, job.t_acked, confirm, &internal, &api1) {
         AfterTransform::Send => plugin_send_done(u, job),
         AfterTransform::Stop(m) => { cancel_send_check(u, false); u.set_c_status(m.into()); }
-        AfterTransform::Hold(w) => {
+        AfterTransform::Hold(stage, w) => {
             cancel_send_check(u, false);
-            TRANSFORM_ACK.with(|h| h.set(Some((job.fp, job.intent, job.added_key))));
+            TRANSFORM_ACK.with(|h| h.set(Some((job.fp, job.intent, job.added_key, stage))));
             u.set_c_status(format!("{w} {}", retry_advice(job.intent)).into());
         }
         AfterTransform::Recheck => {
@@ -1308,10 +1313,19 @@ fn transformed(u: &AppWindow, mut job: SendJob, before: Value, after: Value) {
     }
 }
 
+/// The longest a checked send waits for a draft save in flight.
+const SAVE_WAIT: std::time::Duration = std::time::Duration::from_secs(60);
+
 /// Every plugin said yes: send the (possibly changed) message. A draft save still in flight (one started before
-/// Send, or Save pressed meanwhile) is waited for, so the send replaces the draft it created.
+/// Send, or Save pressed meanwhile) is waited for, so the send replaces the draft it created; at most
+/// [`SAVE_WAIT`], then the message is not sent.
 fn plugin_send_done(u: &AppWindow, mut job: SendJob) {
     if crate::autosave::in_flight() {
+        if job.save_wait.get_or_insert_with(std::time::Instant::now).elapsed() >= SAVE_WAIT {
+            cancel_send_check(u, false);
+            u.set_c_status("Not sent: the draft could not be saved.".into());
+            return;
+        }
         let w = u.as_weak();
         slint::Timer::single_shot(std::time::Duration::from_millis(100), move || {
             if let Some(u) = w.upgrade() { if still_current(&u, &job) { plugin_send_done(&u, job); } }
@@ -1977,16 +1991,16 @@ mod plugin_send_tests {
     fn a_recipient_change_runs_the_send_checks_again() {
         let old = msg("bob@example.test", "");
         let none = |_: &Outgoing| None;
-        assert_eq!(after_transform(&old, &old, false, false, true, &internal(), &none), AfterTransform::Send, "unchanged: send");
+        assert_eq!(after_transform(&old, &old, false, None, true, &internal(), &none), AfterTransform::Send, "unchanged: send");
         // changed and fine: the plugins' check runs again
         let new = msg("bob@example.test, carl@example.test", "");
-        assert_eq!(after_transform(&old, &new, true, false, true, &internal(), &none), AfterTransform::Recheck);
+        assert_eq!(after_transform(&old, &new, true, None, true, &internal(), &none), AfterTransform::Recheck);
         // not valid, or nobody left: stopped
-        assert!(matches!(after_transform(&old, &msg("not an address", ""), true, false, false, &internal(), &none), AfterTransform::Stop(m) if m.contains("not a valid address")));
-        assert!(matches!(after_transform(&old, &msg("", ""), true, false, false, &internal(), &none), AfterTransform::Stop(m) if m.contains("removed every recipient")));
+        assert!(matches!(after_transform(&old, &msg("not an address", ""), true, None, false, &internal(), &none), AfterTransform::Stop(m) if m.contains("not a valid address")));
+        assert!(matches!(after_transform(&old, &msg("", ""), true, None, false, &internal(), &none), AfterTransform::Stop(m) if m.contains("removed every recipient")));
         // API 1's check sees the changed message
         let api1 = |o: &Outgoing| o.to.contains("carl").then(|| "carl is on holiday".to_string());
-        assert_eq!(after_transform(&old, &new, true, false, false, &internal(), &api1), AfterTransform::Hold("carl is on holiday".into()));
+        assert_eq!(after_transform(&old, &new, true, None, false, &internal(), &api1), AfterTransform::Hold(TStage::Api1, "carl is on holiday".into()));
     }
 
     #[test]
@@ -1994,11 +2008,22 @@ mod plugin_send_tests {
         let old = msg("bob@example.test", "");
         let add_eve = msg("bob@example.test", "eve@outside.example");
         let none = |_: &Outgoing| None;
-        let h = after_transform(&old, &add_eve, true, false, true, &internal(), &none);
-        assert!(matches!(&h, AfterTransform::Hold(m) if m.contains("eve@outside.example")), "{h:?}");
-        assert_eq!(after_transform(&old, &add_eve, true, false, false, &internal(), &none), AfterTransform::Recheck, "the setting is off");
-        // confirmed for this set: no hold, but the plugins' check still runs
-        assert_eq!(after_transform(&old, &add_eve, true, true, true, &internal(), &none), AfterTransform::Recheck);
+        let h = after_transform(&old, &add_eve, true, None, true, &internal(), &none);
+        assert!(matches!(&h, AfterTransform::Hold(TStage::Outside, m) if m.contains("eve@outside.example")), "{h:?}");
+        assert_eq!(after_transform(&old, &add_eve, true, None, false, &internal(), &none), AfterTransform::Recheck, "the setting is off");
+        // the outside prompt confirmed: API 1's check still runs and holds the first time, then the plugins' check
+        // runs, and its warning is still shown (only a confirmed second check lets it through)
+        let api1 = |_: &Outgoing| Some("API 1 says look".to_string());
+        assert_eq!(after_transform(&old, &add_eve, true, Some(TStage::Outside), true, &internal(), &api1), AfterTransform::Hold(TStage::Api1, "API 1 says look".into()));
+        assert_eq!(after_transform(&old, &add_eve, true, Some(TStage::Outside), true, &internal(), &none), AfterTransform::Recheck);
+        let warn = vec![("P".to_string(), Outcome::Answer(json!({"warning": "eve is outside"})))];
+        assert_eq!(after_check(&warn, Some(TStage::Outside) >= Some(TStage::Recheck)), AfterCheck::Warn("P: eve is outside".into()));
+        // API 1 confirmed: no outside prompt or API 1 again, and the plugins' warning still appears
+        assert_eq!(after_transform(&old, &add_eve, true, Some(TStage::Api1), true, &internal(), &api1), AfterTransform::Recheck);
+        assert_eq!(after_check(&warn, Some(TStage::Api1) >= Some(TStage::Recheck)), AfterCheck::Warn("P: eve is outside".into()));
+        // the second check's warning confirmed: everything before it is skipped and its warning goes through
+        assert_eq!(after_transform(&old, &add_eve, true, Some(TStage::Recheck), true, &internal(), &api1), AfterTransform::Recheck);
+        assert_eq!(after_check(&warn, Some(TStage::Recheck) >= Some(TStage::Recheck)), AfterCheck::Next);
         // the ack is keyed on the added recipients: the same set in another order or case has the same key, another set
         // has another (and is held again)
         let (b, e) = (payload(&old), payload(&add_eve));
@@ -2006,9 +2031,11 @@ mod plugin_send_tests {
         let mal = payload(&msg("bob@example.test", "mal@outside.example"));
         assert_eq!(added_key(&b, &e), added_key(&b, &e2));
         assert_ne!(added_key(&b, &e), added_key(&b, &mal));
-        TRANSFORM_ACK.with(|t| t.set(Some((1, Intent::Send, added_key(&b, &e)))));
-        assert_eq!(TRANSFORM_ACK.with(|t| t.get()) == Some((1, Intent::Send, added_key(&b, &mal))), false, "another plugin-added set is not confirmed");
-        assert_eq!(TRANSFORM_ACK.with(|t| t.get()) == Some((1, Intent::Schedule(5), added_key(&b, &e))), false, "nor another action");
+        let stage = |intent: Intent, k: u64| TRANSFORM_ACK.with(|h| h.get()).filter(|(f, a, kk, _)| (*f, *a, *kk) == (1, intent, k)).map(|x| x.3);
+        TRANSFORM_ACK.with(|t| t.set(Some((1, Intent::Send, added_key(&b, &e), TStage::Outside))));
+        assert_eq!(stage(Intent::Send, added_key(&b, &e2)), Some(TStage::Outside));
+        assert_eq!(stage(Intent::Send, added_key(&b, &mal)), None, "another plugin-added set is not confirmed");
+        assert_eq!(stage(Intent::Schedule(5), added_key(&b, &e)), None, "nor another action");
         clear_acks();
     }
 

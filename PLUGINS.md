@@ -135,15 +135,16 @@ handlers in `ui/app.slint` (`plugin-watch`).
   answer `cancelled`. 3 failures in a row switch the plugin off for the session with the same notice as API 1 and the
   host-call budget; switching it off (any way) ends every message in flight at once. Only the answer to a hook
   message resets the row (not the answer to `cancel` or `settings`). At most 64 messages wait for one plugin: past
-  that the oldest waiting observer is dropped (not a failure), and with no observer waiting the new message is.
+  that the oldest waiting observer is dropped (not a failure) and its text freed, and with no observer waiting the
+  new message is.
 - **Kinds.** Observers are fired and forgotten. The send check (`onBeforeEmailSend`) asks every plugin at once and
   **fails closed**: `false` stops the send ("Not sent: the plugin X stopped this message."), and so does every way of
   not answering, a timeout, an error, a malformed reply, the plugin switched off on the way, a message it never got
   ("Not sent: the plugin X could not check this message (why). Press Send to try again, or switch X off in Settings >
-  Add-ons to send without its check."). **A plugin with the send check that the failure limit switched off still
-  stops every send** until the user switches it off in Settings > Add-ons (or restarts Barbican): the check fails
-  closed, so a plugin that keeps failing cannot be got past by failing three times. A plugin the user switched off
-  is not asked. `{"warning": "..."}` holds the send once, like API 1's `compose.check`; pressing Send again for the
+  Add-ons to send without its check."). **A switched-on plugin with the send check that does not run still stops
+  every send**, whether the failure limit switched it off or it failed to load or start, until the user switches it
+  off in Settings > Add-ons (or restarts Barbican): the check fails closed, so a plugin cannot be got past by failing
+  three times or by not starting. A plugin the user switched off is not asked. `{"warning": "..."}` holds the send once, like API 1's `compose.check`; pressing Send again for the
   same draft and action sends it (the check still runs, and a refusal or failure still stops it). Confirming API 1's
   warning does not confirm the API 2 check's, nor the other way round.
   The outgoing transform (`onTransformOutgoingEmail`) runs after the check, one plugin after another, each on the
@@ -156,13 +157,14 @@ handlers in `ui/app.slint` (`plugin-watch`).
 - **The send.** While plugins check, Send shows "Checking…" and is off, and a Cancel button stops the check: nothing
   is sent, the plugins get `cancel`, and Send runs the check again. The answers count only while the composer still
   holds the same content (an edit meanwhile, or closing or replacing the composer, drops them). No draft is saved
-  while the plugins check; a save that is still running when they are done is waited for, and the send replaces the
-  draft saved last. **When a transform changes who the message goes to, the send checks run again for the new
+  while the plugins check; a save that is still running when they are done is waited for (at most 60 s, then "Not
+  sent: the draft could not be saved."), and the send replaces the draft saved last. **When a transform changes who the message goes to, the send checks run again for the new
   recipients**: every address must be valid and there must be at least one, recipients outside the organisation that
   a plugin added are confirmed when that setting is on, then API 1's `compose.check` and the plugins'
-  `onBeforeEmailSend` see the changed message; only then it is sent. A warning of these is confirmed for that draft,
-  that action and that set of added recipients only (none of the warnings confirmed before the transform counts): a
-  transform that adds someone else is checked again.
+  `onBeforeEmailSend` see the changed message; only then it is sent. These three run in that order and are confirmed
+  like the built-in warnings: pressing Send again skips the one that held and those before it, the later ones still
+  run. A confirmation counts for that draft, that action and that set of added recipients only (none confirmed before
+  the transform counts): a transform that adds someone else is checked again from the start.
 - **Payloads** carry what the hook's permission covers and nothing secret (no token, password or storage key):
   `onEmailOpen` gets Bulwark's `EmailReadView` (senders, recipients, subject, flags, keywords, preview, the full text,
   the headers, attachment names, types and sizes; blob ids only with `email:blob-read`; `source` is empty);

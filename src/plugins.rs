@@ -1487,15 +1487,16 @@ pub fn hook_targets(plugins: &[Plugin], enabled: &[String], hook: &str) -> Vec<A
     v.into_iter().map(|x| x.1).collect()
 }
 
-/// The plugins switched on (`enabled`: the effective, granted list) whose manifest and grant give them `hook` but that
-/// the failure limit switched off for the session: their names. The send check fails closed, so these still stop a
-/// send until the user switches them off (PLUGINS.md "What B4 built").
-pub fn tripped_guards(plugins: &[Plugin], enabled: &[String], hook: &str) -> Vec<String> {
+/// The API 2 plugins switched on (`enabled`: the effective, granted list) whose manifest and grant give them `hook`
+/// but that do not run: the failure limit switched them off for the session, or they failed to load or start. Their
+/// names. The send check fails closed, so these still stop a send until the user switches them off (PLUGINS.md
+/// "What B4 built").
+pub fn send_guards(plugins: &[Plugin], enabled: &[String], hook: &str) -> Vec<String> {
     let need = crate::plugin_catalog::lookup_hook(hook).map(|h| h.permission);
-    plugins.iter().filter(|p| enabled.contains(&p.key) && p.decl.api >= 2 && p.is_tripped() && p.handles(hook))
+    plugins.iter().filter(|p| enabled.contains(&p.key) && p.decl.api >= 2 && !p.is_running_v2() && p.handles(hook))
         .filter(|p| match &p.v2 {
             Some(rt) => rt.ctx.would_hear(hook),
-            // parked: its grant covered what the manifest asks for (it is in the effective list)
+            // parked or never started: its grant covers what the manifest asks for (it is in the effective list)
             None => need.is_some_and(|n| p.decl.permissions.iter().any(|x| x == n)),
         })
         .map(|p| { let n = shown(&p.name, 60).trim().to_string(); if n.is_empty() { p.key.clone() } else { n } }).collect()
@@ -2328,6 +2329,28 @@ mod tests {
     unsafe extern "C" fn demo_handle(_: *const c_char) -> *mut c_char { DEMO_HANDLED.fetch_add(1, Ordering::SeqCst); std::ptr::null_mut() }
     unsafe extern "C" fn demo_free(_: *mut c_char) {}
     unsafe extern "C" fn demo_shutdown() { DEMO_SHUTDOWNS.fetch_add(1, Ordering::SeqCst); }
+
+    #[test]
+    fn a_switched_on_send_check_that_does_not_run_guards_the_send() {
+        let mut p = v2_plugin(&["email:send"], &[], "h1");
+        p.hooks = strings(&["onBeforeEmailSend"]);
+        let en = strings(&["dev.example.demo"]);
+        // not started (failed to load or start): it guards
+        p.load_failed = true;
+        let list = vec![p];
+        assert_eq!(send_guards(&list, &en, "onBeforeEmailSend"), strings(&["Demo"]));
+        // switched off by the user (not in the list), without the hook or without its permission: it does not
+        assert!(send_guards(&list, &[], "onBeforeEmailSend").is_empty());
+        assert!(send_guards(&list, &en, "onTransformOutgoingEmail").is_empty());
+        let mut q = v2_plugin(&["email:read"], &[], "h1");
+        q.hooks = strings(&["onBeforeEmailSend"]);
+        assert!(send_guards(&[q], &en, "onBeforeEmailSend").is_empty());
+        // switched off by the failure limit: it guards
+        let mut t = v2_plugin(&["email:send"], &[], "h1");
+        t.hooks = strings(&["onBeforeEmailSend"]);
+        t.tripped.store(true, Ordering::SeqCst);
+        assert_eq!(send_guards(&[t], &en, "onBeforeEmailSend"), strings(&["Demo"]));
+    }
 
     #[test]
     fn api2_plugins_load_with_their_grant_and_get_no_message() {

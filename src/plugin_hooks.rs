@@ -153,9 +153,9 @@ pub fn send_verdict(results: &[(String, Outcome)], acked: bool) -> Verdict {
                 let w = v["warning"].as_str().map(|w| shown(w, 300)).map(|w| w.trim().to_string()).filter(|w| !w.is_empty());
                 if let (Some(w), None, false) = (w, &warn, acked) { warn = Some(format!("{name}: {w}")); }
             }
-            Outcome::Tripped => return Verdict::Block(format!("Not sent: the plugin {name} checks outgoing mail, but it was switched off for \
-                this session after repeated failures. Switch {name} off in Settings > Add-ons to send without its check, or restart \
-                Barbican to try it again.")),
+            Outcome::Tripped => return Verdict::Block(format!("Not sent: the plugin {name} checks outgoing mail, but it is not running (it \
+                failed to start, or was switched off for this session after repeated failures). Switch {name} off in Settings > Add-ons \
+                to send without its check, or restart Barbican to try it again.")),
             other => {
                 let why = other.problem().unwrap_or_default();
                 return Verdict::Block(format!("Not sent: the plugin {name} could not check this message ({why}). Press Send to try again, \
@@ -525,17 +525,18 @@ pub fn email_sent(o: &Outgoing, account: &str, submission: Option<&str>, schedul
     observe(&t, "onAfterEmailSend", &|_| v.clone());
 }
 
-/// Does a plugin check or change outgoing mail? Then the send waits for them. A plugin with the send check that the
-/// failure limit switched off counts too: the send check fails closed, so it stops the send ([`check_send`]).
+/// Does a plugin check or change outgoing mail? Then the send waits for them. A switched-on plugin with the send check
+/// that does not run counts too: the send check fails closed, so it stops the send ([`check_send`]).
 pub fn send_hooked() -> bool {
     !targets("onBeforeEmailSend").is_empty() || !targets("onTransformOutgoingEmail").is_empty() || !guards().is_empty()
 }
 
-/// The plugins switched on with the send check that the failure limit switched off for the session (their names).
-fn guards() -> Vec<String> { crate::plugin_tripped_guards("onBeforeEmailSend") }
+/// The plugins switched on with the send check that do not run: switched off by the failure limit, or failed to load
+/// or start (their names).
+fn guards() -> Vec<String> { crate::plugin_send_guards("onBeforeEmailSend") }
 
-/// Run the plugins' send check on `payload`; `done` runs on the UI thread with every answer. A plugin with the
-/// check that the failure limit switched off answers [`Outcome::Tripped`]: not sent until the user switches it off.
+/// Run the plugins' send check on `payload`; `done` runs on the UI thread with every answer. A switched-on plugin with
+/// the check that does not run answers [`Outcome::Tripped`]: not sent until the user switches it off.
 pub fn check_send(payload: Value, done: impl FnOnce(Vec<(String, Outcome)>) + Send + 'static) -> Pending {
     let tripped: Vec<(String, Outcome)> = guards().into_iter().map(|n| (n, Outcome::Tripped)).collect();
     ask_all(&targets("onBeforeEmailSend"), "onBeforeEmailSend", None, &|_| payload.clone(),
@@ -669,7 +670,7 @@ mod tests {
         // what the app does for a plugin with the check that the failure limit switched off: it blocks, and says how
         // to send without it
         let Verdict::Block(m) = send_verdict(&[("Guard".into(), Outcome::Tripped)], true) else { panic!("a tripped guard must block") };
-        assert!(m.contains("switched off for this session") && m.contains("Settings > Add-ons"), "{m}");
+        assert!(m.contains("not running") && m.contains("failed to start") && m.contains("Settings > Add-ons"), "{m}");
     }
 
     #[test]

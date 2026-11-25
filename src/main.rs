@@ -878,12 +878,13 @@ pub fn plugin_hook_targets(hook: &str) -> Vec<Arc<plugin_host::HostCtx>> {
     PLUGINS.with(|p| p.try_borrow().map(|l| plugins::hook_targets(&l, &en, hook)).unwrap_or_default())
 }
 
-/// The plugins switched on with `hook` that the failure limit switched off (the send check's guard).
-pub fn plugin_tripped_guards(hook: &str) -> Vec<String> {
-    let any = PLUGINS.with(|p| p.try_borrow().map(|l| l.iter().any(|x| x.is_tripped())).unwrap_or(false));
+/// The API 2 plugins switched on with `hook` that do not run (switched off by the failure limit, failed to load or
+/// start): the send check's guard.
+pub fn plugin_send_guards(hook: &str) -> Vec<String> {
+    let any = PLUGINS.with(|p| p.try_borrow().map(|l| l.iter().any(|x| x.decl.api >= 2 && !x.is_running_v2() && x.handles(hook))).unwrap_or(false));
     if !any { return vec![]; }
     let en = effective_plugins();
-    PLUGINS.with(|p| p.try_borrow().map(|l| plugins::tripped_guards(&l, &en, hook)).unwrap_or_default())
+    PLUGINS.with(|p| p.try_borrow().map(|l| plugins::send_guards(&l, &en, hook)).unwrap_or_default())
 }
 
 thread_local! {
