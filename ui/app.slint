@@ -3013,7 +3013,6 @@ export component AppWindow inherits Window {
                                 if !acts.roomy: MenuItem { text: "Tag…"; clicked => { tag-popup.show(); } }
                                 MenuItem { text: "Report spam"; clicked => { root.act("spam"); } }
                                 MenuItem { text: "Mark as unread"; clicked => { root.act("unread"); } }
-                                MenuItem { text: "Print"; clicked => { root.act("print"); } }
                                 // view source, forward as attachment, save .eml, quick rules… (src/reader.rs)
                                 MenuItem { text: "More actions…"; clicked => { root.ctx("reader", root.current-mail, acts.absolute-position.x + acts.width - 220px, acts.absolute-position.y + 40px); } }
                             }

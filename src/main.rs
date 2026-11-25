@@ -2512,18 +2512,6 @@ fn main() -> Result<(), slint::PlatformError> {
                 let kind = if a == "forward" { compose::ComposeKind::Forward } else { compose::ComposeKind::ReplyAll };
                 compose::open(&u, c, kind, Some(&*msg));
             }
-            "print" => {
-                let printed = u.get_render_mode() == 0 && mailview::print();
-                if !printed {
-                    if let Some(h) = CUR.with(|c| c.borrow().as_ref().map(|c| c.html.clone().unwrap_or_else(|| format!("<pre>{}</pre>", esc(&c.text))))) {
-                        let p = platform::print_file();
-                        let page = wrap_html_opts(&format!("<h2>{}</h2>{h}<script>print()</script>", esc(&u.get_r_subject())), false)
-                            .replace("script-src 'none'", "script-src 'unsafe-inline'");
-                        let _ = std::fs::write(&p, page);
-                        oauth::open_browser(&p.to_string_lossy());
-                    }
-                }
-            }
             a if a.starts_with("rx:") => reader::pick(&u, &st, a, ""),
             other => {
                 apply_routed(&u, &st, vec![id], other);

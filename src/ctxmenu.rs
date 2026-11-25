@@ -55,7 +55,6 @@ const G_SPAM: &str = "\u{E8F8}";
 const G_PHISH: &str = "\u{E7BA}";
 const G_MORE: &str = "\u{E712}";
 const G_OPEN: &str = "\u{E8A7}";
-const G_PRINT: &str = "\u{E749}";
 const G_DOWNLOAD: &str = "\u{E896}";
 const G_COPY: &str = "\u{E8C8}";
 const G_SEARCH: &str = "\u{E721}";
@@ -170,7 +169,6 @@ pub fn request(u: &AppWindow, kind: &str, id: &str) {
                 if unread { it(G_READ, "Mark as read", "U", "read") } else { it(G_UNREAD, "Mark as unread", "U", "unread") },
                 if starred { it(G_STARRED, "Unstar", "S", "unstar") } else { it(G_STAR, "Star", "S", "star") },
                 sep(),
-                it(G_PRINT, "Print", "", "print"),
                 danger(G_DELETE, "Delete", "Del", "delete"),
             ]
         }
@@ -217,7 +215,6 @@ pub fn request(u: &AppWindow, kind: &str, id: &str) {
             }
             v.push(it(G_COPY, "Copy message text", "", "copy-all"));
             v.push(it(G_REPLY, "Reply", "R", "reply"));
-            v.push(it(G_PRINT, "Print", "", "print"));
             v
         }
         "setting" if coll_id(id).is_some() => {
@@ -903,7 +900,6 @@ fn submenu(u: &AppWindow, t: &Target, which: &str) -> Vec<CtxItem> {
             let single = t.ids.len() == 1;
             v.extend([
                 off(it(G_OPEN, "Open", "Enter", "open"), single),
-                off(it(G_PRINT, "Print", "", "print"), single),
                 off(it(G_DOWNLOAD, "Download (.eml)", "", "eml"), single),
                 off(it("\u{E943}", "View source", "", "rx:source"), single),
                 off(it(G_FORWARD, "Forward as attachment", "", "rx:fwd-att"), single),
@@ -1206,7 +1202,7 @@ pub fn pick(u: &AppWindow, st: &Shared, action: &str) {
                 let Some(c) = crate::client_for(st, id) else { return };
                 crate::schedule::action(u, c, id, &s[6..]);
             }
-            "reply" | "reply-all" | "forward" | "print" => on_open_mail(u, id, action),
+            "reply" | "reply-all" | "forward" => on_open_mail(u, id, action),
             a if a.starts_with("rx:") => on_open_mail(u, id, a),
             "open" => on_open_mail(u, id, ""),
             "eml" => {

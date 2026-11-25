@@ -92,8 +92,7 @@ reveal:function(s){if(s!==seq||!nxt)return;var f=nxt;nxt=null;document.documentE
 f.style.visibility='visible';if(cur)cur.remove();cur=f},
 cancel:function(s){seq=s;if(nxt){nxt.remove();nxt=null}},
 dim:function(on){if(cur)cur.style.opacity=on?'0.4':''},
-clear:function(bg){seq++;if(nxt){nxt.remove();nxt=null}if(cur){cur.remove();cur=null}document.documentElement.style.background=bg},
-print:function(){if(cur)cur.contentWindow.print()}
+clear:function(bg){seq++;if(nxt){nxt.remove();nxt=null}if(cur){cur.remove();cur=null}document.documentElement.style.background=bg}
 };post('shell')})();"#;
 
 /// The reader's background in the current theme (Theme.reader, the tile colour).
@@ -152,7 +151,8 @@ pub fn shell_html() -> String {
 }
 
 /// The frame's sandbox: same origin (so the shell can tell when it is laid out), popups for
-/// links (they open in the browser), modals for printing; scripts only for our own script.
+/// links (they open in the browser); scripts only for our own script. No modals: nothing in a
+/// message may open a dialog (alert, confirm, print).
 ///
 /// Decision (P0, C# D-071 asks for no `allow-scripts` ever): kept as is. A frame gets
 /// `allow-scripts` only when our dark-mode or accessibility script runs in it, and then the
@@ -174,9 +174,9 @@ pub fn shell_html() -> String {
 /// and `base-uri 'none'`. Revisit when the shell-side variant can be tried in a live window.
 fn sandbox(script: bool) -> &'static str {
     if script {
-        "allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-modals allow-scripts"
+        "allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-scripts"
     } else {
-        "allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-modals"
+        "allow-same-origin allow-popups allow-popups-to-escape-sandbox"
     }
 }
 
@@ -311,10 +311,6 @@ pub fn clear() {
     if let Some(u) = ui() { u.set_r_loading(false); }
     run_js(format!("window.__bb&&__bb.clear('{}')", reader_bg()));
     page_bg(reader_bg());
-}
-
-pub fn print() -> bool {
-    SHELL_READY.with(|r| r.get()) && WV.with(|w| w.borrow().as_ref().map(|v| v.evaluate_script("window.__bb&&__bb.print()").is_ok()).unwrap_or(false))
 }
 
 /// The email view is a child window: once it was clicked it keeps the OS keyboard focus even when
