@@ -21,14 +21,14 @@ G-019,files,"Filename download rules (filenameSpaceReplacement and siblings, pos
 G-020,sieve,Filters: 'reject' offered even when the server does not list the reject extension,filter-rule-modal.tsx,done,src/sieve.rs action_offered; src/filters_x.rs,G-020 (GAPS P1-4),1,S
 G-021,sieve,"Vacation UI: reply-to audience, forward while away, keep in inbox, HTML body, templates",vacation-settings.tsx; vacation-template-picker.tsx; lib/vacation-audience.ts; vacation-forward.ts,missing,,G-021 (GAPS P1-5),3,S/M
 G-022,sieve,Vacation: calendar out-of-office block (vacationBlockCalendar),vacation-calendar-block.tsx,missing,,G-022 (GAPS P1-5),3,S/M
-G-023,identities,Identities: create and delete; Bcc,identity-manager-modal.tsx; identity-form.tsx,partial,,G-023 (GAPS P1-6),3,M
-G-024,identities,Signatures: HTML or rich editing (signatureDetails),signature-editor.tsx; signature-details-section.tsx,missing,,G-024 (GAPS P1-6),3,M
-G-025,identities,Identity order (preferredIdentityIds),identity-manager-modal.tsx,missing,,G-025 (GAPS P1-6),3,M
-G-026,identities,Masked addresses (x:MaskedEmail); sub-address helper,masked-addresses-section.tsx; sub-address-helper.tsx,missing,,G-026 (GAPS P1-6),3,M
-G-027,security,Account security: change password (x:AccountPassword),stores/account-security-store.ts; account-security-settings.tsx,missing,,G-027 (GAPS P1-7),3,M
-G-028,security,Account security: TOTP two-factor (x:AccountPassword otpAuth),account-security-settings.tsx,missing,,G-028 (GAPS P1-7),3,M
-G-029,security,Account security: app passwords (x:AppPassword) and API keys (x:ApiKey),account-security-settings.tsx,missing,,G-029 (GAPS P1-7),3,M
-G-030,security,Account security: encryption at rest (x:PublicKey),account-security-settings.tsx,missing,,G-030 (GAPS P1-7),3,M
+G-023,identities,Identities: create and delete; Bcc,identity-manager-modal.tsx; identity-form.tsx,done,"src/identities.rs (create, edit, delete, Bcc in the envelope only)",G-023 (GAPS P1-6),3,M
+G-024,identities,Signatures: HTML or rich editing (signatureDetails),signature-editor.tsx; signature-details-section.tsx,partial,"src/identities.rs (HTML source editor, sanitised, 2047-byte limit; no WYSIWYG, no signatureDetails)",G-024 (GAPS P1-6),3,M
+G-025,identities,Identity order (preferredIdentityIds),identity-manager-modal.tsx,done,"src/identities.rs (preferredIdentityIds, Bulwark key and format)",G-025 (GAPS P1-6),3,M
+G-026,identities,Masked addresses (x:MaskedEmail); sub-address helper,masked-addresses-section.tsx; sub-address-helper.tsx,done,"src/masked.rs, src/subaddr.rs (masked addresses; sub-address helper in the composer)",G-026 (GAPS P1-6),3,M
+G-027,security,Account security: change password (x:AccountPassword),stores/account-security-store.ts; account-security-settings.tsx,done,src/security.rs (change_password_calls; keeps a working saved sign-in),G-027 (GAPS P1-7),3,M
+G-028,security,Account security: TOTP two-factor (x:AccountPassword otpAuth),account-security-settings.tsx,done,src/security.rs (TOTP enable/disable; a saved password is cleared when 2FA turns on),G-028 (GAPS P1-7),3,M
+G-029,security,Account security: app passwords (x:AppPassword) and API keys (x:ApiKey),account-security-settings.tsx,done,"src/security.rs (app passwords and API keys; shown once, copied as a secret)",G-029 (GAPS P1-7),3,M
+G-030,security,Account security: encryption at rest (x:PublicKey),account-security-settings.tsx,done,"src/security.rs (encryption at rest, public keys)",G-030 (GAPS P1-7),3,M
 G-031,security,"App lock (PIN or Windows Hello, lock after) and session timeout",app-lock/; session/,missing,,G-031 (GAPS P1-7),3,M
 G-032,templates,Templates: edit an existing template,template-manager-modal.tsx; template-form.tsx,done,"src/templates.rs, src/server_settings.rs (refuses stale saves; keeps the stored body when unchanged)",G-032 (GAPS P1-8),3,S/M
 G-033,templates,Templates: rich body,template-form.tsx,done,"src/templates.rs clean_html (HTML source editor, not WYSIWYG)",G-033 (GAPS P1-8),3,S/M

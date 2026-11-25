@@ -1,6 +1,11 @@
 //! Settings pages backed by server objects: Out of office (VacationResponse), Filters (Sieve),
-//! Folders (Mailbox), Identities & signatures (Identity). Values are cached here; edits are
-//! written back to the server (text edits are debounced).
+//! Folders (Mailbox), Identities & signatures (Identity), masked addresses (x:MaskedEmail).
+//! Values are cached here; edits are written back to the server (text edits are debounced).
+//!
+//! The identities and masked addresses are one account's: `owner` names it. A load for another
+//! account clears them first, a load that finishes after another account's has started is
+//! dropped, and a write checks it goes to the account the page showed, so nothing typed for one
+//! account is saved in another.
 use crate::jmap::Client;
 use crate::SRow;
 use serde_json::{json, Value};
@@ -95,6 +100,243 @@ pub struct Cache {
     pub books: Vec<Value>,
     pub new_cal: String,
     pub new_book: String,
+    /// The account (`Client::state_key`) the identities, the identity form and the masked
+    /// addresses belong to.
+    pub owner: String,
+    /// Bulwark's account id of `owner` (the `preferredIdentityIds` key) and its login.
+    pub owner_key: String,
+    pub owner_user: String,
+    /// The identities of `owner` were read (an empty list is then "no addresses yet").
+    pub ids_loaded: bool,
+    /// The identity create / edit form, when open.
+    pub id_form: Option<IdForm>,
+    /// Bumped whenever the form opens, closes or is typed in, so a save that finishes later
+    /// closes only the form it was started from.
+    pub id_gen: u64,
+    /// An identity save or delete is on its way: no second one, and the form takes no input,
+    /// until it is answered (a double click must not add the address twice).
+    pub id_busy: bool,
+    /// The change on its way is a delete (the form, when open, says so).
+    pub id_deleting: bool,
+    pub masked: Vec<crate::masked::Masked>,
+    /// 0 loading, 1 ready, 2 forbidden, 3 unavailable, 4 the load failed.
+    pub masked_state: u8,
+    /// The server answered anything but "not supported" for `owner`: the section shows.
+    pub masked_shown: bool,
+    pub masked_page: usize,
+    /// The address whose details are open, and its description as typed.
+    pub masked_open: String,
+    pub masked_desc: String,
+    pub masked_new_desc: String,
+    pub masked_new_site: String,
+    pub masked_notice: String,
+    pub masked_busy: bool,
+    pub masked_no_create: bool,
+    pub masked_no_update: bool,
+    pub masked_no_delete: bool,
+    /// A delete that could not be confirmed: no delete until the list was read again.
+    pub masked_needs_refresh: bool,
+    /// Settings > Password & sign-in (src/security.rs).
+    pub sec: crate::security::State,
+}
+
+/// The identity form (Bulwark identity-form.tsx): `id` "" while it adds an address.
+#[derive(Clone, Debug, Default)]
+pub struct IdForm {
+    pub id: String,
+    pub f: crate::identities::Form,
+    /// The identity as it was loaded (what an edit is compared with).
+    pub old: Option<Value>,
+    pub error: String,
+}
+
+const ACCOUNT_CHANGED: &str = "The account changed; nothing was saved.";
+
+fn plain_only() -> bool { crate::settings::Settings::load().bool("plainTextMode", false) }
+
+/// Whether the open form holds input that is not saved.
+fn form_dirty(k: &Cache) -> bool {
+    k.id_form.as_ref().is_some_and(|x| x.f != crate::identities::form_of(x.old.as_ref(), plain_only()))
+}
+
+fn reset_masked(k: &mut Cache) {
+    k.masked.clear();
+    (k.masked_state, k.masked_shown, k.masked_page, k.masked_busy) = (0, false, 0, false);
+    (k.masked_no_create, k.masked_no_update, k.masked_no_delete, k.masked_needs_refresh) = (false, false, false, false);
+    k.masked_open.clear(); k.masked_desc.clear(); k.masked_new_desc.clear(); k.masked_new_site.clear(); k.masked_notice.clear();
+}
+
+/// Make `c`'s account the one the page holds; another account's identities, form and masked
+/// addresses are dropped first. Returns the owner to check the load's result against.
+pub fn claim(cache: &Shared, owner: &str, username: &str, server: &str) -> String {
+    let mut k = cache.lock().unwrap_or_else(|e| e.into_inner());
+    if k.owner != owner {
+        k.owner = owner.to_string();
+        k.owner_key = crate::identities::account_key(username, server);
+        k.owner_user = username.to_string();
+        k.identities.clear();
+        k.quota.clear();
+        k.ids_loaded = false;
+        k.id_form = None;
+        k.id_gen += 1;
+        k.id_busy = false;
+        k.id_deleting = false;
+        k.confirm_delete.clear();
+        reset_masked(&mut k);
+    }
+    owner.to_string()
+}
+
+/// The identities of the page in the user's order (the default sender first).
+fn ordered_identities(k: &Cache) -> Vec<Value> {
+    let p = crate::settings::Settings::load();
+    let pref = crate::identities::decode_preferred(p.prefs.get(crate::identities::KEY_PREFERRED), &k.owner_key);
+    crate::identities::ordered(&k.identities, &k.owner_user, pref.as_deref())
+}
+
+fn identity_form_rows(k: &Cache, out: &mut Vec<SRow>) {
+    let Some(x) = k.id_form.as_ref() else { return };
+    let editing = !x.id.is_empty();
+    if k.id_busy {
+        // while it is saved the form is shown, not editable
+        out.push(row("section", "", if editing { "Edit address" } else { "Add address" }, "", "", false));
+        for (label, v) in [("Your name", &x.f.name), ("Email address", &x.f.email), ("Reply-to", &x.f.reply_to), ("Bcc", &x.f.bcc)] {
+            out.push(row("value", "", label, "", v, false));
+        }
+        let sig: String = (if x.f.html { crate::identities::text_from_html(&x.f.signature) } else { x.f.signature.clone() }).chars().take(300).collect();
+        out.push(row("value", "", "Signature", &sig, "", false));
+        out.push(row("value", "", if k.id_deleting { "Deleting…" } else { "Saving…" }, "", "", false));
+        return;
+    }
+    let plain = plain_only();
+    out.push(row("section", "", if editing { "Edit address" } else { "Add address" }, "", "", false));
+    out.push(row("text", "server.ident.f.name", "Your name", "The name recipients see. It may be left empty.", &x.f.name, false));
+    if editing {
+        out.push(row("value", "", "Email address", "The address cannot be changed.", &x.f.email, false));
+    } else {
+        out.push(row("text", "server.ident.f.email", "Email address", "Required. The server decides which addresses you may send from.", &x.f.email, false));
+    }
+    out.push(row("text", "server.ident.f.replyTo", "Reply-to", "Optional; replies go here. Separate several with commas.", &x.f.reply_to, false));
+    out.push(row("text", "server.ident.f.bcc", "Bcc", "Optional; every message sent from this address also goes to these, as a blind copy.", &x.f.bcc, false));
+    if plain {
+        out.push(row("value", "", "Plain-text signature", "Composing > Plain text only is on, so the signature is plain text. A formatted version stays as it is.", "", false));
+    } else {
+        out.push(row("toggle", "server.ident.f.html", "Formatted signature (HTML)", "On: the signature below is HTML (bold, links, a picture by web address). Scripts and the like are removed when it is saved, and a plain-text copy is made from it.", "", x.f.html));
+    }
+    out.push(row("textarea", "server.ident.f.sig", if x.f.html { "Signature (HTML)" } else { "Signature" }, "", &x.f.signature, false));
+    if x.f.html && crate::identities::has_html_content(&x.f.signature) {
+        let t: String = crate::identities::text_from_html(&x.f.signature).chars().take(300).collect();
+        out.push(row("value", "", "Plain-text version", &t, "", false));
+    }
+    let bytes = crate::identities::form_signature_bytes(&x.f, x.old.as_ref(), plain);
+    if let Some(n) = crate::identities::size_note(bytes) { out.push(row("value", "", "Signature size", &n, "", false)); }
+    if !x.error.is_empty() { out.push(row("value", "", "Not saved", &x.error, "", false)); }
+    out.push(row("button", "server.ident.save", "", "", if editing { "Save changes" } else { "Add address" }, false));
+    out.push(row("button", "server.ident.cancel", "", "", if k.confirm_delete == "identcancel" { "Click again to discard what you typed" } else { "Cancel" }, false));
+}
+
+/// The masked addresses section of the Password & sign-in page, once the server has them.
+fn masked_rows(k: &Cache) -> Vec<SRow> {
+    use crate::masked::PAGE_SIZE;
+    let mut out = vec![row("section", "", "Masked addresses", "Receive mail without sharing your main address. Disabling an address rejects new mail to it. These addresses cannot be used to send mail.", "", false)];
+    match k.masked_state {
+        0 => out.push(row("value", "", "Loading masked addresses…", "", "", false)),
+        2 => out.push(row("value", "", "Not allowed", "Your current session is not allowed to list masked addresses.", "", false)),
+        3 => out.push(row("value", "", "Not available", "Masked addresses aren't available for this account or server.", "", false)),
+        4 => out.push(row("value", "", "Could not load", "Could not load the complete address list. Refresh to try again.", "", false)),
+        _ => {
+            let n = k.masked.len();
+            out.push(row("value", "", &if n == 1 { "1 address".to_string() } else { format!("{n} addresses") }, "", "", false));
+            if n == 0 { out.push(row("value", "", "No masked addresses yet.", "", "", false)); }
+            let pages = n.div_ceil(PAGE_SIZE).max(1);
+            let page = k.masked_page.min(pages - 1);
+            for m in k.masked.iter().skip(page * PAGE_SIZE).take(PAGE_SIZE) {
+                let desc = format!("{} · {} · {}", m.description.as_deref().filter(|d| !d.is_empty()).unwrap_or("No description"),
+                    m.for_domain.as_deref().filter(|d| !d.is_empty()).unwrap_or("Not specified"), if m.enabled { "Enabled" } else { "Disabled" });
+                let open = k.masked_open == m.id;
+                out.push(row("button", &format!("server.masked.open:{}", m.id), &m.email, &desc, if open { "Close" } else { "Edit" }, false));
+                out.push(row("button", &format!("server.masked.copy:{}", m.id), "", "", "Copy", false));
+                if open {
+                    if k.masked_no_update {
+                        out.push(row("value", "", "Description", m.description.as_deref().unwrap_or(""), "", false));
+                    } else {
+                        out.push(row("text", "server.masked.desc", "Description (optional)", "", &k.masked_desc, false));
+                        out.push(row("button", &format!("server.masked.savedesc:{}", m.id), "", "", "Save description", false));
+                        out.push(row("button", &format!("server.masked.toggle:{}", m.id), "", if m.enabled { "New mail to this address is rejected while it is disabled." } else { "" }, if m.enabled { "Disable" } else { "Enable" }, false));
+                    }
+                    if !k.masked_no_delete && !k.masked_needs_refresh {
+                        let ask = k.confirm_delete == format!("masked:{}", m.id);
+                        out.push(row("button", &format!("server.masked.delete:{}", m.id), "",
+                            if ask { "This cannot be undone. Mail sent to this address will no longer be delivered." } else { "" },
+                            if ask { "Delete permanently" } else { "Delete" }, false));
+                    }
+                }
+            }
+            if pages > 1 {
+                out.push(row("value", "", &format!("Page {} of {pages}", page + 1), "", "", false));
+                if page > 0 { out.push(row("button", "server.masked.prev", "", "", "Previous", false)); }
+                if page + 1 < pages { out.push(row("button", "server.masked.next", "", "", "Next", false)); }
+            }
+            if k.masked_no_update { out.push(row("value", "", "Editing not allowed", "The server did not allow editing masked addresses with this session. You can still copy addresses.", "", false)); }
+            if k.masked_no_delete { out.push(row("value", "", "Deleting not allowed", "Your current session is not allowed to delete masked addresses. Other permitted actions remain available.", "", false)); }
+            out.push(row("section", "", "Create masked address", "", "", false));
+            if k.masked_no_create {
+                out.push(row("value", "", "Creating not allowed", "The server did not allow creating a masked address with this session.", "", false));
+            } else {
+                out.push(row("text", "server.masked.newsite", "Website (optional)", "The site you will give the address to.", &k.masked_new_site, false));
+                out.push(row("text", "server.masked.newdesc", "Description (optional)", "", &k.masked_new_desc, false));
+                out.push(row("button", "server.masked.create", "", "", "Create masked address", false));
+            }
+        }
+    }
+    if !k.masked_notice.is_empty() { out.push(row("value", "", &k.masked_notice, "", "", false)); }
+    if k.masked_state != 0 && k.masked_state != 3 { out.push(row("button", "server.masked.refresh", "", "", "Refresh", false)); }
+    out
+}
+
+type Job = Box<dyn FnOnce(&Client, &Shared) -> Result<(), String> + Send>;
+
+fn noop() -> Option<Job> { Some(Box::new(|_, _| Ok(()))) }
+
+/// A masked-address change (Bulwark mutate): one at a time, for the account the page shows;
+/// the outcome is a line on the page.
+fn masked_job(cache: &Shared, kind: &'static str, op: impl FnOnce(&Client) -> Result<(), crate::masked::MErr> + Send + 'static) -> Option<Job> {
+    let (owner, epoch) = {
+        let mut k = cache.lock().unwrap_or_else(|e| e.into_inner());
+        if k.masked_busy || k.masked_state != 1 { return None; }
+        k.masked_busy = true;
+        k.masked_notice.clear();
+        (k.owner.clone(), k.sec.epoch)
+    };
+    Some(Box::new(move |c: &Client, k: &Shared| {
+        if c.state_key() != owner {
+            let mut g = k.lock().unwrap_or_else(|e| e.into_inner());
+            if g.owner == owner && g.sec.epoch == epoch { g.masked_busy = false; }
+            return Err(ACCOUNT_CHANGED.into());
+        }
+        let r = op(c);
+        let mut g = k.lock().unwrap_or_else(|e| e.into_inner());
+        // the page shows another account by now, or was reset (signed out, Settings closed and
+        // opened again): nothing of this belongs there
+        if g.owner != owner || g.sec.epoch != epoch { return Ok(()); }
+        g.masked_busy = false;
+        match r {
+            Ok(()) => {
+                g.masked_notice = if kind == "destroy" { "Address permanently deleted.".into() } else { "Change saved.".into() };
+                if kind == "create" { g.masked_new_desc.clear(); g.masked_new_site.clear(); }
+                if kind == "destroy" { g.masked_open.clear(); }
+            }
+            Err(e) => {
+                if e.forbidden() {
+                    match kind { "create" => g.masked_no_create = true, "update" => g.masked_no_update = true, _ => g.masked_no_delete = true }
+                }
+                if e.unavailable() { g.masked.clear(); g.masked_state = 3; }
+                if kind == "destroy" && !e.forbidden() { g.masked_needs_refresh = true; }
+                g.masked_notice = crate::masked::notice(kind, &e).into();
+            }
+        }
+        Ok(())
+    }))
 }
 
 /// Bulwark's calendar colour presets (lib/shared-calendar-colors.ts CALENDAR_COLORS).
@@ -159,6 +401,38 @@ const ARCHIVE_USING: [&str; 2] = ["urn:ietf:params:jmap:core", "urn:stalwart:jma
 
 pub type Shared = Arc<Mutex<Cache>>;
 
+/// Forget everything the pages cached, secrets first: Settings was closed, or the account signed
+/// out or changed. The security page's epoch moves on, so a job or load still running for the old
+/// account drops its answer instead of writing it into the next page.
+pub fn reset(cache: &Shared) {
+    let mut g = cache.lock().unwrap_or_else(|e| e.into_inner());
+    let epoch = g.sec.epoch + 1;
+    // the identity generation keeps counting too: a save answered after the reset, once this
+    // account is claimed again, must not close or touch the new form
+    let generation = g.id_gen + 1;
+    let old = std::mem::take(&mut *g);
+    g.sec.epoch = epoch;
+    g.id_gen = generation;
+    // the out-of-office page is kept: an edit still waiting for its debounce is written after
+    // Settings closes. It holds no secret, and [`set_account`] drops it when the account changes.
+    keep_vacation(&mut g, old);
+}
+
+fn keep_vacation(g: &mut Cache, old: Cache) {
+    g.account = old.account;
+    g.vac_account = old.vac_account;
+    g.vac_epoch = old.vac_epoch;
+    g.vacation = old.vacation;
+    g.vac_filters = old.vac_filters;
+    g.vac_domains = old.vac_domains;
+    (g.fwd_enabled, g.fwd_to, g.fwd_keep) = (old.fwd_enabled, old.fwd_to, old.fwd_keep);
+    g.vac_saved = old.vac_saved;
+    g.vac_src = old.vac_src;
+    (g.vac_from_txt, g.vac_to_txt, g.vac_from_pending, g.vac_to_pending) = (old.vac_from_txt, old.vac_to_txt, old.vac_from_pending, old.vac_to_pending);
+    (g.vac_reply_dirty, g.vac_forward_dirty, g.vac_audience_dirty) = (old.vac_reply_dirty, old.vac_forward_dirty, old.vac_audience_dirty);
+    (g.vac_sync_dirty, g.fwd_typed) = (old.vac_sync_dirty, old.fwd_typed);
+}
+
 fn s(v: &str) -> SharedString { SharedString::from(v) }
 fn row(kind: &str, key: &str, label: &str, desc: &str, text: &str, on: bool) -> SRow {
     SRow { kind: s(kind), key: s(key), label: s(label), desc: s(desc), options: ModelRc::new(VecModel::from(Vec::<SharedString>::new())), index: 0, on, text: s(text) }
@@ -178,7 +452,7 @@ fn quota_rows(list: &[Value]) -> Vec<SRow> {
 /// account drops the out-of-office data held for the one before, so none of it is shown, edited
 /// or written to the new one.
 pub fn set_account(cache: &Shared, key: &str) {
-    let mut k = cache.lock().unwrap();
+    let mut k = cache.lock().unwrap_or_else(|e| e.into_inner());
     if k.account == key { return; }
     k.account = key.to_string();
     clear_vacation(&mut k);
@@ -204,10 +478,43 @@ fn vac_current(k: &Cache) -> bool { k.vacation.is_some() && !k.vac_account.is_em
 
 fn vac_dirty(k: &Cache) -> bool { k.vac_reply_dirty || k.vac_forward_dirty || k.vac_audience_dirty.is_some() || k.vac_sync_dirty }
 
+/// Settings > Password & sign-in's masked addresses (Bulwark masked-email-settings.tsx): hidden
+/// on an account without them. Its result is dropped when the page changed account or was reset.
+fn load_masked(c: &Client, cache: &Shared) {
+    let owner = claim(cache, &c.state_key(), &c.username, &c.base);
+    let epoch = cache.lock().unwrap_or_else(|e| e.into_inner()).sec.epoch;
+    // no management capability on this account: no section (Bulwark returns null)
+    if crate::masked::context(c).is_none() {
+        let mut k = cache.lock().unwrap_or_else(|e| e.into_inner());
+        if k.owner == owner && k.sec.epoch == epoch { k.masked_shown = false; k.masked_state = 3; }
+        return;
+    }
+    let r = crate::masked::list(c);
+    let mut k = cache.lock().unwrap_or_else(|e| e.into_inner());
+    // another account, or the page was reset (signed out, Settings closed) while it ran
+    if k.owner != owner || k.sec.epoch != epoch { return; }
+    match r {
+        Ok(list) => {
+            let pages = list.len().div_ceil(crate::masked::PAGE_SIZE).max(1);
+            k.masked_page = k.masked_page.min(pages - 1);
+            if !list.iter().any(|m| m.id == k.masked_open) { k.masked_open.clear(); }
+            k.masked = list;
+            (k.masked_state, k.masked_shown, k.masked_needs_refresh) = (1, true, false);
+        }
+        Err(e) => {
+            k.masked.clear();
+            k.masked_state = if e.unavailable() { 3 } else if e.forbidden() { 2 } else { 4 };
+            if !e.unavailable() { k.masked_shown = true; }
+        }
+    }
+}
+
 /// Fetch what a page needs. Runs on a background thread.
 pub fn load(tab: &str, c: &Client, cache: &Shared) {
     let key = c.state_key();
-    let epoch = cache.lock().unwrap().vac_epoch;
+    let epoch = cache.lock().unwrap_or_else(|e| e.into_inner()).vac_epoch;
+    // typed passwords, codes and a secret just created are kept only while their page is open
+    if tab != "security" { cache.lock().unwrap_or_else(|e| e.into_inner()).sec.forget_secrets(); }
     let res: Result<(), String> = (|| {
         match tab {
             // with the account's out-of-office writes held: a write taken from the page (its waiting
@@ -224,7 +531,7 @@ pub fn load(tab: &str, c: &Client, cache: &Shared) {
                 let on = vac["isEnabled"] == true || filters.as_ref().is_some_and(|f| f.includes_vacation);
                 vac["isEnabled"] = json!(on);
                 {
-                    let mut k = cache.lock().unwrap();
+                    let mut k = cache.lock().unwrap_or_else(|e| e.into_inner());
                     // the pages moved on to another account (or signed out) meanwhile: not its data
                     if k.account != key || k.vac_epoch != epoch { return Ok(()); }
                     let ours = k.vac_account == key && k.vacation.is_some();
@@ -277,7 +584,7 @@ pub fn load(tab: &str, c: &Client, cache: &Shared) {
                 let ext: Vec<String> = c.session["capabilities"]["urn:ietf:params:jmap:sieve"]["sieveExtensions"].as_array()
                     .or(c.session["accounts"][&acc]["accountCapabilities"]["urn:ietf:params:jmap:sieve"]["sieveExtensions"].as_array())
                     .map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect()).unwrap_or_default();
-                let mut k = cache.lock().unwrap();
+                let mut k = cache.lock().unwrap_or_else(|e| e.into_inner());
                 k.sieve_ext = ext;
                 k.scripts = scripts;
                 k.rules = p.metadata["rules"].as_array().cloned().unwrap_or_default();
@@ -288,9 +595,9 @@ pub fn load(tab: &str, c: &Client, cache: &Shared) {
                 drop(k);
                 // folders for the rule editor's move / copy targets
                 let boxes = c.mailboxes().unwrap_or_default();
-                cache.lock().unwrap().mailboxes = boxes;
+                cache.lock().unwrap_or_else(|e| e.into_inner()).mailboxes = boxes;
             }
-            "organize" => { cache.lock().unwrap().mailboxes = c.mailboxes()?; }
+            "organize" => { cache.lock().unwrap_or_else(|e| e.into_inner()).mailboxes = c.mailboxes()?; }
             "recover" => {
                 // Stalwart's deleted-item archive (x:ArchivedItem), as Bulwark's Recover deleted items
                 let acc = c.account.clone();
@@ -307,13 +614,13 @@ pub fn load(tab: &str, c: &Client, cache: &Shared) {
                     items.extend(g[0][1]["list"].as_array().cloned().unwrap_or_default());
                 }
                 items.sort_by(|a, b| b["archivedAt"].as_str().unwrap_or("").cmp(a["archivedAt"].as_str().unwrap_or("")));
-                cache.lock().unwrap().archived = items;
+                cache.lock().unwrap_or_else(|e| e.into_inner()).archived = items;
             }
             "calendars" => {
                 let acc = c.account_for("urn:ietf:params:jmap:calendars");
                 let r = c.call(json!([["Calendar/get", {"accountId": acc, "ids": null, "properties": ["id", "name", "color", "isDefault", "isVisible", "isSubscribed", "sortOrder", "myRights", "description"]}, "c"]]))?;
                 if r[0][0] == "error" { return Err(crate::jmap::method_error(&r[0][1])); }
-                cache.lock().unwrap().calendars = sorted_calendars(r[0][1]["list"].as_array().map(|a| a.as_slice()).unwrap_or(&[]));
+                cache.lock().unwrap_or_else(|e| e.into_inner()).calendars = sorted_calendars(r[0][1]["list"].as_array().map(|a| a.as_slice()).unwrap_or(&[]));
             }
             "addressbooks" => {
                 let acc = c.account_for("urn:ietf:params:jmap:contacts");
@@ -321,42 +628,68 @@ pub fn load(tab: &str, c: &Client, cache: &Shared) {
                 if r[0][0] == "error" { return Err(crate::jmap::method_error(&r[0][1])); }
                 let mut v = r[0][1]["list"].as_array().cloned().unwrap_or_default();
                 v.sort_by_key(|b| (b["isDefault"] != true, b["name"].as_str().unwrap_or("").to_lowercase()));
-                cache.lock().unwrap().books = v;
+                cache.lock().unwrap_or_else(|e| e.into_inner()).books = v;
             }
             "account" => {
+                let owner = claim(cache, &c.state_key(), &c.username, &c.base);
                 // the storage line is a courtesy: a server without quotas, or one that refuses, keeps the page
                 let quota = c.quotas().unwrap_or_default();
                 let ids = c.identities()?;
-                let mut k = cache.lock().unwrap();
+                let mut k = cache.lock().unwrap_or_else(|e| e.into_inner());
+                // another account's load started since: this one is out of date
+                if k.owner != owner { return Ok(()); }
                 k.quota = quota;
                 k.identities = ids;
+                k.ids_loaded = true;
             }
             "composing" => {
+                let owner = claim(cache, &c.state_key(), &c.username, &c.base);
                 let ids = c.identities()?;
                 // a failed load is an error on the page, not an empty list
                 let tpls = crate::templates::list(c)?;
-                let mut k = cache.lock().unwrap();
+                let mut k = cache.lock().unwrap_or_else(|e| e.into_inner());
+                if k.owner != owner { return Ok(()); }
                 k.identities = ids;
+                k.ids_loaded = true;
                 k.templates = tpls;
                 k.tpl_state = if crate::templates::supported(c) { 1 } else { 2 };
+            }
+            "security" => {
+                // the masked addresses load even when the account security part fails
+                let sec = crate::security::load(c, cache);
+                load_masked(c, cache);
+                sec?;
             }
             _ => {}
         }
         Ok(())
     })();
-    // a load for an account the pages are no longer for leaves their error line alone
-    let mut k = cache.lock().unwrap();
-    if k.account == key { k.error = res.err().unwrap_or_default(); }
+    let mut k = cache.lock().unwrap_or_else(|e| e.into_inner());
+    // a load for an account the pages are no longer for leaves their error line alone, and a
+    // failed load of another account's page does not speak for this one
+    if k.account != key { return; }
+    if matches!(tab, "account" | "composing" | "security") && k.owner != key { return; }
+    k.error = res.err().unwrap_or_default();
 }
 
 /// Rows for server-backed pages; `None` for pages this module doesn't own. `prefs` are the
 /// settings the caller holds: nothing here takes their lock again.
 pub fn rows(tab: &str, cache: &Shared, prefs: &crate::settings::Settings) -> Option<Vec<SRow>> {
-    let k = cache.lock().unwrap();
+    let k = cache.lock().unwrap_or_else(|e| e.into_inner());
     let mut out = vec![];
     if !k.error.is_empty() { out.push(row("value", "", "Could not load from the server", &k.error, "", false)); }
     let quota = if tab == "account" { quota_rows(&k.quota) } else { vec![] };
     match tab {
+        "security" => {
+            // hidden (None) for an account without Stalwart's management capability, and the
+            // masked addresses only once the server answered for them (most servers have none)
+            let sec = crate::security::rows(&k.sec);
+            let masked = k.masked_shown.then(|| masked_rows(&k));
+            if sec.is_none() && masked.is_none() { return None; }
+            out.extend(sec.unwrap_or_default());
+            out.extend(masked.unwrap_or_default());
+            return Some(out);
+        }
         "vacation" => return Some(vacation_rows(&k, out, crate::vacation::block_setting_in(prefs))),
         "filters" => {
             out.push(row("section", "", "Filters", "Rules the server applies to incoming mail, written in Sieve (RFC 5228).", "", false));
@@ -448,21 +781,46 @@ pub fn rows(tab: &str, cache: &Shared, prefs: &crate::settings::Settings) -> Opt
                 }
             }
         }
-        "account" | "composing" if !k.identities.is_empty() || !quota.is_empty() => {
+        "account" | "composing" if !k.identities.is_empty() || !quota.is_empty() || k.ids_loaded => {
             if tab == "account" { out.extend(quota); }
-            if !k.identities.is_empty() {
-                out.push(row("section", "", if tab == "account" { "Identities" } else { "Signatures" }, "The addresses you send from, with their names and signatures.", "", false));
-            }
-            for i in &k.identities {
-                let id = i["id"].as_str().unwrap_or("");
-                let email = i["email"].as_str().unwrap_or("");
-                if tab == "account" {
-                    out.push(row("text", &format!("server.identity.name:{id}"), email, "Name shown to recipients", i["name"].as_str().unwrap_or(""), false));
-                    let rt = i["replyTo"].as_array().and_then(|a| a.first()).and_then(|x| x["email"].as_str()).unwrap_or("");
-                    out.push(row("text", &format!("server.identity.replyTo:{id}"), "Reply-to", "Optional address replies go to", rt, false));
-                } else {
-                    out.push(row("textarea", &format!("server.identity.textSignature:{id}"), &format!("Signature for {email}"), "Added to new messages, replies and forwards per the options above.", i["textSignature"].as_str().unwrap_or(""), false));
+            let list = ordered_identities(&k);
+            let edit_label = |id: &str| -> &str {
+                if k.id_form.as_ref().is_some_and(|x| x.id == id) { "Editing" }
+                else if k.confirm_delete == format!("identedit:{id}") { "Click again to discard what you typed" }
+                else { "Edit" }
+            };
+            if tab == "account" && (k.ids_loaded || !k.identities.is_empty()) {
+                // Bulwark's identity manager: the first is the primary (default) sender
+                out.push(row("section", "", "Your addresses", "The addresses you can send from, each with its own name and signature.", "", false));
+                if list.is_empty() { out.push(row("value", "", "No addresses yet", "", "", false)); }
+                for (n, i) in list.iter().enumerate() {
+                    let id = i["id"].as_str().unwrap_or("");
+                    let email = i["email"].as_str().unwrap_or("");
+                    let title = i["name"].as_str().filter(|x| !x.trim().is_empty()).unwrap_or(email);
+                    out.push(row("button", &format!("server.ident.edit:{id}"), title, &crate::identities::summary(i, n == 0), edit_label(id), false));
+                    if n > 0 && list.len() > 1 && !k.id_busy {
+                        out.push(row("button", &format!("server.ident.primary:{id}"), "", "", "Set as primary", false));
+                    }
+                    // not the primary address (mail goes out from it), nor one the server keeps
+                    if n > 0 && crate::identities::may_delete(i) && !k.id_busy {
+                        out.push(row("button", &format!("server.ident.delete:{id}"), "", "", if k.confirm_delete == format!("ident:{id}") { "Click again to delete" } else { "Delete" }, false));
+                    }
                 }
+                if k.id_busy && k.id_form.is_none() { out.push(row("value", "", "Deleting…", "", "", false)); }
+                if k.id_form.is_none() && !k.id_busy { out.push(row("button", "server.ident.new", "", "", "Add address", false)); }
+                identity_form_rows(&k, &mut out);
+            }
+            if tab == "composing" && !list.is_empty() {
+                out.push(row("section", "", "Signatures", "Each address has its own signature, plain or formatted. It is added to new messages, replies and forwards per the options above.", "", false));
+                for i in &list {
+                    let id = i["id"].as_str().unwrap_or("");
+                    let sig = crate::identities::plain_signature(i);
+                    let line: String = sig.lines().next().unwrap_or("").chars().take(80).collect();
+                    let kind = if i["htmlSignature"].as_str().is_some_and(|h| !h.trim().is_empty()) { " (formatted)" } else { "" };
+                    out.push(row("button", &format!("server.ident.edit:{id}"), &format!("Signature for {}", i["email"].as_str().unwrap_or("")),
+                        &if sig.is_empty() { "No signature".to_string() } else { format!("{line}{kind}") }, edit_label(id), false));
+                }
+                identity_form_rows(&k, &mut out);
             }
             if tab == "composing" {
                 out.push(row("section", "", "Email templates", "Reusable messages, shared with Bulwark (kept in your Inbox's metadata). Insert them from the composer.", "", false));
@@ -504,7 +862,11 @@ pub fn rows(tab: &str, cache: &Shared, prefs: &crate::settings::Settings) -> Opt
 pub fn edit(key: &str, value: &Value, cache: &Shared) -> Option<Box<dyn FnOnce(&Client) -> Result<(), String> + Send>> {
     // a device setting, through the live settings: before the cache's lock, never under it
     if key == "server.vacation.block" { crate::settings::set_pref("vacationBlockCalendar", json!(value.as_bool().unwrap_or(true))); }
-    let mut k = cache.lock().unwrap();
+    let mut k = cache.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(field) = key.strip_prefix("server.sec.") {
+        crate::security::edit(&mut k.sec, field, value);
+        return None;
+    }
     if let Some(field) = key.strip_prefix("server.vacation.") { return edit_vacation(field, value, &mut k, cache.clone()); }
     match key {
         "server.nr.name" => { k.nr_name = value.as_str().unwrap_or("").into(); return None; }
@@ -568,21 +930,195 @@ pub fn edit(key: &str, value: &Value, cache: &Shared) -> Option<Box<dyn FnOnce(&
         if name.is_empty() { return None; }
         return Some(Box::new(move |c: &Client| c.rename_mailbox(&id, &name)));
     }
-    if let Some(rest) = key.strip_prefix("server.identity.") {
-        let (field, id) = rest.split_once(':')?;
-        let (field, id) = (field.to_string(), id.to_string());
-        let patch = if field == "replyTo" {
-            let e = value.as_str().unwrap_or("").trim().to_string();
-            json!({"replyTo": if e.is_empty() { Value::Null } else { json!([{"email": e}]) }})
-        } else { json!({ field.clone(): value }) };
-        if let Some(i) = k.identities.iter_mut().find(|i| i["id"] == id.as_str()) {
-            for (pk, pv) in patch.as_object().unwrap() { i[pk] = pv.clone(); }
+    if let Some(field) = key.strip_prefix("server.ident.f.") {
+        // the form is typed into locally; Save writes it (Bulwark identity-form.tsx). While a
+        // save is on its way it takes no input (Bulwark disables it while submitting).
+        if k.id_busy { return None; }
+        let text = value.as_str().unwrap_or("").to_string();
+        let mut next = k.id_gen;
+        if let Some(x) = k.id_form.as_mut() {
+            match field {
+                "name" => x.f.name = text,
+                "email" => x.f.email = text,
+                "replyTo" => x.f.reply_to = text,
+                "bcc" => x.f.bcc = text,
+                "sig" => x.f.signature = text,
+                "html" => {
+                    let on = value.as_bool().unwrap_or(false);
+                    if on != x.f.html { x.f.signature = crate::identities::switch_format(&x.f.signature, on); }
+                    x.f.html = on;
+                }
+                _ => return None,
+            }
+            x.error.clear();
+            next += 1;
         }
-        return Some(Box::new(move |c: &Client| {
-            let acc = c.account_for("urn:ietf:params:jmap:submission");
-            let (_, bad) = c.update("Identity/set", &acc, vec![(id, patch)])?;
-            if bad.is_empty() { Ok(()) } else { Err(bad.join("; ")) }
-        }));
+        k.id_gen = next;
+        if k.confirm_delete.starts_with("ident") { k.confirm_delete.clear(); }
+        return None;
+    }
+    match key {
+        "server.masked.desc" => { k.masked_desc = value.as_str().unwrap_or("").into(); }
+        "server.masked.newdesc" => { k.masked_new_desc = value.as_str().unwrap_or("").into(); }
+        "server.masked.newsite" => { k.masked_new_site = value.as_str().unwrap_or("").into(); }
+        _ => {}
+    }
+    None
+}
+
+/// A save or delete of an identity was answered (or refused before it went out). Only the page
+/// of the account it was made for is touched: it takes input again, a saved form closes (so a
+/// second Save cannot add the address again), a refused one shows why. `closes`: the identity
+/// whose form a delete closes. `generation`: the page's `id_gen` when the change went out; a
+/// late answer of an older one (the account was left and opened again meanwhile, so another
+/// form or another change may be on the page) changes nothing.
+pub fn identity_done(g: &mut Cache, owner: &str, generation: u64, r: &Result<(), String>, save: bool, closes: Option<&str>) {
+    if g.owner != owner || g.id_gen != generation { return; }
+    g.id_busy = false;
+    g.id_deleting = false;
+    match r {
+        Ok(()) => {
+            if save || g.id_form.as_ref().is_some_and(|x| Some(x.id.as_str()) == closes) { g.id_form = None; g.id_gen += 1; }
+        }
+        Err(e) => { if save { if let Some(x) = g.id_form.as_mut() { x.error = e.clone(); } } }
+    }
+}
+
+/// The identity and masked-address buttons. None: not one of them.
+fn identity_button(key: &str, cache: &Shared) -> Option<Option<Job>> {
+    use crate::identities as ids;
+    // one identity change at a time: nothing else of the identities while one is on its way
+    if key.starts_with("server.ident.") && cache.lock().unwrap_or_else(|e| e.into_inner()).id_busy { return Some(None); }
+    if key == "server.ident.new" || key == "server.ident.cancel" {
+        let mut k = cache.lock().unwrap_or_else(|e| e.into_inner());
+        // what is half typed is not thrown away by one click (Bulwark confirmDiscard)
+        let ask = if key == "server.ident.new" { "identnew" } else { "identcancel" };
+        if form_dirty(&k) && k.confirm_delete != ask { k.confirm_delete = ask.into(); return Some(noop()); }
+        k.confirm_delete.clear();
+        k.id_gen += 1;
+        k.id_form = (key == "server.ident.new").then(IdForm::default);
+        return Some(noop());
+    }
+    if let Some(id) = key.strip_prefix("server.ident.edit:") {
+        let mut k = cache.lock().unwrap_or_else(|e| e.into_inner());
+        if k.id_form.as_ref().is_some_and(|x| x.id == id) { return Some(noop()); }
+        let ask = format!("identedit:{id}");
+        if form_dirty(&k) && k.confirm_delete != ask { k.confirm_delete = ask; return Some(noop()); }
+        k.confirm_delete.clear();
+        let Some(old) = k.identities.iter().find(|i| i["id"] == id).cloned() else { return Some(noop()) };
+        k.id_gen += 1;
+        k.id_form = Some(IdForm { id: id.to_string(), f: ids::form_of(Some(&old), plain_only()), old: Some(old), error: String::new() });
+        return Some(noop());
+    }
+    if key == "server.ident.save" {
+        let (owner, form, plain, generation) = {
+            let mut k = cache.lock().unwrap_or_else(|e| e.into_inner());
+            let plain = plain_only();
+            let Some(x) = k.id_form.as_mut() else { return Some(None) };
+            if let Some(e) = ids::validate(&x.f, x.old.as_ref().filter(|_| !x.id.is_empty()), plain) { x.error = e; return Some(noop()); }
+            x.error.clear();
+            k.id_busy = true;
+            (k.owner.clone(), k.id_form.clone().unwrap(), plain, k.id_gen)
+        };
+        return Some(Some(Box::new(move |c: &Client, k: &Shared| {
+            let r = if c.state_key() != owner { Err(ACCOUNT_CHANGED.to_string()) } else {
+                match form.old.as_ref().filter(|_| !form.id.is_empty()) {
+                    Some(old) => ids::update(c, &form.id, ids::update_patch(old, &form.f, plain)),
+                    None if form.id.is_empty() => ids::create(c, &form.f).map(|_| ()),
+                    None => Err("This address is no longer in the list; reload and try again.".into()),
+                }
+            };
+            identity_done(&mut k.lock().unwrap_or_else(|e| e.into_inner()), &owner, generation, &r, true, None);
+            r
+        })));
+    }
+    if let Some(id) = key.strip_prefix("server.ident.delete:") {
+        let id = id.to_string();
+        let mut k = cache.lock().unwrap_or_else(|e| e.into_inner());
+        let list = ordered_identities(&k);
+        let Some(pos) = list.iter().position(|i| i["id"] == id.as_str()) else { return Some(noop()) };
+        if pos == 0 || !ids::may_delete(&list[pos]) { return Some(Some(Box::new(|_, _| Err("This identity cannot be deleted".into())))); }
+        let ask = format!("ident:{id}");
+        if k.confirm_delete != ask { k.confirm_delete = ask; return Some(noop()); }
+        k.confirm_delete.clear();
+        (k.id_busy, k.id_deleting) = (true, true);
+        let (owner, generation) = (k.owner.clone(), k.id_gen);
+        return Some(Some(Box::new(move |c: &Client, k: &Shared| {
+            let r = if c.state_key() != owner { Err(ACCOUNT_CHANGED.to_string()) } else { ids::destroy(c, &id) };
+            identity_done(&mut k.lock().unwrap_or_else(|e| e.into_inner()), &owner, generation, &r, false, Some(&id));
+            r
+        })));
+    }
+    if let Some(id) = key.strip_prefix("server.ident.primary:") {
+        let id = id.to_string();
+        let owner = {
+            let k = cache.lock().unwrap_or_else(|e| e.into_inner());
+            if !k.identities.iter().any(|i| i["id"] == id.as_str()) { return Some(noop()); }
+            k.owner.clone()
+        };
+        return Some(Some(Box::new(move |c: &Client, _| {
+            if c.state_key() != owner { return Err(ACCOUNT_CHANGED.into()); }
+            // per account, as Bulwark keys it (JMAP identity ids are the account's own)
+            let account = ids::account_key(&c.username, &c.base);
+            crate::settings::update_pref(ids::KEY_PREFERRED, |v| ids::encode_preferred(v, &account, &id));
+            Ok(())
+        })));
+    }
+    // ---- masked addresses ----
+    if let Some(id) = key.strip_prefix("server.masked.open:") {
+        let mut k = cache.lock().unwrap_or_else(|e| e.into_inner());
+        if k.masked_open == id { k.masked_open.clear(); } else {
+            k.masked_desc = k.masked.iter().find(|m| m.id == id).and_then(|m| m.description.clone()).unwrap_or_default();
+            k.masked_open = id.to_string();
+        }
+        k.masked_notice.clear();
+        return Some(noop());
+    }
+    if let Some(id) = key.strip_prefix("server.masked.copy:") {
+        let mut k = cache.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(email) = k.masked.iter().find(|m| m.id == id).map(|m| m.email.clone()) else { return Some(noop()) };
+        k.masked_notice = if crate::mail::copy_to_clipboard(&email) { "Address copied.".into() } else { "Could not copy. Select and copy the address above.".into() };
+        return Some(noop());
+    }
+    if key == "server.masked.prev" || key == "server.masked.next" {
+        let mut k = cache.lock().unwrap_or_else(|e| e.into_inner());
+        let pages = k.masked.len().div_ceil(crate::masked::PAGE_SIZE).max(1);
+        k.masked_page = if key.ends_with("prev") { k.masked_page.saturating_sub(1) } else { (k.masked_page + 1).min(pages - 1) };
+        k.masked_open.clear();
+        return Some(noop());
+    }
+    if key == "server.masked.refresh" {
+        let mut k = cache.lock().unwrap_or_else(|e| e.into_inner());
+        if k.masked_busy { return Some(None); }
+        k.masked_notice.clear();
+        // the page reloads after every button
+        return Some(noop());
+    }
+    if key == "server.masked.create" {
+        let (desc, site, no) = { let k = cache.lock().unwrap_or_else(|e| e.into_inner()); (k.masked_new_desc.clone(), k.masked_new_site.clone(), k.masked_no_create) };
+        if no { return Some(None); }
+        return Some(masked_job(cache, "create", move |c| crate::masked::create(c, &desc, &site).map(|_| ())));
+    }
+    for (prefix, kind) in [("server.masked.savedesc:", "update"), ("server.masked.toggle:", "update"), ("server.masked.delete:", "destroy")] {
+        let Some(id) = key.strip_prefix(prefix) else { continue };
+        let id = id.to_string();
+        let mut k = cache.lock().unwrap_or_else(|e| e.into_inner());
+        // only an address of the list just read (Bulwark ownedIds)
+        let Some(m) = k.masked.iter().find(|m| m.id == id).cloned() else { return Some(noop()) };
+        if kind == "update" && k.masked_no_update { return Some(None); }
+        if prefix == "server.masked.delete:" {
+            if k.masked_no_delete || k.masked_needs_refresh || k.masked_busy { return Some(None); }
+            let ask = format!("masked:{id}");
+            if k.confirm_delete != ask { k.confirm_delete = ask; return Some(noop()); }
+            k.confirm_delete.clear();
+            drop(k);
+            return Some(masked_job(cache, "destroy", move |c| crate::masked::destroy(c, &id)));
+        }
+        let desc = (prefix == "server.masked.savedesc:").then(|| k.masked_desc.clone());
+        if desc.as_deref().is_some_and(|d| d == m.description.as_deref().unwrap_or("")) { return Some(None); }
+        let enabled = (prefix == "server.masked.toggle:").then_some(!m.enabled);
+        drop(k);
+        return Some(masked_job(cache, "update", move |c| crate::masked::update(c, &id, desc.as_deref(), enabled)));
     }
     None
 }
@@ -591,11 +1127,11 @@ pub fn edit(key: &str, value: &Value, cache: &Shared) -> Option<Box<dyn FnOnce(&
 pub fn button(key: &str, cache: &Shared) -> Option<Box<dyn FnOnce(&Client, &Shared) -> Result<(), String> + Send>> {
     if key == "server.vacation.retry" {
         // the filters part is written again (with whatever else waits)
-        { let mut k = cache.lock().unwrap(); if vac_current(&k) { k.vac_sync_dirty = true; } }
+        { let mut k = cache.lock().unwrap_or_else(|e| e.into_inner()); if vac_current(&k) { k.vac_sync_dirty = true; } }
         return Some(Box::new(|c: &Client, k: &Shared| vacation_run(c, k)));
     }
     if key == "server.vacation.forwardSave" {
-        let edit = apply_edit("forwardSave", &Value::Null, &mut cache.lock().unwrap());
+        let edit = apply_edit("forwardSave", &Value::Null, &mut cache.lock().unwrap_or_else(|e| e.into_inner()));
         return match edit {
             // what else is waiting still goes out
             Edit::Refuse(m) => Some(Box::new(move |c: &Client, k: &Shared| refused(c, k, m))),
@@ -603,27 +1139,29 @@ pub fn button(key: &str, cache: &Shared) -> Option<Box<dyn FnOnce(&Client, &Shar
             Edit::Local => None,
         };
     }
+    if let Some(job) = identity_button(key, cache) { return job; }
+    if let Some(what) = key.strip_prefix("server.sec.") { return crate::security::button(&mut cache.lock().unwrap_or_else(|e| e.into_inner()).sec, what); }
     if key == "server.folder.create" {
-        let name = cache.lock().unwrap().new_folder.trim().to_string();
+        let name = cache.lock().unwrap_or_else(|e| e.into_inner()).new_folder.trim().to_string();
         if name.is_empty() { return None; }
-        return Some(Box::new(move |c: &Client, k: &Shared| { c.create_mailbox(&name, None)?; k.lock().unwrap().new_folder.clear(); Ok(()) }));
+        return Some(Box::new(move |c: &Client, k: &Shared| { c.create_mailbox(&name, None)?; k.lock().unwrap_or_else(|e| e.into_inner()).new_folder.clear(); Ok(()) }));
     }
     if let Some(id) = key.strip_prefix("server.folder.delete:") {
         let id = id.to_string();
-        let mut k = cache.lock().unwrap();
+        let mut k = cache.lock().unwrap_or_else(|e| e.into_inner());
         if k.confirm_delete != id { k.confirm_delete = id; return Some(Box::new(|_, _| Ok(()))); }
         k.confirm_delete.clear();
         return Some(Box::new(move |c: &Client, _| c.delete_mailbox(&id)));
     }
     if key == "server.cal.create" || key == "server.book.create" {
         let book = key == "server.book.create";
-        let name = { let k = cache.lock().unwrap(); if book { k.new_book.trim().to_string() } else { k.new_cal.trim().to_string() } };
+        let name = { let k = cache.lock().unwrap_or_else(|e| e.into_inner()); if book { k.new_book.trim().to_string() } else { k.new_cal.trim().to_string() } };
         if name.is_empty() { return None; }
         return Some(Box::new(move |c: &Client, k: &Shared| {
-            let n = if book { k.lock().unwrap().books.len() } else { k.lock().unwrap().calendars.len() };
+            let n = if book { k.lock().unwrap_or_else(|e| e.into_inner()).books.len() } else { k.lock().unwrap_or_else(|e| e.into_inner()).calendars.len() };
             let obj = if book { json!({"name": name}) } else { json!({"name": name, "color": CAL_COLORS[n % CAL_COLORS.len()].0, "isVisible": true}) };
             collection_set(c, book, json!({"create": {"n": obj}}))?;
-            let mut g = k.lock().unwrap();
+            let mut g = k.lock().unwrap_or_else(|e| e.into_inner());
             if book { g.new_book.clear() } else { g.new_cal.clear() }
             Ok(())
         }));
@@ -635,7 +1173,7 @@ pub fn button(key: &str, cache: &Shared) -> Option<Box<dyn FnOnce(&Client, &Shar
         match what {
             "default" => return Some(Box::new(move |c: &Client, _| default_collection(c, book, &id))),
             "delete" => {
-                let mut k = cache.lock().unwrap();
+                let mut k = cache.lock().unwrap_or_else(|e| e.into_inner());
                 if k.confirm_delete != id { k.confirm_delete = id; return Some(Box::new(|_, _| Ok(()))); }
                 k.confirm_delete.clear();
                 let args = if book { json!({"destroy": [id], "onDestroyRemoveContents": true}) } else { json!({"destroy": [id], "onDestroyRemoveEvents": true}) };
@@ -645,8 +1183,8 @@ pub fn button(key: &str, cache: &Shared) -> Option<Box<dyn FnOnce(&Client, &Shar
         }
     }
     if key == "server.rule.add" {
-        let k = cache.lock().unwrap();
-        if k.nr_field < 5 && k.nr_value.trim().is_empty() { drop(k); cache.lock().unwrap().script_status = "Add a value for the condition.".into(); return Some(Box::new(|_, _| Ok(()))); }
+        let k = cache.lock().unwrap_or_else(|e| e.into_inner());
+        if k.nr_field < 5 && k.nr_value.trim().is_empty() { drop(k); cache.lock().unwrap_or_else(|e| e.into_inner()).script_status = "Add a value for the condition.".into(); return Some(Box::new(|_, _| Ok(()))); }
         let field = NR_FIELDS[k.nr_field.clamp(0, 6) as usize];
         let cmp = NR_CMPS[k.nr_cmp.clamp(0, 5) as usize];
         let vals: Vec<String> = k.nr_value.split(',').map(|v| v.trim().to_string()).filter(|v| !v.is_empty()).collect();
@@ -662,7 +1200,7 @@ pub fn button(key: &str, cache: &Shared) -> Option<Box<dyn FnOnce(&Client, &Shar
                 if let Some(f) = f { r["activeFrom"] = json!(f); }
                 if let Some(u) = u { r["activeUntil"] = json!(u); }
             }
-            Err(e) => { drop(k); cache.lock().unwrap().script_status = e; return Some(Box::new(|_, _| Ok(()))); }
+            Err(e) => { drop(k); cache.lock().unwrap_or_else(|e| e.into_inner()).script_status = e; return Some(Box::new(|_, _| Ok(()))); }
         }
         let mut rules = k.rules.clone();
         rules.push(r);
@@ -670,14 +1208,14 @@ pub fn button(key: &str, cache: &Shared) -> Option<Box<dyn FnOnce(&Client, &Shar
         drop(k);
         return Some(Box::new(move |c: &Client, k: &Shared| {
             save_script(c, &script, &scripts)?;
-            let mut g = k.lock().unwrap();
+            let mut g = k.lock().unwrap_or_else(|e| e.into_inner());
             g.nr_name.clear(); g.nr_value.clear(); g.nr_action_value.clear(); g.nr_from.clear(); g.nr_until.clear(); g.script_status = "Rule added.".into();
             Ok(())
         }));
     }
     if let Some(id) = key.strip_prefix("server.rule.delete:") {
         let id = id.to_string();
-        let mut k = cache.lock().unwrap();
+        let mut k = cache.lock().unwrap_or_else(|e| e.into_inner());
         if k.confirm_delete != id { k.confirm_delete = id; return Some(Box::new(|_, _| Ok(()))); }
         k.confirm_delete.clear();
         let rules: Vec<Value> = k.rules.iter().filter(|r| r["id"] != id.as_str()).cloned().collect();
@@ -685,11 +1223,11 @@ pub fn button(key: &str, cache: &Shared) -> Option<Box<dyn FnOnce(&Client, &Shar
         return Some(Box::new(move |c: &Client, _| save_script(c, &script, &scripts)));
     }
     if key == "server.tpl.cancel" {
-        clear_tpl_form(&mut cache.lock().unwrap());
+        clear_tpl_form(&mut cache.lock().unwrap_or_else(|e| e.into_inner()));
         return Some(Box::new(|_, _| Ok(())));
     }
     if let Some(id) = key.strip_prefix("server.tpl.edit:") {
-        let mut k = cache.lock().unwrap();
+        let mut k = cache.lock().unwrap_or_else(|e| e.into_inner());
         if k.tpl_edit == id { return Some(Box::new(|_, _| Ok(()))); }
         // what is half typed is not thrown away by one click
         let dirty = format!("{:?}", form_fields(&k)) != format!("{:?}", k.tpl_old.as_ref().map(crate::templates::fields_of).unwrap_or_default());
@@ -709,27 +1247,27 @@ pub fn button(key: &str, cache: &Shared) -> Option<Box<dyn FnOnce(&Client, &Shar
     }
     if key == "server.tpl.create" {
         let (old, f, generation) = {
-            let k = cache.lock().unwrap();
-            if !k.tpl_edit.is_empty() && k.tpl_old.is_none() { return Some(Box::new(|_, k: &Shared| { let e = "This template is no longer in the list; reload and try again.".to_string(); k.lock().unwrap().tpl_error = e.clone(); Err(e) })); }
+            let k = cache.lock().unwrap_or_else(|e| e.into_inner());
+            if !k.tpl_edit.is_empty() && k.tpl_old.is_none() { return Some(Box::new(|_, k: &Shared| { let e = "This template is no longer in the list; reload and try again.".to_string(); k.lock().unwrap_or_else(|e| e.into_inner()).tpl_error = e.clone(); Err(e) })); }
             (k.tpl_old.clone().filter(|_| !k.tpl_edit.is_empty()), form_fields(&k), k.tpl_gen)
         };
         return Some(Box::new(move |c: &Client, k: &Shared| {
             match crate::templates::save(c, old.as_ref(), &f) {
                 // only when the form still holds what was saved (the user may have moved to another template)
-                Ok(()) => { let mut k = k.lock().unwrap(); if k.tpl_gen == generation { clear_tpl_form(&mut k); } Ok(()) }
-                Err(e) => { k.lock().unwrap().tpl_error = e.clone(); Err(e) }
+                Ok(()) => { let mut k = k.lock().unwrap_or_else(|e| e.into_inner()); if k.tpl_gen == generation { clear_tpl_form(&mut k); } Ok(()) }
+                Err(e) => { k.lock().unwrap_or_else(|e| e.into_inner()).tpl_error = e.clone(); Err(e) }
             }
         }));
     }
     if let Some(id) = key.strip_prefix("server.tpl.delete:") {
         let id = id.to_string();
-        let mut k = cache.lock().unwrap();
+        let mut k = cache.lock().unwrap_or_else(|e| e.into_inner());
         if k.confirm_delete != id { k.confirm_delete = id; return Some(Box::new(|_, _| Ok(()))); }
         k.confirm_delete.clear();
         return Some(Box::new(move |c: &Client, k: &Shared| {
             crate::templates::delete(c, &id)?;
             // the form was editing the template just deleted
-            let mut k = k.lock().unwrap();
+            let mut k = k.lock().unwrap_or_else(|e| e.into_inner());
             if k.tpl_edit == id { clear_tpl_form(&mut k); }
             Ok(())
         }));
@@ -741,23 +1279,23 @@ pub fn button(key: &str, cache: &Shared) -> Option<Box<dyn FnOnce(&Client, &Shar
             let r = c.request_using(&ARCHIVE_USING, json!([["x:ArchivedItem/set", {"accountId": acc, "update": { id.clone(): {"status": "requestRestore"} }}, "r"]]))?;
             if r[0][0] == "error" { return Err(crate::jmap::method_error(&r[0][1])); }
             if let Some(e) = r[0][1]["notUpdated"].get(&id) { return Err(crate::jmap::set_error(e)); }
-            k.lock().unwrap().archived.retain(|x| x["id"] != id.as_str());
+            k.lock().unwrap_or_else(|e| e.into_inner()).archived.retain(|x| x["id"] != id.as_str());
             Ok(())
         }));
     }
     if key == "server.sieve.save" {
-        let text = cache.lock().unwrap().script_text.clone();
+        let text = cache.lock().unwrap_or_else(|e| e.into_inner()).script_text.clone();
         return Some(Box::new(move |c: &Client, k: &Shared| {
             let acc = c.account_for("urn:ietf:params:jmap:sieve");
             let (blob, _) = c.upload(text.into_bytes(), "application/sieve")?;
             let v = c.call(json!([["SieveScript/validate", {"accountId": acc, "blobId": blob}, "v"]]))?;
             if let Some(err) = v[0][1]["error"].as_object() {
                 let msg = err.get("description").and_then(|d| d.as_str()).unwrap_or("invalid script").to_string();
-                k.lock().unwrap().script_status = format!("Not saved: {msg}");
+                k.lock().unwrap_or_else(|e| e.into_inner()).script_status = format!("Not saved: {msg}");
                 return Ok(());
             }
             let existing = {
-                let g = k.lock().unwrap();
+                let g = k.lock().unwrap_or_else(|e| e.into_inner());
                 g.scripts.iter().find(|x| x["isActive"] == true).or(g.scripts.first()).and_then(|x| x["id"].as_str().map(String::from))
             };
             let r = match existing {
@@ -765,7 +1303,7 @@ pub fn button(key: &str, cache: &Shared) -> Option<Box<dyn FnOnce(&Client, &Shar
                 None => c.call(json!([["SieveScript/set", {"accountId": acc, "create": {"n": {"name": "barbican", "blobId": blob}}, "onSuccessActivateScript": "#n"}, "s"]]))?,
             };
             let ok = r[0][1]["updated"].is_object() || r[0][1]["created"].is_object();
-            k.lock().unwrap().script_status = if ok { "Saved and active.".into() } else {
+            k.lock().unwrap_or_else(|e| e.into_inner()).script_status = if ok { "Saved and active.".into() } else {
                 format!("Not saved: {}", crate::jmap::set_error(r[0][1]["notUpdated"].as_object().and_then(|o| o.values().next())
                     .or(r[0][1]["notCreated"].as_object().and_then(|o| o.values().next())).unwrap_or(&Value::Null)))
             };
@@ -775,13 +1313,13 @@ pub fn button(key: &str, cache: &Shared) -> Option<Box<dyn FnOnce(&Client, &Shar
     None
 }
 
-type Job = Box<dyn FnOnce(&Client) -> Result<(), String> + Send>;
+type EditJob = Box<dyn FnOnce(&Client) -> Result<(), String> + Send>;
 
 /// The calendar block is brought in line once per run and account when the page is first loaded.
 /// `account` is `Client::key_for` (server, login, account id): short ids repeat across servers.
 fn first_load(account: &str) -> bool {
     static SEEN: std::sync::OnceLock<Mutex<std::collections::HashSet<String>>> = std::sync::OnceLock::new();
-    SEEN.get_or_init(Default::default).lock().unwrap().insert(account.to_string())
+    SEEN.get_or_init(Default::default).lock().unwrap_or_else(|e| e.into_inner()).insert(account.to_string())
 }
 
 fn vacation_rows(k: &Cache, mut out: Vec<SRow>, block_on: bool) -> Vec<SRow> {
@@ -1052,7 +1590,7 @@ pub fn vacation_run(c: &Client, shared: &Shared) -> Result<(), String> {
     vac::serialized(c, || {
         let key = c.state_key();
         let (plan, epoch) = {
-            let mut k = shared.lock().unwrap();
+            let mut k = shared.lock().unwrap_or_else(|e| e.into_inner());
             let epoch = k.vac_epoch;
             if !same_vacation(&k, &key, epoch) {
                 // the page is still loading for `c`: nothing typed yet. Otherwise it holds another
@@ -1068,7 +1606,7 @@ pub fn vacation_run(c: &Client, shared: &Shared) -> Result<(), String> {
             if let Err(e) = r.and_then(|(_, bad)| if bad.is_empty() { Ok(()) } else { Err(bad.join("; ")) }) {
                 // nothing was written: all of it waits for the next try, and stays on the page
                 {
-                    let mut k = shared.lock().unwrap();
+                    let mut k = shared.lock().unwrap_or_else(|e| e.into_inner());
                     if same_vacation(&k, &key, epoch) { wait_again(&mut k, &plan, true); }
                 }
                 load("vacation", c, shared);
@@ -1089,7 +1627,7 @@ pub fn vacation_run(c: &Client, shared: &Shared) -> Result<(), String> {
             }
         }
         {
-            let mut k = shared.lock().unwrap();
+            let mut k = shared.lock().unwrap_or_else(|e| e.into_inner());
             if same_vacation(&k, &key, epoch) {
                 k.vac_saved = Some(plan.after.clone());
                 // the reply is on the server, its filters part is not: all of it waits to be written
@@ -1124,7 +1662,7 @@ fn wait_again(k: &mut Cache, plan: &RunPlan, reply: bool) {
 
 /// An edit on the out-of-office page: applied to the cache at once, written by one job that sends
 /// the whole cache.
-fn edit_vacation(field: &str, value: &Value, k: &mut Cache, shared: Shared) -> Option<Job> {
+fn edit_vacation(field: &str, value: &Value, k: &mut Cache, shared: Shared) -> Option<EditJob> {
     use crate::vacation as vac;
     // every job runs the waiting write first: it replaces the debounce timer of a write still
     // waiting (typing, then a switch within the delay), which would then never run
@@ -1135,7 +1673,7 @@ fn edit_vacation(field: &str, value: &Value, k: &mut Cache, shared: Shared) -> O
             vac::serialized(c, || {
                 let run = vacation_run(c, &shared);
                 // the reply as the server has it now (after the write above)
-                let reply = { let k = shared.lock().unwrap(); if vac_current(&k) && k.vac_account == c.state_key() { k.vac_saved.clone() } else { None } };
+                let reply = { let k = shared.lock().unwrap_or_else(|e| e.into_inner()); if vac_current(&k) && k.vac_account == c.state_key() { k.vac_saved.clone() } else { None } };
                 let Some(reply) = reply else { return run.and(Err(OTHER_ACCOUNT.into())) };
                 let prev = Some((reply.from.clone(), reply.to.clone()));
                 let block = vac::sync_block(c, &reply, vac::Trigger::Save, prev).map(|_| ());
@@ -1214,7 +1752,7 @@ mod tests {
 
     fn cache_with(quota: Vec<Value>, identities: Vec<Value>) -> Shared {
         let c = Shared::default();
-        { let mut k = c.lock().unwrap(); k.quota = quota; k.identities = identities; }
+        { let mut k = c.lock().unwrap_or_else(|e| e.into_inner()); k.quota = quota; k.identities = identities; }
         c
     }
 
@@ -1244,7 +1782,305 @@ mod tests {
         let ids = vec![json!({"id": "i1", "email": "ann@example.test", "name": "Ann"})];
         let r = rows("account", &cache_with(q, ids), &crate::settings::Settings::with_prefs(Default::default())).unwrap();
         assert_eq!(r[0].kind.as_str(), "meter");
-        assert!(r.iter().any(|x| x.label.as_str() == "ann@example.test"));
+        assert!(r.iter().any(|x| x.label.as_str() == "Ann" && x.desc.as_str().starts_with("ann@example.test")));
+    }
+
+    fn keys(r: &[SRow]) -> Vec<String> { r.iter().filter(|x| x.kind.as_str() == "button").map(|x| format!("{}={}", x.key, x.text)).collect() }
+
+    fn identities_page() -> Shared {
+        let c = Shared::default();
+        {
+            let mut k = c.lock().unwrap_or_else(|e| e.into_inner());
+            (k.owner, k.owner_user, k.owner_key, k.ids_loaded) = ("A".into(), "ann@example.test".into(), "ann@example.test@mail.example.test".into(), true);
+            k.identities = vec![
+                json!({"id": "team", "email": "team@example.test", "name": "Team", "mayDelete": false}),
+                json!({"id": "ann", "email": "ann@example.test", "name": "Ann", "mayDelete": false}),
+                json!({"id": "alias", "email": "sales@example.test", "name": "", "mayDelete": true, "bcc": [{"email": "copy@example.test"}]}),
+            ];
+        }
+        c
+    }
+
+    #[test]
+    fn the_identity_list_puts_the_login_first_and_guards_the_primary() {
+        let r = rows("account", &identities_page(), &crate::settings::Settings::with_prefs(Default::default())).unwrap();
+        let b = keys(&r);
+        // the login's own address is the primary: no Set as primary, no Delete
+        assert_eq!(b[0], "server.ident.edit:ann=Edit");
+        assert!(r.iter().any(|x| x.key.as_str() == "server.ident.edit:ann" && x.desc.as_str().contains("Primary")));
+        assert!(!b.iter().any(|x| x.starts_with("server.ident.primary:ann") || x.starts_with("server.ident.delete:ann")));
+        // the group address may be made primary but the server keeps it
+        assert!(b.contains(&"server.ident.primary:team=Set as primary".to_string()));
+        assert!(!b.iter().any(|x| x.starts_with("server.ident.delete:team")));
+        assert!(b.contains(&"server.ident.delete:alias=Delete".to_string()));
+        assert!(r.iter().any(|x| x.key.as_str() == "server.ident.edit:alias" && x.label.as_str() == "sales@example.test" && x.desc.as_str().contains("Bcc copy@example.test")));
+        assert_eq!(b.last().unwrap(), "server.ident.new=Add address");
+        // deleting the primary is refused before anything is sent; another asks first
+        let c = identities_page();
+        assert!(button("server.ident.delete:alias", &c).is_some());
+        assert_eq!(c.lock().unwrap_or_else(|e| e.into_inner()).confirm_delete, "ident:alias");
+        assert!(keys(&rows("account", &c, &crate::settings::Settings::with_prefs(Default::default())).unwrap()).contains(&"server.ident.delete:alias=Click again to delete".to_string()));
+    }
+
+    #[test]
+    fn the_identity_form_checks_before_saving_and_keeps_what_is_typed() {
+        let c = identities_page();
+        assert!(button("server.ident.new", &c).is_some());
+        assert!(c.lock().unwrap_or_else(|e| e.into_inner()).id_form.as_ref().is_some_and(|x| x.id.is_empty()));
+        edit("server.ident.f.email", &json!("not an address"), &c);
+        edit("server.ident.f.bcc", &json!("copy@example.test, nope"), &c);
+        // a refused form writes nothing: the job does nothing and the error is on the page
+        assert!(button("server.ident.save", &c).is_some());
+        let err = c.lock().unwrap_or_else(|e| e.into_inner()).id_form.as_ref().unwrap().error.clone();
+        assert!(err.contains("valid email address") && err.contains("nope"), "{err}");
+        assert!(rows("account", &c, &crate::settings::Settings::with_prefs(Default::default())).unwrap().iter().any(|x| x.label.as_str() == "Not saved"));
+        // typing clears the error; one click on another identity does not throw the input away
+        edit("server.ident.f.email", &json!("new@example.test"), &c);
+        assert!(c.lock().unwrap_or_else(|e| e.into_inner()).id_form.as_ref().unwrap().error.is_empty());
+        button("server.ident.edit:alias", &c);
+        assert!(c.lock().unwrap_or_else(|e| e.into_inner()).id_form.as_ref().unwrap().id.is_empty(), "the first click only asks");
+        assert!(keys(&rows("account", &c, &crate::settings::Settings::with_prefs(Default::default())).unwrap()).contains(&"server.ident.edit:alias=Click again to discard what you typed".to_string()));
+        button("server.ident.edit:alias", &c);
+        let k = c.lock().unwrap_or_else(|e| e.into_inner());
+        let x = k.id_form.as_ref().unwrap();
+        assert_eq!((x.id.as_str(), x.f.email.as_str(), x.f.bcc.as_str()), ("alias", "sales@example.test", "copy@example.test"));
+    }
+
+    #[test]
+    fn a_second_save_waits_for_the_first() {
+        let c = identities_page();
+        button("server.ident.new", &c);
+        edit("server.ident.f.email", &json!("new@example.test"), &c);
+        // the first Save goes out and the page waits for it
+        assert!(button("server.ident.save", &c).is_some());
+        assert!(c.lock().unwrap_or_else(|e| e.into_inner()).id_busy);
+        // a double click, typing, another form or a delete do nothing meanwhile
+        assert!(button("server.ident.save", &c).is_none());
+        edit("server.ident.f.email", &json!("other@example.test"), &c);
+        assert_eq!(c.lock().unwrap_or_else(|e| e.into_inner()).id_form.as_ref().unwrap().f.email, "new@example.test");
+        assert!(button("server.ident.cancel", &c).is_none() && button("server.ident.edit:alias", &c).is_none() && button("server.ident.delete:alias", &c).is_none());
+        let r = rows("account", &c, &crate::settings::Settings::with_prefs(Default::default())).unwrap();
+        assert!(r.iter().any(|x| x.label.as_str() == "Saving…"));
+        assert!(!r.iter().any(|x| x.key.starts_with("server.ident.f.") || x.key.as_str() == "server.ident.save" || x.key.starts_with("server.ident.delete:")));
+        // an answer for another account's page changes nothing here
+        let g0 = c.lock().unwrap_or_else(|e| e.into_inner()).id_gen;
+        identity_done(&mut c.lock().unwrap_or_else(|e| e.into_inner()), "B", g0, &Ok(()), true, None);
+        assert!(c.lock().unwrap_or_else(|e| e.into_inner()).id_busy);
+        // a refused save gives the form back with the reason
+        identity_done(&mut c.lock().unwrap_or_else(|e| e.into_inner()), "A", g0, &Err("You are not authorized to send from this email address.".into()), true, None);
+        { let k = c.lock().unwrap_or_else(|e| e.into_inner()); assert!(!k.id_busy); assert!(k.id_form.as_ref().unwrap().error.contains("not authorized")); }
+        // a saved one closes the form: Save cannot add it again
+        assert!(button("server.ident.save", &c).is_some());
+        let g1 = c.lock().unwrap_or_else(|e| e.into_inner()).id_gen;
+        identity_done(&mut c.lock().unwrap_or_else(|e| e.into_inner()), "A", g1, &Ok(()), true, None);
+        { let k = c.lock().unwrap_or_else(|e| e.into_inner()); assert!(!k.id_busy && k.id_form.is_none()); }
+        assert!(button("server.ident.save", &c).is_none());
+        // the account changed while it was out: the page takes input again
+        button("server.ident.new", &c);
+        edit("server.ident.f.email", &json!("x@example.test"), &c);
+        button("server.ident.save", &c);
+        let g2 = c.lock().unwrap_or_else(|e| e.into_inner()).id_gen;
+        identity_done(&mut c.lock().unwrap_or_else(|e| e.into_inner()), "A", g2, &Err(ACCOUNT_CHANGED.into()), true, None);
+        assert!(!c.lock().unwrap_or_else(|e| e.into_inner()).id_busy);
+        // switching account clears it as well
+        c.lock().unwrap_or_else(|e| e.into_inner()).id_busy = true;
+        claim(&c, "B", "bob@example.test", "https://other.example.test");
+        assert!(!c.lock().unwrap_or_else(|e| e.into_inner()).id_busy);
+    }
+
+    #[test]
+    fn a_delete_waits_too_and_a_missing_may_delete_is_kept() {
+        let c = identities_page();
+        c.lock().unwrap_or_else(|e| e.into_inner()).identities.push(json!({"id": "nokey", "email": "old@example.test", "name": ""}));
+        let b = keys(&rows("account", &c, &crate::settings::Settings::with_prefs(Default::default())).unwrap());
+        assert!(!b.iter().any(|x| x.starts_with("server.ident.delete:nokey")), "{b:?}");
+        assert!(rows("account", &c, &crate::settings::Settings::with_prefs(Default::default())).unwrap().iter().any(|x| x.key.as_str() == "server.ident.edit:nokey" && x.desc.as_str().contains("cannot be deleted")));
+        // refused before anything is sent
+        c.lock().unwrap_or_else(|e| e.into_inner()).confirm_delete = "ident:nokey".into();
+        assert!(button("server.ident.delete:nokey", &c).is_some());
+        assert!(!c.lock().unwrap_or_else(|e| e.into_inner()).id_busy);
+        button("server.ident.delete:alias", &c);
+        assert!(button("server.ident.delete:alias", &c).is_some());
+        assert!(c.lock().unwrap_or_else(|e| e.into_inner()).id_busy);
+        assert!(rows("account", &c, &crate::settings::Settings::with_prefs(Default::default())).unwrap().iter().any(|x| x.label.as_str() == "Deleting…"));
+        let g = c.lock().unwrap_or_else(|e| e.into_inner()).id_gen;
+        identity_done(&mut c.lock().unwrap_or_else(|e| e.into_inner()), "A", g, &Ok(()), false, Some("alias"));
+        assert!(!c.lock().unwrap_or_else(|e| e.into_inner()).id_busy && !c.lock().unwrap_or_else(|e| e.into_inner()).id_deleting);
+        // a delete with the form open: the form says Deleting…, not Saving…
+        button("server.ident.edit:team", &c);
+        button("server.ident.delete:alias", &c);
+        button("server.ident.delete:alias", &c);
+        let r = rows("account", &c, &crate::settings::Settings::with_prefs(Default::default())).unwrap();
+        assert!(r.iter().any(|x| x.label.as_str() == "Deleting…") && !r.iter().any(|x| x.label.as_str() == "Saving…"));
+    }
+
+    #[test]
+    fn a_late_answer_of_an_older_change_leaves_the_page_alone() {
+        let c = identities_page();
+        button("server.ident.new", &c);
+        edit("server.ident.f.email", &json!("first@example.test"), &c);
+        assert!(button("server.ident.save", &c).is_some());
+        let first = c.lock().unwrap_or_else(|e| e.into_inner()).id_gen;
+        // to another account and back before the answer, then a new form and its own save
+        claim(&c, "B", "bob@example.test", "https://other.example.test");
+        claim(&c, "A", "ann@example.test", "https://mail.example.test");
+        c.lock().unwrap_or_else(|e| e.into_inner()).identities = identities_page().lock().unwrap_or_else(|e| e.into_inner()).identities.clone();
+        button("server.ident.new", &c);
+        edit("server.ident.f.email", &json!("second@example.test"), &c);
+        assert!(button("server.ident.save", &c).is_some());
+        let second = c.lock().unwrap_or_else(|e| e.into_inner()).id_gen;
+        assert_ne!(first, second);
+        // the first save's late answer, whatever it says: the second keeps its busy page and form
+        identity_done(&mut c.lock().unwrap_or_else(|e| e.into_inner()), "A", first, &Ok(()), true, None);
+        identity_done(&mut c.lock().unwrap_or_else(|e| e.into_inner()), "A", first, &Err("refused".into()), true, None);
+        {
+            let k = c.lock().unwrap_or_else(|e| e.into_inner());
+            assert!(k.id_busy);
+            let x = k.id_form.as_ref().unwrap();
+            assert_eq!((x.f.email.as_str(), x.error.as_str()), ("second@example.test", ""));
+        }
+        identity_done(&mut c.lock().unwrap_or_else(|e| e.into_inner()), "A", second, &Ok(()), true, None);
+        let k = c.lock().unwrap_or_else(|e| e.into_inner());
+        assert!(!k.id_busy && k.id_form.is_none());
+    }
+
+    #[test]
+    fn a_reset_forgets_the_identities_and_a_late_save_stays_out() {
+        let c = identities_page();
+        button("server.ident.new", &c);
+        edit("server.ident.f.email", &json!("first@example.test"), &c);
+        assert!(button("server.ident.save", &c).is_some());
+        let first = c.lock().unwrap_or_else(|e| e.into_inner()).id_gen;
+        {
+            let mut k = c.lock().unwrap_or_else(|e| e.into_inner());
+            (k.masked_shown, k.masked_state, k.masked_busy) = (true, 1, true);
+            k.masked_new_desc = "Shop".into();
+        }
+        // signed out (or Settings closed): nothing of the page stays, nor is anything on its way
+        reset(&c);
+        {
+            let k = c.lock().unwrap_or_else(|e| e.into_inner());
+            assert!(k.owner.is_empty() && k.identities.is_empty() && !k.ids_loaded && k.id_form.is_none());
+            assert!(!k.id_busy && !k.id_deleting && !k.masked_busy && !k.masked_shown && k.masked_new_desc.is_empty());
+            assert!(k.id_gen > first, "the generation keeps counting across a reset");
+        }
+        assert!(rows("security", &c, &crate::settings::Settings::with_prefs(Default::default())).is_none());
+        // the same account again, a new form; the old save answers only now
+        claim(&c, "A", "ann@example.test", "https://mail.example.test");
+        button("server.ident.new", &c);
+        edit("server.ident.f.email", &json!("second@example.test"), &c);
+        identity_done(&mut c.lock().unwrap_or_else(|e| e.into_inner()), "A", first, &Ok(()), true, None);
+        identity_done(&mut c.lock().unwrap_or_else(|e| e.into_inner()), "A", first, &Err("refused".into()), true, None);
+        let k = c.lock().unwrap_or_else(|e| e.into_inner());
+        let x = k.id_form.as_ref().expect("the new form stays open");
+        assert_eq!((x.f.email.as_str(), x.error.as_str()), ("second@example.test", ""));
+    }
+
+    #[test]
+    fn the_formatted_switch_converts_the_signature() {
+        let c = identities_page();
+        button("server.ident.edit:ann", &c);
+        edit("server.ident.f.sig", &json!("Ann\nSales"), &c);
+        edit("server.ident.f.html", &json!(true), &c);
+        let sig = c.lock().unwrap_or_else(|e| e.into_inner()).id_form.as_ref().unwrap().f.signature.clone();
+        assert!(sig.contains('<') && sig.contains("Sales"), "{sig}");
+        let r = rows("account", &c, &crate::settings::Settings::with_prefs(Default::default())).unwrap();
+        assert!(r.iter().any(|x| x.key.as_str() == "server.ident.f.sig" && x.label.as_str() == "Signature (HTML)"));
+        assert!(r.iter().any(|x| x.label.as_str() == "Plain-text version" && x.desc.as_str().contains("Sales")));
+        edit("server.ident.f.html", &json!(false), &c);
+        assert!(!c.lock().unwrap_or_else(|e| e.into_inner()).id_form.as_ref().unwrap().f.signature.contains('<'));
+    }
+
+    #[test]
+    fn another_account_never_sees_or_saves_this_ones_identities() {
+        let c = identities_page();
+        button("server.ident.new", &c);
+        edit("server.ident.f.email", &json!("typed@example.test"), &c);
+        { let mut k = c.lock().unwrap_or_else(|e| e.into_inner()); k.masked = vec![crate::masked::Masked { id: "m1".into(), email: "m1@mask.example.test".into(), for_domain: None, description: None, enabled: true }]; (k.masked_state, k.masked_shown) = (1, true); }
+        // the same account keeps everything
+        claim(&c, "A", "ann@example.test", "https://mail.example.test");
+        assert!(c.lock().unwrap_or_else(|e| e.into_inner()).id_form.is_some());
+        // another account: the list, the form and the masked addresses go
+        claim(&c, "B", "bob@example.test", "https://other.example.test");
+        let k = c.lock().unwrap_or_else(|e| e.into_inner());
+        assert!(k.identities.is_empty() && k.id_form.is_none() && k.masked.is_empty() && !k.masked_shown && !k.ids_loaded);
+        assert_eq!((k.owner.as_str(), k.owner_key.as_str()), ("B", "bob@example.test@other.example.test"));
+        drop(k);
+        // nothing of A's shows for B while B's list loads
+        assert!(rows("account", &c, &crate::settings::Settings::with_prefs(Default::default())).is_none());
+        assert!(rows("security", &c, &crate::settings::Settings::with_prefs(Default::default())).is_none());
+    }
+
+    fn masked_page(n: usize) -> Shared {
+        let c = Shared::default();
+        {
+            let mut k = c.lock().unwrap_or_else(|e| e.into_inner());
+            k.owner = "A".into();
+            k.masked = (0..n).map(|i| crate::masked::Masked { id: format!("m{i}"), email: format!("m{i}@mask.example.test"), for_domain: (i == 0).then(|| "shop.example".into()), description: None, enabled: i != 1 }).collect();
+            (k.masked_state, k.masked_shown) = (1, true);
+        }
+        c
+    }
+
+    #[test]
+    fn masked_addresses_page_by_ten_and_open_one_at_a_time() {
+        let c = masked_page(12);
+        let r = rows("security", &c, &crate::settings::Settings::with_prefs(Default::default())).unwrap();
+        assert!(r.iter().any(|x| x.label.as_str() == "12 addresses"));
+        assert_eq!(r.iter().filter(|x| x.key.starts_with("server.masked.open:")).count(), 10);
+        assert!(r.iter().any(|x| x.key.as_str() == "server.masked.open:m0" && x.desc.as_str() == "No description · shop.example · Enabled"));
+        assert!(r.iter().any(|x| x.key.as_str() == "server.masked.open:m1" && x.desc.as_str().ends_with("Disabled")));
+        assert!(r.iter().any(|x| x.label.as_str() == "Page 1 of 2"));
+        button("server.masked.next", &c);
+        let r = rows("security", &c, &crate::settings::Settings::with_prefs(Default::default())).unwrap();
+        assert_eq!(r.iter().filter(|x| x.key.starts_with("server.masked.open:")).count(), 2);
+        assert!(!keys(&r).contains(&"server.masked.next=Next".to_string()));
+        button("server.masked.open:m10", &c);
+        let b = keys(&rows("security", &c, &crate::settings::Settings::with_prefs(Default::default())).unwrap());
+        assert!(b.contains(&"server.masked.toggle:m10=Disable".to_string()) && b.contains(&"server.masked.delete:m10=Delete".to_string()));
+        // an id that is not in the list just read is not touched
+        assert!(button("server.masked.toggle:zzz", &c).is_some());
+        assert!(!c.lock().unwrap_or_else(|e| e.into_inner()).masked_busy);
+        // a delete asks first, then runs; one change at a time
+        button("server.masked.delete:m10", &c);
+        assert!(!c.lock().unwrap_or_else(|e| e.into_inner()).masked_busy);
+        assert!(keys(&rows("security", &c, &crate::settings::Settings::with_prefs(Default::default())).unwrap()).contains(&"server.masked.delete:m10=Delete permanently".to_string()));
+        assert!(button("server.masked.delete:m10", &c).is_some());
+        assert!(c.lock().unwrap_or_else(|e| e.into_inner()).masked_busy);
+        assert!(button("server.masked.toggle:m10", &c).is_none(), "busy: no second change");
+    }
+
+    #[test]
+    fn masked_addresses_hidden_until_the_server_has_them() {
+        let c = Shared::default();
+        assert!(rows("security", &c, &crate::settings::Settings::with_prefs(Default::default())).is_none());
+        let c = masked_page(0);
+        let r = rows("security", &c, &crate::settings::Settings::with_prefs(Default::default())).unwrap();
+        assert!(r.iter().any(|x| x.label.as_str() == "No masked addresses yet."));
+        assert!(keys(&r).contains(&"server.masked.create=Create masked address".to_string()));
+        // a delete that could not be confirmed is not offered again before a fresh read
+        let c = masked_page(1);
+        { let mut k = c.lock().unwrap_or_else(|e| e.into_inner()); k.masked_needs_refresh = true; k.masked_open = "m0".into(); }
+        assert!(!keys(&rows("security", &c, &crate::settings::Settings::with_prefs(Default::default())).unwrap()).iter().any(|x| x.starts_with("server.masked.delete:")));
+        assert!(button("server.masked.delete:m0", &c).is_none());
+    }
+
+    #[test]
+    fn closing_settings_keeps_a_waiting_out_of_office_edit_and_an_account_change_drops_it() {
+        let mut k = vac_cache(true, "typed");
+        k.vac_reply_dirty = true;
+        k.sec.epoch = 4;
+        let shared: Shared = Arc::new(Mutex::new(k));
+        reset(&shared);
+        {
+            let k = shared.lock().unwrap();
+            assert!(k.vac_reply_dirty && vac_current(&k));
+            assert_eq!(k.vacation.as_ref().unwrap()["textBody"], "typed");
+            assert_eq!(k.sec.epoch, 5);
+        }
+        set_account(&shared, &key_of("B"));
+        let k = shared.lock().unwrap();
+        assert!(k.vacation.is_none() && !k.vac_reply_dirty);
     }
 
     fn vac_cache(on: bool, text: &str) -> Cache {
@@ -1265,7 +2101,7 @@ mod tests {
         Client::fake("https://mail.example.test", acc, &["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail", "urn:ietf:params:jmap:vacationresponse"], move |calls| {
             Ok(calls.as_array().unwrap().iter().map(|c| {
                 let m = c[0].as_str().unwrap_or("").to_string();
-                log.lock().unwrap().push((m.clone(), c[1].clone()));
+                log.lock().unwrap_or_else(|e| e.into_inner()).push((m.clone(), c[1].clone()));
                 json!([m, answer(&m, &c[1]), c[2]])
             }).collect())
         })
@@ -1283,7 +2119,7 @@ mod tests {
 
     fn key_of(acc: &str) -> String { fake(acc, &Log::default(), |_, _| json!({})).state_key() }
 
-    fn sets(log: &Log) -> Vec<Value> { log.lock().unwrap().iter().filter(|(m, _)| m == "VacationResponse/set").map(|(_, a)| a.clone()).collect() }
+    fn sets(log: &Log) -> Vec<Value> { log.lock().unwrap_or_else(|e| e.into_inner()).iter().filter(|(m, _)| m == "VacationResponse/set").map(|(_, a)| a.clone()).collect() }
 
     #[test]
     fn the_page_reads_the_block_setting_from_the_settings_held() {
@@ -1292,14 +2128,14 @@ mod tests {
         // (the same lock again: a hang)
         let shared: Shared = Arc::new(Mutex::new(vac_cache(true, "x")));
         {
-            let mut k = shared.lock().unwrap();
+            let mut k = shared.lock().unwrap_or_else(|e| e.into_inner());
             let v = k.vacation.as_mut().unwrap();
             v["fromDate"] = json!("2026-10-01T00:00:00.000Z");
             v["toDate"] = json!("2026-10-08T00:00:00.000Z");
         }
         let prefs = Arc::new(Mutex::new(crate::settings::Settings::with_prefs(Default::default())));
         for on in [false, true] {
-            let mut held = prefs.lock().unwrap();
+            let mut held = prefs.lock().unwrap_or_else(|e| e.into_inner());
             held.prefs.insert("vacationBlockCalendar".into(), json!(on));
             let before = crate::settings::LIVE_USES.with(|n| n.get());
             let r = rows("vacation", &shared, &held).unwrap();
@@ -1317,20 +2153,20 @@ mod tests {
         set_account(&shared, &key_of("B"));
         let r = rows("vacation", &shared, &prefs).unwrap();
         assert!(r.iter().any(|r| r.label.as_str() == "Loading…") && !r.iter().any(|r| r.key.as_str() == "server.vacation.textBody"));
-        assert_eq!(apply_edit("isEnabled", &json!(true), &mut shared.lock().unwrap()), Edit::Local);
+        assert_eq!(apply_edit("isEnabled", &json!(true), &mut shared.lock().unwrap_or_else(|e| e.into_inner())), Edit::Local);
         // A's data back in the cache (a load that finished late) still is not B's
-        { let mut k = shared.lock().unwrap(); let a = vac_cache(false, "A's"); k.vacation = a.vacation; k.vac_account = key_of("A"); k.vac_reply_dirty = true; }
+        { let mut k = shared.lock().unwrap_or_else(|e| e.into_inner()); let a = vac_cache(false, "A's"); k.vacation = a.vacation; k.vac_account = key_of("A"); k.vac_reply_dirty = true; }
         assert!(rows("vacation", &shared, &prefs).unwrap().iter().any(|r| r.label.as_str() == "Loading…"));
-        assert_eq!(apply_edit("textBody", &json!("x"), &mut shared.lock().unwrap()), Edit::Local);
+        assert_eq!(apply_edit("textBody", &json!("x"), &mut shared.lock().unwrap_or_else(|e| e.into_inner())), Edit::Local);
         // a write for B with the cache holding A's: nothing is sent
         let log = Log::default();
         let b = fake("B", &log, server(json!({})));
         assert_eq!(vacation_run(&b, &shared), Err(OTHER_ACCOUNT.into()));
-        assert!(log.lock().unwrap().is_empty());
+        assert!(log.lock().unwrap_or_else(|e| e.into_inner()).is_empty());
         // a write for A after the switch: nothing is sent either
         let a = fake("A", &log, server(json!({})));
         assert!(vacation_run(&a, &shared).is_err());
-        assert!(log.lock().unwrap().is_empty());
+        assert!(log.lock().unwrap_or_else(|e| e.into_inner()).is_empty());
     }
 
     #[test]
@@ -1344,12 +2180,12 @@ mod tests {
             if m == "VacationResponse/set" { set_account(&sh, &b_key); }
             json!({"updated": {"singleton": null}})
         });
-        assert_eq!(apply_edit("isEnabled", &json!(false), &mut shared.lock().unwrap()), Edit::Save);
-        assert_eq!(apply_edit("textBody", &json!("Back on Monday"), &mut shared.lock().unwrap()), Edit::Save);
+        assert_eq!(apply_edit("isEnabled", &json!(false), &mut shared.lock().unwrap_or_else(|e| e.into_inner())), Edit::Save);
+        assert_eq!(apply_edit("textBody", &json!("Back on Monday"), &mut shared.lock().unwrap_or_else(|e| e.into_inner())), Edit::Save);
         assert!(vacation_run(&a, &shared).is_ok());
         assert_eq!(sets(&log).len(), 1);
         {
-            let k = shared.lock().unwrap();
+            let k = shared.lock().unwrap_or_else(|e| e.into_inner());
             assert!(k.vacation.is_none() && k.vac_saved.is_none() && k.vac_account.is_empty(), "A's save wrote into B's page");
         }
         // B's page loads; then A's late load finishes: B's stays
@@ -1357,7 +2193,7 @@ mod tests {
         load("vacation", &b, &shared);
         let a = fake("A", &Log::default(), server(json!({"isEnabled": false, "subject": "A", "textBody": "A", "fromDate": null, "toDate": null})));
         load("vacation", &a, &shared);
-        let k = shared.lock().unwrap();
+        let k = shared.lock().unwrap_or_else(|e| e.into_inner());
         assert_eq!(k.vac_account, key_of("B"));
         assert_eq!(k.vacation.as_ref().unwrap()["subject"], "B away");
         assert_eq!(k.vac_saved.as_ref().map(|s| s.is_enabled), Some(true));
@@ -1369,17 +2205,17 @@ mod tests {
         for refusal in [false, true] {
             let shared: Shared = Arc::new(Mutex::new(vac_cache(false, "")));
             {
-                let mut k = shared.lock().unwrap();
+                let mut k = shared.lock().unwrap_or_else(|e| e.into_inner());
                 let v = k.vacation.as_mut().unwrap();
                 v["fromDate"] = json!("2026-10-01T00:00:00.000Z");
                 v["toDate"] = json!("2026-10-08T00:00:00.000Z");
                 k.vac_saved = Some(reply_of(v, false));
             }
-            assert!(edit_vacation("textBody", &json!("Back on Monday"), &mut shared.lock().unwrap(), shared.clone()).is_some());
+            assert!(edit_vacation("textBody", &json!("Back on Monday"), &mut shared.lock().unwrap_or_else(|e| e.into_inner()), shared.clone()).is_some());
             let job = if refusal {
-                edit_vacation("subject", &json!("s".repeat(600)), &mut shared.lock().unwrap(), shared.clone())
+                edit_vacation("subject", &json!("s".repeat(600)), &mut shared.lock().unwrap_or_else(|e| e.into_inner()), shared.clone())
             } else {
-                edit_vacation("block", &json!(false), &mut shared.lock().unwrap(), shared.clone())
+                edit_vacation("block", &json!(false), &mut shared.lock().unwrap_or_else(|e| e.into_inner()), shared.clone())
             }.expect("a job");
             let log = Log::default();
             let res = job(&fake("A", &log, server(json!({}))));
@@ -1387,7 +2223,7 @@ mod tests {
             let s = sets(&log);
             assert_eq!(s.len(), 1, "the typed message was not sent");
             assert_eq!(s[0]["update"]["singleton"]["textBody"], "Back on Monday");
-            assert!(!shared.lock().unwrap().vac_reply_dirty);
+            assert!(!shared.lock().unwrap_or_else(|e| e.into_inner()).vac_reply_dirty);
         }
     }
 
@@ -1418,21 +2254,21 @@ mod tests {
         let res = vacation_run(&fake("A", &log, server(json!({"textBody": "old"}))), &shared);
         assert!(matches!(&res, Err(e) if e.contains("address")), "{res:?}");
         assert_eq!(sets(&log).len(), 1);
-        assert!(!log.lock().unwrap().iter().any(|(m, _)| m == "VacationResponse/get"));
-        assert_eq!(shared.lock().unwrap().vacation.as_ref().unwrap()["textBody"], "Back soon");
-        assert!(shared.lock().unwrap().vac_forward_dirty);
+        assert!(!log.lock().unwrap_or_else(|e| e.into_inner()).iter().any(|(m, _)| m == "VacationResponse/get"));
+        assert_eq!(shared.lock().unwrap_or_else(|e| e.into_inner()).vacation.as_ref().unwrap()["textBody"], "Back soon");
+        assert!(shared.lock().unwrap_or_else(|e| e.into_inner()).vac_forward_dirty);
         assert!(vacation_run(&fake("A", &log, server(json!({}))), &shared).is_err());
         assert_eq!(sets(&log).len(), 1);
         // the server turns the write down: the text stays on the page and waits; the reload keeps it
         let shared: Shared = Arc::new(Mutex::new(vac_cache(false, "x")));
-        assert_eq!(apply_edit("textBody", &json!("Back soon"), &mut shared.lock().unwrap()), Edit::Save);
+        assert_eq!(apply_edit("textBody", &json!("Back soon"), &mut shared.lock().unwrap_or_else(|e| e.into_inner())), Edit::Save);
         let log = Log::default();
         let old = json!({"isEnabled": false, "subject": "Away", "textBody": "old", "fromDate": null, "toDate": null});
         let refuse = move |m: &str, a: &Value| if m == "VacationResponse/set" { json!({"notUpdated": {"singleton": {"type": "invalidProperties"}}}) } else { server(old.clone())(m, a) };
         assert!(vacation_run(&fake("A", &log, refuse), &shared).is_err());
         assert_eq!(sets(&log).len(), 1);
-        assert!(log.lock().unwrap().iter().any(|(m, _)| m == "VacationResponse/get"), "reloaded");
-        let k = shared.lock().unwrap();
+        assert!(log.lock().unwrap_or_else(|e| e.into_inner()).iter().any(|(m, _)| m == "VacationResponse/get"), "reloaded");
+        let k = shared.lock().unwrap_or_else(|e| e.into_inner());
         assert!(k.vac_reply_dirty);
         assert_eq!(k.vacation.as_ref().unwrap()["textBody"], "Back soon");
         assert_eq!(k.vac_saved.as_ref().map(|s| s.subject.as_str()), Some("Away"));
@@ -1442,7 +2278,7 @@ mod tests {
     fn a_load_keeps_waiting_edits_and_typed_dates() {
         let shared: Shared = Arc::new(Mutex::new(vac_cache(false, "x")));
         {
-            let mut k = shared.lock().unwrap();
+            let mut k = shared.lock().unwrap_or_else(|e| e.into_inner());
             k.vac_filters = Some(crate::vacation::Filters { forward_available: true, ..Default::default() });
             k.fwd_to = "ann@example.test".into();
             assert_eq!(apply_edit("textBody", &json!("Back soon"), &mut k), Edit::Save);
@@ -1450,7 +2286,7 @@ mod tests {
             assert_eq!(apply_edit("fromDate", &json!("2026-1"), &mut k), Edit::Local);
         }
         load("vacation", &fake("A", &Log::default(), server(json!({"isEnabled": true, "subject": "Server", "textBody": "old", "fromDate": null, "toDate": null}))), &shared);
-        let k = shared.lock().unwrap();
+        let k = shared.lock().unwrap_or_else(|e| e.into_inner());
         assert!(k.vac_reply_dirty && k.vac_forward_dirty);
         assert_eq!(k.vacation.as_ref().unwrap()["textBody"], "Back soon");
         assert_eq!(k.fwd_to, "ann@example.test");
@@ -1459,9 +2295,9 @@ mod tests {
         assert_eq!(k.vac_saved.as_ref().map(|s| (s.is_enabled, s.subject.as_str())), Some((true, "Server")));
         drop(k);
         // with nothing waiting the page shows the server's reply
-        { let mut k = shared.lock().unwrap(); k.vac_reply_dirty = false; k.vac_forward_dirty = false; }
+        { let mut k = shared.lock().unwrap_or_else(|e| e.into_inner()); k.vac_reply_dirty = false; k.vac_forward_dirty = false; }
         load("vacation", &fake("A", &Log::default(), server(json!({"isEnabled": false, "subject": "S2", "textBody": "new", "fromDate": null, "toDate": null}))), &shared);
-        assert_eq!(shared.lock().unwrap().vacation.as_ref().unwrap()["textBody"], "new");
+        assert_eq!(shared.lock().unwrap_or_else(|e| e.into_inner()).vacation.as_ref().unwrap()["textBody"], "new");
     }
 
     #[test]
@@ -1593,7 +2429,7 @@ mod tests {
         Client::fake("https://mail.example.test", acc, caps, move |calls| {
             Ok(calls.as_array().unwrap().iter().map(|c| {
                 let m = c[0].as_str().unwrap_or("").to_string();
-                log.lock().unwrap().push((m.clone(), c[1].clone()));
+                log.lock().unwrap_or_else(|e| e.into_inner()).push((m.clone(), c[1].clone()));
                 json!([m, answer(&m, &c[1]), c[2]])
             }).collect())
         })
@@ -1611,14 +2447,14 @@ mod tests {
         let answer = Arc::new(move |m: &str, a: &Value| -> Value {
             match m {
                 "VacationResponse/set" => {
-                    let _ = tx.lock().unwrap().send(());
+                    let _ = tx.lock().unwrap_or_else(|e| e.into_inner()).send(());
                     // the server takes its time
                     std::thread::sleep(std::time::Duration::from_millis(300));
-                    let mut s = st.lock().unwrap();
+                    let mut s = st.lock().unwrap_or_else(|e| e.into_inner());
                     for (k, v) in a["update"]["singleton"].as_object().unwrap() { s[k.as_str()] = v.clone(); }
                     json!({"updated": {"singleton": null}})
                 }
-                "VacationResponse/get" => json!({"list": [st.lock().unwrap().clone()]}),
+                "VacationResponse/get" => json!({"list": [st.lock().unwrap_or_else(|e| e.into_inner()).clone()]}),
                 "Identity/get" => json!({"list": [{"id": "i1", "email": "ann@example.test"}]}),
                 _ => json!({}),
             }
@@ -1627,20 +2463,20 @@ mod tests {
         let (a1, a2) = (answer.clone(), answer.clone());
         let writer = fake("A", &log, move |m, a| a1(m, a));
         let reader = fake("A", &log, move |m, a| a2(m, a));
-        assert_eq!(apply_edit("isEnabled", &json!(true), &mut shared.lock().unwrap()), Edit::Save);
+        assert_eq!(apply_edit("isEnabled", &json!(true), &mut shared.lock().unwrap_or_else(|e| e.into_inner())), Edit::Save);
         let sh = shared.clone();
         let t = std::thread::spawn(move || vacation_run(&writer, &sh));
         rx.recv().unwrap(); // the write is out, the page's waiting flags are cleared
         load("vacation", &reader, &shared);
         assert_eq!(t.join().unwrap(), Ok(()));
-        let mut k = shared.lock().unwrap();
+        let mut k = shared.lock().unwrap_or_else(|e| e.into_inner());
         assert_eq!(k.vacation.as_ref().unwrap()["isEnabled"], true, "the reload put the reply back to off");
         assert_eq!(k.vac_saved.as_ref().map(|s| s.is_enabled), Some(true));
         // and the next edit does not send the old reply back
         assert_eq!(apply_edit("subject", &json!("Out"), &mut k), Edit::Save);
         let plan = take_run_plan(&mut k).unwrap().unwrap();
         assert!(!plan.patch.contains_key("isEnabled"), "{:?}", plan.patch);
-        assert_eq!(stored.lock().unwrap()["isEnabled"], true);
+        assert_eq!(stored.lock().unwrap_or_else(|e| e.into_inner())["isEnabled"], true);
     }
 
     #[test]
@@ -1649,7 +2485,7 @@ mod tests {
         // field keeps the address, so switching forwarding on afterwards needs no retyping
         let shared: Shared = Arc::new(Mutex::new(vac_cache(false, "x")));
         {
-            let mut k = shared.lock().unwrap();
+            let mut k = shared.lock().unwrap_or_else(|e| e.into_inner());
             k.vac_filters = Some(crate::vacation::Filters { forward_available: true, ..Default::default() });
             assert_eq!(apply_edit("forwardTo", &json!("ann@example.test"), &mut k), Edit::Local);
             assert_eq!(apply_edit("forwardSave", &Value::Null, &mut k), Edit::Save);
@@ -1658,7 +2494,7 @@ mod tests {
         assert_eq!(vacation_run(&c, &shared), Ok(()));
         // "Save forwarding" reloads the page
         load("vacation", &c, &shared);
-        let mut k = shared.lock().unwrap();
+        let mut k = shared.lock().unwrap_or_else(|e| e.into_inner());
         assert_eq!(k.fwd_to, "ann@example.test");
         assert!(!k.fwd_enabled);
         assert_eq!(apply_edit("forwardEnabled", &json!(true), &mut k), Edit::Save);
@@ -1670,7 +2506,7 @@ mod tests {
         // the server has Sieve without "include": the forwarding cannot be written
         let shared: Shared = Arc::new(Mutex::new(vac_cache(false, "x")));
         {
-            let mut k = shared.lock().unwrap();
+            let mut k = shared.lock().unwrap_or_else(|e| e.into_inner());
             k.vac_filters = Some(crate::vacation::Filters { forward_available: true, ..Default::default() });
             k.fwd_to = "ann@example.test".into();
             assert_eq!(apply_edit("forwardEnabled", &json!(true), &mut k), Edit::Save);
@@ -1681,8 +2517,8 @@ mod tests {
         let res = vacation_run(&c, &shared);
         assert!(matches!(&res, Err(e) if e.contains("filters part")), "{res:?}");
         // not reloaded over, and still waiting as set on the page
-        assert!(!log.lock().unwrap().iter().any(|(m, _)| m == "VacationResponse/get"));
-        let mut k = shared.lock().unwrap();
+        assert!(!log.lock().unwrap_or_else(|e| e.into_inner()).iter().any(|(m, _)| m == "VacationResponse/get"));
+        let mut k = shared.lock().unwrap_or_else(|e| e.into_inner());
         assert!(k.vac_forward_dirty && k.vac_sync_dirty && k.fwd_enabled);
         assert_eq!(k.fwd_to, "ann@example.test");
         let plan = take_run_plan(&mut k).unwrap().unwrap();
@@ -1692,7 +2528,7 @@ mod tests {
         k.vac_forward_dirty = true;
         drop(k);
         load("vacation", &fake("A", &Log::default(), server(json!({"isEnabled": false, "subject": "Away", "textBody": "x"}))), &shared);
-        let k = shared.lock().unwrap();
+        let k = shared.lock().unwrap_or_else(|e| e.into_inner());
         assert!(k.fwd_enabled && k.fwd_to == "ann@example.test");
     }
 
@@ -1753,12 +2589,12 @@ mod tests {
         let shared: Shared = Arc::new(Mutex::new(vac_cache(true, "Away")));
         let log = Log::default();
         let c = fake_with("A", &SIEVE_CAPS, &log, sieve_server(script, json!({"isEnabled": false, "subject": "Away", "textBody": "Away", "fromDate": null, "toDate": null})));
-        assert_eq!(apply_edit("isEnabled", &json!(false), &mut shared.lock().unwrap()), Edit::Save);
+        assert_eq!(apply_edit("isEnabled", &json!(false), &mut shared.lock().unwrap_or_else(|e| e.into_inner())), Edit::Save);
         let res = vacation_run(&c, &shared);
         assert!(matches!(&res, Err(e) if e.contains("still being sent")), "{res:?}");
         assert_eq!(sets(&log)[0]["update"]["singleton"]["isEnabled"], false);
         {
-            let k = shared.lock().unwrap();
+            let k = shared.lock().unwrap_or_else(|e| e.into_inner());
             assert_eq!(k.vacation.as_ref().unwrap()["isEnabled"], false);
             assert!(k.vac_filters.as_ref().is_some_and(|f| f.includes_vacation));
             assert!(k.vac_reply_dirty && k.vac_sync_dirty, "the off waits to be written again");
@@ -1769,7 +2605,7 @@ mod tests {
         // reopening the page keeps "off" (the server's include alone would read as on); the next
         // write sends it again with the filters part
         load("vacation", &c, &shared);
-        let mut k = shared.lock().unwrap();
+        let mut k = shared.lock().unwrap_or_else(|e| e.into_inner());
         assert_eq!(k.vacation.as_ref().unwrap()["isEnabled"], false);
         let plan = take_run_plan(&mut k).unwrap().unwrap();
         assert_eq!(plan.patch["isEnabled"], false);
@@ -1777,7 +2613,7 @@ mod tests {
         // "Try again" asks for that write
         drop(k);
         assert!(button("server.vacation.retry", &shared).is_some());
-        assert!(shared.lock().unwrap().vac_sync_dirty);
+        assert!(shared.lock().unwrap_or_else(|e| e.into_inner()).vac_sync_dirty);
     }
 
     #[test]
@@ -1785,7 +2621,7 @@ mod tests {
         let stored = json!({"enabled": false, "to": "old@example.test", "keepCopy": false});
         let shared: Shared = Arc::new(Mutex::new(vac_cache(false, "x")));
         {
-            let mut k = shared.lock().unwrap();
+            let mut k = shared.lock().unwrap_or_else(|e| e.into_inner());
             k.vac_filters = Some(crate::vacation::Filters { forward_available: true, forward: Some(stored.clone()), ..Default::default() });
             k.fwd_to = "old@example.test".into();
             assert_eq!(apply_edit("forwardTo", &json!("new@exam"), &mut k), Edit::Local);
@@ -1797,7 +2633,7 @@ mod tests {
         let script = crate::sieve::generate_meta(&json!({"version": 1, "rules": [], "vacationForward": stored}), "", &[]);
         load("vacation", &fake_with("A", &SIEVE_CAPS, &Log::default(), sieve_server(script, json!({"isEnabled": false, "subject": "Away", "textBody": "x"}))), &shared);
         {
-            let mut k = shared.lock().unwrap();
+            let mut k = shared.lock().unwrap_or_else(|e| e.into_inner());
             assert_eq!(k.fwd_to, "old@example.test");
             assert!(!k.fwd_typed);
             k.vac_filters.as_mut().unwrap().forward_available = true;
@@ -1805,8 +2641,8 @@ mod tests {
         assert_eq!(hint(&shared).as_deref(), Some("Type the address, then press Save forwarding."));
         // nothing stored, forwarding off: a typed address is kept, and marked
         let shared: Shared = Arc::new(Mutex::new(vac_cache(false, "x")));
-        shared.lock().unwrap().vac_filters = Some(crate::vacation::Filters { forward_available: true, ..Default::default() });
-        assert_eq!(apply_edit("forwardTo", &json!("ann@example.test"), &mut shared.lock().unwrap()), Edit::Local);
+        shared.lock().unwrap_or_else(|e| e.into_inner()).vac_filters = Some(crate::vacation::Filters { forward_available: true, ..Default::default() });
+        assert_eq!(apply_edit("forwardTo", &json!("ann@example.test"), &mut shared.lock().unwrap_or_else(|e| e.into_inner())), Edit::Local);
         assert_eq!(hint(&shared).as_deref(), Some("Not stored yet: it is saved when you switch forwarding on."));
     }
 
@@ -1823,7 +2659,7 @@ mod tests {
         for trigger in [crate::vacation::Trigger::Save, crate::vacation::Trigger::Load] {
             assert_eq!(crate::vacation::sync_block(&c, &reply, trigger, None), Ok("unreadable"));
         }
-        assert!(!log.lock().unwrap().iter().any(|(m, _)| m == "CalendarEvent/set" || m == "Calendar/get"));
+        assert!(!log.lock().unwrap_or_else(|e| e.into_inner()).iter().any(|(m, _)| m == "CalendarEvent/set" || m == "Calendar/get"));
     }
 
     #[test]
@@ -1834,12 +2670,12 @@ mod tests {
         let typed = "2026-10-05 08:30";
         for n in 1..=typed.len() {
             let t = &typed[..n];
-            let _ = apply_edit_in("fromDate", &json!(t), &mut shared.lock().unwrap(), berlin);
+            let _ = apply_edit_in("fromDate", &json!(t), &mut shared.lock().unwrap_or_else(|e| e.into_inner()), berlin);
             let r = rows("vacation", &shared, &prefs).unwrap();
             let field = r.iter().find(|r| r.key.as_str() == "server.vacation.fromDate").unwrap();
             assert_eq!(field.text.as_str(), t, "the field was rewritten after {t:?}");
         }
-        let k = shared.lock().unwrap();
+        let k = shared.lock().unwrap_or_else(|e| e.into_inner());
         assert_eq!(k.vacation.as_ref().unwrap()["fromDate"], "2026-10-05T06:30:00.000Z");
         assert!(!k.vac_from_pending);
     }

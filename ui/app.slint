@@ -17,7 +17,7 @@ export { Pd, KeyRow, PaletteRow, SuggestRow, SearchChip, DndAcct }
 import { RxBanners, RX, RxTheme, RxBannerData, RxAction } from "reader.slint";
 export { RX, RxTheme, RxBannerData, RxAction }
 import { Rcpt, RChip, RSugg, RecipientField, RecipientSuggest } from "recipients.slint";
-import { CompX, SaveState, SPreset, TplField, ScheduleDialog, ScheduledBar, TplFillDialog, TplSaveDialog } from "compose-extras.slint";
+import { CompX, SaveState, SPreset, TplField, ScheduleDialog, ScheduledBar, TplFillDialog, TplSaveDialog, SubAddrDialog } from "compose-extras.slint";
 export { CTheme, Rcpt, RChip, RSugg, CompX, SPreset, TplField }
 // p2-pim: contacts / files / filters depth (new UI lives in its own files)
 import { PimTheme } from "pim-theme.slint";
@@ -1789,6 +1789,8 @@ export component AppWindow inherits Window {
     callback refresh();
     callback compose-new();
     callback open-settings();
+    // Settings was closed (the app forgets what its pages cached, such as a new app password)
+    callback settings-closed();
     callback save-settings();
     callback ai-reader(string);
     callback ai-compose(string);
@@ -2237,6 +2239,7 @@ export component AppWindow inherits Window {
     callback send-mail(string, string, string);
     in-out property <bool> composing: false;
     changed composing => { if composing { app = 0; show-settings = false; } else { c-ai-closed = false; } }
+    changed show-settings => { if !show-settings { root.settings-closed(); } }
     in property <bool> sending: false;
     in-out property <string> c-to;
     // recipient chips follow the field text (src/chips.rs)
@@ -3467,6 +3470,19 @@ export component AppWindow inherits Window {
                                                 VerticalLayout { alignment: center; SIcon { commands: Icons.chevron-down; size: 12px; weight: 2; tint: frta.has-hover ? Theme.text : Theme.dim; } }
                                             }
                                         }
+                                        // the sub-address in use, and a pill that takes it off again
+                                        if CompX.sub-tag != "": Rectangle { width: 6px; }
+                                        if CompX.sub-tag != "": VerticalLayout {
+                                            alignment: center;
+                                            Rectangle {
+                                                height: 24px;
+                                                width: subtag-l.preferred-width + 20px;
+                                                border-radius: 12px;
+                                                background: subtag-ta.has-hover ? Theme.hover : Theme.tile2;
+                                                subtag-ta := TouchArea { clicked => { CompX.sub-clear(); } }
+                                                subtag-l := Text { text: "Remove tag ×"; color: Theme.dim; font-size: 11.5px * Prefs.fs; font-weight: 600; vertical-alignment: center; }
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -3479,6 +3495,7 @@ export component AppWindow inherits Window {
                                         padding: 4px;
                                         for id[i] in root.c-identities: MenuItem { text: id; checkable: true; checked: i == root.c-from-index; clicked => { root.c-from-index = i; } }
                                         Rectangle { height: 1px; background: Theme.line; }
+                                        MenuItem { text: "Use a sub-address…"; glyph: "\u{E8EC}"; clicked => { CompX.sub-open-compose(); } }
                                         MenuItem { text: "Edit sender…"; glyph: "\u{E70F}"; clicked => { root.c-from-edit(); } }
                                     }
                                 }
@@ -6239,4 +6256,5 @@ export component AppWindow inherits Window {
     // template placeholders and save as template (src/tplflow.rs)
     if CompX.tpl-fill-open: TplFillDialog { x: 0; y: 0; width: root.width; height: root.height; }
     if CompX.tpl-save-open: TplSaveDialog { x: 0; y: 0; width: root.width; height: root.height; }
+    if CompX.sub-open: SubAddrDialog { x: 0; y: 0; width: root.width; height: root.height; }
 }

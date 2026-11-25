@@ -150,6 +150,30 @@ pub fn problem_message(status: u16, v: &Value) -> String {
     }
 }
 
+/// The rejection for a remembered password sign-in whose password was cleared (two-step sign-in
+/// was turned on): no network call is made, so no failed login is counted on the server.
+/// `None` for anything that can be tried.
+pub fn cleared_password_rejection(v: &Value) -> Option<String> {
+    (v["kind"] != "oauth" && v["pass"].as_str().unwrap_or("").is_empty()).then(|| CLEARED_PASSWORD.to_string())
+}
+
+/// The text of [`cleared_password_rejection`]: it starts like the server's own rejection (so
+/// `auth_rejected` treats it as one), then says the server was not asked and what to do. It does
+/// not name a cause: turning two-step sign-in on and a password change that ended the session
+/// both clear the saved password.
+pub const CLEARED_PASSWORD: &str = "Wrong username, password or 2FA code: the saved password for this account was cleared because it can no longer sign in on its own, so it was not sent to the server. Sign in with your password (and a verification code if two-step sign-in is on), or with an app password.";
+
+/// A 401 for a request sent with `sent` is worth one more try when the session's header has changed
+/// since (a password change switched it while the request was in flight).
+pub fn retry_after_401(sent: &str, current: &str) -> bool { sent != current }
+
+/// The user and password inside a `Basic` Authorization header.
+fn basic_credentials(header: &str) -> Option<(String, String)> {
+    let raw = base64::engine::general_purpose::STANDARD.decode(header.strip_prefix("Basic ")?).ok()?;
+    let (u, p) = String::from_utf8(raw).ok()?.split_once(':').map(|(u, p)| (u.to_string(), p.to_string()))?;
+    Some((u, p))
+}
+
 impl Client {
     /// Password (or app password) sign-in. `totp` is appended Stalwart-style as `password$code`.
     pub fn connect(server: &str, user: &str, pass: &str, totp: &str) -> R<Client> {
@@ -286,20 +310,53 @@ impl Client {
 
     fn auth_header(&self) -> String { self.auth.lock().unwrap().clone() }
 
+    /// The user name of a password (Basic) sign-in, as the server was given it.
+    pub fn basic_user(&self) -> Option<String> {
+        basic_credentials(&self.auth_header()).map(|(u, _)| u)
+    }
+
+    /// The password of a Basic sign-in (typed password, `password$code`, or an app password).
+    pub fn basic_password(&self) -> Option<String> {
+        basic_credentials(&self.auth_header()).map(|(_, p)| p)
+    }
+
+    /// The server no longer accepts this sign-in (the password was changed and the session cannot
+    /// follow): no further request goes out, and the app asks to sign in again.
+    pub fn end_session(&self) { self.reject(); }
+
+    /// After a password change: sign the following requests with the new password. `false` (and
+    /// nothing changed) for a single-sign-on session, which has no password.
+    pub fn set_basic_password(&self, pass: &str) -> bool {
+        if self.oauth.is_some() { return false; }
+        let mut h = self.auth.lock().unwrap();
+        let Some((user, _)) = basic_credentials(&h) else { return false };
+        *h = format!("Basic {}", base64::engine::general_purpose::STANDARD.encode(format!("{user}:{pass}")));
+        true
+    }
+
     pub fn has(&self, cap: &str) -> bool {
         self.caps.iter().any(|c| c == cap)
     }
 
     /// Re-fetch the session resource (RFC 8620 §3.4: when `sessionState` changes).
-    pub fn refresh_session(&self) -> R<()> {
+    pub fn refresh_session(&self) -> R<()> { self.refresh_session_as(true) }
+
+    /// `latch`: a 401 ends the session. The refresh a request answer triggers (`post`) does not
+    /// latch: the answer may be that of a password change, whose new header is not set yet, and a
+    /// real expiry is found by the next request anyway.
+    fn refresh_session_as(&self, latch: bool) -> R<()> {
         self.guard()?;
         self.renew_if_due()?;
-        let (mut status, mut s) = fetch_session(&self.http, &self.base, &self.auth_header())?;
+        let sent = self.auth_header();
+        let (mut status, mut s) = fetch_session(&self.http, &self.base, &sent)?;
         if status == 401 && self.oauth.is_some() {
             self.renew()?;
             (status, s) = fetch_session(&self.http, &self.base, &self.auth_header())?;
+        } else if status == 401 && retry_after_401(&sent, &self.auth_header()) {
+            // a password change swapped the header while this ran
+            (status, s) = fetch_session(&self.http, &self.base, &self.auth_header())?;
         }
-        if status == 401 { return Err(self.reject()); }
+        if status == 401 { return Err(if latch { self.reject() } else { SESSION_EXPIRED.into() }); }
         if s["apiUrl"].is_string() { *self.live.write().unwrap() = s; }
         Ok(())
     }
@@ -311,6 +368,11 @@ impl Client {
     /// One POST to the API endpoint: maxSizeRequest, maxConcurrentRequests, OAuth renewal, one
     /// retry of read-only calls after 429/503, request-level errors, and the sessionState check.
     fn post(&self, using: &Value, calls: &Value) -> R<Vec<Value>> {
+        self.post_inner(using, calls, &mut None)
+    }
+
+    /// `post`, telling the HTTP status of a request the server turned down (`status`).
+    fn post_inner(&self, using: &Value, calls: &Value, status: &mut Option<u16>) -> R<Vec<Value>> {
         #[cfg(test)]
         if let Some(f) = &self.fake { let _ = using; return f(calls); }
         let body = serde_json::to_vec(&json!({ "using": using, "methodCalls": calls })).map_err(e)?;
@@ -320,14 +382,20 @@ impl Client {
         }
         self.renew_if_due()?;
         let api = absolute(&self.base, self.live.read().unwrap()["apiUrl"].as_str().unwrap_or(""));
-        let send = || {
+        // the header this request goes out with: a password change may swap it while we wait
+        let send_with = |auth: String| {
             let _p = self.requests.enter();
-            crate::redirect::send(&api, false, |u| self.http.post(u).header("Authorization", self.auth_header())
+            crate::redirect::send(&api, false, |u| self.http.post(u).header("Authorization", auth.clone())
                 .header("Content-Type", "application/json").header("Accept", "application/json").body(body.clone()))
         };
-        let mut resp = send()?;
+        let sent = self.auth_header();
+        let send = || send_with(self.auth_header());
+        let mut resp = send_with(sent.clone())?;
         if resp.status() == 401 && self.oauth.is_some() {
             self.renew()?;
+            resp = send()?;
+        } else if resp.status() == 401 && retry_after_401(&sent, &self.auth_header()) {
+            // answered 401 for the old password while the new one was being set: not a dead session
             resp = send()?;
         }
         if matches!(resp.status().as_u16(), 429 | 503) && read_only(calls) {
@@ -335,6 +403,7 @@ impl Client {
             std::thread::sleep(std::time::Duration::from_secs(wait));
             resp = send()?;
         }
+        if resp.status().as_u16() >= 400 { *status = Some(resp.status().as_u16()); }
         match resp.status().as_u16() {
             401 => return Err(self.reject()),
             429 => return Err("The server is rate limiting requests; try again shortly.".into()),
@@ -348,7 +417,7 @@ impl Client {
         trace(calls, &v);
         let known = self.live.read().unwrap()["state"].as_str().map(String::from);
         if let (Some(now), Some(known)) = (v["sessionState"].as_str(), known) {
-            if now != known { let _ = self.refresh_session(); }
+            if now != known { let _ = self.refresh_session_as(false); }
         }
         v["methodResponses"].as_array().cloned().ok_or_else(|| "Bad JMAP response".into())
     }
@@ -369,6 +438,12 @@ impl Client {
     /// Request with an explicit `using` list (e.g. Stalwart's own `urn:stalwart:jmap` objects).
     pub fn request_using(&self, using: &[&str], calls: Value) -> R<Vec<Value>> {
         self.post(&json!(using), &calls)
+    }
+
+    /// `request_using`, with the HTTP status (when there was one) of a request that failed.
+    pub fn request_using_status(&self, using: &[&str], calls: Value) -> Result<Vec<Value>, (Option<u16>, String)> {
+        let mut status = None;
+        self.post_inner(&json!(using), &calls, &mut status).map_err(|e| (status, e))
     }
 
     /// Like [`request`] but fails on the first method error.
@@ -955,11 +1030,14 @@ impl Client {
         // no per-request timeout: in reqwest it is a total deadline that also covers reading the
         // body, which a big attachment on a slow link overruns. The client's blocking timeout
         // bounds each wait (headers, every body read) with no overall cap.
-        let get = || crate::redirect::send(&url, true, |u| self.http.get(u).header("Authorization", self.auth_header()));
-        let mut resp = get()?;
+        let get = |auth: String| crate::redirect::send(&url, true, |u| self.http.get(u).header("Authorization", auth.clone()));
+        let sent = self.auth_header();
+        let mut resp = get(sent.clone())?;
         if resp.status() == 401 && self.oauth.is_some() {
             self.renew()?;
-            resp = get()?;
+            resp = get(self.auth_header())?;
+        } else if resp.status() == 401 && retry_after_401(&sent, &self.auth_header()) {
+            resp = get(self.auth_header())?;
         }
         if resp.status() == 401 { return Err(self.reject()); }
         if !resp.status().is_success() { return Err(format!("Download failed ({})", resp.status())); }
@@ -986,12 +1064,15 @@ impl Client {
         // a request timeout is a total deadline covering the body; scale it with the size
         // (at least 5 min, allowing ~32 KB/s) so slow links can still upload big files
         let limit = std::time::Duration::from_secs(300u64.max(len as u64 / 32_000));
-        let send = |data: Vec<u8>| crate::redirect::send(&url, false, |u| self.http.post(u).header("Authorization", self.auth_header())
+        let send = |data: Vec<u8>, auth: String| crate::redirect::send(&url, false, |u| self.http.post(u).header("Authorization", auth.clone())
             .header("Content-Type", mime).timeout(limit).body(data.clone()));
-        let mut resp = send(data.clone())?;
+        let sent = self.auth_header();
+        let mut resp = send(data.clone(), sent.clone())?;
         if resp.status() == 401 && self.oauth.is_some() {
             self.renew()?;
-            resp = send(data)?;
+            resp = send(data, self.auth_header())?;
+        } else if resp.status() == 401 && retry_after_401(&sent, &self.auth_header()) {
+            resp = send(data, self.auth_header())?;
         }
         if resp.status() == 401 { return Err(self.reject()); }
         if !resp.status().is_success() {
@@ -1056,6 +1137,10 @@ impl Client {
         }
         let ident = self.pick_identity_for(&o.from, o.from_override.as_ref().map(|f| f.1.as_str()))?;
         let ident_id = ident["id"].as_str().unwrap_or("").to_string();
+        // the identity's own Bcc goes with the send only (Bulwark): as envelope recipients, never
+        // in the message, so the copy in Drafts (kept when the submission fails, brought back by
+        // an undone send) does not carry it
+        let extra = crate::identities::identity_bcc_extra(&o.to, &o.cc, &o.bcc, &ident);
         let roles = self.role_ids()?;
         let drafts = roles.get("drafts").ok_or("No Drafts folder.")?.clone();
         let sent = roles.get("sent").ok_or("No Sent folder.")?.clone();
@@ -1070,11 +1155,11 @@ impl Client {
         };
         // the MAIL FROM the server derives from the identity, and the one asked for: the From
         // override, so the Return-Path does not give the identity's address away (Bulwark #1009)
-        let identity_mail_from = header_from(&Outgoing { from_override: None, ..o.clone() }, &ident, &self.username)["email"].as_str().unwrap_or("").to_string();
+        let identity_mail_from = header_from(&Outgoing { from_override: None, sub_address: None, ..o.clone() }, &ident, &self.username)["email"].as_str().unwrap_or("").to_string();
         let mail_from = o.from_override.as_ref().map(|f| f.1.trim().to_string()).filter(|e| e.contains('@')).unwrap_or_else(|| identity_mail_from.clone());
         let submission = |email_id: &str, mail_from: &str| -> Value {
             let mut sub = json!({"emailId": email_id, "identityId": ident_id});
-            if let Some(env) = submission_envelope(mail_from, &identity_mail_from, hold, &rcpts) { sub["envelope"] = env; }
+            if let Some(env) = send_envelope(mail_from, &identity_mail_from, hold, &rcpts, &extra) { sub["envelope"] = env; }
             sub
         };
         let on_success = json!({"#s": {
@@ -1251,12 +1336,15 @@ impl Client {
             .redirect(reqwest::redirect::Policy::none())
             .tcp_keepalive(std::time::Duration::from_secs(30)).build().map_err(e)?;
         self.renew_if_due()?;
-        let open = || crate::redirect::send(&url, true, |u| client.get(u).header("Authorization", self.auth_header())
+        let open = |auth: String| crate::redirect::send(&url, true, |u| client.get(u).header("Authorization", auth.clone())
             .header("Accept", "text/event-stream").header("Cache-Control", "no-cache"));
-        let mut resp = open()?;
+        let sent = self.auth_header();
+        let mut resp = open(sent.clone())?;
         if resp.status() == 401 && self.oauth.is_some() {
             self.renew()?;
-            resp = open()?;
+            resp = open(self.auth_header())?;
+        } else if resp.status() == 401 && retry_after_401(&sent, &self.auth_header()) {
+            resp = open(self.auth_header())?;
         }
         if resp.status() == 401 { return Err(self.reject()); }
         if !resp.status().is_success() { return Err(format!("Push failed ({})", resp.status())); }
@@ -1356,6 +1444,9 @@ pub struct Outgoing {
     /// Bulwark's From override ("Edit sender…", or the catch-all reply rewrite): the header
     /// From as (name, email), sent through the identity `from`. Also asked for as MAIL FROM.
     pub from_override: Option<(String, String)>,
+    /// Bulwark's sub-address (`user+tag@domain` of the identity): the header From only, sent
+    /// through the identity; the server derives MAIL FROM from the identity as usual.
+    pub sub_address: Option<String>,
 }
 
 /// The Email/set create object for a message (a draft or a message to send).
@@ -1413,7 +1504,7 @@ pub fn header_from(o: &Outgoing, ident: &Value, username: &str) -> Value {
         return if name.is_empty() { json!({"email": email.trim()}) } else { json!({"name": name, "email": email.trim()}) };
     }
     let e = ident["email"].as_str().unwrap_or("");
-    let email = if e.contains('*') || !e.contains('@') { username } else { e };
+    let email = if e.contains('*') || !e.contains('@') { username } else { o.sub_address.as_deref().map(str::trim).filter(|a| a.contains('@')).unwrap_or(e) };
     match ident["name"].as_str().filter(|n| !n.trim().is_empty()) {
         Some(n) => json!({"name": n, "email": email}),
         None => json!({"email": email}),
@@ -1448,6 +1539,15 @@ pub fn submission_envelope(mail_from: &str, identity_mail_from: &str, hold: Opti
     let mut from = json!({"email": mail_from});
     if let Some(h) = hold { from["parameters"] = json!({"HOLDFOR": h.to_string()}); }
     Some(json!({"mailFrom": from, "rcptTo": rcpts.iter().map(|r| json!({"email": r})).collect::<Vec<_>>()}))
+}
+
+/// The envelope of a send: as [`submission_envelope`], and always when the identity adds
+/// recipients of its own (`extra`, its Bcc), which then go to RCPT TO only.
+pub fn send_envelope(mail_from: &str, identity_mail_from: &str, hold: Option<u64>, rcpts: &[String], extra: &[String]) -> Option<Value> {
+    if extra.is_empty() { return submission_envelope(mail_from, identity_mail_from, hold, rcpts); }
+    let all: Vec<String> = rcpts.iter().chain(extra).cloned().collect();
+    // "" never equals a MAIL FROM, so the envelope is always made
+    submission_envelope(mail_from, "", hold, &all)
 }
 
 /// A submission refused for its MAIL FROM (forbiddenMailFrom, or Stalwart's forbiddenFrom).
@@ -1854,12 +1954,70 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_cleared_password_is_rejected_without_a_request() {
+        let e = cleared_password_rejection(&json!({"kind": "password", "user": "a", "pass": ""})).unwrap();
+        assert!(auth_rejected(&e));
+        assert!(e.starts_with("Wrong username, password or 2FA code"), "{e}");
+        assert!(e.contains("can no longer sign in on its own") && e.contains("app password"), "{e}");
+        assert!(!e.contains("when two-step sign-in was turned on"), "the cause is not named: {e}");
+        assert!(cleared_password_rejection(&json!({"kind": "password", "pass": "x"})).is_none());
+        assert!(cleared_password_rejection(&json!({"kind": "oauth", "refresh": "r"})).is_none());
+    }
+
+    #[test]
+    fn a_401_is_retried_only_when_the_header_changed() {
+        assert!(retry_after_401("Basic old", "Basic new"));
+        assert!(!retry_after_401("Basic same", "Basic same"));
+    }
+
+    #[test]
+    fn basic_header_is_read_back() {
+        let h = format!("Basic {}", base64::engine::general_purpose::STANDARD.encode("ann@example.test:pa:ss$123456"));
+        assert_eq!(basic_credentials(&h), Some(("ann@example.test".into(), "pa:ss$123456".into())));
+        assert_eq!(basic_credentials("Bearer abc"), None);
+        assert_eq!(basic_credentials("Basic !!!"), None);
+    }
+
+    #[test]
     fn reschedule_fallback_order() {
         use RescheduleFallback::*;
         assert_eq!(reschedule_fallbacks(Some(10_000), 0), vec![Recreate(10_000), RestoreDraft]);
         // the old time has passed (or is about to): straight back to Drafts
         assert_eq!(reschedule_fallbacks(Some(10_000), 10_000), vec![RestoreDraft]);
         assert_eq!(reschedule_fallbacks(None, 0), vec![RestoreDraft]);
+    }
+
+    #[test]
+    fn the_identity_bcc_goes_to_the_envelope_only() {
+        let ident = json!({"id": "1", "email": "ann@example.test", "bcc": [{"email": "archive@example.test"}]});
+        let o = Outgoing { from: "ann@example.test".into(), to: "bob@example.test".into(), subject: "Hi".into(), ..Default::default() };
+        // the message (the copy in Drafts) has no Bcc
+        let e = build_email_object(&o, &ident, "D", true, "ann@example.test").unwrap();
+        assert!(e.get("bcc").is_none(), "{e}");
+        let extra = crate::identities::identity_bcc_extra(&o.to, &o.cc, &o.bcc, &ident);
+        let rcpts = vec!["bob@example.test".to_string()];
+        // an envelope is asked for although MAIL FROM is the identity's own
+        let env = send_envelope("ann@example.test", "ann@example.test", None, &rcpts, &extra).unwrap();
+        assert_eq!(env, json!({"mailFrom": {"email": "ann@example.test"}, "rcptTo": [{"email": "bob@example.test"}, {"email": "archive@example.test"}]}));
+        let held = send_envelope("ann@example.test", "ann@example.test", Some(30), &rcpts, &extra).unwrap();
+        assert_eq!(held["mailFrom"]["parameters"]["HOLDFOR"], "30");
+        // no identity Bcc: as before
+        assert!(send_envelope("ann@example.test", "ann@example.test", None, &rcpts, &[]).is_none());
+    }
+
+    #[test]
+    fn a_sub_address_changes_the_header_from_only() {
+        let ident = json!({"id": "1", "email": "ann@example.test", "name": "Ann"});
+        let o = Outgoing { from: "ann@example.test".into(), sub_address: Some("ann+shop@example.test".into()), ..Default::default() };
+        assert_eq!(header_from(&o, &ident, "ann@example.test"), json!({"name": "Ann", "email": "ann+shop@example.test"}));
+        // a typed sender wins; a wildcard identity still sends as the login
+        let o2 = Outgoing { from_override: Some(("".into(), "x@example.test".into())), ..o.clone() };
+        assert_eq!(header_from(&o2, &ident, "ann@example.test")["email"], "x@example.test");
+        assert_eq!(header_from(&o, &json!({"email": "*@example.test"}), "ann@example.test")["email"], "ann@example.test");
+        // the identity's own MAIL FROM is what the server derives: no envelope is asked for
+        let mail_from = header_from(&Outgoing { from_override: None, sub_address: None, ..o.clone() }, &ident, "ann@example.test")["email"].as_str().unwrap().to_string();
+        assert_eq!(mail_from, "ann@example.test");
+        assert!(submission_envelope(&mail_from, &mail_from, None, &["b@example.test".into()]).is_none());
     }
 
     #[test]

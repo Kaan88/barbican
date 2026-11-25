@@ -189,6 +189,88 @@ pub fn copy_text(text: &str) -> bool {
     }
 }
 
+/// UTF-16 with the closing NUL that CF_UNICODETEXT wants.
+pub fn utf16z(text: &str) -> Vec<u16> { text.encode_utf16().chain(std::iter::once(0)).collect() }
+
+/// A secret (an app password, an API key, a TOTP link) to the clipboard, kept out of Windows'
+/// clipboard history, cloud clipboard and clipboard monitors: the text is set together with the
+/// `ExcludeClipboardContentFromMonitorProcessing`, `CanIncludeInClipboardHistory` (0) and
+/// `CanUploadToCloudClipboard` (0) formats. Elsewhere it is the plain clipboard (a history there
+/// is the desktop's own).
+pub fn copy_secret(text: &str) -> bool {
+    #[cfg(windows)]
+    {
+        use std::ffi::c_void;
+        #[link(name = "user32")]
+        extern "system" {
+            fn OpenClipboard(owner: *mut c_void) -> i32;
+            fn CloseClipboard() -> i32;
+            fn EmptyClipboard() -> i32;
+            fn SetClipboardData(format: u32, mem: *mut c_void) -> *mut c_void;
+            fn RegisterClipboardFormatW(name: *const u16) -> u32;
+            fn CreateWindowExW(ex: u32, class: *const u16, title: *const u16, style: u32, x: i32, y: i32, w: i32, h: i32,
+                parent: *mut c_void, menu: *mut c_void, inst: *mut c_void, param: *mut c_void) -> *mut c_void;
+            fn DestroyWindow(hwnd: *mut c_void) -> i32;
+        }
+        #[link(name = "kernel32")]
+        extern "system" {
+            fn GlobalAlloc(flags: u32, bytes: usize) -> *mut c_void;
+            fn GlobalLock(mem: *mut c_void) -> *mut c_void;
+            fn GlobalUnlock(mem: *mut c_void) -> i32;
+            fn GlobalFree(mem: *mut c_void) -> *mut c_void;
+        }
+        const GMEM_MOVEABLE: u32 = 2;
+        const CF_UNICODETEXT: u32 = 13;
+        // a movable block holding `bytes`; None when memory is short
+        unsafe fn block(bytes: &[u8]) -> Option<*mut c_void> {
+            let h = GlobalAlloc(GMEM_MOVEABLE, bytes.len());
+            if h.is_null() { return None; }
+            let p = GlobalLock(h) as *mut u8;
+            if p.is_null() { GlobalFree(h); return None; }
+            std::ptr::copy_nonoverlapping(bytes.as_ptr(), p, bytes.len());
+            GlobalUnlock(h);
+            Some(h)
+        }
+        unsafe {
+            // EmptyClipboard with no owner window makes SetClipboardData fail: the clipboard is
+            // opened for a message-only window (parent HWND_MESSAGE, -3) of this thread
+            let class = utf16z("STATIC");
+            let owner = CreateWindowExW(0, class.as_ptr(), class.as_ptr(), 0, 0, 0, 0, 0, -3isize as *mut c_void,
+                std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut());
+            let mut opened = false;
+            for _ in 0..10 {
+                if OpenClipboard(owner) != 0 { opened = true; break; }
+                std::thread::sleep(std::time::Duration::from_millis(30));
+            }
+            if !opened { if !owner.is_null() { DestroyWindow(owner); } return false; }
+            EmptyClipboard();
+            let wide: Vec<u8> = utf16z(text).iter().flat_map(|u| u.to_le_bytes()).collect();
+            let mut ok = false;
+            if let Some(h) = block(&wide) {
+                // the clipboard owns the block once it is set; on failure it is ours to free
+                if SetClipboardData(CF_UNICODETEXT, h).is_null() { GlobalFree(h); } else { ok = true; }
+            }
+            if ok {
+                for (name, value) in [("ExcludeClipboardContentFromMonitorProcessing", 1u32), ("CanIncludeInClipboardHistory", 0), ("CanUploadToCloudClipboard", 0)] {
+                    let n: Vec<u16> = utf16z(name);
+                    let f = RegisterClipboardFormatW(n.as_ptr());
+                    if f == 0 { continue; }
+                    if let Some(h) = block(&value.to_le_bytes()) {
+                        if SetClipboardData(f, h).is_null() { GlobalFree(h); }
+                    }
+                }
+            }
+            CloseClipboard();
+            if !owner.is_null() { DestroyWindow(owner); }
+            ok
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        copy_text(text)
+    }
+}
+
 /// The system's app theme: Some(true) for dark, None when it can't be told.
 pub fn system_dark() -> Option<bool> {
     #[cfg(windows)]
@@ -314,6 +396,12 @@ pub fn apply_autostart(plan: &Autostart) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn clipboard_text_is_utf16_with_a_nul() {
+        assert_eq!(utf16z(""), vec![0]);
+        assert_eq!(utf16z("aé"), vec![0x61, 0xe9, 0]);
+    }
 
     #[test]
     fn portal_reply() {
