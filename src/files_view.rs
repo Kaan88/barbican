@@ -12,8 +12,10 @@
 //!   kept in a bounded cache keyed by blob id (blobs never change).
 //! * The details panel (file-details-panel.tsx) and the in-app preview of images, text and .eml
 //!   (file-preview-modal.tsx, image-preview-modal.tsx, eml-preview.tsx). PDF, audio and video
-//!   open in the default app (D-M5-15). An .eml is parsed by the server (Email/parse), its body
-//!   sanitised like a message's and drawn by the light renderer (no script, no network).
+//!   open in the default app (D-M5-15). An .eml is parsed by the server (Email/parse); its body,
+//!   like an HTML file, is sanitised like a message's and shown in the mail view's WebView2
+//!   (mailview::show_file: the reader's frame sandbox without scripts, its CSP with nothing
+//!   remote, its navigation rules), placed over the preview's document area.
 use crate::jmap::Client;
 use crate::{AppWindow, FilesV, Pd};
 use serde_json::{json, Map, Value};
@@ -628,21 +630,16 @@ struct View {
     /// the file in the preview, and the generation of its load (a later one wins)
     preview: Option<String>,
     gen: u64,
-    /// the document on show (an .eml's or HTML file's body) and the width it was drawn for,
-    /// to draw it again when the window changes size
-    doc: Option<(String, f32)>,
     /// account id -> its name (the owner of a shared file)
     owners: HashMap<String, String>,
     client: Option<Arc<Client>>,
 }
 
 thread_local! {
-    /// the window's size settling before a document is drawn again for it
-    static RESIZE: slint::Timer = slint::Timer::default();
     static VIEW: RefCell<View> = RefCell::new(View {
         sort: (SortKey::Name, Dir::Asc), seen: None, query: String::new(), query_cwd: None, order: vec![],
         fs: FilesSettings::default(), thumbs: Lru::new(THUMB_ITEMS, THUMB_BYTES), inflight: HashSet::new(), failed: HashSet::new(),
-        preview: None, gen: 0, doc: None, owners: HashMap::new(), client: None,
+        preview: None, gen: 0, owners: HashMap::new(), client: None,
     });
 }
 
@@ -931,7 +928,9 @@ fn set_neighbours(u: &AppWindow) {
 enum Shown {
     Image(SharedPixelBuffer<Rgba8Pixel>),
     Text(String, bool),
-    Doc { page: SharedPixelBuffer<Rgba8Pixel>, height: f32, width: f32, body: String, head: Option<EmlHead> },
+    /// an .eml's or HTML file's page (doc_page) and its body as it came (the text shown when
+    /// there is no WebView2)
+    Doc { page: String, body: String, head: Option<EmlHead> },
     Error(String),
 }
 
@@ -949,50 +948,39 @@ fn addrs(v: &Value) -> String { no_bidi(&v.as_array().map(|l| l.iter().map(addr)
 /// eml-preview.tsx strips them from the header and the attachment names).
 fn no_bidi(s: &str) -> String { s.chars().filter(|c| !crate::attachments::is_bidi_control(*c)).collect() }
 
-/// The width a document is drawn for: the preview's body area (the whole window) less its
-/// margins, at most 1100 px. Worked out from the window, so the first one is right too.
-fn doc_width(u: &AppWindow) -> f32 {
-    let scale = u.window().scale_factor().max(0.1);
-    (u.window().size().width as f32 / scale - 48.0).clamp(320.0, 1100.0)
-}
-
-/// A body for the light renderer: sanitised like a message (mailview), on white.
-fn doc_page(body: &str) -> String {
-    format!("<!DOCTYPE html><html><head><meta charset=\"utf-8\"><style>html,body{{background:#ffffff;color:#1f2328}}\
+/// An .eml's or HTML file's page for the mail view's WebView (mailview::show_file): the body
+/// cleaned by the message sanitiser (no `<base>`, no meta refresh, no names that shadow the
+/// document), under the reader's CSP with remote content blocked and no script
+/// (`script-src 'none'`: a file's own scripts, handlers and `javascript:` links never run; a
+/// policy of its own can only narrow this one), on white.
+pub fn doc_page(body: &str) -> String {
+    format!("<!DOCTYPE html><html><head><meta charset=\"utf-8\">{}<base target=_blank><style>html,body{{background:{};color:#1f2328}}\
         body{{margin:18px;font-family:'Segoe UI',system-ui,sans-serif;font-size:14px;line-height:1.45;overflow-wrap:anywhere}}\
         img{{max-width:100%;height:auto}}pre{{white-space:pre-wrap;font-family:Consolas,'Cascadia Mono',monospace;font-size:13px;margin:0}}</style></head><body>{}</body></html>",
-        crate::mailview::sanitize_mail_html_opts(body, false))
+        crate::csp_with(false, None), crate::mailview::FILE_BG, crate::mailview::sanitize_mail_html_opts(body, false))
 }
 
-fn render_doc(body: &str, width: f32, scale: f32) -> (SharedPixelBuffer<Rgba8Pixel>, f32) {
-    let (buf, pw, ph) = crate::lite::render(&doc_page(body), width, scale);
-    (SharedPixelBuffer::clone_from_slice(&buf, pw, ph), ph as f32 / scale)
-}
-
-/// The window changed size: once it has settled, the document on show is drawn again for the
-/// new width (shown meanwhile at the width it was drawn for, never stretched).
-fn resized(u: &AppWindow) {
-    let w = u.as_weak();
-    RESIZE.with(|t| t.start(slint::TimerMode::SingleShot, std::time::Duration::from_millis(300), move || {
-        let Some(u) = w.upgrade() else { return };
-        let Some((body, drawn)) = VIEW.with(|v| v.borrow().doc.clone()) else { return };
-        let width = doc_width(&u);
-        if (width - drawn).abs() < 1.0 || !u.global::<FilesV>().get_p_open() { return; }
-        let gen = VIEW.with(|v| { let mut v = v.borrow_mut(); v.gen += 1; v.gen });
-        let scale = u.window().scale_factor();
-        let w = u.as_weak();
-        std::thread::spawn(move || {
-            let (page, height) = render_doc(&body, width, scale);
-            let _ = w.upgrade_in_event_loop(move |u| preview_done(&u, gen, Shown::Doc { page, height, width, body, head: None }));
-        });
-    }));
+/// The text of a file's page when there is no WebView2 to show it in: an .eml's header, then
+/// the body's text.
+fn doc_text(body: &str, head: Option<&EmlHead>) -> String {
+    let mut out = String::new();
+    if let Some(h) = head {
+        out.push_str(&h.subject);
+        out.push('\n');
+        for (k, v) in [("From", &h.from), ("To", &h.to), ("Cc", &h.cc), ("Date", &h.date), ("Attachments", &h.atts)] {
+            if !v.is_empty() { out.push_str(&format!("{k}: {v}\n")); }
+        }
+        out.push('\n');
+    }
+    out.push_str(&crate::html_to_text(body));
+    out
 }
 
 /// Open the in-app preview of file `key` (Bulwark FilePreviewModal / ImagePreviewModal).
 pub fn open_preview(u: &AppWindow, c: Arc<Client>, key: &str) {
     let Some(n) = crate::files::node(key) else { return };
     note_client(&c);
-    let gen = VIEW.with(|v| { let mut v = v.borrow_mut(); v.gen += 1; v.preview = Some(key.to_string()); v.doc = None; v.gen });
+    let gen = VIEW.with(|v| { let mut v = v.borrow_mut(); v.gen += 1; v.preview = Some(key.to_string()); v.gen });
     let name = n["name"].as_str().unwrap_or("file").to_string();
     let mime = crate::files::mime(&n);
     let size = n["size"].as_u64().unwrap_or(0);
@@ -1002,7 +990,6 @@ pub fn open_preview(u: &AppWindow, c: Arc<Client>, key: &str) {
     x.set_p_text("".into());
     x.set_p_note("".into());
     x.set_p_image(Default::default());
-    x.set_p_doc(Default::default());
     x.set_p_eml(false);
     x.set_p_open(true);
     set_neighbours(u);
@@ -1025,8 +1012,6 @@ pub fn open_preview(u: &AppWindow, c: Arc<Client>, key: &str) {
     };
     x.set_p_state("loading".into());
     let (acc, blob) = (crate::files::acc_of(&n), n["blobId"].as_str().unwrap_or("").to_string());
-    let width = doc_width(u);
-    let scale = u.window().scale_factor();
     let w = u.as_weak();
     std::thread::spawn(move || {
         let shown = (|| -> Result<Shown, String> {
@@ -1040,16 +1025,14 @@ pub fn open_preview(u: &AppWindow, c: Arc<Client>, key: &str) {
                     subject: if subject.is_empty() { "(no subject)".into() } else { subject }, atts,
                 };
                 let body = crate::body_html(&m);
-                let (page, height) = render_doc(&body, width, scale);
-                return Ok(Shown::Doc { page, height, width, body, head: Some(head) });
+                return Ok(Shown::Doc { page: doc_page(&body), body, head: Some(head) });
             }
             let bytes = c.download_from(&acc, &blob, &name, &mime)?;
             Ok(match kind {
                 Kind::Image => Shown::Image(decode_image(&bytes, SHOW_EDGE)?),
                 Kind::Html => {
                     let (t, _) = decode_text(&bytes, &mime, MAX_HTML_BYTES as usize);
-                    let (page, height) = render_doc(&t, width, scale);
-                    Shown::Doc { page, height, width, body: t, head: None }
+                    Shown::Doc { page: doc_page(&t), body: t, head: None }
                 }
                 _ => { let (t, cut) = decode_text(&bytes, &mime, TEXT_SHOW_BYTES); Shown::Text(t, cut) }
             })
@@ -1070,35 +1053,50 @@ fn preview_done(u: &AppWindow, gen: u64, shown: Shown) {
             x.set_p_note(if cut { "Only the beginning of the file is shown. Download it to see all of it.".into() } else { "".into() });
             x.set_p_state("text".into());
         }
-        Shown::Doc { page, height, width, body, head } => {
-            x.set_p_doc(slint::Image::from_rgba8(page));
-            x.set_p_doc_height(height);
-            x.set_p_doc_width(width);
-            VIEW.with(|v| v.borrow_mut().doc = Some((body, width)));
-            if let Some(h) = head {
-                x.set_p_eml(true);
-                x.set_p_from(h.from.into());
-                x.set_p_to(h.to.into());
-                x.set_p_cc(h.cc.into());
-                x.set_p_date(h.date.into());
-                x.set_p_subject(h.subject.into());
-                x.set_p_atts(h.atts.into());
+        Shown::Doc { page, body, head } => {
+            // "Loading…" stays until the page is laid out in the view; then the header and the
+            // page show together (mailview::show_file)
+            let text = (!crate::mailview::is_built()).then(|| doc_text(&body, head.as_ref()));
+            let wk = u.as_weak();
+            let shown = crate::mailview::show_file(&page, Box::new(move || {
+                let Some(u) = wk.upgrade() else { return false };
+                // closed, or another file opened meanwhile
+                if VIEW.with(|v| v.borrow().gen) != gen { return false; }
+                let x = u.global::<FilesV>();
+                if !x.get_p_open() { return false; }
+                if let Some(h) = head {
+                    x.set_p_eml(true);
+                    x.set_p_from(h.from.into());
+                    x.set_p_to(h.to.into());
+                    x.set_p_cc(h.cc.into());
+                    x.set_p_date(h.date.into());
+                    x.set_p_subject(h.subject.into());
+                    x.set_p_atts(h.atts.into());
+                }
+                x.set_p_state("doc".into());
+                true
+            }));
+            if !shown {
+                // no WebView2 on this computer: the file's text
+                x.set_p_text(text.unwrap_or_else(|| crate::html_to_text(&body)).into());
+                x.set_p_note("Shown as plain text: the page view (WebView2) is not available.".into());
+                x.set_p_state("text".into());
             }
-            x.set_p_state("doc".into());
         }
         Shown::Error(e) => { x.set_p_message(format!("Couldn't load the preview. {e}").into()); x.set_p_state("error".into()); }
     }
 }
 
 pub fn close_preview(u: &AppWindow) {
-    VIEW.with(|v| { let mut v = v.borrow_mut(); v.gen += 1; v.preview = None; v.doc = None; });
+    VIEW.with(|v| { let mut v = v.borrow_mut(); v.gen += 1; v.preview = None; });
     let x = u.global::<FilesV>();
     if !x.get_p_open() { return; }
     x.set_p_open(false);
-    // the pictures go with it
+    x.set_p_state("".into());
+    // the picture goes with it, and the mail view goes back to the reader
     x.set_p_image(Default::default());
-    x.set_p_doc(Default::default());
     x.set_p_text("".into());
+    crate::mailview::files_release(u);
 }
 
 /// ← / → in the preview: the previous or next file of the listing.
@@ -1179,8 +1177,7 @@ pub fn wire(ui: &AppWindow, st: crate::Shared) {
     x.on_p_close(move || { if let Some(u) = w.upgrade() { close_preview(&u); } });
     let w = ui.as_weak();
     x.on_p_go(move |d| { if let Some(u) = w.upgrade() { preview_go(&u, d); } });
-    let w = ui.as_weak();
-    x.on_p_resized(move || { if let Some(u) = w.upgrade() { resized(&u); } });
+    x.on_p_doc_key(|k| crate::mailview::scroll_file(&k));
     let w = ui.as_weak();
     x.on_p_download(move || { if let (Some(u), Some(k)) = (w.upgrade(), preview_key()) { u.invoke_fl_download(k.into()); } });
     let (w, c3) = (ui.as_weak(), cl);
@@ -1193,6 +1190,40 @@ pub fn wire(ui: &AppWindow, st: crate::Shared) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_hostile_html_file_gets_the_readers_policy_and_cleaning() {
+        let hostile = "<script>window.ipc.postMessage('x')</script><base href=\"https://evil.example/\">            <meta http-equiv=\"refresh\" content=\"0;url=https://evil.example/\"><img name=\"URL\" src=\"https://track.example/p.gif\">            <a href=\"javascript:alert(1)\">x</a><p onclick=\"alert(1)\">Hello</p>";
+        let p = doc_page(hostile);
+        // one policy, ahead of the file's own markup: no script at all, nothing remote, no frames
+        let csp_at = p.find("Content-Security-Policy").expect("a CSP");
+        assert!(csp_at < p.find("<body>").unwrap());
+        assert!(p.contains("default-src 'none'") && p.contains("script-src 'none'") && p.contains("img-src data:;") && p.contains("style-src 'unsafe-inline';"), "{p}");
+        assert!(p.contains("font-src data:;") && p.contains("frame-src 'none'") && p.contains("base-uri 'none'") && p.contains("form-action 'none'"), "{p}");
+        assert!(!p.contains("'sha256-") && !p.contains("http: https:"), "{p}");
+        // the message sanitiser ran: no <base>, no meta refresh, no name that shadows the document
+        let body = &p[p.find("<body>").unwrap()..];
+        assert!(!body.to_ascii_lowercase().contains("<base"), "{body}");
+        assert!(!body.to_ascii_lowercase().contains("refresh"), "{body}");
+        assert!(!body.contains("name=\"URL\""), "{body}");
+        assert_eq!(p.matches("<base").count(), 1, "only our target=_blank");
+        assert!(p.contains("background:#ffffff"));
+    }
+
+    #[test]
+    fn without_webview2_a_file_shows_as_text_with_its_header() {
+        let h = EmlHead { from: "Ann <ann@example.test>".into(), to: "bob@example.test".into(), cc: String::new(), date: "Mon 02 Nov 2026, 10:00".into(), subject: "Hi".into(), atts: "a.pdf (1 KB)".into() };
+        let t = doc_text("<p>Hello <b>there</b></p>", Some(&h));
+        assert!(t.starts_with("Hi
+From: Ann <ann@example.test>
+To: bob@example.test
+Date: Mon 02 Nov 2026, 10:00
+Attachments: a.pdf (1 KB)
+
+"), "{t}");
+        assert!(t.contains("Hello there") && !t.contains("Cc:"), "{t}");
+        assert_eq!(doc_text("<p>x</p>", None), "x");
+    }
 
     fn e(name: &str, dir: bool, size: u64, modified: i64) -> Entry { Entry::new(name, dir, size, modified) }
 

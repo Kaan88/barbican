@@ -2181,12 +2181,9 @@ export component AppWindow inherits Window {
     in property <bool> images-can-trust;
     in property <bool> r-external;
     callback rerender();
-    callback lite-click(length, length);
     in-out property <int> render-mode;
     in-out property <bool> auto-images;
     in property <bool> images-blocked;
-    in property <image> lite-image;
-    in property <length> lite-height;
     callback chat-new();
     callback chat-reload();
     callback chat-stop();
@@ -2251,6 +2248,19 @@ export component AppWindow inherits Window {
     // the WebView follows layout and overlay changes at once (not on the next poll)
     callback webview-sync();
     changed body-visible => { root.webview-sync(); }
+    // the Files preview's document area: the same WebView shows an .eml or HTML file there
+    // (src/mailview.rs show_file), hidden like the body while something covers it
+    out property <length> fdoc-x: fprev.doc-x;
+    out property <length> fdoc-y: fprev.doc-y;
+    out property <length> fdoc-w: fprev.doc-w;
+    out property <length> fdoc-h: fprev.doc-h;
+    out property <bool> fdoc-on-screen: FilesV.p-open && app == 3 && FilesV.p-state == "doc";
+    out property <bool> fdoc-visible: fdoc-on-screen && !show-settings && !ctx-open && !ev-open && !Pd.overlay && admin-dlg == "" && !FilesX.conflict-open && !FilesX.newfile-open;
+    changed fdoc-visible => { root.webview-sync(); }
+    changed fdoc-x => { root.webview-sync(); }
+    changed fdoc-y => { root.webview-sync(); }
+    changed fdoc-w => { root.webview-sync(); }
+    changed fdoc-h => { root.webview-sync(); }
     // keyboard focus returns to the app's key handler whenever an overlay closes or the app changes
     // (the focused field or menu went away with it), so Ctrl+K and ? never need a click first
     property <bool> any-overlay: ctx-open || ev-open || show-settings || composing || CompX.sched-open || Pd.overlay || admin-dlg != "" || FilesX.conflict-open || FilesX.newfile-open || (FilesV.p-open && app == 3);
@@ -3139,7 +3149,7 @@ export component AppWindow inherits Window {
                 }
                 Rectangle { height: Theme.nordic ? 18px : 14px; }
                 body := Rectangle {
-                    background: root.render-mode == 2 ? white : root.render-mode == 0 ? root.body-bg : Theme.reader;
+                    background: root.render-mode == 2 ? white : root.body-bg;
                     border-radius: 0px;
                     vertical-stretch: 1;
                     clip: true;
@@ -3148,22 +3158,6 @@ export component AppWindow inherits Window {
                         width: parent.width; height: parent.height;
                         source: root.body-snap;
                         image-fit: fill;
-                    }
-                    if root.render-mode == 1: ScrollView {
-                        content-height: root.lite-height;
-                        content-width: self.visible-width;
-                        Image {
-                            x: 0; y: 0;
-                            source: root.lite-image;
-                            width: parent.width;
-                            height: root.lite-height;
-                            image-fit: fill;
-                            TouchArea {
-                                mouse-cursor: pointer;
-                                clicked => { root.lite-click(self.mouse-x, self.mouse-y); }
-                                pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.ctx("body", "lite", self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } }
-                            }
-                        }
                     }
                     if root.render-mode == 2: ScrollView {
                         VerticalLayout {
@@ -6325,5 +6319,6 @@ export component AppWindow inherits Window {
     if FilesX.conflict-open: UploadConflictDialog { x: 0; y: 0; width: root.width; height: root.height; }
     if FilesX.newfile-open: NewFileDialog { x: 0; y: 0; width: root.width; height: root.height; }
     // Files preview of images, text and .eml (src/files_view.rs)
-    if FilesV.p-open && root.app == 3: FilePreview { x: 0; y: 0; width: root.width; height: root.height; }
+    // always there (the window reads its document area's place), shown while open
+    fprev := FilePreview { x: 0; y: 0; width: root.width; height: root.height; visible: FilesV.p-open && root.app == 3; }
 }

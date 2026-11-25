@@ -51,7 +51,6 @@ mod identities;
 mod masked;
 mod subaddr;
 mod jmap;
-mod lite;
 mod mailview;
 mod msgload;
 mod rte;
@@ -157,7 +156,6 @@ struct Current {
 
 thread_local! {
     static CUR: std::cell::RefCell<Option<Current>> = const { std::cell::RefCell::new(None) };
-    static LITE_W: std::cell::Cell<f32> = const { std::cell::Cell::new(0.0) };
 }
 
 fn has_remote_images(h: &str) -> bool {
@@ -236,8 +234,7 @@ fn render_current_then(u: &AppWindow, on_ready: Option<Box<dyn FnOnce() -> bool>
         let c = c.borrow();
         let Some(cur) = c.as_ref() else { return };
         u.set_images_blocked(cur.remote && !cur.allow && mode != 2);
-        // every renderer below reads this: the page (links lose their address), the navigation
-        // handlers and the light renderer's click
+        // the page (links lose their address) and the navigation handlers read this
         mailview::set_links_off(cur.links_off);
         if cur.remote && !cur.allow && mode != 2 {
             let o = images_offers(u);
@@ -252,15 +249,6 @@ fn render_current_then(u: &AppWindow, on_ready: Option<Box<dyn FnOnce() -> bool>
             _ => format!("<pre>{}</pre>", esc(&cur.text)),
         };
         match mode {
-            1 => {
-                let w = u.get_bw().max(200.0);
-                LITE_W.with(|x| x.set(w));
-                let scale = u.window().scale_factor();
-                let (buf, pw, ph) = lite::render(&wrap_html_opts(&body, false), w, scale);
-                let px = slint::SharedPixelBuffer::<slint::Rgba8Pixel>::clone_from_slice(&buf, pw, ph);
-                u.set_lite_image(slint::Image::from_rgba8(px));
-                u.set_lite_height(ph as f32 / scale);
-            }
             2 => {
                 let t = if cur.text.trim().is_empty() { cur.html.as_deref().map(html_to_text).unwrap_or_default() } else { cur.text.clone() };
                 u.set_r_body(t.into());
@@ -279,7 +267,7 @@ fn render_current_then(u: &AppWindow, on_ready: Option<Box<dyn FnOnce() -> bool>
             }
         }
     });
-    // the native renderers show the body at once
+    // plain text shows the body at once
     if let Some(f) = on_ready { let _ = f(); }
 }
 
@@ -310,10 +298,6 @@ pub fn wv_eval(js: &str) -> bool {
         Some(v) => v.evaluate_script_with_callback(js, |r| { *WV_EVAL.lock().unwrap() = Some(r); }).is_ok(),
         None => false,
     })
-}
-
-fn wrap_html_opts(body: &str, images: bool) -> String {
-    page(body, images, false).0
 }
 
 /// The reader page, whether it carries a script of ours (then, and only then, its frame may
@@ -372,15 +356,6 @@ fn page(body: &str, images: bool, recolor: bool) -> (String, bool, &'static str)
         return (format!("<!doctype html><html class=\"{}\" style=\"color-scheme:{scheme}\"><head><meta charset=utf-8>{csp}<base target=_blank><style>body{{margin:{margin}px;font-family:'Segoe UI',sans-serif;font-size:14px;word-wrap:break-word}}pre{{white-space:pre-wrap;font-family:{pre_font}}}img{{max-width:100%;height:auto}}{}</style></head><body>{body}</body></html>", dark_mail::PENDING_CLASS, dark_mail::css()), has_script, bg);
     }
     (format!("<!doctype html><html><head><meta charset=utf-8>{csp}<base target=_blank><style>body{{margin:{margin}px;font-family:'Segoe UI',sans-serif;font-size:14px;color:#111;background:#fff;word-wrap:break-word}}pre{{white-space:pre-wrap;font-family:{pre_font}}}img{{max-width:100%;height:auto}}</style></head><body>{body}</body></html>"), has_script, bg)
-}
-
-fn sync_webview(ui: &AppWindow) {
-    // light renderer: re-layout when the reading pane width changes
-    if ui.get_render_mode() == 1 && ui.get_current_mail() != "" {
-        let w = ui.get_bw();
-        if (LITE_W.with(|x| x.get()) - w).abs() > 4.0 && w > 50.0 { render_current(ui); }
-    }
-    mailview::sync(ui);
 }
 
 
@@ -1239,7 +1214,7 @@ fn main() -> Result<(), slint::PlatformError> {
                         rows.splice(0..0, extra);
                     } else { rows = extra; }
                 }
-                if tab == "security" { rows = settings::security_or_note(rows); }
+                if tab == "security" { rows = settings::security_or_note(rows, server_settings::security_answered_empty(&srv)); }
                 rows
             } else {
                 u.set_settings_title(format!("Search: {q}").into());
@@ -1606,13 +1581,6 @@ fn main() -> Result<(), slint::PlatformError> {
     let w = ui.as_weak();
     ui.on_rerender(move || render_current(&w.unwrap()));
 
-    ui.on_lite_click(move |x, y| {
-        if mailview::links_off() { return; }
-        if let Some(href) = lite::link_at(x, y) {
-            if mailto::parse(&href).is_some() { mailto::request(href); }
-            else if href.starts_with("http://") || href.starts_with("https://") { oauth::open_browser(&href); }
-        }
-    });
     let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
 
     let w = ui.as_weak();
@@ -2221,7 +2189,7 @@ fn main() -> Result<(), slint::PlatformError> {
     let w = ui.as_weak();
     let timer = slint::Timer::default();
     timer.start(slint::TimerMode::Repeated, std::time::Duration::from_millis(50), move || {
-        if let Some(u) = w.upgrade() { sync_webview(&u); }
+        if let Some(u) = w.upgrade() { mailview::sync(&u); }
     });
     // Bulwark unreadBadgeAllAccounts: the other signed-in accounts' inbox counts for the
     // title badge, refreshed now and then (the active account's come with its push)

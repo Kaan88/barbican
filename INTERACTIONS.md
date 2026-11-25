@@ -340,7 +340,7 @@ Bulwark paths are under `components/` unless noted; Barbican paths are under `de
 | M | Calendar invitation banner (Accept/Maybe/Decline, Add to calendar, remove, apply proposal, view) | calendar-invitation-banner.tsx | RSVP only in Calendar menu |
 | M | Read aloud bar; reading mask; reader view dialog | read-aloud-bar.tsx etc. | — |
 | M | "Shown as plain text" > Show formatted | email-viewer.tsx:6528 | global setting |
-| P | Body right-click selection menu | email-viewer.tsx:6563 | lite/plain modes only |
+| P | Body right-click selection menu | email-viewer.tsx:6563 | plain-text mode only |
 | P | Link click with phishing gate | email-viewer.tsx:6566 | no gate |
 | M | Footer Reply / Reply all / Forward | email-viewer.tsx:6614-6622 | — |
 | M | Reply draft banner Edit / Discard | email-viewer.tsx:6639 | — |

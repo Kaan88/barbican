@@ -7,7 +7,12 @@
 //! While a native overlay (context menu, dialog, settings) must cover the body, the WebView
 //! (a child window that would paint over it) is hidden and a capture of it is shown in its
 //! place, so the reader looks unchanged underneath.
-use crate::{AppWindow, WV};
+//!
+//! The Files preview borrows the same view for an .eml or HTML file ([`show_file`]): it is
+//! placed over the preview's document area instead of the reader's body until the preview
+//! closes ([`files_release`]), with the same shell, frame sandbox (never `allow-scripts` for a
+//! file), CSP, sanitiser and navigation rules, and the same capture while something covers it.
+use crate::{AppWindow, FilesV, WV};
 use slint::ComponentHandle;
 use std::cell::{Cell, RefCell};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -38,7 +43,15 @@ thread_local! {
     /// The host window's current background, and the page colour of each pending document.
     static HOST_BG: RefCell<String> = const { RefCell::new(String::new()) };
     static NEXT_BG: RefCell<String> = const { RefCell::new(String::new()) };
+    /// The Files preview holds the view (an .eml or HTML file is on show or loading there).
+    static FILES: Cell<bool> = const { Cell::new(false) };
+    /// The reader's message is being drawn again after the Files preview had the view: the view
+    /// stays hidden (the reader's capture shows) until that page is ready.
+    static HELD: Cell<bool> = const { Cell::new(false) };
 }
+
+/// A file's page colour (files_view::doc_page draws files on white).
+pub const FILE_BG: &str = "#ffffff";
 
 /// The shell's script: show(seq, html, bg, sandbox) loads a hidden frame and reports
 /// `ready:seq` once it is laid out; reveal(seq) swaps it in and drops the old one;
@@ -54,14 +67,14 @@ thread_local! {
 /// a web URL to the browser and cancel the load), but `target=_top/_parent` reaches the view's
 /// own top-level navigation on every platform. New windows open in the browser or the composer.
 const SHELL_JS: &str = r#"(function(){
-var cur=null,nxt=null,seq=0;
+var cur=null,nxt=null,seq=0,arrows=false;
 function post(m){try{window.ipc.postMessage(m)}catch(e){}}
 // the view owns the OS keyboard focus once it was clicked: pass the app's shortcuts back to the native side
 function kd(e){try{if(e.defaultPrevented||e.isComposing)return;var t=e.target,n=t&&t.tagName;
 if(t&&(t.isContentEditable||n==='INPUT'||n==='TEXTAREA'||n==='SELECT'))return;
 var k=e.key,c=e.ctrlKey||e.metaKey,a=e.altKey,fw=false;
 if(c&&!a){fw=['k','e','f','m'].indexOf(k.toLowerCase())>=0}
-else if(!a){fw=k.length===1&&k!==' '||k==='Escape'||k==='Delete'||k==='F5'||k==='F9'}
+else if(!a){fw=k.length===1&&k!==' '||k==='Escape'||k==='Delete'||k==='F5'||k==='F9'||arrows&&(k==='ArrowLeft'||k==='ArrowRight')}
 if(!fw)return;e.preventDefault();post('key:'+(c?'c':'')+(e.shiftKey?'s':'')+(a?'a':'')+'|'+(k.length===1&&c?k.toLowerCase():k))}catch(x){}}
 document.addEventListener('keydown',kd,true);
 // A message can name its own elements (<img name="URL">, <form><input name="setAttribute">):
@@ -92,6 +105,10 @@ reveal:function(s){if(s!==seq||!nxt)return;var f=nxt;nxt=null;document.documentE
 f.style.visibility='visible';if(cur)cur.remove();cur=f},
 cancel:function(s){seq=s;if(nxt){nxt.remove();nxt=null}},
 dim:function(on){if(cur)cur.style.opacity=on?'0.4':''},
+// the Files preview: Left / Right go back to the app (previous / next file), scroll keys sent from it
+arrows:function(on){arrows=!!on},
+scroll:function(k){if(!cur)return;try{var w=cur.contentWindow,h=Math.max(40,w.innerHeight-40);
+if(k==='Home')w.scrollTo(0,0);else if(k==='End')w.scrollTo(0,1e9);else w.scrollBy(0,k==='Up'?-40:k==='Down'?40:k==='PageUp'?-h:h)}catch(e){}},
 clear:function(bg){seq++;if(nxt){nxt.remove();nxt=null}if(cur){cur.remove();cur=null}document.documentElement.style.background=bg}
 };post('shell')})();"#;
 
@@ -220,12 +237,48 @@ fn run_js(js: String) {
 /// `on_ready` runs on the UI thread right before the swap. A page that takes long (a large
 /// mail) turns the loading bar on and is still only shown once laid out, never half parsed.
 pub fn show(doc: &str, bg: &str, script: bool, on_ready: Option<Box<dyn FnOnce() -> bool>>) -> u64 {
+    if FILES.with(|f| f.get()) {
+        // the Files preview holds the view: the reader's page is drawn again once it closes
+        // (files_release); the native side still takes its part now
+        if let Some(f) = on_ready { let _ = f(); }
+        return DOC_SEQ.with(|s| s.get());
+    }
+    load(doc, bg, script, on_ready, false)
+}
+
+/// Show an .eml's or HTML file's page (files_view::doc_page) in the Files preview, with the
+/// reader's view and its rules: the frame never runs scripts (`sandbox(false)`, and the page's
+/// CSP has `script-src 'none'`), nothing remote loads, links go to the browser or the composer.
+/// The view moves to the preview's document area ([`target`]) and shows once the page is laid
+/// out, right after `on_ready` (false: no longer wanted). False when there is no view to show
+/// it in (WebView2 missing): the caller shows the text instead.
+pub fn show_file(doc: &str, on_ready: Box<dyn FnOnce() -> bool>) -> bool {
+    let built = WV.with(|w| w.try_borrow().map_or(false, |w| w.is_some()));
+    if crate::WV_UNAVAILABLE.with(|x| x.get()) || !built { return false; }
+    if !FILES.with(|f| f.replace(true)) {
+        // the reader's message leaves the view (put back by files_release)
+        SLOW.with(|s| s.set(false));
+        if let Some(u) = ui() { u.set_r_loading(false); }
+    }
+    // a file has no "reported as phishing" state: its links work like a message's
+    set_links_off(false);
+    load(doc, FILE_BG, false, Some(on_ready), true);
+    true
+}
+
+/// The frame sandbox of a file's page: never `allow-scripts`.
+fn file_sandbox() -> &'static str { sandbox(false) }
+
+/// Load `doc` into a hidden frame of the shell. A file's page starts from an empty view (no
+/// earlier file or message shows under it for a frame) and lets Left / Right through.
+fn load(doc: &str, bg: &str, script: bool, on_ready: Option<Box<dyn FnOnce() -> bool>>, file: bool) -> u64 {
     let seq = DOC_SEQ.with(|s| { s.set(s.get() + 1); s.get() });
+    let bg_js = serde_json::to_string(bg).unwrap_or_default();
     let js = format!(
-        "window.__bb&&__bb.show({seq},{},{},{})",
+        "window.__bb&&(__bb.arrows({file}),{}__bb.show({seq},{},{bg_js},{}))",
+        if file { format!("__bb.clear({bg_js}),") } else { String::new() },
         serde_json::to_string(doc).unwrap_or_default(),
-        serde_json::to_string(bg).unwrap_or_default(),
-        serde_json::to_string(sandbox(script)).unwrap_or_default()
+        serde_json::to_string(if file { file_sandbox() } else { sandbox(script) }).unwrap_or_default()
     );
     ON_READY.with(|r| *r.borrow_mut() = on_ready.map(|f| (seq, f)));
     NEXT_BG.with(|b| *b.borrow_mut() = bg.to_string());
@@ -243,7 +296,8 @@ fn slow(seq: u64) {
     if DOC_SEQ.with(|s| s.get()) != seq { return; }
     if !SHELL_READY.with(|r| r.get()) { ready(seq, false); return; }
     SLOW.with(|s| s.set(true));
-    if let Some(u) = ui() { u.set_r_loading(true); }
+    // the reader's loading bar (a file shows "Loading…" in the preview until it is ready)
+    if !FILES.with(|f| f.get()) { if let Some(u) = ui() { u.set_r_loading(true); } }
     READY_TIMER.with(|t| t.start(slint::TimerMode::SingleShot, Duration::from_millis(8000), move || ready(seq, false)));
 }
 
@@ -252,6 +306,13 @@ pub(crate) fn ui() -> Option<AppWindow> { UI.with(|u| u.borrow().as_ref().and_th
 /// Drop the document that is loading, if any (another message is being opened): it must not
 /// be revealed under that message's header.
 pub fn cancel_pending() {
+    // the Files preview's page is not the reader's to drop
+    if FILES.with(|f| f.get()) { return; }
+    drop_pending();
+}
+
+fn drop_pending() {
+    HELD.with(|h| h.set(false));
     let seq = DOC_SEQ.with(|s| { s.set(s.get() + 1); s.get() });
     ON_READY.with(|r| *r.borrow_mut() = None);
     READY_TIMER.with(|t| t.stop());
@@ -261,6 +322,7 @@ pub fn cancel_pending() {
 
 /// Fade the message on screen (it stays until the next one is ready) while the next loads.
 pub fn dim(on: bool) {
+    if FILES.with(|f| f.get()) { return; }
     run_js(format!("window.__bb&&__bb.dim({on})"));
 }
 
@@ -277,13 +339,14 @@ fn ready(seq: u64, from_view: bool) {
         if let Some(u) = ui() { u.set_r_loading(false); }
     }
     // the native side refused it (the message it belongs to is no longer the open one)
-    if let Some(f) = cb { if !f() { cancel_pending(); return; } }
+    if let Some(f) = cb { if !f() { drop_pending(); return; } }
+    HELD.with(|h| h.set(false));
     if let Some(u) = ui() {
         // a capture taken before this page is out of date
-        if !SHOWN.with(|x| x.get()) { u.set_body_snap_on(false); }
-        // the header just changed (thread strip, attachments): put the view at the body's new
-        // place before the page shows, not one frame later
-        crate::sync_webview(&u);
+        if !SHOWN.with(|x| x.get()) { set_snap(&u, FILES.with(|f| f.get()), None); }
+        // the header just changed (thread strip, attachments, a file's header): put the view at
+        // its new place before the page shows, not one frame later
+        sync(&u);
     }
     page_bg(&NEXT_BG.with(|b| b.borrow().clone()));
     crate::automation::mark(&format!("reveal {seq}"));
@@ -294,6 +357,8 @@ fn ready(seq: u64, from_view: bool) {
 /// The theme changed with no message open: the empty view takes the reader's new colour.
 pub fn theme_changed() {
     mark_dirty();
+    // a file is on white whatever the theme; the reader's view is emptied when the preview closes
+    if FILES.with(|f| f.get()) { return; }
     SLOW.with(|s| s.set(false));
     run_js(format!("window.__bb&&__bb.clear('{}')", reader_bg()));
     page_bg(reader_bg());
@@ -301,9 +366,11 @@ pub fn theme_changed() {
 
 /// Empty the view (the reader closed), in the reader's colour.
 pub fn clear() {
-    DOC_SEQ.with(|s| s.set(s.get() + 1));
     crate::CUR.with(|c| *c.borrow_mut() = None);
-    crate::lite::clear();
+    // the Files preview holds the view: files_release empties it
+    if FILES.with(|f| f.get()) { return; }
+    HELD.with(|h| h.set(false));
+    DOC_SEQ.with(|s| s.set(s.get() + 1));
     ON_READY.with(|r| *r.borrow_mut() = None);
     READY_TIMER.with(|t| t.stop());
     SLOW.with(|s| s.set(false));
@@ -311,6 +378,42 @@ pub fn clear() {
     if let Some(u) = ui() { u.set_r_loading(false); }
     run_js(format!("window.__bb&&__bb.clear('{}')", reader_bg()));
     page_bg(reader_bg());
+}
+
+/// The Files preview closed: the view leaves its place at once and goes back to the reader,
+/// empty, with the open message (if any) drawn in it again, hidden until the reader shows.
+pub fn files_release(ui: &AppWindow) {
+    if !FILES.with(|f| f.get()) { return; }
+    // out of the preview's place at once (whatever the window shows next)
+    HIDE_PENDING.with(|h| h.set(false));
+    WV.with(|w| if let Ok(w) = w.try_borrow() { if let Some(v) = &*w { set_shown(ui, v, false); } });
+    FILES.with(|f| f.set(false));
+    FRESH.with(|f| f.set(false));
+    let x = ui.global::<FilesV>();
+    x.set_p_snap_on(false);
+    x.set_p_snap(Default::default());
+    // the file's page (or the one still loading) goes
+    DOC_SEQ.with(|s| s.set(s.get() + 1));
+    ON_READY.with(|r| *r.borrow_mut() = None);
+    READY_TIMER.with(|t| t.stop());
+    SLOW.with(|s| s.set(false));
+    run_js(format!("window.__bb&&(__bb.arrows(false),__bb.clear('{}'))", reader_bg()));
+    page_bg(reader_bg());
+    if has_message(ui) {
+        // the reader (perhaps on screen again already) keeps its capture until the page is back
+        HELD.with(|h| h.set(true));
+        let before = DOC_SEQ.with(|s| s.get());
+        crate::render_current(ui);
+        // nothing was drawn (no message after all): nothing to wait for
+        if DOC_SEQ.with(|s| s.get()) == before { HELD.with(|h| h.set(false)); }
+    }
+}
+
+/// A scrolling key for the file on show (Up, Down, PageUp, PageDown, Home, End), pressed while
+/// the keyboard is in the app rather than in the view.
+pub fn scroll_file(key: &str) {
+    if !FILES.with(|f| f.get()) { return; }
+    run_js(format!("window.__bb&&__bb.scroll({})", serde_json::to_string(key).unwrap_or_default()));
 }
 
 /// The email view is a child window: once it was clicked it keeps the OS keyboard focus even when
@@ -343,6 +446,9 @@ fn parse_key(spec: &str) -> Option<(Vec<slint::platform::Key>, String)> {
         "Delete" => char::from(Key::Delete).to_string(),
         "F5" => char::from(Key::F5).to_string(),
         "F9" => char::from(Key::F9).to_string(),
+        // only sent while the Files preview shows a file (previous / next file)
+        "ArrowLeft" => char::from(Key::LeftArrow).to_string(),
+        "ArrowRight" => char::from(Key::RightArrow).to_string(),
         k if k.chars().count() == 1 => k.to_string(),
         _ => return None,
     };
@@ -508,6 +614,26 @@ fn sanitize_pass(s: &str, links_off: bool) -> Result<Option<String>, ()> {
 mod tests {
     use super::{nav_decision, parse_key, sanitize_mail_html as san, Nav};
     use slint::platform::Key;
+
+    #[test]
+    fn a_files_preview_frame_never_runs_scripts() {
+        // the Files preview's frame: the reader's sandbox without our script, whatever the file
+        let sb = super::file_sandbox();
+        assert!(!sb.contains("allow-scripts"), "{sb}");
+        assert!(!sb.contains("allow-modals") && !sb.contains("allow-top-navigation") && !sb.contains("allow-forms"), "{sb}");
+        assert_eq!(sb, super::sandbox(false));
+        // and the view's own navigations follow the reader's rules
+        assert_eq!(nav_decision("https://example.com/x", true), Nav::Browser);
+        assert_eq!(nav_decision("file:///C:/x.html", true), Nav::Cancel);
+        assert_eq!(nav_decision("data:text/html,x", true), Nav::Cancel);
+    }
+
+    #[test]
+    fn left_and_right_come_back_from_a_file() {
+        assert_eq!(parse_key("|ArrowLeft"), Some((vec![], char::from(Key::LeftArrow).to_string())));
+        assert_eq!(parse_key("|ArrowRight"), Some((vec![], char::from(Key::RightArrow).to_string())));
+        assert_eq!(parse_key("|ArrowUp"), None);
+    }
 
     #[test]
     fn plain_mail_is_left_alone() {
@@ -754,11 +880,54 @@ fn rect(x: f32, y: f32, w: f32, h: f32) -> wry::Rect {
 /// frame when it came back (a white or black flash); parked outside it stays current, and
 /// keeps its layout (no reflow on return).
 fn parked(ui: &AppWindow) -> wry::Rect {
-    rect(-30000.0, -30000.0, ui.get_bw(), ui.get_bh())
+    let (_, _, w, h) = target(ui).rect;
+    rect(-30000.0, -30000.0, w, h)
 }
 
 fn place(ui: &AppWindow) -> wry::Rect {
-    if SHOWN.with(|x| x.get()) { rect(ui.get_bx(), ui.get_by(), ui.get_bw(), ui.get_bh()) } else { parked(ui) }
+    let (x, y, w, h) = target(ui).rect;
+    if SHOWN.with(|s| s.get()) { rect(x, y, w, h) } else { parked(ui) }
+}
+
+/// Where the view belongs now: the reader's body, or the Files preview's document area while
+/// the preview holds the view ([`show_file`]).
+struct Target {
+    files: bool,
+    /// the view should be on screen (nothing covers its place)
+    want: bool,
+    /// its place (logical x, y, w, h)
+    rect: (f32, f32, f32, f32),
+    /// it shows something worth a capture (a message, a file)
+    content: bool,
+    /// its place is on screen, perhaps covered (a capture belongs there)
+    on_screen: bool,
+}
+
+fn target(ui: &AppWindow) -> Target {
+    if FILES.with(|f| f.get()) {
+        // ui/app.slint fdoc-*: the preview's document area, ui/files-views.slint FilePreview
+        let on_screen = ui.get_fdoc_on_screen();
+        Target { files: true, want: ui.get_fdoc_visible(), rect: (ui.get_fdoc_x(), ui.get_fdoc_y(), ui.get_fdoc_w(), ui.get_fdoc_h()), content: on_screen, on_screen }
+    } else {
+        Target { files: false, want: ui.get_body_visible() && !HELD.with(|h| h.get()), rect: (ui.get_bx(), ui.get_by(), ui.get_bw(), ui.get_bh()), content: has_message(ui), on_screen: reader_shown(ui) }
+    }
+}
+
+/// The capture shown in the view's place (the reader's body or the Files preview); None hides it.
+fn set_snap(ui: &AppWindow, files: bool, img: Option<slint::Image>) {
+    let on = img.is_some();
+    if files {
+        let x = ui.global::<FilesV>();
+        if let Some(i) = img { x.set_p_snap(i); }
+        x.set_p_snap_on(on);
+    } else {
+        if let Some(i) = img { ui.set_body_snap(i); }
+        ui.set_body_snap_on(on);
+    }
+}
+
+fn snap_on(ui: &AppWindow, files: bool) -> bool {
+    if files { ui.global::<FilesV>().get_p_snap_on() } else { ui.get_body_snap_on() }
 }
 
 thread_local! {
@@ -839,20 +1008,21 @@ pub fn mark_dirty() {
     FRESH.with(|f| f.set(false));
     SNAP_TIMER.with(|t| t.start(slint::TimerMode::SingleShot, Duration::from_millis(140), || {
         let Some(ui) = ui() else { return };
-        if SHOWN.with(|x| x.get()) && ui.get_body_visible() && has_message(&ui) && SHELL_READY.with(|r| r.get()) && freeze(&ui) {
+        let t = target(&ui);
+        if SHOWN.with(|x| x.get()) && t.want && t.content && SHELL_READY.with(|r| r.get()) && freeze(&ui, &t) {
             FRESH.with(|f| f.set(true));
         }
     }));
 }
 
-/// Capture the body as it is on screen and show it in the WebView's place.
-fn freeze(ui: &AppWindow) -> bool {
+/// Capture the view's place as it is on screen and show it there in the WebView's place.
+fn freeze(ui: &AppWindow, t: &Target) -> bool {
     let s = ui.window().scale_factor();
-    let crop = ((ui.get_bx() * s).round() as i32, (ui.get_by() * s).round() as i32, (ui.get_bw() * s).round() as i32, (ui.get_bh() * s).round() as i32);
+    let (x, y, w, h) = t.rect;
+    let crop = ((x * s).round() as i32, (y * s).round() as i32, (w * s).round() as i32, (h * s).round() as i32);
     let Some(f) = crate::capture::grab(crate::capture::hwnd_of(ui.window()), Some(crop), 1) else { return false };
     let px = slint::SharedPixelBuffer::<slint::Rgba8Pixel>::clone_from_slice(&f.rgba, f.w, f.h);
-    ui.set_body_snap(slint::Image::from_rgba8(px));
-    ui.set_body_snap_on(true);
+    set_snap(ui, t.files, Some(slint::Image::from_rgba8(px)));
     true
 }
 
@@ -870,19 +1040,20 @@ fn after_render() {
     slint::Timer::single_shot(Duration::ZERO, || {
         if !HIDE_PENDING.with(|h| h.replace(false)) { return; }
         let ui = UI.with(|u| u.borrow().as_ref().and_then(|w| w.upgrade()));
-        let Some(ui) = ui.filter(|u| !u.get_body_visible()) else { return };
+        let Some(ui) = ui.filter(|u| !target(u).want) else { return };
         WV.with(|w| if let Some(v) = &*w.borrow() { set_shown(&ui, v, false); });
     });
 }
 
 /// Keep the WebView's place, size and visibility in step with the layout.
 pub fn sync(ui: &AppWindow) {
-    // Linux on Wayland: no child web view, so the native renderer shows mail
+    // Linux on Wayland: no child web view, so mail shows as plain text
     if crate::WV_UNAVAILABLE.with(|x| x.get()) {
-        if ui.get_render_mode() == 0 { ui.set_render_mode(1); if ui.get_current_mail() != "" { crate::render_current(ui); } }
+        if ui.get_render_mode() == 0 { ui.set_render_mode(2); if ui.get_current_mail() != "" { crate::render_current(ui); } }
         return;
     }
-    let want = ui.get_body_visible();
+    let t = target(ui);
+    let want = t.want;
     if UI.with(|u| u.borrow().is_none()) { UI.with(|u| *u.borrow_mut() = Some(ui.as_weak())); }
     // registering fails until the window has a renderer: retry until it takes
     if !NOTIFIER.with(|n| n.get()) {
@@ -903,7 +1074,7 @@ pub fn sync(ui: &AppWindow) {
         }
         let Some(v) = &*w else { return };
         let shown = SHOWN.with(|x| x.get());
-        let now = (ui.get_bx(), ui.get_by(), ui.get_bw(), ui.get_bh());
+        let now = t.rect;
         // the layout moved the body as it went away (composer, another screen): the view must
         // not follow it there for a frame, and a capture of the old place is of no use
         let moved_to = AT.with(|a| a.get());
@@ -920,26 +1091,27 @@ pub fn sync(ui: &AppWindow) {
             if !shown || moved_to != now || (!FRESH.with(|f| f.get()) && !SNAP_TIMER.with(|t| t.running())) { mark_dirty(); }
         } else if shown && !HIDE_PENDING.with(|h| h.get()) {
             SNAP_TIMER.with(|t| t.stop());
-            if !moved && FRESH.with(|f| f.get()) && ui.get_body_snap_on() && has_message(ui) {
+            if !moved && FRESH.with(|f| f.get()) && snap_on(ui, t.files) && t.content {
                 // the capture is already drawn under the view: hide it in this very event, before
                 // the frame that brings the overlay
                 set_shown(ui, v, false);
             } else {
             // the capture also covers the first frame back (app switch, composer, settings)
-            let frozen = !moved && has_message(ui) && SHELL_READY.with(|r| r.get()) && freeze(ui);
-            if frozen && reader_shown(ui) {
+            let frozen = !moved && t.content && SHELL_READY.with(|r| r.get()) && freeze(ui, &t);
+            if frozen && t.on_screen {
                 // hide once the frame with the capture in its place is on screen
                 HIDE_PENDING.with(|h| h.set(true));
                 ui.window().request_redraw();
                 // should no frame come (nothing to draw), hide anyway: a body over the overlay is worse
                 slint::Timer::single_shot(Duration::from_millis(120), || { after_render(); });
             } else {
-                if !frozen { ui.set_body_snap_on(false); }
+                if !frozen { set_snap(ui, t.files, None); }
                 set_shown(ui, v, false);
             }
             }
         }
-        if ui.get_current_mail() == "" && !want && CLEARED.with(|c| !c.replace(true)) {
+        // (the Files preview's page is files_release's to drop)
+        if !t.files && ui.get_current_mail() == "" && !want && CLEARED.with(|c| !c.replace(true)) {
             // the reader closed: start the next message from an empty page, not this one
             drop(w);
             clear();

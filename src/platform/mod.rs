@@ -3,7 +3,7 @@
 //!
 //! | what                 | Windows                                 | Linux                                              |
 //! |----------------------|-----------------------------------------|----------------------------------------------------|
-//! | email view           | WebView2 (wry)                          | WebKitGTK (wry, X11 child window; else Blitz)     |
+//! | email view           | WebView2 (wry)                          | WebKitGTK (wry, X11 child window; else plain text) |
 //! | secrets              | Credential Manager (keyring)            | Secret Service (keyring, zbus)                     |
 //! | system light/dark    | registry `AppsUseLightTheme`            | XDG portal `color-scheme`, then gsettings          |
 //! | spell checking       | ISpellChecker (rte/spell.rs)            | hunspell `-a` pipe (platform/hunspell.rs) or none  |
