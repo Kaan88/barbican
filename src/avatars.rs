@@ -113,6 +113,27 @@ pub fn gravatar_hash(email: &str) -> String {
     Sha256::digest(email.trim().to_lowercase().as_bytes()).iter().map(|b| format!("{b:02x}")).collect()
 }
 
+thread_local! {
+    /// [`gravatar_hash`] by normalised address, so a list rebuild re-hashes each sender only once.
+    static HASHES: RefCell<HashMap<String, String>> = RefCell::new(HashMap::new());
+}
+
+/// [`gravatar_hash`], memoised by the normalised address for the session.
+pub fn gravatar_hash_cached(email: &str) -> String {
+    let norm = email.trim().to_lowercase();
+    HASHES.with(|h| {
+        let mut h = h.borrow_mut();
+        match h.get(&norm) {
+            Some(v) => v.clone(),
+            None => {
+                let v = gravatar_hash(&norm);
+                h.insert(norm, v.clone());
+                v
+            }
+        }
+    })
+}
+
 /// The cache keys to try for a sender, best first (Bulwark: BIMI logo > Gravatar >
 /// company favicon). `brand` is the From domain of a message that passed DMARC.
 pub fn candidates(email: &str, brand: Option<&str>, p: &Prefs) -> Vec<String> {
@@ -120,7 +141,7 @@ pub fn candidates(email: &str, brand: Option<&str>, p: &Prefs) -> Vec<String> {
     if domain.is_empty() || !valid_domain(&domain) { return vec![]; }
     let mut v = vec![];
     if p.favicons && brand.is_some_and(|b| b.eq_ignore_ascii_case(&domain)) { v.push(format!("bimi:{domain}")); }
-    if p.gravatar { v.push(format!("grav:{}", gravatar_hash(email))); }
+    if p.gravatar { v.push(format!("grav:{}", gravatar_hash_cached(email))); }
     let root = root_domain(&domain);
     if p.favicons && !PERSONAL_DOMAINS.contains(&root.as_str()) { v.push(format!("fav:{root}")); }
     v
@@ -170,6 +191,18 @@ fn get_with(email: &str, brand: Option<&str>, p: &Prefs, junk: bool, start: impl
         }
     }
     None
+}
+
+/// Tests: put a ready picture in the in-memory cache (the fetch workers are not run).
+#[cfg(test)]
+pub(crate) fn seed_ready(key: &str, pic: Pic) {
+    SLOTS.with(|s| s.borrow_mut().insert(key.to_string(), Slot::Ready(pic)));
+}
+
+/// Tests: record a sender as having no picture (so a lookup does not start a fetch).
+#[cfg(test)]
+pub(crate) fn seed_missing(key: &str) {
+    SLOTS.with(|s| s.borrow_mut().insert(key.to_string(), Slot::Missing));
 }
 
 /// Sign-out: answers still being fetched must not write the cache again.
