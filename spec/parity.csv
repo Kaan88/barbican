@@ -41,7 +41,7 @@ G-039,folders,Folders: pin,organize-settings.tsx,done,"src/folders.rs pin_key, s
 G-040,folders,Folders: mark the whole tree read,organize-settings.tsx,done,"src/folders.rs, src/jmap.rs mark_folders_read",G-040 (GAPS P1-9),3,S/M
 G-041,folders,Folders: per-folder notification mute (notificationMutes),folder-settings.tsx,done,"src/folders.rs, src/main.rs check_new_mail (no account-level mute UI)",G-041 (GAPS P1-9),3,S/M
 G-042,folders,Folders: export and import a folder,mail-transfer/,done,"src/mailexport.rs, src/mailimport.rs (keep folders), src/ctxmenu.rs; target = right-clicked folder, no account-root import",G-042 (GAPS P1-9; P1-11),2,S/M
-G-043,sharing,"Sharing folders, calendars and address books with other users (Barbican shares Files only)",layout/mailbox-share-dialog.tsx; share-collection-dialog.tsx,missing,,G-043 (GAPS P1-9),3,M
+G-043,sharing,"Sharing folders, calendars and address books with other users (Barbican shares Files only)",layout/mailbox-share-dialog.tsx; share-collection-dialog.tsx,done,"src/share.rs (folders, calendars, address books: Bulwark presets, principal search)",G-043 (GAPS P1-9),3,M
 G-044,live-updates,"Live updates for calendars, contacts, files and identities: push types cover mail only, and there is no /changes delta for them",EventSource types,missing,,G-044 (GAPS P1-10),3,S/M
 G-045,notifications,ShareNotification and CalendarEventNotification; the notification centre,share-notification-store.ts; calendar-event-notification-store.ts; notifications/notification-center.tsx,missing,,G-045 (GAPS P1-10),3,M
 G-046,mail-transfer,Mail export of a folder to mbox or eml,mail-transfer/,done,"src/mailexport.rs (folder and all mail; directory tree, not .zip)",G-046 (GAPS P1-11),2,M
