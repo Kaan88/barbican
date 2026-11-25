@@ -1,6 +1,7 @@
 # Feature cut-down
 
-Decided by the owner on 2026-11-25, in one review session. Barbican stays a functional Bulwark
+Decided by the owner on 2026-11-25, in two review sessions (the second, on the features that drive
+the new toolkit items, is its own section below). Barbican stays a functional Bulwark
 clone, but only for the features the owner uses. Every feature cut now is UI the move to
 markdown-shared-rs (`docs/UI-TOOLKIT-EVAL.md`) does not have to port.
 
@@ -96,9 +97,65 @@ The owner weighed these last, with cost against worth: Files sync and WOPI (cut)
 (cut), offline mode and outbox (stays cut), pop-out windows (stay cut), the AI assistant (kept),
 the in-app updater (kept), the Blitz light renderer (cut), BIMI badges (kept).
 
+## Second session: features that drive the new toolkit items (2026-11-25)
+
+A second review on the same day, aimed at the costly new toolkit items in
+`docs/UI-TOOLKIT-EVAL.md` (section 4) rather than at Bulwark features. For each feature the owner
+weighed what goes missing in daily use against the toolkit item, its size and risk, and the
+milestones it touches.
+
+This round adds one more status, **Later (after the switch)**: the feature is not ported or built
+before the switch-over to the new UI (U12). It comes back afterwards, with the toolkit item it needs.
+Until then the app uses the alternative named in the table. These rows stay open in
+`spec/parity.csv`. Nothing was cut for good apart from the loading skeletons, which have no parity
+row.
+
+### Later (after the switch)
+
+| Feature | Toolkit item it drives | Saving before the switch | Until then | Reason |
+|---|---|---|---|---|
+| Screen reader support (Narrator and UI Automation beyond the basics) | K12 (L, high risk) | K12 leaves the switch path; the screens U4-U10 build no accessibility tree; U11 shrinks from M to S | Keyboard navigation, Tab focus, focus rings and every Accessibility setting (contrast, text size, motion, spacing) stay. Screen readers get little from the new UI | A future item. Note: the Slint app gets a tree from Slint for free today, so screen reader support goes backwards at the switch until K12 lands |
+| Popups in their own surfaces above the mail body | K2 (L, high risk); milestones T5 and U7 | T5 (L) and U7 (M) leave the switch path | The capture stays: while a menu, flyout, drop-down or tooltip is open over the mail body, a still picture of the body stands in for it. Only the capture's own jank is fixed (capture on open, only the body's rectangle) | The workaround is fine for now; owned surfaces are a future item |
+| Raw Sieve script editor | part of K9 | One editor screen and its save path not ported | Filters are edited in the rule editor and quick rules. A script edited by hand on the server stays locked; it is fixed in Stalwart's web admin | Future item |
+| Composer HTML source view | part of K9 | The source toggle not ported in U6 | Formatting only through the RTE's toolbar | Future item |
+| Signature as HTML source (G-024 stays Later) | part of K9 | The HTML source field not ported | Signatures are edited as plain text or in the RTE | Future item |
+| Admin raw message fields (Actions tab) | part of K9 | Two pasted-text fields not ported | Not offered in the new UI until K9 | Future item |
+| Pop-up month in date fields (event editor, tasks, schedule send) | none (app drawing, S) | about 1-2 days in U6 and U9 | A typed date field ("28 Nov", "tomorrow", "2026-12-03"). The calendar's own mini-month stays | Future item |
+| Typed time field with a list | none (app drawing, S) | about a day | The toolkit's drop-down, in 15-minute steps | Future item |
+| Hover actions on mail rows | none (app drawing, S) | about S in U4 | The row's Actions button (already built), the context menu and the keys | Future item. S-keyless-031 stays open |
+| Colour swatches (tags, calendars, accounts) | none (app drawing, S) | about S | A drop-down of named colours, each with a colour dot | Swatches come after the switch |
+| Pasting images (screenshots) into the composer | L9 (M, high risk) | L9 leaves the switch path; U6 smaller | Save the picture and attach it, or drop the file in from Explorer | Future item |
+| Dragging files out to Explorer | L8 (L, high risk) | none: it was optional already | Download and Save to | Stays optional, as before |
+
+### Cut
+
+| Feature | Toolkit item | Saving | Instead | Reason |
+|---|---|---|---|---|
+| Loading skeletons (grey placeholder rows while a list loads, mockup `shell-loading`) | none (app drawing, S) | about S, and a little in each list | The toolkit's spinner in the empty list | Lists load from the local cache; the spinner shows only on a first sync |
+
+### Keep (in the port)
+
+| Feature | Toolkit item | Reason |
+|---|---|---|
+| Drag and drop inside the app: mail to folders, folder reorder, calendar event move and resize, files to folders | K8 (M) and K13's move and resize | All four used. K8 and K13 keep their size |
+| Files dropped from Explorer into the composer and Files | the S part of K8 | Cheap, and works whatever happens to in-app drag |
+| Recipient chip fields in the search filters and the event editor's attendees | none: the composer's chip field reused | The same widget as the composer's To, Cc and Bcc; a few hours each |
+
+### Still open
+
+**Multi-line text (K9).** To be revisited later: either K9 in the toolkit (M-L as planned, or a
+smaller M without find), or Barbican's own RTE in a plain mode with no toolbar for every
+multi-line field. The four source editors above are Later, but K9 in some form is still needed at the
+switch: event descriptions, task and contact notes, the AI chat input and the AI instructions,
+prompts and memory, vacation and template bodies, plain signatures, the trusted senders list and
+the PGP key paste. Decide before U6, the composer and AI panel.
+
 ## Effect on `spec/parity.csv`
 
-41 rows moved to `wont-do` (42 with the earlier passkey row). Ten rows where only part was cut, or
+The second session changed no rows: everything it deferred stays open, and the one cut (loading
+skeletons) has no row.
+
+From the first session: 41 rows moved to `wont-do` (42 with the earlier passkey row). Ten rows where only part was cut, or
 that a cut touches, carry a note in `rust_call_site`: G-013, G-045, G-059, G-061, G-063, G-065,
 G-068, G-069, G-073, G-106. Open rows now: 32 missing, 18 partial, 24 unverified.
 
