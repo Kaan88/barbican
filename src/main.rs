@@ -61,6 +61,7 @@ mod restore;
 mod secrets;
 mod plugins;
 mod plugin_package;
+mod plugin_host;
 mod plugin_catalog;
 #[cfg(test)]
 mod plugin_catalog_check;
@@ -587,13 +588,19 @@ fn effective_plugins() -> Vec<String> {
 /// Load what was switched on, unload what was switched off; returns the effective allow-list.
 fn plugins_synced() -> Vec<String> {
     let en = effective_plugins();
-    let errs = PLUGINS.with(|p| plugins::sync(&mut p.borrow_mut(), &en));
+    let grants = plugins::grants_from_prefs(&settings::Settings::load().prefs);
+    let errs = PLUGINS.with(|p| plugins::sync(&mut p.borrow_mut(), &en, &grants));
     PLUGIN_LOAD_ERRORS.with(|e| { let mut e = e.borrow_mut(); for x in errs { if !e.contains(&x) { e.push(x); } } });
     en
 }
 
 /// A plugin was switched on or off in Settings.
 pub fn plugin_toggled() { plugins_synced(); }
+
+/// The settings schema of an installed API 2 plugin (Settings > Add-ons draws and stores its settings).
+pub fn plugin_settings_schema(id: &str) -> Option<Value> {
+    PLUGINS.with(|p| p.borrow().iter().find(|x| x.key == id && x.decl.api >= 2).map(|x| x.decl.settings.clone()))
+}
 
 thread_local! {
     /// The grant the user just accepted in the consent dialog, until Settings records it.
@@ -1123,6 +1130,9 @@ fn main() -> Result<(), slint::PlatformError> {
     avatars::set_window(ui.as_weak());
     rte::wire_drop(&ui);
     chips::wire(&ui);
+    let state: Shared = Arc::new(Mutex::new(None));
+    // what API 2 plugins' host calls reach (the session, toasts and dialogs): set before any plugin is loaded
+    plugin_host::install_env(Arc::new(plugin_host::AppEnv::new(ui.as_weak(), state.clone())));
     {
         // listed, not loaded: a plugin runs only after the user switches it on
         // not while another Barbican of this profile runs: the folder lock is per process, so its install's staging
@@ -1142,7 +1152,6 @@ fn main() -> Result<(), slint::PlatformError> {
             }
         }
     }
-    let state: Shared = Arc::new(Mutex::new(None));
     {
         // mailto: links (clicked in a message, or handed over by the OS) open the composer
         let st = state.clone();

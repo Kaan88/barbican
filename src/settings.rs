@@ -137,6 +137,8 @@ fn text(kind: &str, key: &str, label: &str, desc: &str, value: &str) -> SRow {
 /// nothing.
 pub fn forget_package(prefs: &mut serde_json::Map<String, Value>, id: &str, package_dir: &std::path::Path) {
     if package_dir.as_os_str().is_empty() { return; }
+    // the package's own settings go with it (only API 2 packages have any)
+    if let Some(Value::Object(m)) = prefs.get_mut("pluginSettings") { m.remove(id); }
     let inside = |path: &str| std::path::Path::new(path).starts_with(package_dir);
     if let Some(Value::Object(m)) = prefs.get_mut("pluginGrants") {
         if m.get(id).and_then(|g| g["path"].as_str()).is_some_and(inside) { m.remove(id); }
@@ -436,6 +438,18 @@ impl Settings {
                     let hooks = p["hooks"].as_array().map(|a| a.iter().filter_map(|h| h.as_str()).collect::<Vec<_>>().join(", ")).unwrap_or_default();
                     out.push(toggle(&format!("plugin:{id}"), &format!("{} {}", p["name"].as_str().unwrap_or(id), p["version"].as_str().unwrap_or("")),
                         &format!("{}  (hooks: {hooks})", p["description"].as_str().unwrap_or("")), p["enabled"].as_bool().unwrap_or(false)));
+                    // an API 2 plugin's own settings (its manifest's schema), stored per plugin in `pluginSettings`
+                    let stored = self.prefs.get("pluginSettings").and_then(|m| m.get(id)).cloned().unwrap_or(Value::Null);
+                    let name = p["name"].as_str().unwrap_or(id);
+                    for r in crate::plugin_host::setting_rows(id, &p["settings"], &stored) {
+                        use crate::plugin_host::SettingRow;
+                        out.push(match r {
+                            SettingRow::Toggle { key, label, desc, on } => toggle(&key, &format!("{name}: {label}"), &desc, on),
+                            SettingRow::Text { key, label, desc, value } => text("text", &key, &format!("{name}: {label}"), &desc, &value),
+                            SettingRow::Select { key, label, desc, options, index } =>
+                                select(&key, &format!("{name}: {label}"), &desc, &options.iter().map(String::as_str).collect::<Vec<_>>(), index),
+                        });
+                    }
                     if p["packaged"].as_bool() == Some(true) {
                         out.push(text("button", &format!("plugin-uninstall:{id}"), &format!("Uninstall {}", p["name"].as_str().unwrap_or(id)),
                             "Removes the plugin and everything it stored on this computer.", "Uninstall"));
@@ -640,6 +654,20 @@ impl Settings {
             k if k.starts_with("pluginForget:") => {
                 // an uninstalled (or replaced) package: its own grant and binding gone, and off
                 forget_package(&mut self.prefs, &k[13..], std::path::Path::new(value.as_str().unwrap_or("")));
+                self.save();
+                return;
+            }
+            k if k.starts_with("pluginSetting:") => {
+                // `pluginSetting:<id>:<field>`: kept only when it is valid for the field (a half-typed number keeps the
+                // last good value); a secret field is never kept here
+                let Some((id, field)) = k[14..].split_once(':') else { return };
+                let Some(schema) = crate::plugin_settings_schema(id) else { return };
+                let Some(v) = crate::plugin_host::setting_value(&schema, field, &value) else { return };
+                let mut all = self.prefs.get("pluginSettings").and_then(|v| v.as_object().cloned()).unwrap_or_default();
+                let mut mine = all.get(id).and_then(|v| v.as_object().cloned()).unwrap_or_default();
+                mine.insert(field.to_string(), v);
+                all.insert(id.to_string(), Value::Object(mine));
+                self.prefs.insert("pluginSettings".into(), Value::Object(all));
                 self.save();
                 return;
             }

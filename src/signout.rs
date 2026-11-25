@@ -8,9 +8,10 @@
 //! form's list of user names (`webmail_usernames`). A sign-out that leaves other accounts
 //! signed in only takes what is that account's (stores/auth-store.ts `removeAccount`).
 //!
-//! Barbican keeps no mail, calendar, contact or search index on disk, drafts live on the
-//! server, and plugins keep no data of their own, so the list in
-//! [`targets`] is short. The one thing inside a kept file that goes is the trusted-senders list
+//! Barbican keeps no mail, calendar, contact or search index on disk and drafts live on the
+//! server, so the list in [`targets`] is short. Plugin storage (`plugin-data\<id>\<login hash>.json`,
+//! [`crate::plugin_host::Storage`]) is per login: the signing-out login's files go, and with the last
+//! account the whole `plugin-data` folder. The one thing inside a kept file that goes is the trusted-senders list
 //! in `prefs.json` (`trustedSenders`, [`crate::settings::forget_trusted_senders`], called by the sign-out handler before the wipe starts), when the last account signs out. The one list lives there; [`wipe`] runs it.
 //!
 //! Everything that list names belongs to the signing-out profile ([`Roots`]): the config folder
@@ -97,6 +98,19 @@ pub fn targets(r: &Roots, who: &Who) -> Vec<PathBuf> {
     t.push(r.print.clone()); // the last printed message
     t.push(r.webview.clone()); // cookies, cache and local storage of the mail view
     t.extend(r.legacy_webview.clone()); // the same, where 0.1.0 kept it
+    let plugin_data = c.join("plugin-data");
+    if who.last {
+        // every plugin's storage of every login (PLUGINS.md "Consent and storage")
+        t.push(plugin_data);
+    } else if let Some(owner) = &who.owner {
+        // this login's storage in each plugin's folder; other logins keep theirs
+        let file = crate::plugin_host::login_file(owner);
+        if let Ok(rd) = std::fs::read_dir(&plugin_data) {
+            for e in rd.flatten() {
+                if e.file_type().is_ok_and(|t| t.is_dir()) { t.push(e.path().join(&file)); }
+            }
+        }
+    }
     if who.last {
         // the chats of every account, recent searches, Files favourites and recent files,
         // reminder state, sender pictures and the assistant's memory of the user
@@ -383,6 +397,25 @@ mod tests {
         assert!(v["acked"].get("a|ann@example.test").is_none() && v["lastCheck"].get("a|ann@example.test").is_none());
         assert_eq!(v["acked"]["a|bob@example.test"]["k"], 2);
         assert_eq!(v["lastCheck"]["a|bob@example.test"], 6);
+    }
+
+    #[test]
+    fn plugin_storage_goes_with_its_login() {
+        let t = Tmp::new("plugindata");
+        let r = t.roots();
+        let pd = r.config.join("plugin-data");
+        let (ann, bob) = (crate::plugin_host::login_file("a|ann@example.test"), crate::plugin_host::login_file("a|bob@example.test"));
+        for id in ["dev.example.one", "dev.example.two"] {
+            put(&pd.join(id).join(&ann), "{}");
+            put(&pd.join(id).join(&bob), "{}");
+        }
+        quick(&r, &who("ann@example.test", false, false));
+        for id in ["dev.example.one", "dev.example.two"] {
+            assert!(!pd.join(id).join(&ann).exists(), "{id}: the signing-out login's storage goes");
+            assert!(pd.join(id).join(&bob).exists(), "{id}: another login keeps its storage");
+        }
+        quick(&r, &who("bob@example.test", true, false));
+        assert!(!pd.exists(), "the last account takes all plugin storage");
     }
 
     #[test]
