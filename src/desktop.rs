@@ -304,6 +304,9 @@ mod tray {
 /// A notification's click or button (Bulwark: the toast's context and action).
 fn activate(a: notify::Activation) {
     let Some(u) = app() else { return };
+    // an old toast's Delete doesn't act behind the lock, and its message doesn't open over it
+    // (Bulwark lib/desktop/os-commands.ts:103-107)
+    if crate::applock::locked() { show_window(&u); return; }
     let st = STATE.with(|s| s.borrow().clone());
     if let Some(ev) = a.context.strip_prefix("event:") {
         show_window(&u);

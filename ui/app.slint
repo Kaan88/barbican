@@ -27,6 +27,9 @@ export { PimTheme, CtX, CtLine, CtField, CtDupe, FilterX, FCond, FAct }
 // mail extras (p2-mailextras): attachment cards, From override, reply under the message
 import { MxTok, AttCard, FromOverride, AttCards, ReplyDockBar, ReplyDockHandle } from "mailextras.slint";
 export { AttCard }
+// app lock (src/applock.rs): the lock screen and the PIN dialog
+import { AppLock, LockScreen, PinDialog } from "applock.slint";
+export { AppLock }
 
 export struct Folder {
     id: string,
@@ -2253,13 +2256,15 @@ export component AppWindow inherits Window {
     out property <length> bw: body.width;
     out property <length> bh: body.height;
     // the command palette and the shortcut sheet (Pd.overlay) cover the body too
-    out property <bool> body-visible: logged-in && app == 0 && current-mail != "" && (!composing || dock-shows-body) && !show-settings && render-mode == 0 && !ev-open && !ctx-open && !CompX.sched-open && !Pd.overlay;
+    out property <bool> body-visible: logged-in && app == 0 && current-mail != "" && (!composing || dock-shows-body) && !show-settings && render-mode == 0 && !ev-open && !ctx-open && !CompX.sched-open && !Pd.overlay
+        // nothing of the open message shows behind the app lock (src/applock.rs)
+        && !AppLock.locked;
     // the WebView follows layout and overlay changes at once (not on the next poll)
     callback webview-sync();
     changed body-visible => { root.webview-sync(); }
     // keyboard focus returns to the app's key handler whenever an overlay closes or the app changes
     // (the focused field or menu went away with it), so Ctrl+K and ? never need a click first
-    property <bool> any-overlay: ctx-open || ev-open || show-settings || composing || CompX.sched-open || Pd.overlay || admin-dlg != "";
+    property <bool> any-overlay: ctx-open || ev-open || show-settings || composing || CompX.sched-open || Pd.overlay || admin-dlg != "" || AppLock.locked || AppLock.dlg != "";
     changed any-overlay => { if !root.any-overlay { kbd.focus(); } }
     changed app => { kbd.focus(); }
     changed logged-in => { root.login-password = ""; root.login-otp = ""; kbd.focus(); }
@@ -2305,6 +2310,8 @@ export component AppWindow inherits Window {
     init => { self.focus(); }
     // the mail search box keeps its arrows for the suggestions under it (src/shortcuts.rs)
     capture-key-pressed(e) => {
+        // locked: no key reaches the app under the lock screen; the focus goes back to it
+        if AppLock.locked { AppLock.focus-tick += 1; return accept; }
         // Ctrl+K opens the command palette whichever field or menu has the focus (not in the composer: link)
         if e.modifiers.control && !e.modifiers.shift && !e.modifiers.alt && e.text == "k" && !root.composing && !Pd.palette-open {
             if Pd.key-hook(e.text, false, true, false) { return accept; }
@@ -6257,4 +6264,7 @@ export component AppWindow inherits Window {
     if CompX.tpl-fill-open: TplFillDialog { x: 0; y: 0; width: root.width; height: root.height; }
     if CompX.tpl-save-open: TplSaveDialog { x: 0; y: 0; width: root.width; height: root.height; }
     if CompX.sub-open: SubAddrDialog { x: 0; y: 0; width: root.width; height: root.height; }
+    // the app lock's PIN dialog, and the lock screen over absolutely everything (src/applock.rs)
+    if AppLock.dlg != "": PinDialog { x: 0; y: 0; width: root.width; height: root.height; }
+    if AppLock.locked: LockScreen { x: 0; y: 0; width: root.width; height: root.height; }
 }

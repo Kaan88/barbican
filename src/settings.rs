@@ -497,6 +497,7 @@ impl Settings {
                 }
                 // Desktop app page, and Updates under About (src/desktop.rs)
                 out.extend(crate::desktop::settings_rows(tab, self));
+                out.extend(crate::applock::settings_rows(tab));
                 if tab == "privacy" {
                     out.insert(0, row("section", "", "Remote content", "Images and other content loaded from the internet can tell senders when you read their mail."));
                     // Bulwark externalContentPolicy (stores/settings-store.ts:444): ask / block / allow

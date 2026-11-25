@@ -336,6 +336,11 @@ pub fn install_focus_hook(ui: &AppWindow) {
     let _ = ui;
 }
 
+/// Hand the OS keyboard focus from the email view back to the app's window (the app locked).
+pub fn release_focus() {
+    WV.with(|w| if let Ok(w) = w.try_borrow() { if let Some(v) = &*w { let _ = v.focus_parent(); } });
+}
+
 /// A key the email view caught (`flags|key`): replay it in the native window so the app's
 /// shortcuts work with the view focused.
 /// Parse a forwarded key (`flags|key`): the modifiers (c, s, a) and the key text for Slint.
