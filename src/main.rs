@@ -185,7 +185,7 @@ pub fn own_addresses() -> Vec<String> {
 /// The "External" chip for message `m`: any From address is outside the own domains and the
 /// setting is on (Bulwark `externalSenders`: a message is external when any of them is).
 pub fn message_external(m: &Value) -> bool {
-    let label_on = settings::Settings::load().bool(trust::SENDER_LABEL_KEY, true);
+    let label_on = settings::bool_pref(trust::SENDER_LABEL_KEY, true);
     let own = trust::own_domains(&own_addresses());
     m["from"].as_array().is_some_and(|a| a.iter().any(|f| {
         let e = f["email"].as_str().unwrap_or("");
@@ -197,14 +197,14 @@ pub fn message_external(m: &Value) -> bool {
 /// Whether the remote content of message `m` loads when it opens: policy `allow`, or a trusted
 /// sender (Bulwark email-viewer.tsx:3129).
 pub fn allow_remote(u: &AppWindow, m: &Value) -> bool {
-    let prefs = settings::Settings::load().prefs;
+    let prefs = settings::snapshot();
     let from = m["from"][0]["email"].as_str().unwrap_or("");
     trust::loads_on_open(trust::policy(&prefs, u.get_auto_images()), trustbook::is_trusted(&prefs, from))
 }
 
 /// What the "remote images blocked" banner offers for the open message.
 fn images_offers(u: &AppWindow) -> trust::Offers {
-    let prefs = settings::Settings::load().prefs;
+    let prefs = settings::snapshot();
     let (from, forged) = CUR_MSG.with(|x| x.borrow().as_ref().map(|(m, _)| {
         let from = m["from"][0]["email"].as_str().unwrap_or("").to_string();
         let forged = trust::forged(&reader::open_trust(m), &from);
@@ -218,7 +218,7 @@ fn redecide_remote(u: &AppWindow) {
     let Some(m) = CUR_MSG.with(|x| x.borrow().as_ref().map(|(m, _)| m.clone())) else { return };
     let decided = allow_remote(u, &m);
     // under Ask a one-off "Load images" grant for this message stays
-    let ask = trust::policy(&settings::Settings::load().prefs, u.get_auto_images()) == trust::ContentPolicy::Ask;
+    let ask = trust::policy(&settings::snapshot(), u.get_auto_images()) == trust::ContentPolicy::Ask;
     let changed = CUR.with(|c| c.borrow_mut().as_mut().is_some_and(|c| { let was = c.allow; c.allow = decided || (ask && was); c.remote && was != c.allow }));
     if changed { render_current(u); }
 }
@@ -462,7 +462,7 @@ thread_local! { static THREAD_ID: std::cell::RefCell<Option<String>> = const { s
 
 /// Load the open message's conversation (unless threading is turned off, like Bulwark's disableThreading).
 fn load_thread(w: slint::Weak<AppWindow>, c: Arc<jmap::Client>, id: String) {
-    if settings::Settings::load().bool("disableThreading", false) { return; }
+    if settings::bool_pref("disableThreading", false) { return; }
     std::thread::spawn(move || {
         let Ok(mut list) = c.thread_emails(unified::real_id(&id)) else { return };
         list.sort_by_key(|m| m["receivedAt"].as_str().unwrap_or("").to_string());
@@ -599,7 +599,7 @@ pub fn enabled_plugins() -> Vec<String> {
 
 /// The allow-list as it counts: switched on AND its grant still covers the file and what it asks for.
 fn effective_plugins() -> Vec<String> {
-    let grants = plugins::grants_from_prefs(&settings::Settings::load().prefs);
+    let grants = plugins::grants_from_prefs(&settings::snapshot());
     PLUGINS.with(|p| plugins::granted_enabled(&p.borrow(), &enabled_plugins(), &grants))
 }
 
@@ -607,7 +607,7 @@ fn effective_plugins() -> Vec<String> {
 fn plugins_synced() -> Vec<String> {
     forget_enabled_cache();
     let en = effective_plugins();
-    let grants = plugins::grants_from_prefs(&settings::Settings::load().prefs);
+    let grants = plugins::grants_from_prefs(&settings::snapshot());
     let errs = PLUGINS.with(|p| plugins::sync(&mut p.borrow_mut(), &en, &grants));
     PLUGIN_LOAD_ERRORS.with(|e| { let mut e = e.borrow_mut(); for x in errs { if !e.contains(&x) { e.push(x); } } });
     en
@@ -653,7 +653,7 @@ pub fn plugin_consent(u: &AppWindow, key: &str) -> bool {
             return false;
         }
     }
-    let grants = plugins::grants_from_prefs(&settings::Settings::load().prefs);
+    let grants = plugins::grants_from_prefs(&settings::snapshot());
     let at = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
     let Some(consent) = PLUGINS.with(|p| p.borrow().iter().find(|x| x.key == key).map(|x| x.consent(&grants))) else { return false };
     if consent == plugins::Consent::Granted {
@@ -795,7 +795,7 @@ fn plugin_install_done(weak: slint::Weak<AppWindow>, outcome: Result<plugin_pack
             Ok(r) if !r.updated => format!("Installed {} {}. It stays off until you switch it on.", r.name, r.version),
             Ok(r) => {
                 // the wording follows what the consent check now says about the new files
-                let grants = plugins::grants_from_prefs(&settings::Settings::load().prefs);
+                let grants = plugins::grants_from_prefs(&settings::snapshot());
                 let c = PLUGINS.with(|p| p.borrow().iter().find(|x| x.key == r.id).map(|x| x.consent(&grants)));
                 match c {
                     Some(plugins::Consent::Granted) => format!("Updated {} to {}. It is the package you already accepted.", r.name, r.version),
@@ -1485,7 +1485,7 @@ fn main() -> Result<(), slint::PlatformError> {
         glance::title(&u);
         // Bulwark clearSearchOnFolderChange (default off): keep the query and re-run it in the new folder
         let q = u.get_search().trim().to_string();
-        if !q.is_empty() && id != "__scheduled" && !settings::Settings::load().bool("clearSearchOnFolderChange", false) {
+        if !q.is_empty() && id != "__scheduled" && !settings::bool_pref("clearSearchOnFolderChange", false) {
             mail::load_list(w.clone(), c, mail::folder_filter(&id, Some(&q)));
             return;
         }
@@ -1538,7 +1538,7 @@ fn main() -> Result<(), slint::PlatformError> {
                 apply_theme(&u);
                 apply_ui_prefs(&u);
                 rte::spell::reload();
-                u.set_show_advanced_settings(settings::Settings::load().bool("showAdvancedSettings", false));
+                u.set_show_advanced_settings(settings::bool_pref("showAdvancedSettings", false));
                 mail::rebuild_folders(&u);
                 mail::rebuild_list(&u);
                 // Settings > Files (view, order, thumbnails, hidden files) from another device
@@ -1970,7 +1970,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let from = CUR_MSG.with(|x| x.borrow().as_ref().map(|(m, _)| m["from"][0]["email"].as_str().unwrap_or("").to_string())).unwrap_or_default();
         // this message's images load at once; the address is filed in the background (the
         // Trusted Senders address book, or this computer's list), see trustbook.rs
-        let on = trustbook::setting_on(&settings::Settings::load().prefs);
+        let on = trustbook::setting_on(&settings::snapshot());
         trustbook::trust_sender(wt.clone(), stt.lock().unwrap().clone(), from, on);
         CUR.with(|c| if let Some(c) = c.borrow_mut().as_mut() { c.allow = true; });
         render_current(&u);
@@ -2101,7 +2101,7 @@ fn main() -> Result<(), slint::PlatformError> {
     let w = ui.as_weak();
     ui.on_tag_new(move || ctxmenu::new_tag_prompt(&w.unwrap(), None));
     // the share of the pane a docked reply takes, once dragged (Bulwark replyDockShare)
-    ui.set_dock_share(settings::Settings::load().prefs.get("replyDockShare").and_then(|v| v.as_f64()).filter(|f| *f > 0.1 && *f < 0.95).unwrap_or(-1.0) as f32);
+    ui.set_dock_share(settings::snapshot().get("replyDockShare").and_then(|v| v.as_f64()).filter(|f| *f > 0.1 && *f < 0.95).unwrap_or(-1.0) as f32);
     ui.on_dock_share_save(|share| {
         let v = (share > 0.1 && share < 0.95).then(|| json!((share as f64 * 1000.0).round() / 1000.0));
         settings::Settings::put("replyDockShare", v);
@@ -2368,7 +2368,7 @@ fn main() -> Result<(), slint::PlatformError> {
         u.set_current_mail("".into());
         if !active { u.invoke_select_folder(u.get_current_folder()); return; }
         // scope like Bulwark's searchDefaultScope: everywhere but Spam/Trash, or the open folder
-        let scope = settings::Settings::load().str("searchDefaultScope", "all");
+        let scope = settings::str_pref("searchDefaultScope", "all");
         let (w2, c2) = (w.clone(), c.clone());
         let folder = u.get_current_folder().to_string();
         std::thread::spawn(move || {
@@ -2532,7 +2532,7 @@ fn main() -> Result<(), slint::PlatformError> {
             if reader::is_message_attachment(&a) && a["blobId"].is_string() { reader::open_eml(&u, c, a); return; }
         }
         // Bulwark mailAttachmentAction: preview (open) or download (save)
-        if settings::Settings::load().str("mailAttachmentAction", "preview") == "download" {
+        if settings::str_pref("mailAttachmentAction", "preview") == "download" {
             if let Some(u) = wa.upgrade() { u.invoke_save_attachment(i); }
             return;
         }
@@ -2958,7 +2958,7 @@ fn finish_login(w: slint::Weak<AppWindow>, st: Shared, res: Result<jmap::Client,
 
 /// Bulwark's Appearance > Light or dark: "light" | "dark" | "system" (the system's app theme).
 pub fn apply_theme(ui: &AppWindow) {
-    let pref = settings::Settings::load().str("theme", "dark");
+    let pref = settings::str_pref("theme", "dark");
     let dark = match pref.as_str() {
         "light" => false,
         // Windows app theme or the XDG portal colour scheme (platform layer)
@@ -2979,7 +2979,7 @@ pub fn set_theme_dark(ui: &AppWindow, dark: bool) {
     if changed && ui.get_current_mail() != "" { render_current(ui); }
     if changed && ui.get_current_mail() == "" { ui.set_body_bg(mailview::color(mailview::reader_bg())); mailview::theme_changed(); }
     // Settings > Appearance > Style: Bento (tiles) or Nordic (one surface)
-    ui.global::<Theme>().set_style(if settings::Settings::load().str("uiStyle", "bento") == "nordic" { 1 } else { 0 });
+    ui.global::<Theme>().set_style(if settings::str_pref("uiStyle", "bento") == "nordic" { 1 } else { 0 });
     search_ui::set_accent(ui.global::<Theme>().get_accent());
 }
 

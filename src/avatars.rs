@@ -33,7 +33,7 @@ impl Prefs {
         Prefs::from_settings(&p, crate::crashguard::safe_mode())
     }
     /// `safe`: the last start crashed, so nothing is fetched from the web this run.
-    fn from_settings(p: &crate::settings::Settings, safe: bool) -> Prefs {
+    pub(crate) fn from_settings(p: &crate::settings::Settings, safe: bool) -> Prefs {
         Prefs { favicons: !safe && p.bool("senderFavicons", false), gravatar: !safe && p.bool("gravatarAvatars", false), in_junk: p.bool("showAvatarsInJunk", false) }
     }
     pub fn any(&self) -> bool { self.favicons || self.gravatar }

@@ -673,7 +673,7 @@ fn with_state<T>(f: impl FnOnce(&mut DeviceState) -> T) -> T {
 
 fn now_ms() -> i64 { chrono::Utc::now().timestamp_millis() }
 
-fn disabled() -> bool { crate::settings::Settings::load().bool(DISABLED_KEY, false) }
+fn disabled() -> bool { crate::settings::bool_pref(DISABLED_KEY, false) }
 
 /// Whether an account's settings are pulled: the server keeps metadata and the switch is on.
 fn may_pull(supported: bool, disabled: bool) -> bool { supported && !disabled }

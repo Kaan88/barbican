@@ -126,7 +126,7 @@ impl FilesSettings {
 }
 
 /// The settings as saved now.
-pub fn settings() -> FilesSettings { FilesSettings::from_prefs(&crate::settings::Settings::load().prefs) }
+pub fn settings() -> FilesSettings { FilesSettings::from_prefs(&crate::settings::snapshot()) }
 
 /// Settings > Files rows, keyless in the extracted schema (S-keyless-054..060), by label.
 pub fn row_key(label: &str) -> Option<&'static str> {
@@ -844,7 +844,7 @@ fn date_of(v: &Value, clock: &str) -> String {
 }
 
 fn clock() -> &'static str {
-    if crate::settings::Settings::load().str("timeFormat", "24h") == "12h" { "%-I:%M %p" } else { "%H:%M" }
+    if crate::settings::str_pref("timeFormat", "24h") == "12h" { "%-I:%M %p" } else { "%H:%M" }
 }
 
 /// Fill the panel for the selected item, or the folder on screen when none is selected.

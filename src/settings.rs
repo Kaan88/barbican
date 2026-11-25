@@ -8,11 +8,141 @@ use slint::{ModelRc, SharedString, VecModel};
 
 const SCHEMA: &str = include_str!("../ui/settings-schema.json");
 
-static LATEST: std::sync::Mutex<Option<Map<String, Value>>> = std::sync::Mutex::new(None);
+/// The parsed prefs, shared by every [`Settings::load`]; each save makes a new one.
+pub(crate) type Snapshot = std::sync::Arc<Map<String, Value>>;
+
+/// The prefs as last saved, or as read from the file the first time they were needed: `load`
+/// serves from here and never goes back to the disk. Every write of prefs.json goes through
+/// [`Settings::save`] (and [`Settings::flush`]), which puts the new values here first, so the
+/// cache is never older than the file.
+#[cfg_attr(test, allow(dead_code))] // tests write at once: no sequence, nothing pending
+struct Cache {
+    /// The file these values belong to (fixed for a process: the profile is read once).
+    path: std::path::PathBuf,
+    prefs: Snapshot,
+    /// Number of the newest save; a background write of an older one is superseded.
+    seq: u64,
+    /// The newest save has not landed in the file yet ([`Settings::flush`] writes it at exit).
+    pending: bool,
+}
+
 #[cfg(not(test))]
-static SAVE_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static CACHE: std::sync::Mutex<Option<Cache>> = std::sync::Mutex::new(None);
 #[cfg(not(test))]
 static WRITE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+#[cfg(not(test))]
+fn with_cache<R>(f: impl FnOnce(&mut Option<Cache>) -> R) -> R {
+    f(&mut CACHE.lock().unwrap_or_else(|e| e.into_inner()))
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Tests: this thread's cache while a [`CacheScope`] is alive (`Some`); without one every load
+    /// reads the file, as tests in parallel share the test process's prefs.json.
+    static TEST_CACHE: std::cell::RefCell<Option<Option<Cache>>> = const { std::cell::RefCell::new(None) };
+    /// Tests: how often this thread read prefs.json.
+    pub static DISK_READS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+    /// Tests: the prefs file of this thread's [`CacheScope`] (its own, so it races no other test).
+    static TEST_PATH: std::cell::RefCell<Option<std::path::PathBuf>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Tests that write the test process's shared settings files (settings.json, prefs.json) or
+/// register the live settings hold this, so they never run into each other.
+#[cfg(test)]
+pub(crate) static TEST_FILES: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+#[cfg(test)]
+fn with_cache<R>(f: impl FnOnce(&mut Option<Cache>) -> R) -> R {
+    TEST_CACHE.with(|t| match t.borrow_mut().as_mut() { Some(c) => f(c), None => f(&mut None) })
+}
+
+/// Tests: the settings cache is on for this thread, over a prefs file of its own, until the scope
+/// is dropped; then both are forgotten, so no test sees another's cached values.
+#[cfg(test)]
+pub(crate) struct CacheScope(std::path::PathBuf);
+
+#[cfg(test)]
+impl CacheScope {
+    pub(crate) fn new() -> CacheScope {
+        static N: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+        let n = N.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let p = crate::config_dir().join(format!("prefs-scope-{n}.json"));
+        let _ = std::fs::remove_file(&p);
+        TEST_PATH.with(|t| *t.borrow_mut() = Some(p.clone()));
+        TEST_CACHE.with(|t| *t.borrow_mut() = Some(None));
+        CacheScope(p)
+    }
+
+    /// The scope's prefs file.
+    pub(crate) fn file(&self) -> &std::path::Path { &self.0 }
+}
+
+#[cfg(test)]
+impl Drop for CacheScope {
+    fn drop(&mut self) {
+        TEST_CACHE.with(|t| *t.borrow_mut() = None);
+        TEST_PATH.with(|t| *t.borrow_mut() = None);
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
+fn read_file(p: &std::path::Path) -> Map<String, Value> {
+    #[cfg(test)]
+    DISK_READS.with(|n| n.set(n.get() + 1));
+    std::fs::read_to_string(p).ok()
+        .and_then(|t| serde_json::from_str::<Value>(&t).ok())
+        .and_then(|v| match v { Value::Object(m) => Some(m), _ => None })
+        .unwrap_or_default()
+}
+
+/// The prefs as last saved: from the cache, filled from the file once (under the cache's lock, so
+/// a save meanwhile is never replaced by the older file).
+fn current() -> Snapshot {
+    let p = path();
+    with_cache(|c| match c {
+        Some(c) if c.path == p => c.prefs.clone(),
+        _ => {
+            let prefs: Snapshot = std::sync::Arc::new(read_file(&p));
+            *c = Some(Cache { path: p, prefs: prefs.clone(), seq: 0, pending: false });
+            prefs
+        }
+    })
+}
+
+/// The prefs as last saved, without copying them (read-only; a later save makes a new snapshot).
+pub(crate) fn snapshot() -> Snapshot { current() }
+
+fn get_bool(p: &Map<String, Value>, key: &str, default: bool) -> bool {
+    p.get(key).and_then(|v| v.as_bool()).unwrap_or(default)
+}
+
+fn get_str(p: &Map<String, Value>, key: &str, default: &str) -> String {
+    p.get(key).and_then(|v| v.as_str()).unwrap_or(default).to_string()
+}
+
+fn get_int(p: &Map<String, Value>, key: &str, default: i64) -> i64 {
+    match p.get(key) {
+        Some(Value::Number(n)) => n.as_i64().or_else(|| n.as_f64().map(|f| f as i64)).unwrap_or(default),
+        Some(Value::String(s)) => s.trim().parse().unwrap_or(default),
+        _ => default,
+    }
+}
+
+/// [`Settings::bool`] on the prefs as last saved, without copying them (one value, read once).
+pub(crate) fn bool_pref(key: &str, default: bool) -> bool { get_bool(&current(), key, default) }
+
+/// [`Settings::str`] on the prefs as last saved, without copying them.
+pub(crate) fn str_pref(key: &str, default: &str) -> String { get_str(&current(), key, default) }
+
+/// [`Settings::int`] on the prefs as last saved, without copying them.
+#[allow(dead_code)]
+pub(crate) fn int_pref(key: &str, default: i64) -> i64 { get_int(&current(), key, default) }
+
+fn write_file(p: &std::path::Path, prefs: &Map<String, Value>) {
+    if let Some(d) = p.parent() { let _ = std::fs::create_dir_all(d); }
+    if let Ok(t) = serde_json::to_string(prefs) { let _ = std::fs::write(p, t); }
+}
 
 pub struct Account {
     pub email: String,
@@ -32,6 +162,8 @@ fn schema() -> std::sync::Arc<Value> {
 }
 
 fn path() -> std::path::PathBuf {
+    #[cfg(test)]
+    if let Some(p) = TEST_PATH.with(|p| p.borrow().clone()) { return p; }
     crate::config_dir().join("prefs.json")
 }
 
@@ -158,14 +290,9 @@ pub fn forget_package(prefs: &mut serde_json::Map<String, Value>, id: &str, pack
 }
 
 impl Settings {
+    /// The prefs as last saved, served from memory (the file is read once per process).
     pub fn load() -> Settings {
-        // a save that is still being written in the background is newer than the file
-        let pending = LATEST.lock().ok().and_then(|l| l.clone());
-        let prefs = pending.unwrap_or_else(|| std::fs::read_to_string(path()).ok()
-            .and_then(|t| serde_json::from_str::<Value>(&t).ok())
-            .and_then(|v| v.as_object().cloned())
-            .unwrap_or_default());
-        Settings { schema: schema(), prefs }
+        Settings { schema: schema(), prefs: (*current()).clone() }
     }
 
     /// Settings over the given values (no file), for tests and previews.
@@ -179,11 +306,8 @@ impl Settings {
         #[cfg(not(test))]
         {
             let _w = WRITE.lock();
-            let pending = LATEST.lock().ok().and_then(|mut l| l.take());
-            if let Some(p) = pending {
-                let _ = std::fs::create_dir_all(crate::config_dir());
-                let _ = std::fs::write(path(), Value::Object(p).to_string());
-            }
+            let pending = with_cache(|c| c.as_mut().filter(|c| c.pending).map(|c| { c.pending = false; (c.path.clone(), c.prefs.clone()) }));
+            if let Some((p, prefs)) = pending { write_file(&p, &prefs); }
         }
     }
 
@@ -193,29 +317,31 @@ impl Settings {
         self.save();
     }
 
-    /// Writes the settings file off the UI thread. `LATEST` serves `load` until the write lands
-    /// and the newest save always wins. Tests write synchronously.
+    /// Saves the settings: the cache serves every later `load` at once, and the file is written
+    /// off the UI thread, the newest save always winning. Tests write synchronously.
     pub(crate) fn save(&self) {
+        let snap: Snapshot = std::sync::Arc::new(self.prefs.clone());
+        let p = path();
         #[cfg(test)]
         {
-            let _ = std::fs::create_dir_all(crate::config_dir());
-            let _ = std::fs::write(path(), Value::Object(self.prefs.clone()).to_string());
+            write_file(&p, &snap);
+            with_cache(|c| *c = Some(Cache { path: p, prefs: snap, seq: 0, pending: false }));
         }
         #[cfg(not(test))]
         {
             // a change to a synced setting goes to the account (debounced)
             crate::settings_sync::local_saved(&self.prefs);
-            let seq = SAVE_SEQ.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
-            if let Ok(mut l) = LATEST.lock() { *l = Some(self.prefs.clone()); }
-            let prefs = self.prefs.clone();
+            let seq = with_cache(|c| {
+                let seq = c.as_ref().map_or(0, |c| c.seq) + 1;
+                *c = Some(Cache { path: p, prefs: snap, seq, pending: true });
+                seq
+            });
             std::thread::spawn(move || {
                 let _w = WRITE.lock();
-                if SAVE_SEQ.load(std::sync::atomic::Ordering::SeqCst) != seq { return; } // superseded
-                let _ = std::fs::create_dir_all(crate::config_dir());
-                let _ = std::fs::write(path(), Value::Object(prefs).to_string());
-                if SAVE_SEQ.load(std::sync::atomic::Ordering::SeqCst) == seq {
-                    if let Ok(mut l) = LATEST.lock() { *l = None; }
-                }
+                // superseded by a newer save (its own write follows), or already flushed
+                let Some((p, prefs)) = with_cache(|c| c.as_ref().filter(|c| c.seq == seq).map(|c| (c.path.clone(), c.prefs.clone()))) else { return };
+                write_file(&p, &prefs);
+                with_cache(|c| if let Some(c) = c.as_mut().filter(|c| c.seq == seq) { c.pending = false; });
             });
         }
     }
@@ -270,22 +396,12 @@ impl Settings {
         });
     }
 
-    pub fn bool(&self, key: &str, default: bool) -> bool {
-        self.prefs.get(key).and_then(|v| v.as_bool()).unwrap_or(default)
-    }
+    pub fn bool(&self, key: &str, default: bool) -> bool { get_bool(&self.prefs, key, default) }
 
-    pub fn str(&self, key: &str, default: &str) -> String {
-        self.prefs.get(key).and_then(|v| v.as_str()).unwrap_or(default).to_string()
-    }
+    pub fn str(&self, key: &str, default: &str) -> String { get_str(&self.prefs, key, default) }
 
     /// Numeric pref; tolerates numbers stored as strings.
-    pub fn int(&self, key: &str, default: i64) -> i64 {
-        match self.prefs.get(key) {
-            Some(Value::Number(n)) => n.as_i64().or_else(|| n.as_f64().map(|f| f as i64)).unwrap_or(default),
-            Some(Value::String(s)) => s.trim().parse().unwrap_or(default),
-            _ => default,
-        }
-    }
+    pub fn int(&self, key: &str, default: i64) -> i64 { get_int(&self.prefs, key, default) }
 
     fn tab_list(&self) -> Vec<(String, String, String, String, i32)> {
         // id, label, group, icon, indent
@@ -888,6 +1004,7 @@ mod tests {
 
     #[test]
     fn import_export_reset_roundtrip() {
+        let _files = TEST_FILES.lock().unwrap_or_else(|e| e.into_inner());
         let dir = std::env::temp_dir().join(format!("barbican-settings-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         #[allow(unused_unsafe)]
@@ -987,14 +1104,10 @@ mod tests {
     }
 }
 
-/// Bulwark's timeFormat pref ("12h" | "24h"), read straight from prefs.json so hot paths
-/// (admin tables, dashboard tooltips) need not parse the schema.
+/// Bulwark's timeFormat pref ("12h" | "24h"), read from the cached prefs without copying them, for
+/// hot paths (admin tables, dashboard tooltips).
 pub fn h12() -> bool {
-    if let Some(p) = LATEST.lock().ok().and_then(|l| l.clone()) { return p.get("timeFormat").and_then(|v| v.as_str()) == Some("12h"); }
-    std::fs::read_to_string(path()).ok()
-        .and_then(|t| serde_json::from_str::<Value>(&t).ok())
-        .map(|v| v["timeFormat"].as_str() == Some("12h"))
-        .unwrap_or(false)
+    current().get("timeFormat").and_then(|v| v.as_str()) == Some("12h")
 }
 
 /// The running program's settings (the one object every settings change goes through), so a change
@@ -1144,5 +1257,142 @@ mod forget_package_tests {
         prefs["pluginGrants"]["other"] = json!({"id": "other", "path": "", "sha256": "h"});
         super::forget_package(&mut prefs, "other", std::path::Path::new(""));
         assert!(prefs["pluginGrants"].get("other").is_some());
+    }
+}
+
+#[cfg(test)]
+mod cache_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn reads() -> u32 { DISK_READS.with(|n| n.get()) }
+
+    /// What the scope's prefs file holds now.
+    fn on_disk(scope: &CacheScope) -> Map<String, Value> { read_file(scope.file()) }
+
+    #[test]
+    fn a_load_after_a_save_comes_from_memory() {
+        let scope = CacheScope::new();
+        let mut s = Settings::load(); // fills the cache from the (missing) file: one read
+        assert!(s.prefs.is_empty());
+        let before = reads();
+        s.remember("density", json!("compact"));
+        s.remember("timeFormat", json!("12h"));
+        assert_eq!(Settings::load().str("density", ""), "compact");
+        assert_eq!(str_pref("density", ""), "compact");
+        assert!(h12());
+        assert!(std::sync::Arc::ptr_eq(&snapshot(), &snapshot()), "a load shares the cached values instead of parsing them again");
+        assert_eq!(reads(), before, "no load went back to the file");
+        // and the file has the same values
+        assert_eq!(on_disk(&scope)["density"], "compact");
+        // a value changed on the file behind the program's back is not read again
+        std::fs::write(scope.file(), r#"{"density":"comfortable"}"#).unwrap();
+        assert_eq!(Settings::load().str("density", ""), "compact");
+        assert_eq!(reads(), before + 1, "only the check above read the file");
+    }
+
+    #[test]
+    fn every_writer_is_seen_by_the_next_load() {
+        let _files = TEST_FILES.lock().unwrap_or_else(|e| e.into_inner());
+        let scope = CacheScope::new();
+        let _ = Settings::load();
+        let before = reads();
+        let seen = |key: &str, want: Value| {
+            assert_eq!(Settings::load().prefs.get(key).cloned().unwrap_or(Value::Null), want, "load after writing {key}");
+            assert_eq!(snapshot().get(key).cloned().unwrap_or(Value::Null), want, "snapshot after writing {key}");
+        };
+
+        // save and remember on a loaded copy
+        let mut s = Settings::load();
+        s.prefs.insert("a".into(), json!(1));
+        s.save();
+        seen("a", json!(1));
+        Settings::load().remember("b", json!(2));
+        seen("b", json!(2));
+        // a settings row
+        Settings::load().set("density", json!("compact"), &mut crate::ai::Config::default());
+        seen("density", json!("compact"));
+        // import (Bulwark's flat file) replaces the values
+        let mut s = Settings::load();
+        s.import(&json!({"theme": "light"})).unwrap();
+        seen("theme", json!("light"));
+        seen("a", Value::Null);
+        // the helpers outside the settings page (fresh load: no live settings registered)
+        Settings::put("emailKeywords", Some(json!([{"id": "work", "label": "Work"}])));
+        seen("emailKeywords", json!([{"id": "work", "label": "Work"}]));
+        assert_eq!(crate::tags::defs().len(), 1);
+        Settings::put("emailKeywords", None);
+        seen("emailKeywords", Value::Null);
+        set_pref("sharedCalendarColors", json!({"c1": "#ff0000"}));
+        seen("sharedCalendarColors", json!({"c1": "#ff0000"}));
+        update_pref("counter", |v| json!(v.and_then(|v| v.as_i64()).unwrap_or(0) + 1));
+        update_pref("counter", |v| json!(v.and_then(|v| v.as_i64()).unwrap_or(0) + 1));
+        seen("counter", json!(2));
+        // settings sync writes what it pulled through with_live
+        with_live(|s| { s.prefs.insert("pulled".into(), json!(true)); s.save(); });
+        seen("pulled", json!(true));
+        assert!(bool_pref("pulled", false));
+        // the trusted list, and the sign-out that forgets it
+        trusted_local_update(|l| l.push("Someone@Example.test".into()));
+        seen("trustedSenders", crate::trust::trusted_json(&["someone@example.test".to_string()]));
+        trusted_state_update(|l, _| l.clear());
+        trusted_local_update(|l| l.push("other@example.test".into()));
+        forget_trusted_senders();
+        seen("trustedSenders", Value::Null);
+        // the live settings: a change made on them is what the next load sees
+        let live = std::sync::Arc::new(std::sync::Mutex::new(Settings::load()));
+        register_live(live.clone());
+        live.lock().unwrap().remember("liveKey", json!("x"));
+        seen("liveKey", json!("x"));
+        set_pref("viaLive", json!(3));
+        seen("viaLive", json!(3));
+        trusted_local_update(|l| l.push("live@example.test".into()));
+        forget_trusted_senders();
+        seen("trustedSenders", Value::Null);
+        if let Ok(mut l) = LIVE.lock() { *l = None; }
+        // flush (a no-op in tests: their saves are written at once) keeps the values
+        Settings::flush();
+        seen("viaLive", json!(3));
+        // reset empties them
+        Settings::load().reset();
+        assert!(Settings::load().prefs.is_empty());
+        assert!(snapshot().is_empty());
+
+        assert_eq!(reads(), before, "every load came from memory");
+        assert!(on_disk(&scope).is_empty(), "and the file has what was last saved");
+    }
+
+    #[test]
+    fn a11y_follows_each_save() {
+        let _scope = CacheScope::new();
+        let mut s = Settings::load();
+        assert!(crate::a11y::A11y::load().single_keys);
+        s.remember("singleKeyShortcuts", json!(false));
+        assert!(!crate::a11y::A11y::load().single_keys);
+        assert!(!crate::a11y::A11y::load().single_keys);
+        s.remember("singleKeyShortcuts", json!(true));
+        assert!(crate::a11y::A11y::load().single_keys);
+        assert_eq!(crate::a11y::System::detect(), crate::a11y::System::detect());
+    }
+
+    #[test]
+    fn the_cache_does_not_outlive_its_scope_or_cross_threads() {
+        {
+            let _scope = CacheScope::new();
+            Settings::load().remember("leak", json!("yes"));
+            assert_eq!(str_pref("leak", ""), "yes");
+            // another thread has no cache: it reads its own file (the process's test prefs.json)
+            std::thread::spawn(|| {
+                let before = reads();
+                let _ = Settings::load();
+                let _ = Settings::load();
+                assert_eq!(reads(), before + 2, "without a scope every load reads the file");
+            }).join().unwrap();
+        }
+        let scope = CacheScope::new();
+        let before = reads();
+        assert_eq!(str_pref("leak", ""), "", "a new scope starts from its own file");
+        assert_eq!(reads(), before + 1);
+        assert!(!scope.file().exists());
     }
 }

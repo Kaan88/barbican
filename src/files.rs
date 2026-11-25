@@ -164,7 +164,7 @@ fn set_prefs_list(name: &str, v: &[String]) {
 
 /// The time part of a date, following the timeFormat setting (12h or 24h).
 fn clock() -> &'static str {
-    if crate::settings::Settings::load().str("timeFormat", "24h") == "12h" { "%-I:%M %p" } else { "%H:%M" }
+    if crate::settings::str_pref("timeFormat", "24h") == "12h" { "%-I:%M %p" } else { "%H:%M" }
 }
 
 pub fn is_starred(k: &str) -> bool { prefs_list("filesFavorites").iter().any(|x| x == k) }

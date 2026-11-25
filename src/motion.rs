@@ -51,9 +51,11 @@ pub fn install_filter(ui: &AppWindow) {
         if crate::applock::input_event(ev) { return EventResult::PreventDefault; }
         if let Some(u) = w.upgrade() { crate::winstate::event(&u, ev); }
         if let WindowEvent::Focused(true) = ev {
+            // back from Windows settings: read them again now (they are cached for a moment)
+            let sys = crate::a11y::System::refresh();
             if PREF.with(|p| p.borrow().as_str() == "system") {
                 if let Some(u) = w.upgrade() {
-                    let reduce = reduce_for("system", crate::a11y::System::detect().reduce_motion);
+                    let reduce = reduce_for("system", sys.reduce_motion);
                     if u.global::<Motion>().get_reduce() != reduce { u.global::<Motion>().set_reduce(reduce); }
                 }
             }

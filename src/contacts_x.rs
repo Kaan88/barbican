@@ -969,7 +969,7 @@ const PRINCIPALS: &str = "urn:ietf:params:jmap:principals";
 const PRINCIPAL_PROPS: [&str; 7] = ["id", "type", "name", "description", "email", "timeZone", "accounts"];
 
 pub fn directory_enabled() -> bool {
-    S.with(|s| s.borrow().has_principals) && crate::settings::Settings::load().bool("showContactsDirectory", true)
+    S.with(|s| s.borrow().has_principals) && crate::settings::bool_pref("showContactsDirectory", true)
 }
 
 pub fn set_has_principals(on: bool) { S.with(|s| s.borrow_mut().has_principals = on); }

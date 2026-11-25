@@ -61,8 +61,9 @@ struct ListPrefs {
     attachment_chips: bool, codes: bool, tint_rows: bool, hide_inline_images: bool,
 }
 
-fn list_prefs() -> ListPrefs {
-    let p = crate::settings::Settings::load();
+fn list_prefs() -> ListPrefs { list_prefs_from(&crate::settings::Settings::load()) }
+
+fn list_prefs_from(p: &crate::settings::Settings) -> ListPrefs {
     ListPrefs {
         // Bulwark's default is false; Barbican kept its date groups until the user turns them off
         group_by_date: p.bool("groupListByDate", true),
@@ -475,8 +476,7 @@ pub fn sender(v: &Value) -> String {
 
 /// How unified rows show their account: Bulwark's tintListRowsByAccount (a bool there;
 /// Barbican's select stores dot / tint / none). The dot needs two or more accounts.
-fn account_mark() -> &'static str {
-    let p = crate::settings::Settings::load();
+fn account_mark(p: &crate::settings::Settings) -> &'static str {
     let mark = match p.prefs.get("tintListRowsByAccount") {
         Some(Value::Bool(true)) => "tint",
         Some(Value::String(s)) if s == "tint" => "tint",
@@ -564,13 +564,14 @@ pub fn refresh_avatars(u: &AppWindow) {
     reader_avatar(u, &ap);
 }
 
-fn build_rows(st: &ListState) -> Vec<Mail> {
-    let lp = list_prefs();
-    let ap = crate::avatars::Prefs::load();
+/// `p`: the settings, read once for the whole list.
+fn build_rows(st: &ListState, p: &crate::settings::Settings) -> Vec<Mail> {
+    let lp = list_prefs_from(p);
+    let ap = crate::avatars::Prefs::from_settings(p, crate::crashguard::safe_mode());
     let junk = filter_in_junk(&st.filter);
-    let tdefs = crate::tags::defs();
+    let tdefs = crate::tags::parse(p.prefs.get("emailKeywords"));
     let unified = st.filter["unified"] == true;
-    let mark = if unified { account_mark() } else { "none" };
+    let mark = if unified { account_mark(p) } else { "none" };
     let mut last = String::new();
     st.emails.iter().enumerate().map(|(i, m)| {
         let t = parse_time(&m["receivedAt"]);
@@ -654,7 +655,9 @@ pub fn attachment_names(m: &Value, hide_inline: bool) -> Vec<String> {
 
 pub fn rebuild_list(u: &AppWindow) {
     // Bulwark density: extra-compact / compact / regular / comfortable
-    let h = match crate::settings::Settings::load().str("density", "regular").as_str() {
+    // one read of the settings for the whole rebuild
+    let p = crate::settings::Settings::load();
+    let h = match p.str("density", "regular").as_str() {
         "extra-compact" => 60.0, "compact" => 74.0, "comfortable" => 92.0, _ => 82.0,
     };
     u.set_mail_row_height(h);
@@ -662,7 +665,7 @@ pub fn rebuild_list(u: &AppWindow) {
         let l = l.borrow();
         // in place, by message id: a refresh only touches the rows that changed, new mail is an
         // insert, a moved or deleted message a remove (design/MOTION.md, "Lists")
-        crate::listsync::sync_into(&u.get_mails(), build_rows(&l), |m| m.id.clone(), same_row, |m| u.set_mails(m));
+        crate::listsync::sync_into(&u.get_mails(), build_rows(&l, &p), |m| m.id.clone(), same_row, |m| u.set_mails(m));
         u.set_has_more(l.emails.len() < l.total);
         u.set_checked_count(l.checked.len() as i32);
         crate::plugin_hooks::selection(&l.checked);
@@ -1084,7 +1087,7 @@ pub fn apply(u: &AppWindow, c: Arc<Client>, ids: Vec<String>, action: &str) {
 pub fn confirm_action(u: &AppWindow, n: usize, action: &str) -> bool {
     let a11y = crate::a11y::A11y::load();
     let ask = match action {
-        "delete" => (n > 1 && crate::settings::Settings::load().bool("confirmBulkDelete", true)) || a11y.confirm_delete,
+        "delete" => (n > 1 && crate::settings::bool_pref("confirmBulkDelete", true)) || a11y.confirm_delete,
         "archive" => a11y.confirm_archive,
         _ => false,
     };
@@ -1125,13 +1128,13 @@ pub fn apply_confirmed(u: &AppWindow, c: Arc<Client>, ids: Vec<String>, action: 
     let action = action.to_string();
     // in Trash delete is permanent; in Junk only with permanentlyDeleteJunk (Bulwark)
     let current_role = mailbox_role(&u.get_current_folder());
-    let junk_permanent = crate::settings::Settings::load().bool("permanentlyDeleteJunk", false);
+    let junk_permanent = crate::settings::bool_pref("permanentlyDeleteJunk", false);
     let permanent = action == "delete" && (current_role == "trash" || (current_role == "junk" && junk_permanent));
     // rows of a shared/group account (unified inbox) go out with that account's id
     let shared = shared_account(&ids[0]);
     let next_snapshot = next_after(u.get_current_mail().as_str(), selection);
     // Bulwark archiveMode: one Archive folder, or a folder per year / month inside it
-    let archive_mode = crate::settings::Settings::load().str("archiveMode", "single");
+    let archive_mode = crate::settings::str_pref("archiveMode", "single");
     let received: Vec<(String, String)> = if action == "archive" && archive_mode != "single" {
         ids.iter().map(|i| (crate::unified::real_id(i).to_string(), email(i).and_then(|m| m["receivedAt"].as_str().map(String::from)).unwrap_or_default())).collect()
     } else { vec![] };
@@ -1152,7 +1155,7 @@ pub fn apply_confirmed(u: &AppWindow, c: Arc<Client>, ids: Vec<String>, action: 
         let cur = u.get_current_mail().to_string();
         if ids.iter().any(|i| *i == cur) {
             // returnToListAfterAction off: open the next message (Bulwark), else go back to the list
-            if !crate::settings::Settings::load().bool("returnToListAfterAction", true) {
+            if !crate::settings::bool_pref("returnToListAfterAction", true) {
                 open_next = next_snapshot.clone();
             }
             u.set_current_mail("".into());
@@ -1170,7 +1173,7 @@ pub fn apply_confirmed(u: &AppWindow, c: Arc<Client>, ids: Vec<String>, action: 
                 "delete" if permanent => c.destroy(&ids).map(|_| ()),
                 "delete" => {
                     // Bulwark's deleteAction: trash | trash-read | permanent
-                    match crate::settings::Settings::load().str("deleteAction", "trash").as_str() {
+                    match crate::settings::str_pref("deleteAction", "trash").as_str() {
                         "permanent" => c.destroy(&ids).map(|_| ()),
                         "trash-and-read" => { check(c.set_keyword(&ids, "$seen", true)?)?; check(c.move_to_role(&ids, "trash")?) }
                         _ => check(c.move_to_role(&ids, "trash")?),

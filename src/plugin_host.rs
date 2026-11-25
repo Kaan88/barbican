@@ -1580,7 +1580,7 @@ impl HostEnv for AppEnv {
     }
     fn data_dir(&self) -> PathBuf { crate::plugins::data_dir() }
     fn stored_settings(&self, plugin: &str) -> Value {
-        crate::settings::Settings::load().prefs.get("pluginSettings").and_then(|m| m.get(plugin)).cloned().unwrap_or(Value::Null)
+        crate::settings::snapshot().get("pluginSettings").and_then(|m| m.get(plugin)).cloned().unwrap_or(Value::Null)
     }
     fn toast(&self, _tone: &str, text: &str) {
         let t = text.to_string();

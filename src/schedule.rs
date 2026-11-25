@@ -78,7 +78,7 @@ pub fn label_rfc3339(s: &str, h12: bool) -> String {
     DateTime::parse_from_rfc3339(s).map(|d| label(d.with_timezone(&Local), h12, Local::now())).unwrap_or_else(|_| s.to_string())
 }
 
-fn h12() -> bool { crate::settings::Settings::load().str("timeFormat", "24h") == "12h" }
+fn h12() -> bool { crate::settings::str_pref("timeFormat", "24h") == "12h" }
 
 /// What the dialog is for.
 #[derive(Clone)]

@@ -33,7 +33,8 @@ pub fn parse(v: Option<&Value>) -> Vec<TagDef> {
     }).collect()
 }
 
-pub fn defs() -> Vec<TagDef> { parse(crate::settings::Settings::load().prefs.get("emailKeywords")) }
+/// The tag definitions as last saved (read from the cached settings without copying them).
+pub fn defs() -> Vec<TagDef> { parse(crate::settings::snapshot().get("emailKeywords")) }
 
 pub fn to_value(defs: &[TagDef]) -> Value {
     Value::Array(defs.iter().map(|d| json!({"id": d.id, "label": d.label, "color": d.color})).collect())
@@ -41,7 +42,7 @@ pub fn to_value(defs: &[TagDef]) -> Value {
 
 pub fn save(defs: &[TagDef]) { crate::settings::Settings::put("emailKeywords", Some(to_value(defs))); }
 
-pub fn nested() -> bool { crate::settings::Settings::load().bool("nestedTags", false) }
+pub fn nested() -> bool { crate::settings::snapshot().get("nestedTags").and_then(|v| v.as_bool()).unwrap_or(false) }
 
 /// RFC 8621 keyword syntax for the whole `$label:<id>`, within Stalwart's length.
 pub fn valid_id(id: &str) -> bool {

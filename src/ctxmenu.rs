@@ -592,7 +592,7 @@ fn mail_items(u: &AppWindow, t: &Target) -> Vec<CtxItem> {
         off(it(G_FORWARD, "Forward", "F", "forward"), n == 1),
         sep(),
         it(G_ARCHIVE, "Archive", "E", "archive"),
-        if n > 1 && crate::settings::Settings::load().bool("confirmBulkDelete", true) { danger(G_DELETE, "Delete", "Del", "ask:delete") } else { danger(G_DELETE, "Delete", "Del", "delete") },
+        if n > 1 && crate::settings::bool_pref("confirmBulkDelete", true) { danger(G_DELETE, "Delete", "Del", "ask:delete") } else { danger(G_DELETE, "Delete", "Del", "delete") },
         sub(G_MOVE, "Move to", "sub:move"),
         sep(),
         if kw(&first, "$seen") { it(G_UNREAD, "Mark as unread", "U", "unread") } else { it(G_READ, "Mark as read", "U", "read") },

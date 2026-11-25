@@ -318,7 +318,7 @@ fn spec(view: View) -> Spec {
     match view {
         View::Calendar => Spec {
             props: |ty| Some(if ty == "Calendar" { json!(crate::calendar::CAL_PROPS.to_vec()) } else { json!(crate::calendar::EVENT_PROPS.to_vec()) }),
-            extra: |_| crate::settings::Settings::load().prefs.get("sharedCalendarColors").cloned().unwrap_or(json!({})),
+            extra: |_| crate::settings::snapshot().get("sharedCalendarColors").cloned().unwrap_or(json!({})),
             full: |u, c| crate::calendar::load(u.as_weak(), c),
             apply: |u, c, ds, colors| crate::calendar::apply_live(u, c, ds, colors),
         },

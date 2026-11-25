@@ -94,7 +94,7 @@ pub fn shared_color_key(user: &str, account: &str, id: &str) -> String { format!
 
 fn color_for(cals: &[Value], id: &str) -> Color {
     if id == BIRTHDAY_CAL {
-        return hex_color(&crate::settings::Settings::load().str("birthdayCalendarColor", "#eab308")).unwrap_or(Color::from_rgb_u8(0xea, 0xb3, 0x08));
+        return hex_color(&crate::settings::str_pref("birthdayCalendarColor", "#eab308")).unwrap_or(Color::from_rgb_u8(0xea, 0xb3, 0x08));
     }
     let i = cals.iter().position(|c| c["id"] == id).unwrap_or(0);
     let c = cals.get(i);
@@ -198,7 +198,7 @@ pub fn fmt_time(t: NaiveDateTime, h12: bool) -> String {
     if h12 { t.format("%-I:%M %p").to_string() } else { t.format("%H:%M").to_string() }
 }
 
-pub fn h12() -> bool { crate::settings::Settings::load().str("timeFormat", "24h") == "12h" }
+pub fn h12() -> bool { crate::settings::str_pref("timeFormat", "24h") == "12h" }
 
 /// The day columns of the Day / Week view: every date of the range [from, to).
 fn day_columns(from: NaiveDate, to: NaiveDate) -> Vec<NaiveDate> {
@@ -282,7 +282,7 @@ pub fn load(w: slint::Weak<AppWindow>, c: Arc<Client>) {
         let res: Result<(Vec<Value>, Vec<Value>), String> = (|| {
             let mut cals = vec![];
             let mut events = vec![];
-            let colors = crate::settings::Settings::load().prefs.get("sharedCalendarColors").cloned().unwrap_or(json!({}));
+            let colors = crate::settings::snapshot().get("sharedCalendarColors").cloned().unwrap_or(json!({}));
             for (acc, name, is_primary) in calendar_accounts(&c) {
                 let r = c.request(json!([["Calendar/get", {"accountId": acc, "ids": null, "properties": CAL_PROPS}, "c"]]))?;
                 if r.first().is_none_or(|x| x[0] == "error") {
@@ -320,7 +320,7 @@ pub fn load(w: slint::Weak<AppWindow>, c: Arc<Client>) {
             }
             Ok((cals, events))
         })();
-        let people = if crate::settings::Settings::load().bool("showBirthdayCalendar", false) { crate::cal_extra::fetch_people(&c).ok() } else { None };
+        let people = if crate::settings::bool_pref("showBirthdayCalendar", false) { crate::cal_extra::fetch_people(&c).ok() } else { None };
         let w2 = w.clone();
         let c2 = c.clone();
         let _ = w.upgrade_in_event_loop(move |u| match res {
