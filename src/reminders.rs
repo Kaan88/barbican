@@ -591,6 +591,8 @@ pub fn check(u: &AppWindow) {
     let p = crate::settings::Settings::load();
     let on = p.bool("calendarNotificationsEnabled", true);
     let sound = p.bool("calendarNotificationSound", true) && !p.bool("doNotDisturb", false);
+    // Bulwark notificationSoundChoice plays for calendar alerts too (use-calendar-alerts.ts:112-120)
+    let tone = crate::notify::chosen_tone(&p);
     let tasks = p.bool("enableCalendarTasks", true);
     let now = now_ms();
     let (owner, events, cals, first) = RUN.with(|r| { let r = r.borrow(); (r.owner.clone(), r.events.clone(), r.cals.clone(), !r.checked_missed) });
@@ -623,13 +625,13 @@ pub fn check(u: &AppWindow) {
         let back: Vec<String> = RUN.with(|r| r.borrow().snoozed.iter().filter(|(_, t)| **t <= now).map(|(k, _)| k.clone()).collect());
         for k in back {
             RUN.with(|r| r.borrow_mut().snoozed.remove(&k));
-            if let Some(d) = RUN.with(|r| r.borrow().shown.get(&k).cloned()) { show(u, &d, sound, now); }
+            if let Some(d) = RUN.with(|r| r.borrow().shown.get(&k).cloned()) { show(u, &d, sound, tone, now); }
         }
         if !fresh.is_empty() {
             acknowledge(&owner, &fresh.iter().map(|d| (d.key.clone(), d.fire_ms)).collect::<Vec<_>>(), now);
             for d in &fresh {
                 RUN.with(|r| r.borrow_mut().shown.insert(d.key.clone(), d.clone()));
-                show(u, d, sound, now);
+                show(u, d, sound, tone, now);
             }
         }
     }
@@ -646,7 +648,7 @@ pub fn check(u: &AppWindow) {
 }
 
 /// Put one reminder on screen (the stack in the window) and on the desktop.
-fn show(u: &AppWindow, d: &Due, sound: bool, now: i64) {
+fn show(u: &AppWindow, d: &Due, sound: bool, tone: crate::notify::Tone, now: i64) {
     let x = u.global::<crate::CalX>();
     let title = if d.title.is_empty() { "(no title)".to_string() } else { d.title.clone() };
     let when = when_label(d, now);
@@ -662,7 +664,7 @@ fn show(u: &AppWindow, d: &Due, sound: bool, now: i64) {
         let body = if d.calendar.is_empty() { when } else { format!("{when} · {}", d.calendar) };
         std::thread::spawn(move || {
             let mut n = notify_rust::Notification::new();
-            if sound { n.sound_name("Reminder"); }
+            if sound { n.sound_name(crate::notify::desktop_sound_name(tone)); }
             let _ = n.appname("Barbican").summary(&title).body(&body).show();
         });
     }

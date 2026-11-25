@@ -531,6 +531,11 @@ const CACHE_MAX: usize = 500;
 
 static CACHE: Mutex<Option<HashMap<String, (Instant, Duration, Info)>>> = Mutex::new(None);
 
+/// Forget every answer (`Refresh cached data`, src/cachedata.rs): each domain is looked up again.
+pub fn forget_all() {
+    *CACHE.lock().unwrap_or_else(|e| e.into_inner()) = None;
+}
+
 /// The BIMI answer for a From domain, from the cache or the network. Blocks: run it off the UI
 /// thread. Only worth asking for a domain `auth::brand_domain` named, and only with the
 /// "Show favicons and brand logos" setting on (it reaches the sender's DNS and hosts).

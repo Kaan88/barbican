@@ -76,6 +76,9 @@ fn option_override(key: &str) -> Option<Vec<(Value, &'static str)>> {
         // Bulwark ReadReceiptResponse (privacy-settings.tsx)
         "readReceiptResponse" => vec![(json!("ask"), "Ask each time"), (json!("always"), "Always send"), (json!("never"), "Never send")],
         "writingLanguage" => vec![(json!("auto"), "Detect automatically"), (json!("en"), "English"), (json!("de"), "German"), (json!("fr"), "French"), (json!("es"), "Spanish"), (json!("tr"), "Turkish")],
+        // Bulwark NOTIFICATION_SOUNDS (lib/notification-sound.ts) with its English labels
+        // (locales/en: notification_settings.sounds.*); notify::Tone plays them
+        crate::notify::TONE_KEY => crate::notify::Tone::ALL.iter().map(|t| (json!(t.id()), t.label())).collect(),
         _ => return None,
     })
 }
@@ -241,8 +244,9 @@ impl Settings {
                 None => { imported.remove(key); }
             }
         }
-        // Bulwark's own export: a `false` it never recorded as chosen means "not decided" (on)
-        if v["app"] != "barbican" { crate::trustbook::migrate_book_default(&mut imported); }
+        // Bulwark's own export: a `false` it never recorded as chosen means "not decided" (on),
+        // and a `default` tone it never recorded as chosen was the old default before Involved
+        if v["app"] != "barbican" { crate::trustbook::migrate_book_default(&mut imported); crate::notify::migrate_sound_default(&mut imported); }
         self.prefs = imported;
         self.save();
         if v["desktop"].is_object() {
@@ -377,6 +381,9 @@ impl Settings {
                         .unwrap_or(if key == "theme" { json!("dark") } else { Value::Null });
                     let idx = opts.iter().position(|(v, _)| v == &cur || v.as_str().is_some_and(|x| Some(x.to_string()) == cur.as_i64().map(|n| n.to_string()) || Some(x) == cur.as_str())).unwrap_or(0);
                     let labels: Vec<&str> = opts.iter().map(|(_, l)| l.as_str()).collect();
+                    // no speaker button yet (a toast is the only way this build can play a tone):
+                    // Bulwark's line promises one it can't keep
+                    let desc = if key == crate::notify::TONE_KEY { "The sound a new message or a calendar reminder plays." } else { desc };
                     out.push(select(key, label, desc, &labels, idx as i32));
                 }
                 "text" if is_retention_key(key) => {
@@ -388,6 +395,9 @@ impl Settings {
                 // Contacts > Import / Export (Bulwark contact-import-dialog, contact-export)
                 "info" if label == "Import contacts" => out.push(text("button", "contacts.import", label, "Adds the contacts in a vCard (.vcf) file. Contacts whose email address you already have can be skipped.", "Import…")),
                 "info" if label == "Export contacts" => out.push(text("button", "contacts.export", label, "Saves every contact as a vCard 4.0 file, photos included.", "Export…")),
+                // About > Fix problems > Refresh cached data (Bulwark clearCachedData, S-keyless-063)
+                "info" if label == "Refresh cached data" => out.push(text("button", "cache.refresh", label,
+                    "Reload contacts, calendars and folders from the server. You stay signed in.", "Refresh")),
                 // Calendar > Working days (Bulwark calendarWorkingDays: 0 = Sunday .. 6 = Saturday)
                 "info" if label == "Working days" => {
                     out.push(row("section", "", label, desc));
@@ -813,6 +823,39 @@ mod tests {
         assert!(r.desc.contains("Plugins"), "{}", r.desc);
     }
 
+    #[test]
+    fn refresh_cached_data_is_a_button_under_fix_problems() {
+        let rows = Settings::with_prefs(Map::new()).schema_rows("about");
+        let i = rows.iter().position(|r| r.key == "cache.refresh").expect("row");
+        assert_eq!(rows[i].label.as_str(), "Refresh cached data");
+        assert_eq!(rows[i].kind.as_str(), "button");
+        assert_eq!(rows[i].text.as_str(), "Refresh");
+        // in Bulwark's "Fix problems" section
+        assert!(rows[..i].iter().any(|r| r.kind == "section" && r.label == "Fix problems"));
+    }
+
+    #[test]
+    fn the_tone_select_lists_bulwarks_tones() {
+        use slint::Model as _;
+        // the extracted schema has no options for it (Bulwark builds them from NOTIFICATION_SOUNDS)
+        let rows = Settings::with_prefs(Map::new()).schema_rows("notifications");
+        let r = rows.iter().find(|r| r.key == crate::notify::TONE_KEY).expect("row");
+        let labels: Vec<String> = r.options.iter().map(|o| o.to_string()).collect();
+        assert_eq!(labels, ["Beep", "Cheerful", "Involved", "Swift Gesture", "Relax"]);
+        // nothing stored: Bulwark's default is selected
+        assert_eq!(r.index, 2);
+        assert!(!r.desc.contains("speaker"), "no preview button yet: {}", r.desc);
+        // a stored choice is selected, and is stored under Bulwark's name
+        let mut prefs = Map::new();
+        prefs.insert(crate::notify::TONE_KEY.into(), json!("swift"));
+        let s = Settings::with_prefs(prefs);
+        let rows = s.schema_rows("notifications");
+        let r = rows.iter().find(|r| r.key == crate::notify::TONE_KEY).unwrap();
+        assert_eq!(r.index, 3);
+        assert_eq!(s.select_value(crate::notify::TONE_KEY, 0), json!("default"));
+        assert_eq!(s.select_value(crate::notify::TONE_KEY, 4), json!("relax"));
+    }
+
     // One test so the APPDATA override can't race other tests touching config_dir().
     #[test]
     fn retention_parse_and_set() {
@@ -862,6 +905,16 @@ mod tests {
         assert!(s.bool("trustedSendersAddressBook", false));
         s.import(&json!({"trustedSendersAddressBook": false, "explicitSettings": ["trustedSendersAddressBook"]})).unwrap();
         assert!(!s.bool("trustedSendersAddressBook", true));
+
+        // Bulwark's v9 tone migration: the old `default` (beep) nobody chose becomes Involved;
+        // a beep the file records as chosen stays, and Barbican's own export is not migrated
+        s.import(&json!({"notificationSoundChoice": "default"})).unwrap();
+        assert_eq!(s.str(crate::notify::TONE_KEY, ""), "involved");
+        s.import(&json!({"notificationSoundChoice": "default", "explicitSettings": ["notificationSoundChoice"]})).unwrap();
+        assert_eq!(s.str(crate::notify::TONE_KEY, ""), "default");
+        let own = json!({"app": "barbican", "settings": {"notificationSoundChoice": "default"}});
+        s.import(&own).unwrap();
+        assert_eq!(s.str(crate::notify::TONE_KEY, ""), "default");
 
         // Bulwark-shaped with a "settings" wrapper.
         s.import(&json!({"version": 2, "settings": {"theme": "light"}})).unwrap();
