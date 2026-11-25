@@ -288,8 +288,8 @@ impl Flights {
     pub fn end(&mut self, owner: &str) -> bool { self.running.remove(owner); self.again.remove(owner) }
 }
 
-/// A pull's result is used only for the session it was made for, and never while locked.
-pub fn accept(owner: &str, current: Option<&str>, locked: bool) -> bool { !locked && current == Some(owner) }
+/// A pull's result is used only for the session it was made for.
+pub fn accept(owner: &str, current: Option<&str>) -> bool { current == Some(owner) }
 
 /// A toast to show (`None`: only acknowledge, the drafts), and what to destroy once it was shown.
 #[derive(Clone, Debug, PartialEq)]
@@ -307,23 +307,17 @@ impl Queue {
     pub fn push(&mut self, item: QItem) { self.items.push_back(item); }
     pub fn clear(&mut self) { self.items.clear(); }
     /// The next step: items of another login than `current` go (a switch or sign-out); a toast
-    /// waits until the window is `ready` (shown, not minimised, not locked, its toast line free),
-    /// an acknowledgement alone until it is not `locked`.
-    pub fn next(&mut self, current: Option<&str>, ready: bool, locked: bool) -> Next {
+    /// waits until the window is `ready` (shown, not minimised, its toast line free); an
+    /// acknowledgement alone goes at once.
+    pub fn next(&mut self, current: Option<&str>, ready: bool) -> Next {
         self.items.retain(|i| current == Some(i.owner.as_str()));
         let Some(front) = self.items.front() else { return Next::Idle };
-        let can = if front.toast.is_some() { ready && !locked } else { !locked };
-        if !can { return Next::Wait; }
+        if front.toast.is_some() && !ready { return Next::Wait; }
         Next::Show(self.items.pop_front().expect("front"))
     }
 }
 
 // ---------------- the app ----------------
-
-/// The app lock's hook: while it says locked, the bell shows no count and its panel no entries,
-/// and notifications are neither shown nor acknowledged (they stay on the server and are pulled
-/// again once [`fetch`] runs after unlocking).
-pub fn locked() -> bool { crate::applock::locked() }
 
 static CENTER: Mutex<Option<Center>> = Mutex::new(None);
 /// Shown ids of share and of event notifications.
@@ -373,12 +367,6 @@ pub fn forget_session() {
 
 pub fn render(u: &AppWindow) {
     let g = u.global::<Notices>();
-    if locked() {
-        g.set_unread(0);
-        g.set_badge("".into());
-        g.set_rows(ModelRc::new(VecModel::from(Vec::<NoticeRow>::new())));
-        return;
-    }
     let now = chrono::Utc::now().timestamp_millis();
     let (rows, unread) = center(|c| (c.entries.iter().map(|e| NoticeRow {
         id: e.id.as_str().into(), title: e.title.as_str().into(), body: e.body.as_str().into(), when: ago(now, e.time).into(),
@@ -411,7 +399,7 @@ fn enqueue(u: &AppWindow, items: Vec<QItem>) {
 fn pump(u: &AppWindow) {
     let win = u.window();
     let ready = win.is_visible() && !win.is_minimized() && u.get_toast().is_empty();
-    let next = QUEUE.with(|q| q.borrow_mut().next(crate::livesync::current_key().as_deref(), ready, locked()));
+    let next = QUEUE.with(|q| q.borrow_mut().next(crate::livesync::current_key().as_deref(), ready));
     let after = match next {
         Next::Idle => { PUMPING.with(|p| p.set(false)); return; }
         Next::Wait => std::time::Duration::from_secs(1),
@@ -440,7 +428,6 @@ fn displayed(u: &AppWindow, item: QItem) {
 /// Pull both notification kinds and show what is new; a push arriving while this login's pull
 /// runs joins it (one more pull after it, with the session current then).
 pub fn fetch(w: slint::Weak<AppWindow>, c: Arc<Client>) {
-    if locked() { return; }
     let (shares_on, events_on) = (c.has(PRINCIPALS), c.has(crate::calendar::CAL));
     if !shares_on && !events_on { return; }
     let owner = c.state_key();
@@ -450,7 +437,7 @@ pub fn fetch(w: slint::Weak<AppWindow>, c: Arc<Client>) {
         let events = if events_on { list_events(&c).unwrap_or_default() } else { vec![] };
         let _ = w.clone().upgrade_in_event_loop(move |u| {
             let again = FLIGHTS.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert_with(Flights::default).end(&owner);
-            if accept(&owner, crate::livesync::current_key().as_deref(), locked()) {
+            if accept(&owner, crate::livesync::current_key().as_deref()) {
                 let (shares, events) = {
                     let mut g = SEEN.lock().unwrap_or_else(|e| e.into_inner());
                     let s = g.get_or_insert_with(Default::default);
@@ -578,11 +565,10 @@ mod tests {
     }
 
     #[test]
-    fn a_pull_counts_only_for_its_own_session_and_never_while_locked() {
-        assert!(accept("ann", Some("ann"), false));
-        assert!(!accept("ann", Some("bob"), false), "switched while it ran");
-        assert!(!accept("ann", None, false), "signed out while it ran");
-        assert!(!accept("ann", Some("ann"), true));
+    fn a_pull_counts_only_for_its_own_session() {
+        assert!(accept("ann", Some("ann")));
+        assert!(!accept("ann", Some("bob")), "switched while it ran");
+        assert!(!accept("ann", None), "signed out while it ran");
         let mut f = Flights::default();
         assert!(f.begin("ann"));
         assert!(!f.begin("ann"));
@@ -603,19 +589,17 @@ mod tests {
         q.push(item("ann", Some("one"), &["n1"]));
         q.push(item("ann", None, &["d1"]));
         q.push(item("ann", Some("two"), &["n2"]));
-        // not shown (minimised, the toast line busy, locked): nothing is handed out, nothing lost
-        assert_eq!(q.next(Some("ann"), false, false), Next::Wait);
-        assert_eq!(q.next(Some("ann"), true, true), Next::Wait);
-        assert_eq!(q.next(Some("ann"), true, false), Next::Show(item("ann", Some("one"), &["n1"])));
-        // the drafts' acknowledgement needs no toast line, but never goes while locked
-        assert_eq!(q.next(Some("ann"), false, true), Next::Wait);
-        assert_eq!(q.next(Some("ann"), false, false), Next::Show(item("ann", None, &["d1"])));
+        // not shown (minimised, the toast line busy): nothing is handed out, nothing lost
+        assert_eq!(q.next(Some("ann"), false), Next::Wait);
+        assert_eq!(q.next(Some("ann"), true), Next::Show(item("ann", Some("one"), &["n1"])));
+        // the drafts' acknowledgement needs no toast line
+        assert_eq!(q.next(Some("ann"), false), Next::Show(item("ann", None, &["d1"])));
         // a switch: ann's rest goes unshown and unacknowledged (it comes back with ann's next pull)
         q.push(item("bob", Some("b"), &["m1"]));
-        assert_eq!(q.next(Some("bob"), true, false), Next::Show(item("bob", Some("b"), &["m1"])));
-        assert_eq!(q.next(Some("bob"), true, false), Next::Idle);
+        assert_eq!(q.next(Some("bob"), true), Next::Show(item("bob", Some("b"), &["m1"])));
+        assert_eq!(q.next(Some("bob"), true), Next::Idle);
         q.push(item("bob", Some("c"), &["m2"]));
-        assert_eq!(q.next(None, true, false), Next::Idle, "signed out");
+        assert_eq!(q.next(None, true), Next::Idle, "signed out");
     }
 
     #[test]

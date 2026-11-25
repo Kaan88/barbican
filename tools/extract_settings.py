@@ -12,7 +12,7 @@ EN = json.load(open(os.path.join(ROOT, 'locales/en/common.json'), encoding='utf8
 TABS = [
     # id, label, group, icon (Segoe Fluent), component files
     ('account', 'Account', 'top', '', ['account-settings', 'your-name-row', 'identity-settings']),
-    ('security', 'Password & sign-in', 'top', '', ['account-security-settings', 'app-lock-settings']),
+    ('security', 'Password & sign-in', 'top', '', ['account-security-settings']),
     ('privacy', 'Privacy & security', 'top', '', ['privacy-settings']),
     ('notifications', 'Notifications', 'top', '', ['notification-settings']),
     ('general', 'General', 'top', '', ['general-settings', 'language-settings', 'protocol-handler-settings']),

@@ -128,12 +128,6 @@ pub fn sign_in_message(m: &Mailto) -> String {
 fn dispatch(url: &str) {
     let Some(m) = parse(url) else { return };
     let Some(u) = WINDOW.with(|w| w.borrow().as_ref().and_then(|w| w.upgrade())) else { return };
-    // locked: the link waits for the unlock, without a word over the lock screen
-    if crate::applock::locked() {
-        PENDING.with(|p| keep_pending(&mut p.borrow_mut(), m));
-        if !RETRYING.with(|r| r.replace(true)) { retry(); }
-        return;
-    }
     if !try_open(&u, &m) {
         // nobody signed in (or the session is still being restored): keep the link and open
         // it as soon as someone is, however long that takes
@@ -144,7 +138,6 @@ fn dispatch(url: &str) {
 }
 
 fn try_open(u: &AppWindow, m: &Mailto) -> bool {
-    if crate::applock::locked() { return false; }
     HANDLER.with(|h| h.borrow().as_ref().is_some_and(|f| f(u, m)))
 }
 

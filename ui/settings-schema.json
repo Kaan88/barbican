@@ -131,48 +131,6 @@
      "kind": "section",
      "label": "Encryption",
      "desc": ""
-    },
-    {
-     "kind": "section",
-     "label": "App lock",
-     "desc": "Asks for a PIN after a time without use, in every window. While it's locked, the app can't read the mail stored on this device until someone enters the PIN."
-    },
-    {
-     "kind": "toggle",
-     "label": "Lock with a PIN",
-     "desc": "The PIN stays on this device.",
-     "key": ""
-    },
-    {
-     "kind": "toggle",
-     "label": "Unlock with Windows Hello",
-     "desc": "Use your face, fingerprint or Windows PIN. The app's PIN keeps working.",
-     "key": ""
-    },
-    {
-     "kind": "select",
-     "label": "Lock after",
-     "desc": "Time without use in any window.",
-     "key": "",
-     "options": []
-    },
-    {
-     "kind": "info",
-     "label": "Lock now",
-     "desc": "Locks all windows at once.",
-     "key": ""
-    },
-    {
-     "kind": "info",
-     "label": "PIN",
-     "desc": "If you forget it, the only way back is to remove the data on this device and sign in again. Your mail on the server stays. Messages still waiting to be sent on this device are lost.",
-     "key": ""
-    },
-    {
-     "kind": "info",
-     "label": "Passkey",
-     "desc": "Unlock with a passkey or security key that can protect the key. Not all can, and the PIN keeps working.",
-     "key": ""
     }
    ]
   },

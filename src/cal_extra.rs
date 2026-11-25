@@ -978,8 +978,6 @@ pub fn wire(ui: &AppWindow, st: crate::Shared) {
     with_ui!(w, x.on_ed_tz_query_changed(move |q| cal_editor::tz_query(&w.unwrap(), &q)));
     with_ui!(w, x.on_ed_tz_pick(move |z| cal_editor::tz_pick(&w.unwrap(), &z)));
     with_ui!(w, x.on_ed_times_changed(move |k| cal_editor::times_changed(&w.unwrap(), &k)));
-    { let (w, st) = (ui.as_weak(), st.clone()); x.on_ed_find(move || { if let Some(c) = cl(&st) { cal_editor::find(&w.unwrap(), c); } }); }
-    with_ui!(w, x.on_ed_pick_slot(move |i| cal_editor::pick_slot(&w.unwrap(), i)));
     with_ui!(w, x.on_rr_begin(move || cal_editor::rr_begin(&w.unwrap())));
     with_ui!(w, x.on_rr_changed(move || cal_editor::rr_changed(&w.unwrap())));
     with_ui!(w, x.on_rr_toggle_day(move |i| cal_editor::rr_toggle_day(&w.unwrap(), i)));

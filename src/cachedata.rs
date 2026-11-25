@@ -1,8 +1,8 @@
 //! Settings > About > "Refresh cached data" (Bulwark lib/clear-cached-data.ts and
 //! components/settings/about-data-settings.tsx:273-293, S-keyless-063): drop what Barbican keeps
 //! only to be faster, then load the view again from the server. Nothing the user made goes:
-//! settings, credentials, drafts and the outbox (both on the server), other profiles and the app
-//! lock are never touched.
+//! settings, credentials, drafts and the outbox (both on the server) and other profiles are never
+//! touched.
 //!
 //! What a refresh clears, each a cache Barbican can rebuild by itself:
 //! - `<config>/avatars/`: sender pictures (avatars.rs: "Answers are kept on disk (config dir
@@ -20,8 +20,7 @@
 //!   calendar store including its notification state (events already reminded about would fire
 //!   again): Barbican keeps what it has already rung about.
 //! - `profiles/`: other profiles (the default profile's config folder holds them).
-//! - the app lock's files (applock.rs) and the sign-in session (src/secretstore): losing them
-//!   would lock the user out or make them sign in again.
+//! - the sign-in session (src/secretstore): losing it would make the user sign in again.
 //! - the WebView profile (`platform::webview_dir()`): cookies and cache of the mail view, held
 //!   open by the running view; signing out empties it (signout.rs). Deleting it under a live
 //!   view is what the sign-out path avoids for the same reason.

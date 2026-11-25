@@ -32,15 +32,11 @@ export struct CxAttendee {
     status: string,
     // 0 dim, 1 mint, 2 amber, 3 rose, 4 sky
     tone: int,
-    // free/busy for the event's time: "Free", "Busy", "Tentative", "No busy times", "Not found", ""
-    avail: string,
-    avail-tone: int,
     organizer: bool,
 }
 
 export struct CxSuggest { name: string, email: string, initials: string, group: bool }
 export struct CxAlert { value: string, unit: int, action: int }
-export struct CxSlot { label: string, sub: string }
 export struct CxReminder { key: string, title: string, when: string, calendar: string, color: color }
 export struct CxMissed { title: string, when: string }
 export struct CxAgendaRow {
@@ -117,10 +113,6 @@ export global CalX {
     in-out property <int> ed-privacy;
     in-out property <bool> ed-privacy-editable: true;
     in-out property <string> ed-custom-label: "Custom…";
-    in-out property <bool> ed-find-open;
-    in-out property <bool> ed-find-busy;
-    in-out property <string> ed-find-status;
-    in-out property <[CxSlot]> ed-find-slots;
     in-out property <string> ed-series-note;
     callback ed-att-query-changed(string);
     callback ed-att-add(string);
@@ -134,8 +126,6 @@ export global CalX {
     callback ed-tz-query-changed(string);
     callback ed-tz-pick(string);
     callback ed-times-changed(string);
-    callback ed-find();
-    callback ed-pick-slot(int);
 
     // ---- custom recurrence ----
     in-out property <bool> rr-open;
@@ -584,15 +574,7 @@ export component EventEditor inherits Rectangle {
                     LineEdit { placeholder-text: "Add location or link"; text <=> root.location; read-only: CalX.ed-readonly; }
 
                     // ---- guests ----
-                    HorizontalLayout {
-                        spacing: 8px;
-                        Label { pal: root.pal; text: "Guests" + (CalX.ed-attendees.length > 0 ? " · " + CalX.ed-attendees.length : ""); horizontal-stretch: 1; }
-                        if CalX.ed-attendees.length > 0 && CalX.ed-organizer && !CalX.ed-readonly: CxButton {
-                            pal: root.pal; glyph: "\u{E916}"; text: CalX.ed-find-busy ? "Checking…" : "Suggest times";
-                            enabled: !CalX.ed-find-busy;
-                            clicked => { CalX.ed-find(); }
-                        }
-                    }
+                    Label { pal: root.pal; text: "Guests" + (CalX.ed-attendees.length > 0 ? " · " + CalX.ed-attendees.length : ""); }
                     if CalX.ed-organizer-name != "": Text { text: "Organized by " + CalX.ed-organizer-name; color: root.pal.dim; font-size: 12px; }
                     for a in CalX.ed-attendees: Rectangle {
                         height: 38px;
@@ -612,7 +594,6 @@ export component EventEditor inherits Rectangle {
                                 Text { text: a.name != "" ? a.name : a.email; color: root.pal.text; font-size: 13px; overflow: elide; }
                                 if a.name != "": Text { text: a.email; color: root.pal.dim; font-size: 11px; overflow: elide; }
                             }
-                            if a.avail != "": VerticalLayout { alignment: center; Pill { pal: root.pal; tone: a.avail-tone; text: a.avail; } }
                             Text { text: a.status; color: CalTint.fg(root.pal.dark, a.tone); font-size: 11.5px; vertical-alignment: center; }
                             if CalX.ed-organizer && !CalX.ed-readonly && !a.organizer: IconBtn { pal: root.pal; glyph: "\u{E711}"; y: 6px; clicked => { CalX.ed-att-remove(a.email); } }
                         }
@@ -647,34 +628,6 @@ export component EventEditor inherits Rectangle {
                         }
                         if CalX.ed-attendees.length > 0: CheckBox { text: "Send invitations and updates to guests"; checked <=> CalX.ed-send-invites; }
                     }
-                    if CalX.ed-find-open: Rectangle {
-                        border-radius: 18px;
-                        background: CalTint.bg(root.pal.dark, 1);
-                        height: fl.preferred-height;
-                        fl := VerticalLayout {
-                            padding: 12px;
-                            spacing: 6px;
-                            HorizontalLayout {
-                                Text { text: "Suggested times"; color: CalTint.fg(root.pal.dark, 1); font-weight: 700; font-size: 12.5px; horizontal-stretch: 1; vertical-alignment: center; }
-                                IconBtn { pal: root.pal; glyph: "\u{E711}"; clicked => { CalX.ed-find-open = false; } }
-                            }
-                            if CalX.ed-find-status != "": Text { text: CalX.ed-find-status; color: root.pal.text; font-size: 12px; wrap: word-wrap; }
-                            for s[i] in CalX.ed-find-slots: Rectangle {
-                                height: 32px;
-                                border-radius: 10px;
-                                background: slta.has-hover ? root.pal.hover : root.pal.tile;
-                                slta := TouchArea { clicked => { CalX.ed-pick-slot(i); } }
-                                HorizontalLayout {
-                                    padding-left: 10px;
-                                    padding-right: 10px;
-                                    spacing: 8px;
-                                    Text { text: s.label; color: root.pal.text; font-weight: 600; font-size: 12.5px; vertical-alignment: center; horizontal-stretch: 1; }
-                                    Text { text: s.sub; color: root.pal.dim; font-size: 11.5px; vertical-alignment: center; }
-                                }
-                            }
-                        }
-                    }
-
                     // ---- reminders ----
                     HorizontalLayout {
                         Label { pal: root.pal; text: "Reminders"; horizontal-stretch: 1; }

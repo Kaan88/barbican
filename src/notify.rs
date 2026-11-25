@@ -406,11 +406,8 @@ pub fn activate(a: Activation) {
     if let Some(h) = &*HANDLER.lock().unwrap() { h(a); }
 }
 
-/// Show a notification (from any thread). While the app is locked it says only that something
-/// came, and so it does whenever a PIN is set and delivered ones can't be cleared at a lock
-/// (src/applock.rs).
+/// Show a notification (from any thread).
 pub fn show(n: Note) {
-    let n = if crate::applock::hide_notification_now() { crate::applock::hide_content(n) } else { n };
     if crate::automation::enabled() {
         let mut s = SHOWN.lock().unwrap();
         s.push(n);
@@ -419,28 +416,6 @@ pub fn show(n: Note) {
         return;
     }
     sys::show(n);
-}
-
-/// Whether [`clear_delivered`] can take back what was shown: on Windows under Barbican's own app
-/// id (the installer registers it); not elsewhere.
-pub fn delivered_clearable() -> bool {
-    #[cfg(windows)]
-    { crate::platform::win::app_id_registered() }
-    #[cfg(not(windows))]
-    { false }
-}
-
-/// Remove Barbican's delivered notifications from the notification centre (the app locked: they
-/// named senders and subjects). Only with Barbican's own app id: PowerShell's is not ours to clear.
-pub fn clear_delivered() {
-    if !delivered_clearable() { return; }
-    if crate::automation::enabled() { return; }
-    #[cfg(windows)]
-    {
-        use windows::core::HSTRING;
-        use windows::UI::Notifications::ToastNotificationManager;
-        let _ = ToastNotificationManager::History().and_then(|h| h.ClearWithId(&HSTRING::from(crate::platform::win::APP_ID)));
-    }
 }
 
 #[cfg(windows)]

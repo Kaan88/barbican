@@ -446,6 +446,13 @@ fn toggle(key: &str, label: &str, desc: &str, on: bool) -> SRow {
     r
 }
 
+/// Password & sign-in on a server without account management: the schema has nothing to show
+/// there any more (the app lock's rows are gone), so the page says so instead of staying blank.
+pub fn security_or_note(rows: Vec<SRow>) -> Vec<SRow> {
+    if !rows.is_empty() { return rows; }
+    vec![text("value", "", "Nothing to manage on this server.", "", "")]
+}
+
 fn text(kind: &str, key: &str, label: &str, desc: &str, value: &str) -> SRow {
     let mut r = row(kind, key, label, desc);
     r.text = s(value);
@@ -773,7 +780,6 @@ impl Settings {
                 }
                 // Desktop app page, and Updates under About (src/desktop.rs)
                 out.extend(crate::desktop::settings_rows(tab, self));
-                out.extend(crate::applock::settings_rows(tab));
                 if tab == "privacy" {
                     out.insert(0, row("section", "", "Remote content", "Images and other content loaded from the internet can tell senders when you read their mail."));
                     // Bulwark externalContentPolicy (stores/settings-store.ts:444): ask / block / allow
@@ -981,6 +987,17 @@ mod tests {
         assert!(r.on, "on by default (Bulwark settingsSyncDisabled: false)");
         assert!(s.is_inverted(crate::settings_sync::DISABLED_KEY));
         assert!(r.desc.contains("Sign-ins"), "{}", r.desc);
+    }
+
+    #[test]
+    fn password_and_sign_in_is_never_blank() {
+        // without the server's account security rows the page has no rows of its own
+        assert!(Settings::with_prefs(Map::new()).schema_rows("security").is_empty());
+        let r = security_or_note(vec![]);
+        assert_eq!((r.len(), r[0].label.as_str()), (1, "Nothing to manage on this server."));
+        let some = vec![row("section", "", "Account security", "")];
+        assert_eq!(security_or_note(some.clone()).len(), 1);
+        assert_eq!(security_or_note(some)[0].label.as_str(), "Account security");
     }
 
     #[test]

@@ -3,8 +3,8 @@ import { AdminDashboard, DashRow, DashPanel, DashCol, DashBar } from "dashboard.
 import { UpdateBanner, UpdateState } from "update-banner.slint";
 export { UpdateState }
 export { DashRow, DashPanel, DashCol, DashBar }
-import { CalPal, CalX, CalTint, CalOverlays, AgendaView, TasksView, CalSidebarExtra, CxAttendee, CxSuggest, CxAlert, CxSlot, CxReminder, CxMissed, CxAgendaRow, CxTask, CxSub } from "calendar_ext.slint";
-export { CalX, CxAttendee, CxSuggest, CxAlert, CxSlot, CxReminder, CxMissed, CxAgendaRow, CxTask, CxSub }
+import { CalPal, CalX, CalTint, CalOverlays, AgendaView, TasksView, CalSidebarExtra, CxAttendee, CxSuggest, CxAlert, CxReminder, CxMissed, CxAgendaRow, CxTask, CxSub } from "calendar_ext.slint";
+export { CalX, CxAttendee, CxSuggest, CxAlert, CxReminder, CxMissed, CxAgendaRow, CxTask, CxSub }
 import { LineEdit, Button, ListView, ScrollView, TextEdit, ComboBox, CheckBox, Palette } from "std-widgets.slint";
 import { Theme, Icons, SIcon, Prefs, Motion, Ease, PopIn, ViewIn, PageIn, Scrim, Tip } from "theme.slint";
 export { Theme, Icons, Prefs, Motion }
@@ -26,8 +26,6 @@ import { FilterX, FCond, FAct, FilterRuleRow, FilterRuleEditor, FilterRetroDialo
 export { PimTheme, CtX, CtLine, CtField, CtDupe, FilterX, FCond, FAct }
 // mail extras (p2-mailextras): attachment cards, From override, reply under the message
 import { MxTok, AttCard, FromOverride, AttCards, ReplyDockBar, ReplyDockHandle } from "mailextras.slint";
-import { ShareX, ShareRow, SharePerson, ShareDialog } from "share.slint";
-export { ShareX, ShareRow, SharePerson }
 // Files: upload conflicts, zip progress, new text file (src/files_x.rs)
 import { FilesX, UploadConflictDialog, ZipProgressCard, NewFileDialog } from "files-dialogs.slint";
 export { FilesX }
@@ -38,9 +36,6 @@ export { AttCard }
 // the notification centre: bell in the rail (src/notices.rs)
 import { Notices, NoticeRow, NotificationBell } from "notices.slint";
 export { Notices, NoticeRow }
-// app lock (src/applock.rs): the lock screen and the PIN dialog
-import { AppLock, LockScreen, PinDialog } from "applock.slint";
-export { AppLock }
 
 export struct Folder {
     id: string,
@@ -2252,15 +2247,13 @@ export component AppWindow inherits Window {
     out property <length> bw: body.width;
     out property <length> bh: body.height;
     // the command palette and the shortcut sheet (Pd.overlay) cover the body too
-    out property <bool> body-visible: logged-in && app == 0 && current-mail != "" && (!composing || dock-shows-body) && !show-settings && render-mode == 0 && !ev-open && !ctx-open && !CompX.sched-open && !Pd.overlay
-        // nothing of the open message shows behind the app lock (src/applock.rs)
-        && !AppLock.locked;
+    out property <bool> body-visible: logged-in && app == 0 && current-mail != "" && (!composing || dock-shows-body) && !show-settings && render-mode == 0 && !ev-open && !ctx-open && !CompX.sched-open && !Pd.overlay;
     // the WebView follows layout and overlay changes at once (not on the next poll)
     callback webview-sync();
     changed body-visible => { root.webview-sync(); }
     // keyboard focus returns to the app's key handler whenever an overlay closes or the app changes
     // (the focused field or menu went away with it), so Ctrl+K and ? never need a click first
-    property <bool> any-overlay: ctx-open || ev-open || show-settings || composing || CompX.sched-open || Pd.overlay || admin-dlg != "" || FilesX.conflict-open || FilesX.newfile-open || (FilesV.p-open && app == 3) || AppLock.locked || AppLock.dlg != "";
+    property <bool> any-overlay: ctx-open || ev-open || show-settings || composing || CompX.sched-open || Pd.overlay || admin-dlg != "" || FilesX.conflict-open || FilesX.newfile-open || (FilesV.p-open && app == 3);
     changed any-overlay => { if !root.any-overlay { kbd.focus(); } }
     changed app => { kbd.focus(); if self.app != 3 && FilesV.p-open { FilesV.p-close(); } }
     changed logged-in => { root.login-password = ""; root.login-otp = ""; kbd.focus(); }
@@ -2303,15 +2296,9 @@ export component AppWindow inherits Window {
     }
     Timer { interval: 500ms; running: root.motion-warm; triggered => { root.motion-warm = false; } }
     kbd := FocusScope {
-    // hidden while locked: nothing under the lock screen is drawn or read out
-    visible: !AppLock.locked;
     init => { self.focus(); }
     // the mail search box keeps its arrows for the suggestions under it (src/shortcuts.rs)
     capture-key-pressed(e) => {
-        // locked: no key reaches the app under the lock screen; the focus goes back to it
-        if AppLock.locked { AppLock.focus-tick += 1; return accept; }
-        // the share dialog holds the keyboard (ui/share.slint); a key that still lands here does nothing
-        if ShareX.open { if e.text == Key.Escape { ShareX.close(); } return accept; }
         // the Files dialogs hold the keyboard too (ui/files-dialogs.slint)
         if FilesX.conflict-open { if e.text == Key.Escape { FilesX.conflict-answer("", false); } return accept; }
         if FilesX.newfile-open { if e.text == Key.Escape { FilesX.newfile-open = false; } return accept; }
@@ -3018,7 +3005,6 @@ export component AppWindow inherits Window {
                                 if !acts.roomy: MenuItem { text: "Tag…"; clicked => { tag-popup.show(); } }
                                 MenuItem { text: "Report spam"; clicked => { root.act("spam"); } }
                                 MenuItem { text: "Mark as unread"; clicked => { root.act("unread"); } }
-                                MenuItem { text: "Print"; clicked => { root.act("print"); } }
                                 // view source, forward as attachment, save .eml, quick rules… (src/reader.rs)
                                 MenuItem { text: "More actions…"; clicked => { root.ctx("reader", root.current-mail, acts.absolute-position.x + acts.width - 220px, acts.absolute-position.y + 40px); } }
                             }
@@ -6247,9 +6233,8 @@ export component AppWindow inherits Window {
         }
     }
     }
-    clip-buf := TextInput { visible: !AppLock.locked; width: 0px; height: 0px; opacity: 0; read-only: true; }
+    clip-buf := TextInput { width: 0px; height: 0px; opacity: 0; read-only: true; }
     if root.prompt-open: Scrim {
-        visible: !AppLock.locked;
         TouchArea { clicked => { root.prompt-open = false; } }
         // same shell as the admin dialog: popup surface, Bento tile radius / Nordic 28, 30px shadow
         PopIn {
@@ -6272,19 +6257,18 @@ export component AppWindow inherits Window {
     }
     // ---- productivity overlays (productivity.slint) ----
     if root.logged-in && Pd.search-focus && !Pd.sugg-hidden && Pd.sugg-rows.length > 0 && root.app == 0 && !root.show-settings && !root.composing: SearchSuggest {
-        visible: !AppLock.locked;
         t: root.ptok;
         x: search-box.absolute-position.x - 30px;
         y: search-box.absolute-position.y + search-box.height + 12px;
         width: max(search-box.width + 60px, 280px);
     }
-    if Pd.dnd-active: DragGhost { visible: !AppLock.locked; t: root.ptok; }
-    if Pd.palette-open: CommandPalette { visible: !AppLock.locked; t: root.ptok; x: 0; y: 0; width: root.width; height: root.height; }
-    if Pd.keys-open: ShortcutsSheet { visible: !AppLock.locked; t: root.ptok; x: 0; y: 0; width: root.width; height: root.height; }
+    if Pd.dnd-active: DragGhost { t: root.ptok; }
+    if Pd.palette-open: CommandPalette { t: root.ptok; x: 0; y: 0; width: root.width; height: root.height; }
+    if Pd.keys-open: ShortcutsSheet { t: root.ptok; x: 0; y: 0; width: root.width; height: root.height; }
 
-    if CtX.import-open: ContactImportDialog { visible: !AppLock.locked; }
-    if FilterX.open: FilterRuleEditor { visible: !AppLock.locked; }
-    if FilterX.retro-open: FilterRetroDialog { visible: !AppLock.locked; }
+    if CtX.import-open: ContactImportDialog { }
+    if FilterX.open: FilterRuleEditor { }
+    if FilterX.retro-open: FilterRetroDialog { }
     ctx-popup := PopupWindow {
         close-policy: no-auto-close;
         x: 0; y: 0;
@@ -6331,20 +6315,15 @@ export component AppWindow inherits Window {
         }
     }
     // schedule send / reschedule (src/schedule.rs), over everything
-    if CompX.sched-open: ScheduleDialog { visible: !AppLock.locked; x: 0; y: 0; width: root.width; height: root.height; }
+    if CompX.sched-open: ScheduleDialog { x: 0; y: 0; width: root.width; height: root.height; }
     // template placeholders and save as template (src/tplflow.rs)
-    if CompX.tpl-fill-open: TplFillDialog { visible: !AppLock.locked; x: 0; y: 0; width: root.width; height: root.height; }
-    if CompX.tpl-save-open: TplSaveDialog { visible: !AppLock.locked; x: 0; y: 0; width: root.width; height: root.height; }
-    if CompX.sub-open: SubAddrDialog { visible: !AppLock.locked; x: 0; y: 0; width: root.width; height: root.height; }
-    // share a folder, calendar or address book (src/share.rs)
-    if ShareX.open: ShareDialog { visible: !AppLock.locked; x: 0; y: 0; width: root.width; height: root.height; }
+    if CompX.tpl-fill-open: TplFillDialog { x: 0; y: 0; width: root.width; height: root.height; }
+    if CompX.tpl-save-open: TplSaveDialog { x: 0; y: 0; width: root.width; height: root.height; }
+    if CompX.sub-open: SubAddrDialog { x: 0; y: 0; width: root.width; height: root.height; }
     // Files: zip progress, upload conflict, new text file (src/files_x.rs)
-    if FilesX.zip-open: ZipProgressCard { visible: !AppLock.locked; x: root.width - self.width - 20px; y: root.height - self.height - 20px; }
-    if FilesX.conflict-open: UploadConflictDialog { visible: !AppLock.locked; x: 0; y: 0; width: root.width; height: root.height; }
-    if FilesX.newfile-open: NewFileDialog { visible: !AppLock.locked; x: 0; y: 0; width: root.width; height: root.height; }
+    if FilesX.zip-open: ZipProgressCard { x: root.width - self.width - 20px; y: root.height - self.height - 20px; }
+    if FilesX.conflict-open: UploadConflictDialog { x: 0; y: 0; width: root.width; height: root.height; }
+    if FilesX.newfile-open: NewFileDialog { x: 0; y: 0; width: root.width; height: root.height; }
     // Files preview of images, text and .eml (src/files_view.rs)
-    if FilesV.p-open && root.app == 3: FilePreview { visible: !AppLock.locked; x: 0; y: 0; width: root.width; height: root.height; }
-    // the app lock's PIN dialog, and the lock screen over absolutely everything (src/applock.rs)
-    if AppLock.dlg != "": PinDialog { x: 0; y: 0; width: root.width; height: root.height; }
-    if AppLock.locked: LockScreen { x: 0; y: 0; width: root.width; height: root.height; app-busy: root.busy; }
+    if FilesV.p-open && root.app == 3: FilePreview { x: 0; y: 0; width: root.width; height: root.height; }
 }

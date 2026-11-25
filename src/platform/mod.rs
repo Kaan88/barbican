@@ -86,8 +86,9 @@ pub fn temp_folder_for(profile: &str, temp: &Path) -> PathBuf {
     if crate::profile::is_default(profile) { temp.join("Barbican") } else { temp.join(format!("Barbican-{profile}")) }
 }
 
-/// The file the last printed message is written to: `<temp>/barbican-print.html` (default) or
-/// `<temp>/barbican-print-<profile>.html`.
+/// The file versions before 0.7 wrote the last printed message to: `<temp>/barbican-print.html`
+/// (default) or `<temp>/barbican-print-<profile>.html`. Printing is gone; sign-out still removes
+/// one left behind (signout.rs).
 pub fn print_file_for(profile: &str, temp: &Path) -> PathBuf {
     if crate::profile::is_default(profile) { temp.join("barbican-print.html") } else { temp.join(format!("barbican-print-{profile}.html")) }
 }
@@ -97,9 +98,6 @@ pub fn webview_dir() -> PathBuf { webview_dir_for(crate::profile::current(), &da
 
 /// This process's folder for files opened from mail.
 pub fn mail_temp_dir() -> PathBuf { temp_folder_for(crate::profile::current(), &std::env::temp_dir()) }
-
-/// This process's print file.
-pub fn print_file() -> PathBuf { print_file_for(crate::profile::current(), &std::env::temp_dir()) }
 
 #[cfg(not(windows))]
 fn xdg_dir(var: &str, fallback: &str) -> PathBuf {

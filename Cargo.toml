@@ -38,13 +38,9 @@ webpki = { package = "rustls-webpki", version = "0.103", default-features = fals
 rustls-pki-types = { version = "1", features = ["std"] }
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 arboard = "3.7"
-# the app lock's PIN hash (src/applock.rs): PBKDF2 and a constant-time compare; already in the
-# tree through rustls, as icu_normalizer is through idna (the PIN is compared as NFKC, like Bulwark;
-# NFD for the "Strip diacritics" download setting, src/dlnames.rs)
-ring = "0.17"
+# NFD for the "Strip diacritics" download setting (src/dlnames.rs) and the Files search;
+# already in the tree through idna
 icu_normalizer = { version = "2", default-features = false, features = ["compiled_data"] }
-# clears the copies of a typed PIN the app lock makes (already in the tree)
-zeroize = "1"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp", "ico"] }
 
 blitz-html = "=0.3.0-beta.4"
@@ -59,10 +55,7 @@ anyrender_vello_cpu = "0.18"
 # the XDG portal colour scheme, hunspell and freedesktop notifications.
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Globalization", "Win32_System_Com", "Win32_NetworkManagement_Dns", "Win32_System_Registry", "Win32_System_Threading",
-    "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_Graphics_Gdi", "Win32_Storage_Xps", "Foundation", "Data_Xml_Dom", "UI_Notifications",
-    "Security_Credentials_UI", "Win32_System_WinRT", "Win32_UI_Input_KeyboardAndMouse", "Win32_System_SystemInformation"] }
-# waits for Windows Hello's answer (src/applock.rs); already in the tree through windows
-windows-future = "0.3"
+    "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_Graphics_Gdi", "Win32_Storage_Xps", "Foundation", "Data_Xml_Dom", "UI_Notifications"] }
 keyring = { version = "3", features = ["windows-native"] }
 # the same crate and features the keyring crate already builds: secrets.rs writes its own
 # credentials with CRED_PERSIST_LOCAL_MACHINE (keyring can only write ENTERPRISE)

@@ -55,7 +55,6 @@ const G_SPAM: &str = "\u{E8F8}";
 const G_PHISH: &str = "\u{E7BA}";
 const G_MORE: &str = "\u{E712}";
 const G_OPEN: &str = "\u{E8A7}";
-const G_PRINT: &str = "\u{E749}";
 const G_DOWNLOAD: &str = "\u{E896}";
 const G_COPY: &str = "\u{E8C8}";
 const G_SEARCH: &str = "\u{E721}";
@@ -170,7 +169,6 @@ pub fn request(u: &AppWindow, kind: &str, id: &str) {
                 if unread { it(G_READ, "Mark as read", "U", "read") } else { it(G_UNREAD, "Mark as unread", "U", "unread") },
                 if starred { it(G_STARRED, "Unstar", "S", "unstar") } else { it(G_STAR, "Star", "S", "star") },
                 sep(),
-                it(G_PRINT, "Print", "", "print"),
                 danger(G_DELETE, "Delete", "Del", "delete"),
             ]
         }
@@ -217,7 +215,6 @@ pub fn request(u: &AppWindow, kind: &str, id: &str) {
             }
             v.push(it(G_COPY, "Copy message text", "", "copy-all"));
             v.push(it(G_REPLY, "Reply", "R", "reply"));
-            v.push(it(G_PRINT, "Print", "", "print"));
             v
         }
         "setting" if coll_id(id).is_some() => {
@@ -233,10 +230,6 @@ pub fn request(u: &AppWindow, kind: &str, id: &str) {
                     vec![
                         header(&name),
                         it(G_RENAME, "Rename", "", "rename"),
-                    ].into_iter()
-                        // calendar-management-settings.tsx:655
-                        .chain(crate::share::calendar_target(&cid).map(|_| it(G_SHARE, "Share calendar…", "", "share")))
-                        .chain([
                         sub(G_COLOR, "Colour", "sub:color"),
                         it(G_EYE, if hidden { "Show calendar" } else { "Hide calendar" }, "", "toggle"),
                         off(it(G_DEFAULT, "Set as default", "", "default"), !default),
@@ -246,19 +239,15 @@ pub fn request(u: &AppWindow, kind: &str, id: &str) {
                         sep(),
                         danger(G_ERASE, "Clear all events", "", "ask:clear"),
                         off(danger(G_DELETE, "Delete calendar", "", "ask:delete"), !default),
-                    ]).collect()
+                    ]
                 }
                 Some((name, default, _)) => vec![
                     header(&name),
                     it(G_RENAME, "Rename", "", "rename"),
-                ].into_iter()
-                    // address-book-management-settings.tsx:201
-                    .chain(share_book_item(&cid))
-                    .chain([
-                        off(it(G_DEFAULT, "Set as default", "", "default"), !default),
-                        sep(),
-                        off(danger(G_DELETE, "Delete address book", "", "ask:delete"), !default),
-                    ]).collect(),
+                    off(it(G_DEFAULT, "Set as default", "", "default"), !default),
+                    sep(),
+                    off(danger(G_DELETE, "Delete address book", "", "ask:delete"), !default),
+                ],
             }
         }
         "folder" | "setting" => {
@@ -334,16 +323,12 @@ pub fn request(u: &AppWindow, kind: &str, id: &str) {
                 it(G_CALENDAR, "New event in this calendar", "", "new-event"),
                 it(G_EYE, if visible { "Hide calendar" } else { "Show calendar" }, "", "toggle"),
                 it(G_RENAME, "Rename", "", "rename"),
-            ].into_iter()
-                // with mayShare on one's own calendar (calendar-sidebar-panel.tsx:475)
-                .chain(crate::share::calendar_target(id).map(|_| it(G_SHARE, "Share calendar…", "", "share")))
-                .chain([
-                    sub(G_COLOR, "Colour", "sub:color"),
-                    off(it(G_DEFAULT, "Set as default", "", "default"), !default),
-                    sep(),
-                    // Bulwark never offers to delete the default calendar
-                    off(danger(G_DELETE, "Delete calendar", "", "ask:delete"), !default),
-                ]).collect(),
+                sub(G_COLOR, "Colour", "sub:color"),
+                off(it(G_DEFAULT, "Set as default", "", "default"), !default),
+                sep(),
+                // Bulwark never offers to delete the default calendar
+                off(danger(G_DELETE, "Delete calendar", "", "ask:delete"), !default),
+            ],
         },
         "contact" => vec![
             it(G_OPEN, "Open", "", "open"),
@@ -377,14 +362,10 @@ pub fn request(u: &AppWindow, kind: &str, id: &str) {
                         header(&name),
                         it(G_ADD_CONTACT, "New contact in this address book", "", "new-contact"),
                         it(G_RENAME, "Rename", "", "rename"),
-                    ].into_iter()
-                        // with mayShare (contacts-sidebar.tsx:623)
-                        .chain(share_book_item(nid))
-                        .chain([
-                            off(it(G_DEFAULT, "Set as default", "", "default"), !default),
-                            sep(),
-                            off(danger(G_DELETE, "Delete address book", "", "ask:delete"), !default),
-                        ]).collect(),
+                        off(it(G_DEFAULT, "Set as default", "", "default"), !default),
+                        sep(),
+                        off(danger(G_DELETE, "Delete address book", "", "ask:delete"), !default),
+                    ],
                 },
                 _ => vec![],
             }
@@ -519,21 +500,6 @@ fn group_items() -> Vec<CtxItem> {
 /// Ask for a name, then create a contact group (with `member` in it when given).
 pub fn new_group_prompt(u: &AppWindow, member: Option<String>) {
     prompt(u, "New group", "", "new-group", &member.unwrap_or_default());
-}
-
-fn share_book_item(id: &str) -> Option<CtxItem> {
-    CLIENT.with(|c| c.borrow().as_ref().and_then(|c| crate::share::book_target(c, id))).map(|_| it(G_SHARE, "Share address book", "", "share"))
-}
-
-/// Open the share dialog for the menu's folder, calendar or address book (src/share.rs).
-fn open_share(u: &AppWindow, st: &Shared, kind: &str, id: &str) {
-    let Some(c) = client(st) else { return };
-    let t = match kind {
-        "folder" => crate::share::folder_target(&c, id, &folder(u, id).map(|f| f.name.to_string()).unwrap_or_default()),
-        "cal" | "calset" => crate::share::calendar_target(id),
-        _ => crate::share::book_target(&c, id),
-    };
-    if let Some(t) = t { crate::share::open(u, c, t); }
 }
 
 /// Resolve the names behind a file's shareWith principals for the Share flyout.
@@ -848,10 +814,6 @@ fn folder_items(u: &AppWindow, id: &str) -> Vec<CtxItem> {
         it(G_NEW_FOLDER, "New subfolder", "", "new-sub"),
         off(it(G_RENAME, "Rename", "", "rename"), role.is_empty()),
     ]);
-    // Bulwark's Share… needs mail:share on the account (mailbox-context-menu.tsx:328-330, 384-391)
-    if CLIENT.with(|c| c.borrow().as_ref().and_then(|c| crate::share::folder_target(c, id, &name))).is_some() {
-        v.push(it(G_GROUP, "Share…", "", "share"));
-    }
     v.extend([
         // Bulwark mail import: .eml and .mbox files into this folder (Email/import)
         it(G_UPLOAD, "Import messages (.eml, .mbox)…", "", "import"),
@@ -938,7 +900,6 @@ fn submenu(u: &AppWindow, t: &Target, which: &str) -> Vec<CtxItem> {
             let single = t.ids.len() == 1;
             v.extend([
                 off(it(G_OPEN, "Open", "Enter", "open"), single),
-                off(it(G_PRINT, "Print", "", "print"), single),
                 off(it(G_DOWNLOAD, "Download (.eml)", "", "eml"), single),
                 off(it("\u{E943}", "View source", "", "rx:source"), single),
                 off(it(G_FORWARD, "Forward as attachment", "", "rx:fwd-att"), single),
@@ -1235,14 +1196,13 @@ pub fn pick(u: &AppWindow, st: &Shared, action: &str) {
     if let Some(spec) = action.strip_prefix("copyacct:") { copy_to_account(u, st, target_ids(u, &t), spec); return; }
     let action = action.strip_prefix("do:").unwrap_or(action);
     let id = t.id.as_str();
-    if action == "share" && matches!(t.kind.as_str(), "folder" | "cal" | "calset" | "bookset" | "ct-book") { open_share(u, st, &t.kind, id); return; }
     match t.kind.as_str() {
         "mail" | "thread" => match action {
             s if s.starts_with("sched:") => {
                 let Some(c) = crate::client_for(st, id) else { return };
                 crate::schedule::action(u, c, id, &s[6..]);
             }
-            "reply" | "reply-all" | "forward" | "print" => on_open_mail(u, id, action),
+            "reply" | "reply-all" | "forward" => on_open_mail(u, id, action),
             a if a.starts_with("rx:") => on_open_mail(u, id, a),
             "open" => on_open_mail(u, id, ""),
             "eml" => {

@@ -47,8 +47,6 @@ pub fn install_filter(ui: &AppWindow) {
     let w = ui.as_weak();
     ui.window().on_winit_window_event(move |_, ev| {
         crate::automation::winit_event(ev);
-        // the input that finds the time without use passed locks, and goes no further
-        if crate::applock::input_event(ev) { return EventResult::PreventDefault; }
         if let Some(u) = w.upgrade() { crate::winstate::event(&u, ev); }
         if let WindowEvent::Focused(true) = ev {
             // back from Windows settings: read them again now (they are cached for a moment)

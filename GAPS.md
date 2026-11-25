@@ -4,7 +4,7 @@
 Method: I read ROADMAP.md and JMAP-COMPLIANCE.md and walked Bulwark's components/, stores/ and lib/. I compared the 153 data fields of `SettingsState` in stores/settings-store.ts against Barbican's src/, ui/app.slint and settings-schema.json. I also compared the JMAP methods Bulwark calls with the ones Barbican calls. Already-done items (context menus, rich-text editor, unified inbox, accessibility page, Sieve extras, JMAP sync, files trash, admin dashboard and tasks) are left out.
 
 Two cross-cutting findings:
-- **Settings rows with no Bulwark key are dropped silently.** settings.rs `schema_rows` skips every `info` row and every keyless row. So whole Bulwark sections never appear: Security (2FA, app lock), Language, Time zone, Default apps, Contacts import/export, Files display options, Storage usage, Vacation audience/forward/keep.
+- **Settings rows with no Bulwark key are dropped silently.** settings.rs `schema_rows` skips every `info` row and every keyless row. So whole Bulwark sections never appear: Security (2FA), Language, Time zone, Default apps, Contacts import/export, Files display options, Storage usage, Vacation audience/forward/keep.
 - **About 40 schema settings show in the UI but are read nowhere in the code** (listed in P2-1).
 
 ## Done in parity round 2 (branch parity-round2)
@@ -17,7 +17,7 @@ These items were in the P0/P1 lists and are now implemented. PARITY-ROUND2.md li
 - P0-8 mailto handling, single-instance handoff and default-app registration.
 - P0-9 drag and drop and resizable panes.
 - P1-1 command palette and search everything; P1-2 search quality; P1-3 keyboard shortcuts.
-- P1-4 calendar: agenda, tasks view and editor, .ics import, webcal, birthdays, find a time.
+- P1-4 calendar: agenda, tasks view and editor, .ics import, webcal, birthdays. Find a time was built too, then cut (docs/FEATURE-CUT.md).
 - P1-5 contacts: vCard import/export, typed entries, photos, duplicates and merge, directory.
 - P1-7 filters: edit, reorder, several conditions and actions, header/size/regex, run on existing mail.
 - P1-14 (part): .eml/.mbox import and opening an attached .eml.
@@ -34,8 +34,8 @@ All nine P0 items are implemented (see above). What is left of them:
 
 ## P1: feature areas missing or thin
 
-1. **Calendar leftovers (S/M).** Calendar print (calendar-print.tsx). Find-a-time depends on `Principal/getAvailability`, which Stalwart may not support.
-2. **Contacts leftovers (S/M).** Contact print (contact-print.ts), contact activity (contact-activity.tsx) and related people. The contacts code (vCard parsing of untrusted files, photo data URI size, export paths) has not had its own review.
+1. **Calendar leftovers.** None: calendar print and find a time (`Principal/getAvailability`, with the guests' free/busy) are cut (docs/FEATURE-CUT.md).
+2. **Contacts leftovers (S/M).** Contact activity (contact-activity.tsx) and related people (contact print is cut, docs/FEATURE-CUT.md). The contacts code (vCard parsing of untrusted files, photo data URI size, export paths) has not had its own review.
 3. **Files depth (M).** Bulwark: file-preview-modal.tsx, image-preview-modal.tsx, eml-preview.tsx, file-details-panel.tsx, file-views.tsx (grid/list), upload-conflict-dialog.tsx, lib/files-zip.ts, new-file-dialog.tsx, files-settings.ts. Missing in Barbican:
    - In-app preview (files open externally)
    - Details panel
@@ -52,7 +52,7 @@ All nine P0 items are implemented (see above). What is left of them:
    - HTML or rich signature editing (`signatureDetails`)
    - Identity order (`preferredIdentityIds`)
    - Masked addresses
-7. **Account security (M).** Stalwart client APIs Bulwark uses (stores/account-security-store.ts, account-security-settings.tsx, app-lock/): `x:AccountPassword` (change password), `x:AccountSettings` (TOTP 2FA), `x:AppPassword`, `x:ApiKey`, `x:PublicKey` (encryption at rest), `x:Account/get`. None are in Barbican, and the whole Security page is dropped. App lock (PIN or Windows Hello, lock after) and session timeout (session/) are also missing.
+7. **Account security (M).** Stalwart client APIs Bulwark uses (stores/account-security-store.ts, account-security-settings.tsx): `x:AccountPassword` (change password), `x:AccountSettings` (TOTP 2FA), `x:AppPassword`, `x:ApiKey`, `x:PublicKey` (encryption at rest), `x:Account/get`. None are in Barbican, and the whole Security page is dropped. App lock and session timeout (app-lock/, session/) are cut (docs/FEATURE-CUT.md): the Windows lock screen covers them.
 8. **Templates (S/M).** Bulwark: template-manager-modal.tsx, template-form.tsx, placeholder-fill-modal.tsx, quick-save-template-dialog.tsx, lib/template-merge.ts. Barbican can create (plain text), delete and insert. Missing: edit, rich body, placeholder fill on insert, save the current draft as a template.
 9. **Folders (S/M).** Bulwark: organize-settings.tsx, folder-settings.tsx, layout/mailbox-share-dialog.tsx, share-collection-dialog.tsx, icon-picker.tsx. (Moving, re-parenting and reordering folders by drag is done.) Missing:
     - Subscribe/unsubscribe
@@ -62,7 +62,7 @@ All nine P0 items are implemented (see above). What is left of them:
     - Mark the whole tree read
     - Per-folder notification mute (`notificationMutes`)
     - Export/import a folder
-    - Sharing folders, calendars and address books with other users. Barbican shares Files only.
+    - Sharing folders, calendars and address books with other users is cut (docs/FEATURE-CUT.md). Barbican shares Files only.
 10. **Live updates outside mail (S/M).** The push `types` cover only mail objects. Calendars, contacts, files and identities do not refresh live, and there is no `/changes` delta for them. Also missing: `ShareNotification` and `CalendarEventNotification` (share-notification-store.ts, calendar-event-notification-store.ts, notifications/notification-center.tsx) and the notification centre itself.
 11. **Mail export and copy (M).** .eml/.mbox import is done. Still missing: mbox/eml export of a folder (mail-transfer/), lib/tnef.ts for winmail.dat, and `Email/copy` (copy to another account).
 12. **Safety in the reader (M).** Bulwark: lib/phishing-links.ts, phishing-mark-banner.tsx, phishing-report*, external-sender-chip.tsx, brand-verified-badge.tsx with lib/bimi, trusted-senders-modal.tsx (`trustedSenders`, `externalContentPolicy`), external-recipient-confirm.tsx. Barbican has one global "load remote images" choice, the spam badge and the invitation trust warning. (BIMI is used for sender pictures only.) Missing:
@@ -89,7 +89,7 @@ All nine P0 items are implemented (see above). What is left of them:
    - `debugMode`, `settingsSyncDisabled` (settings sync through Mailbox metadata, lib/settings-sync.ts, is not implemented)
 
    These settings-store fields have no setting row and no code at all:
-   - `defaultReplyMode`, `printTheme`
+   - `defaultReplyMode` (`printTheme` is cut with printing)
    - `hiddenCompanyCalendars`
    - `hiddenSharedMailAccounts`, `sharedMailAccountOrder`, `allMailFolderIds`
    - `attachmentReminderKeywords`
@@ -99,7 +99,7 @@ All nine P0 items are implemented (see above). What is left of them:
 2. **Themes (M).** Bulwark: themes-settings.tsx, lib/builtin-themes.ts, theme-compiler.ts. Barbican has only light, dark and system: no built-in themes, accent colours or custom themes.
 3. **Language and time zone (L for i18n, S for the time zone picker).** Bulwark: language-settings.tsx, time-zone-picker.tsx, locale-store.ts. Barbican is English only and uses the OS time zone. lib/jalali-utils.ts is n/a unless i18n lands.
 4. **Message list extras (M).** Bulwark: message-list-tabs.tsx, list-columns.tsx, hover-action tag picker, verification-code copy, `$pinned`, structured-mail cards (structured-mail/: bookings, shipments, pkpass).
-5. **Printing (S/M).** Conversation print, contact print, calendar print and print settings (printing-settings.tsx) are missing. Barbican prints a single message.
+5. **Printing.** Cut, all of it (docs/FEATURE-CUT.md): Barbican no longer prints a single message, and conversation, contact and calendar print and the print settings (printing-settings.tsx) are not planned.
 6. **Composer extras (S/M).** Bulwark: recipient-mention.tsx (@mentions), attach from Files (file-picker-dialog.tsx), lib/message-priority.ts (priority), classification-label-picker.tsx, proofreading/ (next/previous issue, `proofreadingPlugins`), link to Files.
 
 ## P3: large and low priority

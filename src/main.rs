@@ -1,7 +1,6 @@
 #![cfg_attr(not(test), windows_subsystem = "windows")]
 
 mod a11y;
-mod applock;
 mod vacation;
 mod winstate;
 mod auth;
@@ -51,7 +50,6 @@ mod glance;
 mod identities;
 mod masked;
 mod subaddr;
-mod share;
 mod jmap;
 mod lite;
 mod mailview;
@@ -841,6 +839,12 @@ fn main() -> Result<(), slint::PlatformError> {
     // while another Barbican of this profile runs: its mail view may have that profile open
     // (every path swept is this profile's own, so another profile running does not matter)
     if first_of_profile { signout::sweep_pending(); }
+    // the app lock is gone: what it kept (the marker it put on the sign-ins and kept keys, then its
+    // PIN entry in the profile's secret store and its lock file) goes once, and a lock that was on
+    // is simply off. Never a long wait: a busy store or lock leaves it to the next start.
+    if first_of_profile && oauth::retire_app_lock() == oauth::Retire::Later {
+        eprintln!("app lock: what it kept could not all be removed yet; tried again at the next start");
+    }
     let ui = AppWindow::new()?;
     apply_theme(&ui);
     apply_ui_prefs(&ui);
@@ -991,9 +995,6 @@ fn main() -> Result<(), slint::PlatformError> {
                 oauth::revoke(&base, &t);
             });
         }
-        // nobody is left to lock for: the app lock's PIN goes with the last account
-        // the sign-out goes on either way; only the lock's removal is reported
-        if last && !applock::forget() { mail::show_toast(&u, applock::NOT_FORGOTTEN, false); }
         if last { avatars::cancel_pending(); }
         // a chat answer still coming must not write the account's file again
         CHAT_USER.lock().unwrap().clear();
@@ -1013,7 +1014,6 @@ fn main() -> Result<(), slint::PlatformError> {
         // was this account's
         tplflow::reset(&u);
         subaddr::reset(&u);
-        share::reset(&u);
         TEMPLATES.with(|t| *t.borrow_mut() = (String::new(), Vec::new()));
         u.set_tpl_names(ModelRc::new(VecModel::from(vec![slint::SharedString::from("Insert template…")])));
         u.set_tpl_index(0);
@@ -1074,7 +1074,6 @@ fn main() -> Result<(), slint::PlatformError> {
         server_settings::reset(&srv_sw);
         let Some(v) = oauth::accounts().into_iter().find(|a| a["user"].as_str() == Some(user.as_str())) else { return };
         let u = w.unwrap();
-        share::close(&u);
         files_view::close_preview(&u);
         // the current session (and its push stream) stays until the new one is up: a failed
         // switch keeps it; start_push on success retires the old stream
@@ -1090,7 +1089,6 @@ fn main() -> Result<(), slint::PlatformError> {
     ui.on_add_account(move || {
         server_settings::reset(&srv_add);
         let u = w.unwrap();
-        share::close(&u);
         files_view::close_preview(&u);
         SESSION_GEN.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         *st.lock().unwrap() = None;
@@ -1241,6 +1239,7 @@ fn main() -> Result<(), slint::PlatformError> {
                         rows.splice(0..0, extra);
                     } else { rows = extra; }
                 }
+                if tab == "security" { rows = settings::security_or_note(rows); }
                 rows
             } else {
                 u.set_settings_title(format!("Search: {q}").into());
@@ -1323,7 +1322,6 @@ fn main() -> Result<(), slint::PlatformError> {
 
     let (pf, cf, rs, srv, sw, wt, stg) = (prefs.clone(), cfg.clone(), refresh_settings.clone(), server_cache.clone(), server_write.clone(), ui.as_weak(), state.clone());
     ui.on_settings_set_toggle(move |key, on| {
-        if wt.upgrade().is_some_and(|u| applock::settings_toggle(&u, &key, on)) { rs(); return; }
         if key.starts_with("server.") {
             if let Some(job) = server_settings::edit(&key, &serde_json::json!(on), &srv) { sw(&key, job, 10); }
             rs();
@@ -1362,7 +1360,6 @@ fn main() -> Result<(), slint::PlatformError> {
 
     let (w, pf, cf, rs, srv3, sw3) = (ui.as_weak(), prefs.clone(), cfg.clone(), refresh_settings.clone(), server_cache.clone(), server_write.clone());
     ui.on_settings_set_select(move |key, idx| {
-        if applock::settings_select(&w.unwrap(), &key, idx) { rs(); return; }
         if key.starts_with("server.") {
             if let Some(job) = server_settings::edit(&key, &serde_json::json!(idx), &srv3) { sw3(&key, job, 10); }
             rs();
@@ -1421,7 +1418,6 @@ fn main() -> Result<(), slint::PlatformError> {
             return;
         }
         if desktop::settings_button(&u, &key) { return; }
-        if applock::settings_button(&u, &key) { u.invoke_settings_search(u.get_settings_query()); return; }
         if key == "signout" { u.set_show_settings(false); u.invoke_sign_out(); }
         if key == "mailapp.register" {
             // user-triggered only: writes the HKCU registration (or the Linux .desktop file)
@@ -2055,7 +2051,6 @@ fn main() -> Result<(), slint::PlatformError> {
     });
     tplflow::wire(&ui, state.clone());
     subaddr::wire(&ui);
-    share::wire(&ui);
     files_x::wire(&ui);
     files_view::wire(&ui, state.clone());
 
@@ -2125,18 +2120,6 @@ fn main() -> Result<(), slint::PlatformError> {
                 let Some((msg, _)) = CUR_MSG.with(|x| x.borrow().clone()) else { return };
                 let kind = if a == "forward" { compose::ComposeKind::Forward } else { compose::ComposeKind::ReplyAll };
                 compose::open(&u, c, kind, Some(&*msg));
-            }
-            "print" => {
-                let printed = u.get_render_mode() == 0 && mailview::print();
-                if !printed {
-                    if let Some(h) = CUR.with(|c| c.borrow().as_ref().map(|c| c.html.clone().unwrap_or_else(|| format!("<pre>{}</pre>", esc(&c.text))))) {
-                        let p = platform::print_file();
-                        let page = wrap_html_opts(&format!("<h2>{}</h2>{h}<script>print()</script>", esc(&u.get_r_subject())), false)
-                            .replace("script-src 'none'", "script-src 'unsafe-inline'");
-                        let _ = std::fs::write(&p, page);
-                        oauth::open_browser(&p.to_string_lossy());
-                    }
-                }
             }
             a if a.starts_with("rx:") => reader::pick(&u, &st, a, ""),
             other => {
@@ -2211,8 +2194,6 @@ fn main() -> Result<(), slint::PlatformError> {
     ui.global::<Pd>().on_refocus(move || { if let Some(u) = w.upgrade() { u.invoke_focus_keys(); } });
 
     mailview::install_focus_hook(&ui);
-    // a PIN set: the first frame is the lock screen
-    applock::wire(&ui);
     // "Start in the tray" at sign-in leaves the window closed
     // the window comes back where it was (before it is shown, so it never jumps)
     winstate::restore(&ui);

@@ -1,17 +1,15 @@
 //! The event editor (Bulwark components/calendar/event-modal.tsx and its parts): title, start
 //! and end with an end date, all day, time zone, repeat with the custom recurrence editor
 //! (recurrence-editor.tsx), calendar, show as (free/busy), visibility, location, guests with
-//! suggestions from contacts and their free/busy (participant-input.tsx,
-//! participant-availability.tsx), "Suggest times" (find-a-time.tsx, Principal/getAvailability),
-//! reminders (alert-list-editor.tsx), description. Saving an occurrence of a series asks which
-//! part of it (recurrence-scope-dialog.tsx, lib/recurrence-scope-edit.ts). Also the quick
+//! suggestions from contacts (participant-input.tsx), reminders (alert-list-editor.tsx),
+//! description. Saving an occurrence of a series asks which part of it (recurrence-scope-dialog.tsx, lib/recurrence-scope-edit.ts). Also the quick
 //! create popover (quick-create-popover.tsx).
 use crate::calendar::{self, server_ref};
 use crate::jmap::Client;
 use crate::recurrence::{self, duration_secs, duration_string, fmt_local, parse_local, Rule};
 use crate::reminders::{self, EdRow, Row};
-use crate::{AppWindow, CxAlert, CxAttendee, CxSlot, CxSuggest};
-use chrono::{Datelike, Duration, Local, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Timelike, Weekday};
+use crate::{AppWindow, CxAlert, CxAttendee, CxSuggest};
+use chrono::{Datelike, Duration, Local, NaiveDate, NaiveDateTime, NaiveTime, Timelike, Weekday};
 use serde_json::{json, Map, Value};
 use slint::{ComponentHandle, ModelRc, VecModel};
 use std::cell::RefCell;
@@ -44,10 +42,8 @@ struct Ed {
     prev_start: Option<NaiveDateTime>,
     prev_end: Option<NaiveDateTime>,
     suggest: Vec<(Person, Vec<Person>)>,
-    slots: Vec<(NaiveDateTime, NaiveDateTime)>,
     pending: Option<Pending>,
     readonly: bool,
-    avail: HashMap<String, (String, i32)>,
     gen: u64,
     calendar_ids: Vec<String>,
 }
@@ -500,9 +496,6 @@ fn set_common(u: &AppWindow) {
     x.set_ed_tz_matches(ModelRc::new(VecModel::from(Vec::<slint::SharedString>::new())));
     x.set_ed_att_query("".into());
     x.set_ed_att_suggest(ModelRc::new(VecModel::from(Vec::<CxSuggest>::new())));
-    x.set_ed_find_open(false);
-    x.set_ed_find_busy(false);
-    x.set_ed_find_slots(ModelRc::new(VecModel::from(Vec::<CxSlot>::new())));
     x.set_rr_open(false);
     x.set_ed_send_invites(true);
     u.set_ev_status("".into());
@@ -641,7 +634,6 @@ pub fn open_existing(u: &AppWindow, id: &str) {
     render_alerts(u);
     update_your_time(u);
     u.set_ev_open(true);
-    if let Some(c) = crate::cal_extra::client() { refresh_availability(u, c); }
 }
 
 fn open_birthday(u: &AppWindow, key: &str) {
@@ -683,16 +675,14 @@ fn render_people(u: &AppWindow) {
         if !ed.attendees.is_empty() {
             let org = ed.organizer.clone().or_else(|| crate::cal_extra::client().map(|c| Person { name: String::new(), email: me(&c)[0].clone() }));
             if let Some(o) = org {
-                let av = ed.avail.get(&o.email.to_lowercase()).cloned().unwrap_or_default();
                 out.push(CxAttendee { name: o.name.clone().into(), email: o.email.clone().into(), initials: initials(&o.name, &o.email).into(), status: "Organizer".into(), tone: 0,
-                    avail: av.0.into(), avail_tone: av.1, organizer: true });
+                    organizer: true });
             }
         }
         for a in &ed.attendees {
             let (label, tone) = status_label(statuses.get(&a.email.to_lowercase()).map(|s| s.as_str()));
-            let av = ed.avail.get(&a.email.to_lowercase()).cloned().unwrap_or_default();
             out.push(CxAttendee { name: a.name.clone().into(), email: a.email.clone().into(), initials: initials(&a.name, &a.email).into(), status: label.into(), tone,
-                avail: av.0.into(), avail_tone: av.1, organizer: false });
+                organizer: false });
         }
         out
     });
@@ -728,7 +718,6 @@ fn add_people(u: &AppWindow, people: Vec<Person>) {
     x.set_ed_att_query("".into());
     x.set_ed_att_suggest(ModelRc::new(VecModel::from(Vec::<CxSuggest>::new())));
     render_people(u);
-    if let Some(c) = crate::cal_extra::client() { refresh_availability(u, c); }
 }
 
 /// "Name <a@b.c>" or a bare address.
@@ -1199,232 +1188,6 @@ pub fn delete(u: &AppWindow, c: Arc<Client>) {
     run(u, c, "Event not deleted", move |c| destroy(c, &base, send));
 }
 
-// ---------------- free/busy and suggested times ----------------
-
-/// Principal ids by address (Principal/query with an email filter), and whether the server
-/// refused to list principals.
-fn principal_ids(c: &Client, emails: &[String]) -> (HashMap<String, String>, bool) {
-    let acc = c.account_for("urn:ietf:params:jmap:principals");
-    let mut out = HashMap::new();
-    let mut refused = false;
-    let calls: Vec<Value> = emails.iter().enumerate().map(|(i, e)| json!(["Principal/query", {"accountId": acc, "filter": {"email": e}, "limit": 2}, format!("p{i}")])).collect();
-    if calls.is_empty() { return (out, false); }
-    match c.request(Value::Array(calls)) {
-        Ok(rs) => for r in rs {
-            if r[0] == "error" { refused = true; continue; }
-            let i: usize = r[2].as_str().unwrap_or("p0")[1..].parse().unwrap_or(0);
-            if let (Some(email), Some(id)) = (emails.get(i), r[1]["ids"][0].as_str()) { out.insert(email.to_lowercase(), id.to_string()); }
-        },
-        Err(_) => refused = true,
-    }
-    (out, refused)
-}
-
-/// Busy periods (utc start ms, utc end ms, tentative) per principal id, or the error type.
-fn availability(c: &Client, ids: &[String], from_ms: i64, to_ms: i64) -> HashMap<String, Result<Vec<(i64, i64, bool)>, String>> {
-    let acc = c.account_for("urn:ietf:params:jmap:principals");
-    let fmt = |ms: i64| chrono::Utc.timestamp_millis_opt(ms).single().map(|t| t.format("%Y-%m-%dT%H:%M:%SZ").to_string()).unwrap_or_default();
-    let calls: Vec<Value> = ids.iter().enumerate().map(|(i, id)| json!(["Principal/getAvailability",
-        {"accountId": acc, "id": id, "utcStart": fmt(from_ms), "utcEnd": fmt(to_ms), "showDetails": false}, format!("a{i}")])).collect();
-    let mut out = HashMap::new();
-    let parse = |s: &str| chrono::DateTime::parse_from_rfc3339(s).ok().map(|t| t.timestamp_millis());
-    match c.request(Value::Array(calls)) {
-        Ok(rs) => for r in rs {
-            let i: usize = r[2].as_str().unwrap_or("a0")[1..].parse().unwrap_or(0);
-            let Some(id) = ids.get(i) else { continue };
-            if r[0] == "error" { out.insert(id.clone(), Err(r[1]["type"].as_str().unwrap_or("serverFail").to_string())); continue; }
-            let periods = r[1]["list"].as_array().cloned().unwrap_or_default().iter().filter_map(|p| {
-                Some((parse(p["utcStart"].as_str()?)?, parse(p["utcEnd"].as_str()?)?, p["busyStatus"] == "tentative"))
-            }).collect();
-            out.insert(id.clone(), Ok(periods));
-        },
-        Err(e) => for id in ids { out.insert(id.clone(), Err(e.clone())); },
-    }
-    out
-}
-
-/// The status of one attendee for a window (Bulwark availabilityFor): busy wins over tentative.
-pub fn availability_for(periods: &[(i64, i64, bool)], from: i64, to: i64) -> (&'static str, i32) {
-    let mut st = ("Free", 1);
-    for (s, e, tent) in periods {
-        if *s < to && *e > from {
-            if *tent { st = ("Tentative", 2); } else { return ("Busy", 3); }
-        }
-    }
-    st
-}
-
-/// Free/busy of every guest for the form's time.
-pub fn refresh_availability(u: &AppWindow, c: Arc<Client>) {
-    if !c.has("urn:ietf:params:jmap:principals:availability") { return; }
-    let emails: Vec<String> = ED.with(|e| e.borrow().attendees.iter().map(|a| a.email.clone()).collect());
-    if emails.is_empty() { return; }
-    let Some((s, e)) = form_times(u) else { return };
-    let tz = u.global::<crate::CalX>().get_ed_tz().to_string();
-    let zone = if u.get_ev_all_day() || tz.is_empty() { None } else { Some(tz) };
-    let (from, to) = (recurrence::zone_to_utc_ms(s, zone.as_deref()), recurrence::zone_to_utc_ms(if u.get_ev_all_day() { e + Duration::days(1) } else { e }, zone.as_deref()));
-    let gen = ED.with(|e| e.borrow().gen);
-    let w = u.as_weak();
-    std::thread::spawn(move || {
-        let (ids, refused) = principal_ids(&c, &emails);
-        let list: Vec<String> = ids.values().cloned().collect();
-        let answers = availability(&c, &list, from, to.max(from + 60_000));
-        let mut st: HashMap<String, (String, i32)> = HashMap::new();
-        for e in &emails {
-            let key = e.to_lowercase();
-            let label = match ids.get(&key) {
-                None => if refused { ("Not looked up", 0) } else { ("Not found", 0) },
-                Some(id) => match answers.get(id) {
-                    Some(Ok(p)) if p.is_empty() => ("No busy times", 0),
-                    Some(Ok(p)) => availability_for(p, from, to),
-                    Some(Err(t)) if t == "forbidden" => return,
-                    _ => ("Unknown", 0),
-                },
-            };
-            st.insert(key, (label.0.to_string(), label.1));
-        }
-        let _ = w.upgrade_in_event_loop(move |u| {
-            if ED.with(|e| e.borrow().gen) != gen { return; }
-            ED.with(|e| e.borrow_mut().avail = st);
-            render_people(&u);
-        });
-    });
-}
-
-pub const SEARCH_WORKING_DAYS: usize = 10;
-pub const MAX_SUGGESTIONS: usize = 5;
-pub const GRID_MINUTES: i64 = 30;
-
-/// Up to `max` meeting slots of `dur_ms` within the working hours of the next working days, on a
-/// 30-minute grid, overlapping no busy period (Bulwark findFreeSlots). Times are local.
-pub fn find_free_slots(now: NaiveDateTime, dur_ms: i64, working: &[u32], start_h: i64, end_h: i64, busy: &[(i64, i64)], max: usize) -> Vec<(NaiveDateTime, NaiveDateTime)> {
-    let ms = |t: NaiveDateTime| recurrence::zone_to_utc_ms(t, None);
-    let working: Vec<u32> = if working.is_empty() { vec![1, 2, 3, 4, 5] } else { working.to_vec() };
-    let (sh, eh) = if end_h > start_h { (start_h, end_h) } else { (8, 20) };
-    let mut out = vec![];
-    if dur_ms <= 0 { return out; }
-    let mut day = now.date();
-    let mut days = 0;
-    for _ in 0..366 {
-        if days >= SEARCH_WORKING_DAYS { break; }
-        if working.contains(&day.weekday().num_days_from_sunday()) {
-            days += 1;
-            let day_end = day.and_hms_opt(0, 0, 0).unwrap() + Duration::hours(eh);
-            let mut m = sh * 60;
-            while m < eh * 60 {
-                let s = day.and_hms_opt(0, 0, 0).unwrap() + Duration::minutes(m);
-                let e = s + Duration::milliseconds(dur_ms);
-                m += GRID_MINUTES;
-                if e > day_end { break; }
-                if s < now { continue; }
-                let (bs, be) = (ms(s), ms(e));
-                if busy.iter().any(|(a, b)| *a < be && *b > bs) { continue; }
-                out.push((s, e));
-                if out.len() >= max { return out; }
-            }
-        }
-        day += Duration::days(1);
-    }
-    out
-}
-
-/// "Suggest times": the next free slots for the organizer and every guest Barbican can check.
-pub fn find(u: &AppWindow, c: Arc<Client>) {
-    let x = u.global::<crate::CalX>();
-    x.set_ed_find_open(true);
-    if !c.has("urn:ietf:params:jmap:principals:availability") {
-        x.set_ed_find_status("This server doesn't share free/busy times.".into());
-        return;
-    }
-    let Some((s, e)) = form_times(u) else { x.set_ed_find_status("Fix the date and time first.".into()); return };
-    let tz = x.get_ed_tz().to_string();
-    let zone = if u.get_ev_all_day() || tz.is_empty() { None } else { Some(tz) };
-    let dur = if u.get_ev_all_day() { 3_600_000 } else { (recurrence::zone_to_utc_ms(e, zone.as_deref()) - recurrence::zone_to_utc_ms(s, zone.as_deref())).max(15 * 60_000) };
-    let guests: Vec<Person> = ED.with(|e| e.borrow().attendees.clone());
-    let me = me(&c);
-    let own_window = ED.with(|e| {
-        let e = e.borrow();
-        e.event.as_ref().zip(e.occ_start.zip(e.occ_end)).map(|(ev, (a, b))| {
-            let z = if ev["showWithoutTime"] == true { None } else { ev["timeZone"].as_str() };
-            (recurrence::zone_to_utc_ms(a, z), recurrence::zone_to_utc_ms(b, z))
-        })
-    });
-    let p = crate::settings::Settings::load();
-    let working: Vec<u32> = p.prefs.get("calendarWorkingDays").and_then(|v| v.as_array()).map(|a| a.iter().filter_map(|d| d.as_u64()).map(|d| d as u32 % 7).collect()).unwrap_or_default();
-    let (sh, eh) = (p.int("calendarDayStartHour", 8), p.int("calendarDayEndHour", 20));
-    x.set_ed_find_busy(true);
-    x.set_ed_find_status("Checking calendars…".into());
-    let gen = ED.with(|e| e.borrow().gen);
-    let w = u.as_weak();
-    std::thread::spawn(move || {
-        let now = Local::now().naive_local();
-        let window_end = now + Duration::days(20);
-        let (from, to) = (recurrence::zone_to_utc_ms(now, None), recurrence::zone_to_utc_ms(window_end, None));
-        let others: Vec<Person> = guests.into_iter().filter(|g| !is_me(&g.email, &me)).collect();
-        let emails: Vec<String> = others.iter().map(|g| g.email.clone()).collect();
-        let (ids, refused) = principal_ids(&c, &emails);
-        let own_id = c.account_for("urn:ietf:params:jmap:principals");
-        let mut all_ids = vec![own_id.clone()];
-        all_ids.extend(ids.values().cloned());
-        let answers = availability(&c, &all_ids, from, to);
-        let mut busy: Vec<(i64, i64)> = vec![];
-        let mut not_checked: Vec<String> = vec![];
-        let mut status = String::new();
-        if let Some(Err(t)) = answers.get(&own_id) { if t == "forbidden" { status = "Your server doesn't let you look up free/busy times.".into(); } }
-        if answers.values().any(|a| matches!(a, Err(t) if t == "rateLimit")) { status = "Too many look-ups right now. Try again in a minute.".into(); }
-        if status.is_empty() {
-            if let Some(Ok(p)) = answers.get(&own_id) { busy.extend(p.iter().map(|(a, b, _)| (*a, *b))); }
-            for g in &others {
-                match ids.get(&g.email.to_lowercase()).and_then(|id| answers.get(id)) {
-                    Some(Ok(p)) => busy.extend(p.iter().map(|(a, b, _)| (*a, *b))),
-                    _ => not_checked.push(if g.name.is_empty() { g.email.clone() } else { g.name.clone() }),
-                }
-            }
-            // the event's own saved time isn't busy for itself
-            if let Some((a, b)) = own_window { busy.retain(|(x, y)| !(*x == a && *y == b)); }
-        }
-        let slots = if status.is_empty() { find_free_slots(now, dur, &working, sh, eh, &busy, MAX_SUGGESTIONS) } else { vec![] };
-        if status.is_empty() {
-            status = if slots.is_empty() { "No free time found in the next two working weeks.".into() } else { String::new() };
-            if !not_checked.is_empty() {
-                if !status.is_empty() { status.push(' '); }
-                status += &format!("Not checked{}: {}.", if refused { " (directory look-ups are off)" } else { "" }, not_checked.join(", "));
-            }
-        }
-        let _ = w.upgrade_in_event_loop(move |u| {
-            if ED.with(|e| e.borrow().gen) != gen { return; }
-            let h12 = calendar::h12();
-            let rows: Vec<CxSlot> = slots.iter().map(|(s, e)| CxSlot {
-                label: s.format("%a %b %-d").to_string().into(),
-                sub: format!("{} – {}", calendar::fmt_time(*s, h12), calendar::fmt_time(*e, h12)).into(),
-            }).collect();
-            ED.with(|e| e.borrow_mut().slots = slots);
-            let x = u.global::<crate::CalX>();
-            x.set_ed_find_busy(false);
-            x.set_ed_find_status(status.into());
-            x.set_ed_find_slots(ModelRc::new(VecModel::from(rows)));
-        });
-    });
-}
-
-/// A suggested slot moves the event there (on the form's clock).
-pub fn pick_slot(u: &AppWindow, i: i32) {
-    let Some((s, e)) = ED.with(|ed| ed.borrow().slots.get(i.max(0) as usize).copied()) else { return };
-    let x = u.global::<crate::CalX>();
-    let tz = x.get_ed_tz().to_string();
-    let zone = if tz.is_empty() { None } else { Some(tz.as_str()) };
-    let (zs, ze) = (recurrence::local_to_zone(s, zone), recurrence::local_to_zone(e, zone));
-    u.set_ev_all_day(false);
-    u.set_ev_date(zs.format("%Y-%m-%d").to_string().into());
-    u.set_ev_start(zs.format("%H:%M").to_string().into());
-    x.set_ed_end_date(ze.format("%Y-%m-%d").to_string().into());
-    u.set_ev_end(ze.format("%H:%M").to_string().into());
-    ED.with(|ed| { let mut ed = ed.borrow_mut(); ed.prev_start = Some(zs); ed.prev_end = Some(ze); });
-    x.set_ed_find_open(false);
-    update_your_time(u);
-    if let Some(c) = crate::cal_extra::client() { refresh_availability(u, c); }
-}
-
 // ---------------- quick create ----------------
 
 /// A click on an empty slot: `day` is "#N" (day column N) or a date; hour < 0 is a whole day.
@@ -1648,24 +1411,6 @@ mod tests {
         let s = series_update(&master, dt("2026-11-04T09:00:00"), &d2);
         assert_eq!(s["start"], "2026-11-02T09:30:00");
         assert!(s.get("recurrenceRules").is_none());
-    }
-
-    #[test]
-    fn free_slots_skip_busy_and_off_hours() {
-        // Monday 2026-11-16 08:10 local
-        let now = dt("2026-11-16T08:10:00");
-        let ms = |s: &str| recurrence::zone_to_utc_ms(dt(s), None);
-        let busy = vec![(ms("2026-11-16T08:30:00"), ms("2026-11-16T10:00:00"))];
-        let slots = find_free_slots(now, 3_600_000, &[1, 2, 3, 4, 5], 8, 20, &busy, 3);
-        let s: Vec<String> = slots.iter().map(|(a, _)| a.format("%d %H:%M").to_string()).collect();
-        assert_eq!(s, ["16 10:00", "16 10:30", "16 11:00"]);
-        // the last slot of a day ends by its end hour; weekends are skipped
-        let late = dt("2026-11-20T19:10:00");
-        let s = find_free_slots(late, 3_600_000, &[1, 2, 3, 4, 5], 8, 20, &[], 1);
-        assert_eq!(s[0].0, dt("2026-11-23T08:00:00"));
-        assert_eq!(availability_for(&[(0, 10, true)], 5, 20), ("Tentative", 2));
-        assert_eq!(availability_for(&[(0, 10, true), (12, 30, false)], 5, 20), ("Busy", 3));
-        assert_eq!(availability_for(&[(30, 40, false)], 5, 20), ("Free", 1));
     }
 
     #[test]
