@@ -376,7 +376,7 @@ impl Anthropic {
         let url = format!("{}/messages", self.base_url);
         http::check_url(&url)?;
         let headers = auth_headers(self.api_key.trim())?;
-        let client = http::client()?;
+        let client = http::client(false)?;
         let mut strip_thinking = false;
         let mut effort = self.effort.as_str();
         loop {
@@ -432,7 +432,8 @@ pub fn fetch_models(base_url: &str, api_key: &str, cancel: &Cancel) -> Result<Ve
 
 async fn fetch_models_async(base: String, key: String, cancel: &Cancel) -> Result<Vec<ModelInfo>, ProviderError> {
     let headers = auth_headers(&key)?;
-    let client = http::client()?;
+    // GETs only
+    let client = http::client(true)?;
     let mut out = Vec::new();
     let mut after = String::new();
     for _ in 0..MODEL_PAGES {
@@ -983,6 +984,24 @@ mod tests {
         let server = FakeServer::start(vec![]);
         assert!(fetch_models(&server.base, "k", &cancel).unwrap_err().is_aborted());
         assert!(server.requests().is_empty());
+    }
+
+    #[test]
+    fn the_models_api_follows_a_same_origin_redirect_of_any_kind() {
+        for status in [301, 302, 303, 307, 308] {
+            let server = FakeServer::start(vec![Reply::redirect(status, "/v2/models?limit=100"), page(&[("claude-opus-5-5", "")], false)]);
+            let models = fetch_models(&format!("{}/v1", server.base), "sk-ant-test", &Cancel::new()).unwrap();
+            assert_eq!(models.len(), 1, "{status}");
+            let reqs = server.requests();
+            assert_eq!(reqs[1].method, "GET");
+            assert_eq!(reqs[1].path, "/v2/models?limit=100");
+            assert_eq!(reqs[1].header("x-api-key").as_deref(), Some("sk-ant-test"), "{status}");
+        }
+        // another origin is still refused
+        let other = FakeServer::start(vec![page(&[("claude-opus-5-5", "")], false)]);
+        let server = FakeServer::start(vec![Reply::redirect(302, &format!("{}/v1/models", other.base))]);
+        assert!(fetch_models(&server.base, "k", &Cancel::new()).unwrap_err().message.contains("a different address"));
+        assert!(other.requests().is_empty());
     }
 
     #[test]

@@ -310,7 +310,7 @@ impl OpenAi {
         if !key.is_empty() {
             http::check_key(key)?;
         }
-        let client = http::client()?;
+        let client = http::client(false)?;
         // the fallback without tools happens at most once per call
         let mut retried = false;
         loop {

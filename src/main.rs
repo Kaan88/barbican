@@ -1360,6 +1360,13 @@ fn main() -> Result<(), slint::PlatformError> {
         mail::rebuild_list(&w.unwrap());
     });
 
+    // a text field accepted or left: the AI address edit moves the stored key along only now
+    // (assistant/config.rs), never per keystroke
+    let cf = cfg.clone();
+    ui.on_settings_commit_text(move |key, _| {
+        if key == "ai.base" { cf.lock().unwrap().commit_base(); }
+    });
+
     // text edits are saved as typed, without rebuilding the page (keeps the caret)
     let (pf, cf, srv, sw, wk, rs) = (prefs.clone(), cfg.clone(), server_cache.clone(), server_write.clone(), ui.as_weak(), refresh_settings.clone());
     ui.on_settings_set_text(move |key, t| {

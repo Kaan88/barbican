@@ -8,24 +8,26 @@ use super::sse::{until_cancelled, Cancel};
 pub(crate) const MAX_ERROR_BODY: usize = 1024 * 1024;
 
 /// Redirects are followed only by Barbican's rules for requests that carry credentials
-/// (`crate::redirect`): same origin, no https to http, a POST only on 307 and 308, at most 5 hops.
-fn redirect_policy() -> reqwest::redirect::Policy {
-    reqwest::redirect::Policy::custom(|attempt| {
+/// (`crate::redirect`): same origin, no https to http, at most 5 hops, and for a request with a
+/// body (`idempotent` false: a POST) only 307 and 308, which keep the method and the body.
+fn redirect_policy(idempotent: bool) -> reqwest::redirect::Policy {
+    reqwest::redirect::Policy::custom(move |attempt| {
         let hops = attempt.previous().len().saturating_sub(1);
         let Some(from) = attempt.previous().last().cloned() else { return attempt.stop() };
         let status = attempt.status().as_u16();
         let to = attempt.url().to_string();
-        match crate::redirect::next_url(&from, status, Some(&to), hops, false) {
+        match crate::redirect::next_url(&from, status, Some(&to), hops, idempotent) {
             Ok(_) => attempt.follow(),
             Err(r) => attempt.error(r.message()),
         }
     })
 }
 
-/// A client for one request (no total timeout: the stream has its own idle limit).
-pub(crate) fn client() -> Result<reqwest::Client, ProviderError> {
+/// A client for one request (no total timeout: the stream has its own idle limit). `idempotent`:
+/// the requests it sends have no body (a GET), so any same-origin redirect may be followed.
+pub(crate) fn client(idempotent: bool) -> Result<reqwest::Client, ProviderError> {
     reqwest::Client::builder()
-        .redirect(redirect_policy())
+        .redirect(redirect_policy(idempotent))
         .build()
         .map_err(|e| ProviderError::new(format!("Could not start the request: {e}")))
 }
