@@ -27,8 +27,8 @@ Reference documents:
 - docs/AI-ASSISTANT-SPEC.md: the AI assistant as a 1:1 clone of the owner's Thunderbird extension, milestones M1-M15.
 - docs/mockups/: HTML mockups in the toolkit's look (not committed; the owner decides on them later).
 
-1. **Remove the cut code** (UI-TOOLKIT-EVAL R milestones). R1 plugins and R2 app lock, sharing, printing and Find a time are merged. R3 is next: the Blitz light renderer goes, and the Files preview of .eml and HTML files moves to WebView2.
-2. **AI assistant, logic first** (AI-ASSISTANT-SPEC M1-M12): providers, setup, prompts and tools as plain Rust with no UI, tested against a fake server. M1 and M2 (streaming core, OpenAI-compatible client) are merged; M3 (Anthropic) is in progress. The UI milestones (M13-M15) wait for the new toolkit.
+1. **Remove the cut code** (UI-TOOLKIT-EVAL R milestones). R1 plugins, R2 app lock, sharing, printing and Find a time, and R3 the Blitz light renderer (the Files preview of .eml and HTML files now uses WebView2) are merged.
+2. **AI assistant, logic first** (AI-ASSISTANT-SPEC M1-M12): providers, setup, prompts and tools as plain Rust with no UI, tested against a fake server. M1-M3 (streaming core, OpenAI-compatible and Anthropic clients) are merged; M4 (settings, keys, migration) is in review. The UI milestones (M13-M15) wait for the new toolkit.
 3. **Port preparation on the Slint app** (U0-U3): backend jank fixes, Barbican-owned wrappers for Slint types, a generated stand-in `AppWindow` behind a cargo feature, and the logic in `.slint` bindings moved to Rust. No new UI features on Slint, fixes only.
 4. **Toolkit work and a speed spike** (T1-T4, S1), then the new UI screen by screen (U4-U11, with the AI panel), then the switch-over (U12).
 5. **After the switch:** popups in their own windows (T5, U7). Later decisions: themes (G-070), Linux, the rich signature editor, contact activity.
