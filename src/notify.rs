@@ -59,11 +59,12 @@ impl Tone {
         }
     }
 
-    /// A stored id back to its tone. Anything else (a value from a newer Bulwark, a hand-edited
-    /// file) is Bulwark's own fallback: `playNotificationSound` plays "involved" for an unknown
-    /// choice.
+    /// A stored id back to its tone. Bulwark's `playNotificationSound` falls back to `involved`
+    /// only when *no* choice is stored (`sound ?? 'involved'`, notification-sound.ts:58); a value
+    /// this Barbican does not know (one from a newer Bulwark, a hand-edited file, an empty string)
+    /// plays Beep, Bulwark's first tone and the sound it made before Involved became the default.
     pub fn from_id(id: &str) -> Tone {
-        Tone::ALL.into_iter().find(|t| t.id() == id).unwrap_or(Tone::Involved)
+        Tone::ALL.into_iter().find(|t| t.id() == id).unwrap_or(Tone::Beep)
     }
 
     /// The Windows system sound event, as the toast XML and notify-rust name it.
@@ -94,9 +95,31 @@ impl Tone {
     }
 }
 
-/// The tone the user chose (Bulwark `notificationSoundChoice`, "involved" by default).
+/// The tone the user chose (Bulwark `notificationSoundChoice`): `involved` when no choice is
+/// stored at all, which is Bulwark's default and what `sound ?? 'involved'` falls back to. A value
+/// that is stored but not one of [`Tone::ALL`] goes through [`Tone::from_id`] (Beep).
 pub fn chosen_tone(prefs: &crate::settings::Settings) -> Tone {
-    Tone::from_id(&prefs.str(TONE_KEY, Tone::Involved.id()))
+    match prefs.prefs.get(TONE_KEY) {
+        None => Tone::Involved,
+        Some(v) => Tone::from_id(v.as_str().unwrap_or("")),
+    }
+}
+
+/// The sound name a desktop notification (notify-rust: the calendar reminders) asks for: Windows
+/// takes the Windows event name notify-rust parses (`Default`, `IM`, `Mail`, `Reminder`, `SMS`),
+/// other platforms the freedesktop name.
+pub fn desktop_sound_name(tone: Tone) -> &'static str {
+    if cfg!(windows) { tone.win_name() } else { tone.freedesktop_name() }
+}
+
+/// Bulwark's v9 migration (settings-store.ts:2581-2585) for a settings file that is not
+/// Barbican's own: `default` (the beep) was the default tone until Involved replaced it, so a file
+/// that says `default` without listing the key in `explicitSettings` never chose it and moves to
+/// `involved`. A `default` the file lists as chosen is the user's own beep and stays.
+pub fn migrate_sound_default(state: &mut serde_json::Map<String, serde_json::Value>) {
+    if state.get(TONE_KEY).and_then(|v| v.as_str()) != Some("default") { return; }
+    let chosen = state.get("explicitSettings").and_then(|v| v.as_array()).is_some_and(|a| a.iter().any(|x| x == TONE_KEY));
+    if !chosen { state.insert(TONE_KEY.into(), serde_json::json!("involved")); }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -795,9 +818,9 @@ mod tests {
         for t in Tone::ALL {
             assert_eq!(Tone::from_id(t.id()), t);
         }
-        // a value this Barbican does not know falls back to Bulwark's default
-        assert_eq!(Tone::from_id("chime"), Tone::Involved);
-        assert_eq!(Tone::from_id(""), Tone::Involved);
+        // a value this Barbican does not know is not a stored "no choice": it plays the beep
+        assert_eq!(Tone::from_id("chime"), Tone::Beep);
+        assert_eq!(Tone::from_id(""), Tone::Beep);
         assert_eq!(Tone::default(), Tone::Involved);
     }
 
@@ -829,13 +852,22 @@ mod tests {
             let x = toast_xml(&Note { tone: t, ..n.clone() });
             assert!(x.contains(&format!("<audio src=\"{}\"/>", t.audio_src())), "{t:?}: {x}");
         }
-        // a calendar reminder plays the chosen tone too (not always Reminder)
-        let r = reminder_note("ev1", 1000, "Call", "In 10 min", true);
-        let x = toast_xml(&Note { tone: Tone::Swift, ..r.clone() });
-        assert!(x.contains("<audio src=\"ms-winsoundevent:Notification.SMS\"/>"), "{x}");
         // sound off: silent, whatever the tone
-        let x = toast_xml(&Note { sound: false, tone: Tone::Relax, ..r });
+        let x = toast_xml(&Note { sound: false, tone: Tone::Relax, ..n });
         assert!(x.contains("<audio silent=\"true\"/>") && !x.contains("ms-winsoundevent"), "{x}");
+    }
+
+    #[test]
+    fn the_reminder_sound_name_follows_the_platform() {
+        // notify-rust: Windows takes the event name it parses, elsewhere the freedesktop name
+        for t in Tone::ALL {
+            let name = desktop_sound_name(t);
+            assert_eq!(name, if cfg!(windows) { t.win_name() } else { t.freedesktop_name() });
+            assert!(!name.is_empty());
+        }
+        // the names notify-rust's Windows parser knows (`Sound::from_str`)
+        assert_eq!(desktop_sound_name(Tone::Involved), if cfg!(windows) { "Mail" } else { "message-new-email" });
+        assert_eq!(desktop_sound_name(Tone::Beep), if cfg!(windows) { "Default" } else { "bell" });
     }
 
     #[test]
@@ -845,7 +877,42 @@ mod tests {
         assert_eq!(chosen_tone(&crate::settings::Settings::with_prefs(prefs.clone())), Tone::Involved);
         prefs.insert(TONE_KEY.into(), serde_json::json!("relax"));
         assert_eq!(chosen_tone(&crate::settings::Settings::with_prefs(prefs.clone())), Tone::Relax);
+        // the beep, stored
+        prefs.insert(TONE_KEY.into(), serde_json::json!("default"));
+        assert_eq!(chosen_tone(&crate::settings::Settings::with_prefs(prefs.clone())), Tone::Beep);
+        // a value stored but not known: no choice this Barbican can honour, so the beep
         prefs.insert(TONE_KEY.into(), serde_json::json!("nonsense"));
-        assert_eq!(chosen_tone(&crate::settings::Settings::with_prefs(prefs)), Tone::Involved);
+        assert_eq!(chosen_tone(&crate::settings::Settings::with_prefs(prefs.clone())), Tone::Beep);
+        prefs.insert(TONE_KEY.into(), serde_json::json!(""));
+        assert_eq!(chosen_tone(&crate::settings::Settings::with_prefs(prefs)), Tone::Beep);
+    }
+
+    #[test]
+    fn a_bulwark_file_that_never_chose_the_beep_gets_involved() {
+        let mut m = serde_json::Map::new();
+        // no tone in the file: nothing to migrate
+        migrate_sound_default(&mut m);
+        assert!(m.get(TONE_KEY).is_none());
+        // `default` and not listed as chosen: the old default, before Involved
+        m.insert(TONE_KEY.into(), serde_json::json!("default"));
+        migrate_sound_default(&mut m);
+        assert_eq!(m[TONE_KEY], serde_json::json!("involved"));
+        // `default` the user chose (explicitSettings): the beep stays
+        let mut m = serde_json::Map::new();
+        m.insert(TONE_KEY.into(), serde_json::json!("default"));
+        m.insert("explicitSettings".into(), serde_json::json!(["notificationSoundChoice"]));
+        migrate_sound_default(&mut m);
+        assert_eq!(m[TONE_KEY], serde_json::json!("default"));
+        // any other choice is not touched, listed or not
+        let mut m = serde_json::Map::new();
+        m.insert(TONE_KEY.into(), serde_json::json!("relax"));
+        migrate_sound_default(&mut m);
+        assert_eq!(m[TONE_KEY], serde_json::json!("relax"));
+        // a file whose explicitSettings is not a list counts as not chosen
+        let mut m = serde_json::Map::new();
+        m.insert(TONE_KEY.into(), serde_json::json!("default"));
+        m.insert("explicitSettings".into(), serde_json::json!("notificationSoundChoice"));
+        migrate_sound_default(&mut m);
+        assert_eq!(m[TONE_KEY], serde_json::json!("involved"));
     }
 }

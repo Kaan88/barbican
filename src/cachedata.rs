@@ -13,9 +13,12 @@
 //!
 //! Deliberately untouched, with the reason:
 //! - `prefs.json`, `settings.json`, `panes.json`, `window.json`, `search-history.json`,
-//!   `files.json`, `chat*.json`, `reminders*`, `settings-sync.json`, `oauth-clients.json`,
-//!   `login.txt`, `restore.log`, `pending-delete.txt`: settings and the user's own state, not
-//!   caches.
+//!   `files.json`, `chat*.json`, `calendar.json` (the reminder and notification state),
+//!   `settings-sync.json`, `oauth-clients.json`, `login.txt`, `restore.log`,
+//!   `pending-delete.txt`: settings and the user's own state, not caches.
+//! - `calendar.json` is also a deliberate difference from Bulwark, whose refresh drops the
+//!   calendar store including its notification state (events already reminded about would fire
+//!   again): Barbican keeps what it has already rung about.
 //! - `plugins/` and `plugin-data/`: installed plugins and what they stored.
 //! - `profiles/`: other profiles (the default profile's config folder holds them).
 //! - the app lock's files (applock.rs) and the sign-in session (src/secretstore): losing them
@@ -24,16 +27,17 @@
 //!   open by the running view; signing out empties it (signout.rs). Deleting it under a live
 //!   view is what the sign-out path avoids for the same reason.
 //! - `<data>/updates/`: installers the updater downloaded, not a view cache.
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 /// The config-folder entries a refresh deletes. Fixed here in code: no file the user can edit
 /// decides what goes.
 pub const CACHE_DIRS: [&str; 1] = ["avatars"];
 
 /// The paths a refresh removes under `config`: only a direct child with one of [`CACHE_DIRS`],
-/// so a config path that is empty or holds `..` cannot reach anything else.
+/// and only for a config path that is absolute and holds no `..`, so a crafted path can never
+/// name anything outside the profile's own folder.
 pub fn targets(config: &Path) -> Vec<PathBuf> {
-    if config.as_os_str().is_empty() { return vec![]; }
+    if !config.is_absolute() || config.components().any(|c| c == Component::ParentDir) { return vec![]; }
     CACHE_DIRS.iter().filter_map(|name| {
         let p = config.join(name);
         (p.parent() == Some(config) && p.file_name() == Some(std::ffi::OsStr::new(name))).then_some(p)
@@ -78,14 +82,24 @@ pub fn clear_with(config: &Path, remove: &dyn Fn(&Path) -> std::io::Result<()>) 
     r
 }
 
-/// The button: the disk caches, then the session's caches in memory. The caller loads the view
-/// again from the server (folders, list, calendar, contacts).
-pub fn refresh() -> Report {
-    let report = clear_in(&crate::config_dir());
+/// The session's caches in memory. Runs where the window runs: the sender pictures live in a
+/// thread-local, so clearing them from another thread would miss them.
+pub fn forget_memory() {
     crate::avatars::forget_memory();
     crate::bimi::forget_all();
     crate::bodycache::with(|c| c.clear());
-    report
+}
+
+/// The button, from the UI thread: forget the caches in memory first (pictures still being fetched
+/// are cancelled, so none can write into the folder after it is gone), then delete the folders on
+/// a thread of its own. `done` runs back on the UI thread with the [`Report`]; the caller loads
+/// the view again from the server (folders, list, calendar, contacts) there.
+pub fn refresh(config: PathBuf, done: impl FnOnce(Report) + Send + 'static) {
+    forget_memory();
+    std::thread::spawn(move || {
+        let report = clear_in(&config);
+        let _ = slint::invoke_from_event_loop(move || done(report));
+    });
 }
 
 #[cfg(test)]
@@ -149,15 +163,24 @@ mod tests {
     }
 
     #[test]
-    fn an_empty_or_odd_config_path_reaches_nothing() {
+    fn a_relative_or_dotted_config_path_reaches_nothing() {
+        // never a path relative to wherever the program happens to run
         assert!(targets(Path::new("")).is_empty());
+        assert!(targets(Path::new("config")).is_empty());
+        assert!(targets(Path::new("Barbican")).is_empty());
         assert_eq!(clear_in(Path::new("")).removed, Vec::<PathBuf>::new());
-        // the paths are always exactly <config>/<name>: never the config folder itself or above it
+        // nor one that climbs out with `..`, even with a throwaway folder under it
         let root = temp_root("odd");
+        let dotted = root.join("a").join("..").join("b");
+        assert!(targets(&dotted).is_empty(), "{dotted:?}");
+        assert!(targets(&root.join("..")).is_empty());
+        assert_eq!(clear_in(&dotted).removed, Vec::<PathBuf>::new());
+        // the paths that are accepted are always exactly <config>/<name>: never the config folder
+        // itself or anything above it
         for config in [root.clone(), root.join("a").join("b")] {
             for p in targets(&config) {
                 assert_eq!(p.parent(), Some(config.as_path()));
-                assert!(!p.components().any(|c| c.as_os_str() == ".."));
+                assert_eq!(p.components().count(), config.components().count() + 1);
             }
         }
         let _ = std::fs::remove_dir_all(&root);

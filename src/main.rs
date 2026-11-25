@@ -435,7 +435,19 @@ pub fn html_to_text(h: &str) -> String {
 
 thread_local! { pub(crate) static WV_UNAVAILABLE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
 thread_local! { static RESET_ARMED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
+thread_local! { static RESET_DISARM: slint::Timer = slint::Timer::default(); }
 thread_local! { static CACHE_ARMED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
+thread_local! { static CACHE_DISARM: slint::Timer = slint::Timer::default(); }
+/// How long a "press again" confirmation stays armed (RESET_ARMED, CACHE_ARMED): a press a week
+/// after the first must ask again rather than go through.
+const ARMED_FOR: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// Arm a "press again to do it" flag, and take it back silently after [`ARMED_FOR`].
+fn arm_for_press(flag: &'static std::thread::LocalKey<std::cell::Cell<bool>>, disarm: &'static std::thread::LocalKey<slint::Timer>) {
+    flag.with(|x| x.set(true));
+    disarm.with(|t| t.start(slint::TimerMode::SingleShot, ARMED_FOR, move || flag.with(|x| x.set(false))));
+}
+
 thread_local! { static SERVER_DEBOUNCE: slint::Timer = slint::Timer::default(); }
 /// The server writes the debounce timer runs, one per slot (server_settings::job_slot).
 type ServerJob = (Arc<jmap::Client>, Box<dyn FnOnce(&jmap::Client) -> Result<(), String> + Send>);
@@ -1774,34 +1786,38 @@ fn main() -> Result<(), slint::PlatformError> {
             }
         }
         // Settings > About > Refresh cached data (Bulwark clearCachedData, S-keyless-063): the
-        // rebuildable answers go, then the view is loaded again from the server
+        // rebuildable answers go, then the view is loaded again from the server. The deletes run
+        // off the UI thread; the toast and the reloads come back through the event loop
         if key == "cache.refresh" {
             if CACHE_ARMED.with(|x| x.replace(false)) {
-                let report = cachedata::refresh();
-                if let Some(c) = st.lock().unwrap().clone() {
-                    let folder = u.get_current_folder().to_string();
-                    mail::load_mailboxes(w.clone(), c.clone(), false);
-                    if !folder.is_empty() { load_folder(w.clone(), c.clone(), Some(folder), None); }
-                    crate::contacts::load(w.clone(), c.clone());
-                    crate::calendar::load(w.clone(), c);
-                }
-                mail::refresh_avatars(&u);
-                mail::show_toast(&u, &report.summary(), false);
-                u.invoke_settings_search(u.get_settings_query());
+                let (w2, st2) = (w.clone(), st.clone());
+                cachedata::refresh(crate::config_dir(), move |report| {
+                    let Some(u) = w2.upgrade() else { return };
+                    if let Some(c) = st2.lock().unwrap().clone() {
+                        let folder = u.get_current_folder().to_string();
+                        mail::load_mailboxes(w2.clone(), c.clone(), false);
+                        if !folder.is_empty() { load_folder(w2.clone(), c.clone(), Some(folder), None); }
+                        crate::contacts::load(w2.clone(), c.clone());
+                        crate::calendar::load(w2.clone(), c);
+                    }
+                    mail::refresh_avatars(&u);
+                    mail::show_toast(&u, &report.summary(), false);
+                    u.invoke_settings_search(u.get_settings_query());
+                });
             } else {
-                CACHE_ARMED.with(|x| x.set(true));
+                arm_for_press(&CACHE_ARMED, &CACHE_DISARM);
                 mail::show_toast(&u, "Press Refresh again to load your pictures, contacts, calendars and folders from the server.", false);
             }
         }
         if key == "backup.reset" {
-            if RESET_ARMED.with(|x| x.replace(true)) {
-                RESET_ARMED.with(|x| x.set(false));
+            if RESET_ARMED.with(|x| x.replace(false)) {
                 pf2.lock().unwrap().reset();
                 *cf2.lock().unwrap() = ai::Config::load();
                 apply_theme(&u);
                 mail::show_toast(&u, "Settings reset to defaults", false);
                 u.invoke_settings_search(u.get_settings_query());
             } else {
+                arm_for_press(&RESET_ARMED, &RESET_DISARM);
                 mail::show_toast(&u, "Press Reset again to put every setting back to its default.", false);
             }
         }

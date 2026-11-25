@@ -664,7 +664,7 @@ fn show(u: &AppWindow, d: &Due, sound: bool, tone: crate::notify::Tone, now: i64
         let body = if d.calendar.is_empty() { when } else { format!("{when} · {}", d.calendar) };
         std::thread::spawn(move || {
             let mut n = notify_rust::Notification::new();
-            if sound { n.sound_name(if cfg!(windows) { tone.win_name() } else { tone.freedesktop_name() }); }
+            if sound { n.sound_name(crate::notify::desktop_sound_name(tone)); }
             let _ = n.appname("Barbican").summary(&title).body(&body).show();
         });
     }

@@ -242,8 +242,9 @@ impl Settings {
                 None => { imported.remove(key); }
             }
         }
-        // Bulwark's own export: a `false` it never recorded as chosen means "not decided" (on)
-        if v["app"] != "barbican" { crate::trustbook::migrate_book_default(&mut imported); }
+        // Bulwark's own export: a `false` it never recorded as chosen means "not decided" (on),
+        // and a `default` tone it never recorded as chosen was the old default before Involved
+        if v["app"] != "barbican" { crate::trustbook::migrate_book_default(&mut imported); crate::notify::migrate_sound_default(&mut imported); }
         self.prefs = imported;
         self.save();
         if v["desktop"].is_object() {
@@ -889,6 +890,16 @@ mod tests {
         assert!(s.bool("trustedSendersAddressBook", false));
         s.import(&json!({"trustedSendersAddressBook": false, "explicitSettings": ["trustedSendersAddressBook"]})).unwrap();
         assert!(!s.bool("trustedSendersAddressBook", true));
+
+        // Bulwark's v9 tone migration: the old `default` (beep) nobody chose becomes Involved;
+        // a beep the file records as chosen stays, and Barbican's own export is not migrated
+        s.import(&json!({"notificationSoundChoice": "default"})).unwrap();
+        assert_eq!(s.str(crate::notify::TONE_KEY, ""), "involved");
+        s.import(&json!({"notificationSoundChoice": "default", "explicitSettings": ["notificationSoundChoice"]})).unwrap();
+        assert_eq!(s.str(crate::notify::TONE_KEY, ""), "default");
+        let own = json!({"app": "barbican", "settings": {"notificationSoundChoice": "default"}});
+        s.import(&own).unwrap();
+        assert_eq!(s.str(crate::notify::TONE_KEY, ""), "default");
 
         // Bulwark-shaped with a "settings" wrapper.
         s.import(&json!({"version": 2, "settings": {"theme": "light"}})).unwrap();
