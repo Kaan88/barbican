@@ -190,7 +190,7 @@ pub fn parent_of(k: &str) -> Option<String> {
     ST.with(|s| s.borrow().nodes.iter().find(|n| key(n) == k).map(parent_key))
 }
 
-fn note_recent(k: &str) {
+pub(crate) fn note_recent(k: &str) {
     let mut v = prefs_list("filesRecent");
     v.retain(|x| x != k);
     v.insert(0, k.to_string());
@@ -243,6 +243,7 @@ pub fn apply_live(u: &AppWindow, ds: &[crate::livesync::Applied]) {
 pub fn open(u: &AppWindow, c: Arc<Client>, folder: &str) {
     ST.with(|s| s.borrow_mut().cwd = folder.to_string());
     if !c.has(CAP) { crate::mail::show_toast(u, "This server has no file storage.", false); return; }
+    crate::files_view::note_client(&c);
     let w = u.as_weak();
     std::thread::spawn(move || {
         let primary = c.account_for(CAP);
@@ -294,15 +295,21 @@ fn nav(kind: &str, id: &str, label: &str, icon: &str, depth: i32, header: &str) 
 pub fn render(u: &AppWindow) {
     let favs = prefs_list("filesFavorites");
     let recent = prefs_list("filesRecent");
+    let cwd = ST.with(|s| s.borrow().cwd.clone());
+    // Settings > Files, the order and the search (src/files_view.rs, G-015)
+    let (fs, (sort_key, sort_dir), query) = crate::files_view::begin_render(&cwd);
+    let mut done: Option<(Vec<String>, usize, usize)> = None;
     ST.with(|s| {
         let s = s.borrow();
         let hidden = trash_subtree(&s);
         let in_trash = s.cwd == TRASH_LOC;
         let trashed = if in_trash { trashed_items(&s) } else { vec![] };
-        let mut rows: Vec<&Value> = if in_trash { trashed.iter().map(|t| &t.0).collect() } else {
+        let all: Vec<&Value> = if in_trash { trashed.iter().map(|t| &t.0).collect() } else {
             s.nodes.iter().filter(|n| parent_key(n) == s.cwd && (!s.cwd.is_empty() || !shared(n)) && !hidden.contains(&key(n))).collect()
         };
-        rows.sort_by_key(|n| (!is_dir(n), n["name"].as_str().unwrap_or("").to_lowercase()));
+        // in the trash the date is when an item was deleted (Bulwark displayResources)
+        let entries: Vec<crate::files_view::Entry> = all.iter().map(|n| crate::files_view::entry(n, trashed.iter().find(|t| key(&t.0) == key(n)).and_then(|t| t.2))).collect();
+        let rows: Vec<&Value> = crate::files_view::arrange(&entries, fs.show_hidden, &query, sort_key, sort_dir).into_iter().map(|i| all[i]).collect();
         let ck = clock();
         let deleted_at = |n: &Value| trashed.iter().find(|t| key(&t.0) == key(n)).and_then(|t| t.2)
             .and_then(chrono::DateTime::from_timestamp_millis).map(|t| t.with_timezone(&chrono::Local).format(&format!("Deleted %d %b %Y {ck}")).to_string());
@@ -318,7 +325,11 @@ pub fn render(u: &AppWindow) {
             starred: favs.contains(&key(n)),
             shared: n["shareWith"].as_object().is_some_and(|m| !m.is_empty()) || shared(n),
             cut: cut.contains(&key(n)),
+            ..Default::default()
         }).collect();
+        let mut out = out;
+        for (r, n) in out.iter_mut().zip(&rows) { crate::files_view::decorate(r, n, &fs); }
+        done = Some((rows.iter().filter(|n| !is_dir(n)).map(|n| key(n)).collect(), rows.iter().filter(|n| is_dir(n)).count(), all.len()));
         crate::listsync::sync_into(&u.get_files(), out, |r| r.id.clone(), |a, b| a == b, |m| u.set_files(m));
         // breadcrumb
         let mut crumbs: Vec<(String, String)> = vec![];
@@ -384,6 +395,7 @@ pub fn render(u: &AppWindow) {
         u.set_fl_cwd(s.cwd.clone().into());
         u.set_fl_in_trash(in_trash);
     });
+    if let Some((order, folders, unfiltered)) = done { crate::files_view::end_render(u, order, folders, unfiltered); }
 }
 
 /// Sidebar folder chevron.
@@ -399,6 +411,14 @@ pub fn activate(u: &AppWindow, c: Arc<Client>, id: &str) {
     if is_trashed(id) && is_dir(&n) { return; }
     note_recent(id);
     if is_dir(&n) { open(u, c, id); return; }
+    // images, text and .eml are shown in the app; PDF, audio, video and the rest open in the
+    // default app (src/files_view.rs, D-M5-15)
+    if crate::files_view::opens_in_app(&n) { crate::files_view::open_preview(u, c, id); return; }
+    open_external(c, n);
+}
+
+/// Open a file in the program the system has for it, from a temporary copy.
+pub fn open_external(c: Arc<Client>, n: Value) {
     let name = crate::sanitize_name(n["name"].as_str().unwrap_or("file"));
     std::thread::spawn(move || {
         if let Ok(bytes) = c.download_from(&acc_of(&n), n["blobId"].as_str().unwrap_or(""), &name, &mime(&n)) {

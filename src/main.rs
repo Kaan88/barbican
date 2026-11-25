@@ -43,6 +43,7 @@ mod folders;
 mod copymsg;
 mod files;
 mod files_x;
+mod files_view;
 mod dlnames;
 mod glance;
 mod identities;
@@ -1630,6 +1631,7 @@ fn main() -> Result<(), slint::PlatformError> {
                 std::thread::spawn(move || { unified::refresh_counts(); let _ = w2.upgrade_in_event_loop(|u| mail::rebuild_folders(&u)); });
             }
         }
+        if key.starts_with("files:") { if let Some(u) = wt.upgrade() { files::render(&u); } }
         if key == "spellCheck" { rte::spell::reload(); if let Some(u) = wt.upgrade() { rte::refresh(&u); } }
         if key.starts_with("desktop.") { desktop::setting_changed(&key, on); }
         if key == "unreadBadgeAllAccounts" && on { unified::refresh_other_logins(wt.clone(), true); }
@@ -1654,6 +1656,7 @@ fn main() -> Result<(), slint::PlatformError> {
         if key == "theme" || key == "uiStyle" { apply_theme(&w.unwrap()); }
         if key == "writingLanguage" { rte::spell::reload(); }
         if key == "desktop.updateChannel" { desktop::setting_changed(&key, true); }
+        if key.starts_with("files:") { files::render(&w.unwrap()); }
         apply_ui_prefs(&w.unwrap());
         mail::rebuild_folders(&w.unwrap());
         mail::rebuild_list(&w.unwrap());
@@ -2321,6 +2324,7 @@ fn main() -> Result<(), slint::PlatformError> {
     subaddr::wire(&ui);
     share::wire(&ui);
     files_x::wire(&ui);
+    files_view::wire(&ui, state.clone());
 
     // ---------------- mail actions ----------------
     let w = ui.as_weak();

@@ -928,8 +928,11 @@ pub fn open_eml(u: &AppWindow, c: Arc<Client>, a: Value) {
 }
 
 /// Email/parse of a message blob (RFC 8621 §4.9) with what the reader shows.
-pub fn parse_eml(c: &Client, blob: &str) -> Result<Value, String> {
-    let r = c.call(json!([["Email/parse", {"accountId": c.account, "blobIds": [blob],
+pub fn parse_eml(c: &Client, blob: &str) -> Result<Value, String> { parse_eml_in(c, &c.account, blob) }
+
+/// Email/parse of a blob of account `acc` (a .eml in Files, src/files_view.rs).
+pub fn parse_eml_in(c: &Client, acc: &str, blob: &str) -> Result<Value, String> {
+    let r = c.call(json!([["Email/parse", {"accountId": acc, "blobIds": [blob],
         "properties": ["size", "sentAt", "from", "to", "cc", "bcc", "replyTo", "subject", "preview", "textBody", "htmlBody", "bodyValues",
             "hasAttachment", "attachments", "messageId", "inReplyTo", "references", "headers", "blobId"],
         "bodyProperties": crate::jmap::BODY_PROPERTIES,

@@ -47,12 +47,14 @@ fn key_for_label(label: &str) -> Option<&'static str> {
     match label {
         "Light or dark" => Some("theme"),
         "Check spelling and grammar while I type" => Some("proofreading"),
-        _ => None,
+        // Settings > Files: fields of Bulwark's `filesSettings` object (src/files_view.rs)
+        l => crate::files_view::row_key(l),
     }
 }
 
 /// Options the extractor could not resolve (built from constants in Bulwark's code).
 fn option_override(key: &str) -> Option<Vec<(Value, &'static str)>> {
+    if key.starts_with("files:") { return crate::files_view::row_options(key); }
     Some(match key {
         "sendDelaySeconds" => vec![(json!(0), "Off"), (json!(5), "5 seconds"), (json!(10), "10 seconds"), (json!(20), "20 seconds"), (json!(30), "30 seconds")],
         // Bulwark UNREAD_SECTION_SIZES
@@ -337,6 +339,14 @@ impl Settings {
             let (label, desc) = (label.as_str(), desc.as_str());
             match kind {
                 "section" => out.push(row("section", "", label, desc)),
+                // Settings > Files: one synced object (Bulwark filesSettings, src/files_view.rs)
+                "toggle" if key.starts_with("files:") => out.push(toggle(key, label, desc, crate::files_view::row_value(&self.prefs, key) == json!(true))),
+                "select" if key.starts_with("files:") => {
+                    let opts = crate::files_view::row_options(key).unwrap_or_default();
+                    let cur = crate::files_view::row_value(&self.prefs, key);
+                    let labels: Vec<&str> = opts.iter().map(|o| o.1).collect();
+                    out.push(select(key, label, desc, &labels, opts.iter().position(|o| o.0 == cur).unwrap_or(0) as i32));
+                }
                 "toggle" if !key.is_empty() => {
                     let invert = r["invert"].as_bool() == Some(true);
                     let dflt = r["default"].as_bool().unwrap_or(false);
@@ -598,6 +608,10 @@ impl Settings {
                 self.prefs.insert(key.into(), crate::trust::trusted_json(&list));
                 if let Some(tags) = self.prefs.get_mut(crate::trustbook::TAGS_KEY).and_then(|v| v.as_object_mut()) { tags.retain(|a, _| list.contains(a)); }
                 self.save();
+                return;
+            }
+            k if k.starts_with("files:") => {
+                if crate::files_view::set_field(&mut self.prefs, k, &value) { self.save(); }
                 return;
             }
             k if k.starts_with("hoverAction:") => {

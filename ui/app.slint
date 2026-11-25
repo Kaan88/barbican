@@ -31,6 +31,9 @@ export { ShareX, ShareRow, SharePerson }
 // Files: upload conflicts, zip progress, new text file (src/files_x.rs)
 import { FilesX, UploadConflictDialog, ZipProgressCard, NewFileDialog } from "files-dialogs.slint";
 export { FilesX }
+// Files: list and grid items, details panel, preview (src/files_view.rs)
+import { FilesV, FileRow, FileGlyph, FilesGrid, FileDetails, FilePreview } from "files-views.slint";
+export { FilesV, FileRow }
 export { AttCard }
 // the notification centre: bell in the rail (src/notices.rs)
 import { Notices, NoticeRow, NotificationBell } from "notices.slint";
@@ -161,20 +164,6 @@ export struct ContactRow {
     initials: string,
     color: color,
     header: string,
-}
-
-export struct FileRow {
-    id: string,
-    name: string,
-    folder: bool,
-    size: string,
-    modified: string,
-    renaming: bool,
-    starred: bool,
-    shared: bool,
-    cut: bool,
-    // an item listed in the Files trash
-    trashed: bool,
 }
 
 export struct AdminRow {
@@ -2272,7 +2261,7 @@ export component AppWindow inherits Window {
     changed body-visible => { root.webview-sync(); }
     // keyboard focus returns to the app's key handler whenever an overlay closes or the app changes
     // (the focused field or menu went away with it), so Ctrl+K and ? never need a click first
-    property <bool> any-overlay: ctx-open || ev-open || show-settings || composing || CompX.sched-open || Pd.overlay || admin-dlg != "" || FilesX.conflict-open || FilesX.newfile-open || AppLock.locked || AppLock.dlg != "";
+    property <bool> any-overlay: ctx-open || ev-open || show-settings || composing || CompX.sched-open || Pd.overlay || admin-dlg != "" || FilesX.conflict-open || FilesX.newfile-open || (FilesV.p-open && app == 3) || AppLock.locked || AppLock.dlg != "";
     changed any-overlay => { if !root.any-overlay { kbd.focus(); } }
     changed app => { kbd.focus(); }
     changed logged-in => { root.login-password = ""; root.login-otp = ""; kbd.focus(); }
@@ -2327,6 +2316,13 @@ export component AppWindow inherits Window {
         // the Files dialogs hold the keyboard too (ui/files-dialogs.slint)
         if FilesX.conflict-open { if e.text == Key.Escape { FilesX.conflict-answer("", false); } return accept; }
         if FilesX.newfile-open { if e.text == Key.Escape { FilesX.newfile-open = false; } return accept; }
+        // the Files preview: Escape closes, the arrows go to the previous / next file (src/files_view.rs)
+        if FilesV.p-open && root.app == 3 {
+            if e.text == Key.Escape { FilesV.p-close(); }
+            else if e.text == Key.LeftArrow { FilesV.p-go(-1); }
+            else if e.text == Key.RightArrow { FilesV.p-go(1); }
+            return accept;
+        }
         // Ctrl+K opens the command palette whichever field or menu has the focus (not in the composer: link)
         if e.modifiers.control && !e.modifiers.shift && !e.modifiers.alt && e.text == "k" && !root.composing && !Pd.palette-open {
             if Pd.key-hook(e.text, false, true, false) { return accept; }
@@ -5418,6 +5414,48 @@ export component AppWindow inherits Window {
                         }
                         Rectangle { horizontal-stretch: 1; }
                         Text { text: root.files.length + (root.files.length == 1 ? " item" : " items"); color: Theme.dim; font-size: 12px * Prefs.fs; vertical-alignment: center; }
+                        // search this folder (Bulwark files-header search_placeholder)
+                        if !fl-screen.tight: VerticalLayout {
+                            alignment: center;
+                            Rectangle {
+                                width: 190px;
+                                height: 30px;
+                                border-radius: self.height / 2;
+                                background: Theme.tile2;
+                                border-width: fsq.has-focus ? max(1.5px, Prefs.focus-ring) : 1px;
+                                border-color: fsq.has-focus ? Theme.ring : Theme.line;
+                                HorizontalLayout {
+                                    padding-left: 10px;
+                                    padding-right: 8px;
+                                    spacing: 6px;
+                                    VerticalLayout { alignment: center; SIcon { commands: Icons.search; size: 13px; weight: 1.9; tint: Theme.dim; } }
+                                    Rectangle {
+                                        horizontal-stretch: 1;
+                                        if FilesV.query == "": Text { x: 0; width: parent.width; height: parent.height; text: "Search this folder"; color: Theme.faint; font-size: 12.5px * Prefs.fs; vertical-alignment: center; overflow: elide; }
+                                        fsq := TextInput {
+                                            y: (parent.height - self.height) / 2;
+                                            width: parent.width;
+                                            text <=> FilesV.query;
+                                            color: Theme.text;
+                                            font-size: 12.5px * Prefs.fs;
+                                            single-line: true;
+                                            selection-background-color: Theme.sel;
+                                            selection-foreground-color: Theme.sel-text;
+                                            accessible-label: "Search this folder";
+                                            edited => { FilesV.search(self.text); }
+                                            key-pressed(e) => {
+                                                if e.text == Key.Escape && self.text != "" { FilesV.query = ""; FilesV.search(""); return accept; }
+                                                reject
+                                            }
+                                        }
+                                    }
+                                    if FilesV.query != "": VerticalLayout { alignment: center; TouchArea { width: 16px; height: 16px; mouse-cursor: pointer; clicked => { FilesV.query = ""; FilesV.search(""); } SIcon { commands: Icons.close; size: 12px; weight: 2; tint: Theme.dim; } } }
+                                }
+                            }
+                        }
+                        VerticalLayout { alignment: center; IconBtn { icon: Icons.list; active: !FilesV.grid; clicked => { FilesV.set-view("list"); } } }
+                        VerticalLayout { alignment: center; IconBtn { icon: "M3 3h7v7H3z M14 3h7v7h-7z M14 14h7v7h-7z M3 14h7v7H3z"; active: FilesV.grid; clicked => { FilesV.set-view("grid"); } } }
+                        VerticalLayout { alignment: center; IconBtn { icon: Icons.info; active: FilesV.details-open; clicked => { FilesV.toggle-details(); } } }
                         VerticalLayout { alignment: center; IconBtn { icon: Icons.more; clicked => { root.ctx("files-bg", "", self.absolute-position.x + self.width - 260px, self.absolute-position.y + self.height + 4px); } } }
                     }
                     // toolbar: new folder, upload folder, upload; in the trash, empty it
@@ -5467,22 +5505,43 @@ export component AppWindow inherits Window {
                         if root.fl-in-trash && root.files.length > 0: ActionButton { icon: Icons.trash; label: "Empty trash"; clicked => { if root.files.length > 0 { root.ctx("files-empty", "", self.absolute-position.x - 140px, self.absolute-position.y + self.height + 4px); } } }
                         if !root.fl-in-trash: VerticalLayout { alignment: center; PrimaryButton { text: "Upload"; height: Prefs.large-targets ? 44px : (Theme.nordic ? 38px : 34px); clicked => { root.fl-upload(); } } }
                     }
-                    // column heads
-                    HorizontalLayout {
+                    // column heads: a click sorts by the column, again turns it round (Bulwark SortHeader)
+                    if !FilesV.grid: HorizontalLayout {
                         height: 30px * Prefs.fs;
                         // lines up with the rows: outer + row padding, type tile, gap / actions
                         padding-left: (Theme.nordic ? 16px : 8px) + 12px + 36px + 12px;
                         padding-right: (Theme.nordic ? 12px : 8px) + 12px + 3 * (Prefs.large-targets ? 32px : 24px) + 2 * 6px + 12px;
                         spacing: 12px;
-                        Text { text: "Name"; color: Theme.dim; font-size: 11.5px * Prefs.fs; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; }
-                        if !fl-screen.narrow: Text { text: "Size"; color: Theme.dim; font-size: 11.5px * Prefs.fs; font-weight: 700; vertical-alignment: center; width: 90px; }
-                        if !fl-screen.tight: Text { text: root.fl-in-trash ? "Deleted" : "Modified"; color: Theme.dim; font-size: 11.5px * Prefs.fs; font-weight: 700; vertical-alignment: center; width: 140px; }
+                        Text {
+                            text: "Name" + (FilesV.sort-key == "name" ? (FilesV.sort-dir == "asc" ? "  ↑" : "  ↓") : "");
+                            color: FilesV.sort-key == "name" ? Theme.text : Theme.dim; font-size: 11.5px * Prefs.fs; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1;
+                            accessible-role: button;
+                            TouchArea { mouse-cursor: pointer; clicked => { FilesV.sort("name"); } }
+                        }
+                        if !fl-screen.narrow: Text {
+                            text: "Size" + (FilesV.sort-key == "size" ? (FilesV.sort-dir == "asc" ? "  ↑" : "  ↓") : "");
+                            color: FilesV.sort-key == "size" ? Theme.text : Theme.dim; font-size: 11.5px * Prefs.fs; font-weight: 700; vertical-alignment: center; width: 90px;
+                            accessible-role: button;
+                            TouchArea { mouse-cursor: pointer; clicked => { FilesV.sort("size"); } }
+                        }
+                        if !fl-screen.tight: Text {
+                            text: (root.fl-in-trash ? "Deleted" : "Modified") + (FilesV.sort-key == "modified" ? (FilesV.sort-dir == "asc" ? "  ↑" : "  ↓") : "");
+                            color: FilesV.sort-key == "modified" ? Theme.text : Theme.dim; font-size: 11.5px * Prefs.fs; font-weight: 700; vertical-alignment: center; width: 140px;
+                            accessible-role: button;
+                            TouchArea { mouse-cursor: pointer; clicked => { FilesV.sort("modified"); } }
+                        }
                     }
                     Rectangle { height: 1px; background: Theme.line; }
                     Rectangle {
                         vertical-stretch: 1;
                         TouchArea { pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.ctx("files-bg", "", self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } } }
-                        ListView {
+                        // the grid view (src/files_view.rs, Bulwark FileGridView)
+                        if FilesV.grid: FilesGrid {
+                            files: root.files;
+                            activate(id) => { root.fl-activate(id); }
+                            context(id, x, y) => { root.ctx("file", id, x, y); }
+                        }
+                        if !FilesV.grid: ListView {
                             for f in root.files: HorizontalLayout {
                                 padding-left: Theme.nordic ? 16px : 8px;
                                 padding-right: Theme.nordic ? 12px : 8px;
@@ -5519,16 +5578,10 @@ export component AppWindow inherits Window {
                                         padding-left: 12px;
                                         padding-right: 12px;
                                         spacing: 12px;
-                                        // type tile: folders amber, files sky (squircle / circle)
+                                        // type tile: folders amber, files by type, or the picture (src/files_view.rs)
                                         VerticalLayout {
                                             alignment: center;
-                                            Rectangle {
-                                                width: 36px;
-                                                height: 36px;
-                                                border-radius: Theme.round(self.height);
-                                                background: f.folder ? Theme.amber-bg : Theme.sky-bg;
-                                                SIcon { commands: f.folder ? Icons.folder : Icons.file; size: 17px; weight: 1.8; tint: f.folder ? Theme.amber-fg : Theme.sky-fg; }
-                                            }
+                                            FileGlyph { f: f; width: 36px; height: 36px; }
                                         }
                                         if !f.renaming: HorizontalLayout {
                                             horizontal-stretch: 1;
@@ -5578,7 +5631,13 @@ export component AppWindow inherits Window {
                                 }
                             }
                         }
-                        if root.files.length == 0: VerticalLayout {
+                        if root.files.length == 0 && FilesV.query != "": VerticalLayout {
+                            alignment: center;
+                            spacing: 10px;
+                            Text { text: "Nothing here matches \u{201C}" + FilesV.query + "\u{201D}"; color: Theme.text; font-size: 15px * Prefs.fs; font-weight: 600; horizontal-alignment: center; }
+                            HorizontalLayout { alignment: center; ActionButton { label: "Clear search"; clicked => { FilesV.query = ""; FilesV.search(""); } } }
+                        }
+                        if root.files.length == 0 && FilesV.query == "": VerticalLayout {
                             alignment: center;
                             spacing: 10px;
                             HorizontalLayout {
@@ -5600,7 +5659,15 @@ export component AppWindow inherits Window {
                 }
             }
             }
+            // ---- details of the selection, or of the folder (src/files_view.rs)
+            if FilesV.details-open && !fl-screen.tight: FileDetails {
+                width: 290px;
+                more(x, y) => { root.ctx("file", FilesV.d-id, x - 200px, y); }
+            }
         }
+        // the panel follows the selection
+        property <string> fsel: Pd.file-sel;
+        changed fsel => { FilesV.selected(self.fsel); }
     }
 
     // ---- admin (BNDashboard): Server nav tile + content; Nordic: nav on the ground, content in one surface
@@ -6288,6 +6355,8 @@ export component AppWindow inherits Window {
     if FilesX.zip-open: ZipProgressCard { visible: !AppLock.locked; x: root.width - self.width - 20px; y: root.height - self.height - 20px; }
     if FilesX.conflict-open: UploadConflictDialog { visible: !AppLock.locked; x: 0; y: 0; width: root.width; height: root.height; }
     if FilesX.newfile-open: NewFileDialog { visible: !AppLock.locked; x: 0; y: 0; width: root.width; height: root.height; }
+    // Files preview of images, text and .eml (src/files_view.rs)
+    if FilesV.p-open && root.app == 3: FilePreview { visible: !AppLock.locked; x: 0; y: 0; width: root.width; height: root.height; }
     // the app lock's PIN dialog, and the lock screen over absolutely everything (src/applock.rs)
     if AppLock.dlg != "": PinDialog { x: 0; y: 0; width: root.width; height: root.height; }
     if AppLock.locked: LockScreen { x: 0; y: 0; width: root.width; height: root.height; app-busy: root.busy; }
