@@ -30,6 +30,11 @@ fn path() -> std::path::PathBuf {
 
 const SECRET: &str = "ai-api-key";
 
+/// The key from its entry: `{"key": …}` with the app lock's marker, or an older bare key.
+fn key_of(text: &str) -> String {
+    serde_json::from_str::<Value>(text).ok().and_then(|v| v["key"].as_str().map(String::from)).unwrap_or_else(|| text.to_string())
+}
+
 impl Config {
     pub fn load() -> Config {
         let v: Value = std::fs::read_to_string(path()).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or(json!({}));
@@ -40,7 +45,7 @@ impl Config {
             base: v["base"].as_str().unwrap_or(d.0).into(),
             model: v["model"].as_str().unwrap_or(d.1).into(),
             lang: v["lang"].as_str().unwrap_or("English").into(),
-            key: crate::secrets::get(SECRET).unwrap_or_default(),
+            key: crate::secrets::get(SECRET).map(|s| key_of(&s)).unwrap_or_default(),
             show_clean_spam: v["showCleanSpam"].as_bool().unwrap_or(true),
             actions: (v["actions"].as_i64().unwrap_or(1) as i32).clamp(0, 2),
             instructions: v["instructions"].as_str().unwrap_or("").into(),
@@ -59,7 +64,12 @@ impl Config {
             "prompts": self.prompts, "memory": self.memory_on, "hidden": self.hidden,
             "renderMode": self.render_mode, "remoteImages": self.remote_images});
         let _ = std::fs::write(path(), v.to_string());
-        if self.key.is_empty() { crate::secrets::delete(SECRET); } else { crate::secrets::set(SECRET, &self.key); }
+        if self.key.is_empty() { crate::secrets::delete(SECRET); } else {
+            // kept with the app lock's marker (oauth::MARKED_KEYS)
+            let mut v = json!({"key": self.key});
+            if let Some(m) = crate::oauth::current_lock_marker() { v[crate::oauth::LOCK_MARKER] = json!(m); }
+            crate::secrets::set(SECRET, &v.to_string());
+        }
     }
 
     pub fn memory() -> String {

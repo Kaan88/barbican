@@ -9,12 +9,52 @@ const CAP: &str = "urn:stalwart:jmap";
 
 const SECRET: &str = "stalwart-admin-key";
 
-pub fn key() -> String {
-    crate::secrets::get(SECRET).unwrap_or_default()
+/// The session the key is read and written for: (server base, account state key).
+static SESSION: std::sync::Mutex<Option<(String, String)>> = std::sync::Mutex::new(None);
+
+fn session() -> Option<(String, String)> { SESSION.lock().unwrap_or_else(|e| e.into_inner()).clone() }
+
+/// The signed-in session (None: signed out). The key is kept for one server and account: it is
+/// never sent to the server another session points at.
+pub fn bind_session(c: Option<&crate::jmap::Client>) {
+    *SESSION.lock().unwrap_or_else(|e| e.into_inner()) = c.map(|c| (c.base.clone(), c.state_key()));
 }
 
+/// The key kept for this server and account, if any. An older bare key (no session with it) is
+/// dropped: nobody knows which server it was entered for, so it is asked for again.
+pub fn key_in(b: &dyn crate::secrets::Backend, profile: &str, base: &str, account: &str) -> Option<String> {
+    let text = crate::secrets::load(b, profile, SECRET)?;
+    let Some(v) = serde_json::from_str::<Value>(&text).ok().filter(|v| v["key"].is_string()) else {
+        crate::secrets::forget(b, profile, SECRET);
+        return None;
+    };
+    (v["base"] == base && v["account"] == account).then(|| v["key"].as_str().unwrap_or("").to_string()).filter(|k| !k.is_empty())
+}
+
+/// Keep `k` for this server and account (empty: remove it), with the app lock's marker.
+pub fn set_key_in(b: &dyn crate::secrets::Backend, profile: &str, k: &str, base: &str, account: &str) {
+    if k.trim().is_empty() { crate::secrets::forget(b, profile, SECRET); return; }
+    let mut v = json!({"key": k.trim(), "base": base, "account": account});
+    if let Some(m) = crate::oauth::current_lock_marker_in(b, profile) { v[crate::oauth::LOCK_MARKER] = json!(m); }
+    crate::secrets::save(b, profile, SECRET, &v.to_string());
+}
+
+/// The key for the signed-in session ("" when none).
+pub fn key() -> String {
+    let Some((base, account)) = session() else { return String::new() };
+    key_in(crate::secrets::store(), crate::profile::current(), &base, &account).unwrap_or_default()
+}
+
+/// The key for `c`'s server and account only.
+pub fn key_for(c: &crate::jmap::Client) -> String {
+    key_in(crate::secrets::store(), crate::profile::current(), &c.base, &c.state_key()).unwrap_or_default()
+}
+
+/// Empty removes it (also when signed out); otherwise it is kept for the signed-in session.
 pub fn set_key(k: &str) {
-    if k.trim().is_empty() { crate::secrets::delete(SECRET); } else { crate::secrets::set(SECRET, k.trim()); }
+    if k.trim().is_empty() { crate::secrets::delete(SECRET); return; }
+    let Some((base, account)) = session() else { return };
+    set_key_in(crate::secrets::store(), crate::profile::current(), k, &base, &account);
 }
 
 pub struct Admin {
@@ -26,7 +66,7 @@ pub struct Admin {
 
 impl Admin {
     pub fn new(c: &crate::jmap::Client) -> Option<Admin> {
-        let key = key();
+        let key = key_for(c);
         if key.is_empty() { return None; }
         let api = c.session["apiUrl"].as_str().map(|a| if a.starts_with('/') {
             format!("{}{}", c.base.splitn(4, '/').take(3).collect::<Vec<_>>().join("/"), a)
@@ -540,6 +580,40 @@ fn auto_columns(list: &[Value]) -> (Vec<String>, Vec<AdminRow>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_admin_key_goes_only_to_the_server_and_account_it_was_entered_for() {
+        let b = crate::secrets::testkit::Fake::default();
+        let (base, acct) = ("https://mail.example.test", "https://mail.example.test\nann@example.test\na");
+        set_key_in(&b, "default", " adm-1 ", base, acct);
+        assert_eq!(key_in(&b, "default", base, acct).as_deref(), Some("adm-1"));
+        // another server, or another account on it: no key
+        assert_eq!(key_in(&b, "default", "https://other.example.test", acct), None);
+        assert_eq!(key_in(&b, "default", base, "https://mail.example.test\nbob@example.test\nb"), None);
+        // and it is still there for its own
+        assert_eq!(key_in(&b, "default", base, acct).as_deref(), Some("adm-1"));
+        // an older bare key is dropped: nobody knows which server it was for
+        assert!(crate::secrets::save(&b, "default", SECRET, "bare-key"));
+        assert_eq!(key_in(&b, "default", base, acct), None);
+        assert_eq!(crate::secrets::load(&b, "default", SECRET), None);
+        // empty removes it
+        set_key_in(&b, "default", "adm-2", base, acct);
+        set_key_in(&b, "default", "", base, acct);
+        assert_eq!(crate::secrets::load(&b, "default", SECRET), None);
+    }
+
+    #[test]
+    fn the_admin_key_carries_the_app_lock_marker() {
+        let b = crate::secrets::testkit::Fake::default();
+        let r = crate::applock::Record::new("k7#mpz", 1_000).unwrap();
+        assert!(crate::applock::save_in(&b, "default", &r));
+        set_key_in(&b, "default", "adm", "https://mail.example.test", "x");
+        let v: Value = serde_json::from_str(&crate::secrets::load(&b, "default", SECRET).unwrap()).unwrap();
+        assert_eq!(v[crate::oauth::LOCK_MARKER].as_str(), Some(r.fingerprint().as_str()));
+        let m = crate::oauth::lock_markers_in(&b, "default");
+        assert!(m.exists);
+        assert_eq!(m.accepted, vec![r.fingerprint()]);
+    }
 
     #[test]
     fn task_rows() {

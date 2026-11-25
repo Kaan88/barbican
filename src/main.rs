@@ -1234,6 +1234,7 @@ fn main() -> Result<(), slint::PlatformError> {
             *only = None;
             // under the session's lock: a sign-in finishing now sees the new generation and drops
             SESSION_GEN.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            admin::bind_session(None);
             g.take()
         };
         server_settings::reset(&srv_out);
@@ -2713,6 +2714,7 @@ fn finish_login(w: slint::Weak<AppWindow>, st: Shared, res: Result<jmap::Client,
                 if !current() { return; }
                 *RESTORE_PENDING.lock().unwrap() = None;
                 *g = Some(c.clone());
+                admin::bind_session(Some(&c));
             }
             // the new session starts now: a "Trust sender" click from here on is this account's
             trustbook::begin(&c);
@@ -2741,6 +2743,7 @@ fn finish_login(w: slint::Weak<AppWindow>, st: Shared, res: Result<jmap::Client,
                 u.set_account(name.clone().into());
                 u.set_initials(initials(&name).into());
                 u.set_server_host(host.into());
+                u.set_admin_enabled(!admin::key().is_empty());
                 u.set_logged_in(true);
             });
             // signed out meanwhile: nothing is loaded, polled or pushed for it
