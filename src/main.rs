@@ -147,18 +147,111 @@ mod csp_tests {
     }
 }
 
+#[cfg(test)]
+mod reader_page_tests {
+    use super::*;
+
+    fn html_msg(html: &str) -> Value {
+        json!({
+            "htmlBody": [{"partId": "1", "type": "text/html"}],
+            "textBody": [{"partId": "2", "type": "text/plain"}],
+            "bodyValues": {"1": {"value": html}, "2": {"value": "plain"}},
+            "keywords": {}
+        })
+    }
+
+    #[test]
+    fn prepare_sanitises_like_the_reader_path() {
+        // the prepared body's sanitised HTML is exactly what the old path produced
+        for h in [
+            "<base href=\"http://evil/\"><p>hi</p>",
+            "<meta http-equiv=\"refresh\" content=\"0;url=http://evil/\">x",
+            "<form><input name=closest></form><img src=x name=URL>",
+            "<link rel=\"dns-prefetch\" href=\"//track.example\">",
+            "<img name=\"body\" src=\"x.png\">",
+        ] {
+            let m = html_msg(h);
+            let prepared = prepare_message_body(&m);
+            let (html, _) = body_text(&m);
+            assert_eq!(prepared.sanitized, mailview::sanitize_mail_html_opts(&html, false), "{h}");
+            assert!(prepared.html.is_some());
+            assert!(!prepared.sanitized.to_ascii_lowercase().contains("<base") && !prepared.sanitized.to_ascii_lowercase().contains("http-equiv"), "{h}");
+        }
+    }
+
+    #[test]
+    fn prepare_detects_remote_images_and_runs_off_the_ui_thread() {
+        // prepare_message_body is pure of any UI state: it runs on a worker thread and yields the
+        // sanitised document, so the UI thread only wraps it
+        let m = html_msg("<p>Hi <img src=\"http://example.com/x.png\"><base href=\"http://evil/\"></p>");
+        let prepared = std::thread::spawn(move || prepare_message_body(&m)).join().unwrap();
+        assert!(prepared.remote, "the remote image is detected");
+        assert!(!prepared.sanitized.to_ascii_lowercase().contains("<base"), "{}", prepared.sanitized);
+        assert!(prepared.sanitized.contains("http://example.com/x.png"), "the image src stays");
+    }
+
+    #[test]
+    fn text_only_message_prepares_an_empty_sanitized_html() {
+        let m = json!({"textBody": [{"partId": "2", "type": "text/plain"}], "bodyValues": {"2": {"value": "just text"}}, "keywords": {}});
+        let prepared = prepare_message_body(&m);
+        assert_eq!(prepared.html, None);
+        assert_eq!(prepared.text, "just text");
+        assert!(!prepared.remote);
+        assert_eq!(prepared.sanitized, "");
+    }
+
+    #[test]
+    fn a_reported_message_is_sanitised_again_with_its_links_off() {
+        // the cached copy is sanitised with links on (the usual case); a message reported as
+        // phishing is sanitised again at render with its links off, as before
+        let m = html_msg("<p><a href=\"http://example.com/\">x</a></p>");
+        let prepared = prepare_message_body(&m);
+        assert!(prepared.sanitized.contains("href=\"http://example.com/\""), "{}", prepared.sanitized);
+        let off = mailview::sanitize_mail_html_opts(prepared.html.as_deref().unwrap_or_default(), true);
+        assert!(!off.contains("http://example.com/"), "{}", off);
+    }
+}
+
 /// The open message's body, kept so it can be re-rendered (mode change, resize, "Load images").
 struct Current {
+    /// The raw (cid-inlined) HTML, or `None` for a text-only message.
     html: Option<String>,
     text: String,
     remote: bool,
     allow: bool,
     /// Reported as phishing (`$phishing`): its links are turned off (phish.rs).
     links_off: bool,
+    /// `html` sanitised (links on), built on the fetch thread; `None` when it must be sanitised
+    /// again now (the message is reported as phishing).
+    sanitized: Option<String>,
 }
 
 thread_local! {
     static CUR: std::cell::RefCell<Option<Current>> = const { std::cell::RefCell::new(None) };
+}
+
+/// A message body prepared once, on the fetch thread: the HTML and text parts joined once and
+/// the HTML sanitised (links on; a message reported as phishing is sanitised again at render).
+/// Kept in the body cache, so reopening a message skips the sanitisation — the expensive part of
+/// the open path.
+#[derive(Clone)]
+pub(crate) struct Prepared {
+    pub html: Option<String>,
+    pub text: String,
+    pub remote: bool,
+    pub sanitized: String,
+}
+
+/// Extract and sanitise a message's body once. Pure of any UI state (theme, settings, the
+/// remote-content policy are applied when the page is wrapped), so it runs on the fetch thread
+/// and its result is cacheable. `m` must already have its cid: images inlined.
+pub(crate) fn prepare_message_body(m: &Value) -> Prepared {
+    let (html, text) = body_text(m);
+    let is_html = m["htmlBody"].as_array().map(|a| a.iter().any(|p| p["type"] == "text/html")).unwrap_or(false);
+    let html = (is_html && !html.is_empty()).then_some(html);
+    let remote = html.as_deref().is_some_and(has_remote_images);
+    let sanitized = html.as_deref().map(|h| mailview::sanitize_mail_html_opts(h, false)).unwrap_or_default();
+    Prepared { html, text, remote, sanitized }
 }
 
 fn has_remote_images(h: &str) -> bool {
@@ -217,12 +310,13 @@ fn redecide_remote(u: &AppWindow) {
 }
 
 fn render_current(u: &AppWindow) {
-    render_current_then(u, None);
+    let prefs = settings::snapshot();
+    render_current_then(u, None, &prefs);
 }
 
 /// The open message was just reported as phishing: draw it again with its links off.
 pub(crate) fn links_off_now(u: &AppWindow) {
-    CUR.with(|c| if let Some(c) = c.borrow_mut().as_mut() { c.links_off = true; });
+    CUR.with(|c| if let Some(c) = c.borrow_mut().as_mut() { c.links_off = true; c.sanitized = None; });
     render_current(u);
 }
 
@@ -230,8 +324,9 @@ pub(crate) fn links_off_now(u: &AppWindow) {
 /// WebView: once the new page is laid out, right before it is swapped in).
 /// `on_ready` returning false means the page is no longer wanted (another message was opened
 /// meanwhile): it is dropped instead of revealed.
-fn render_current_then(u: &AppWindow, on_ready: Option<Box<dyn FnOnce() -> bool>>) {
+fn render_current_then(u: &AppWindow, on_ready: Option<Box<dyn FnOnce() -> bool>>, prefs: &settings::Snapshot) {
     let mode = u.get_render_mode();
+    let a = a11y::A11y::from(prefs, a11y::System::detect());
     let mut on_ready = on_ready;
     CUR.with(|c| {
         let c = c.borrow();
@@ -246,10 +341,16 @@ fn render_current_then(u: &AppWindow, on_ready: Option<Box<dyn FnOnce() -> bool>
             u.set_images_can_trust(o.trust);
         }
         // Settings > Accessibility > Show messages as: plain text drops the layout
-        let plain_view = a11y::A11y::load().plain_view;
+        let plain_view = a.plain_view;
+        // the body is sanitised once, on the fetch thread; only a message reported as phishing
+        // (links off) is sanitised again here, so its links lose their address
+        let sanitized = cur.sanitized.clone().unwrap_or_else(|| match &cur.html {
+            Some(h) => mailview::sanitize_mail_html_opts(h, cur.links_off),
+            None => String::new(),
+        });
         let body = match &cur.html {
-            Some(h) if !plain_view => h.clone(),
-            Some(h) if cur.text.trim().is_empty() => format!("<pre>{}</pre>", esc(&html_to_text(h))),
+            Some(_) if !plain_view => sanitized,
+            Some(_) if cur.text.trim().is_empty() => format!("<pre>{}</pre>", esc(&html_to_text(&sanitized))),
             _ => format!("<pre>{}</pre>", esc(&cur.text)),
         };
         match mode {
@@ -258,7 +359,7 @@ fn render_current_then(u: &AppWindow, on_ready: Option<Box<dyn FnOnce() -> bool>
                 u.set_r_body(t.into());
             }
             _ => {
-                let (doc, script, bg) = page(&body, cur.allow, true);
+                let (doc, script, bg) = page(&body, cur.allow, true, prefs, &a);
                 let wk = u.as_weak();
                 let then = on_ready.take();
                 // the body area takes the page's colour as the page appears
@@ -312,15 +413,13 @@ pub fn wv_eval(js: &str) -> bool {
 /// no colours of its own take the reader's colours; other HTML gets Bulwark's dark conversion
 /// when `recolor` (dark_mail.rs, email_dark.js) and the accessibility colour override is off;
 /// anything else is on white.
-fn page(body: &str, images: bool, recolor: bool) -> (String, bool, &'static str) {
-    // no <base>, no meta refresh, no names that shadow `document` (mailview::sanitize_mail_html);
-    // in a message reported as phishing also no link address (mailview::links_off)
+fn page(sanitized_body: &str, images: bool, recolor: bool, prefs: &settings::Snapshot, a: &a11y::A11y) -> (String, bool, &'static str) {
+    // no <base>, no meta refresh, no names that shadow `document` (mailview::sanitize_mail_html,
+    // already applied on the fetch thread); in a message reported as phishing also no link
+    // address (mailview::links_off), applied at render since that state can arrive later
     let links_off = mailview::links_off();
-    let body = &mailview::sanitize_mail_html_opts(body, links_off);
-    let p = settings::Settings::load();
-    // Settings > Accessibility: spacing, width, links, motion, text size and fitting
-    let a = a11y::A11y::from(&p.prefs, a11y::System::detect());
-    let dark = DARK.with(|d| d.get()) && !p.bool("emailAlwaysLightMode", false);
+    let body = sanitized_body;
+    let dark = DARK.with(|d| d.get()) && !settings::get_bool(prefs, "emailAlwaysLightMode", false);
     let plain = body.starts_with("<pre>");
     let themed = dark && (plain || html_uncolored(body));
     let recolor = recolor && dark && !themed && !a.override_active();
@@ -341,10 +440,10 @@ fn page(body: &str, images: bool, recolor: bool) -> (String, bool, &'static str)
     let extra = format!("<style>{}{off_css}</style>{}", a.mail_css(dark), script.map(|s| format!("<script>{s}</script>")).unwrap_or_default());
     let csp = format!("{csp}{extra}");
     // Bulwark plainTextFont: sans (default) or mono for text/plain bodies
-    let pre_font = if p.str("plainTextFont", "sans") == "mono" { "ui-monospace,Consolas,'Cascadia Mono',monospace" } else { "inherit" };
+    let pre_font = if settings::get_str(prefs, "plainTextFont", "sans") == "mono" { "ui-monospace,Consolas,'Cascadia Mono',monospace" } else { "inherit" };
     // Bulwark messageSpacing: auto drops the gutter for full-bleed HTML layouts, edge always, always never
     let full_bleed = || { let l = body.to_ascii_lowercase(); l.contains("<style") && (l.contains("width=\"100%\"") || l.contains("width:100%") || l.contains("width: 100%")) };
-    let margin = match p.str("messageSpacing", "auto").as_str() {
+    let margin = match settings::get_str(prefs, "messageSpacing", "auto").as_str() {
         "edge" => 0,
         "always" => 16,
         _ => if !plain && full_bleed() { 0 } else { 16 },

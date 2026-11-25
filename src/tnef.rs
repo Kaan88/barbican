@@ -333,8 +333,8 @@ fn show_body(u: &crate::AppWindow, b: Shown) {
         let Some(cur) = c.as_mut() else { return false };
         if !body_replaceable(cur.html.as_deref(), &cur.text) { return false; }
         match b {
-            Shown::Html(h) => { cur.remote = crate::has_remote_images(&h); cur.html = Some(h); }
-            Shown::Text(t) => { cur.remote = false; cur.html = None; cur.text = t; }
+            Shown::Html(h) => { cur.remote = crate::has_remote_images(&h); cur.html = Some(h); cur.sanitized = None; }
+            Shown::Text(t) => { cur.remote = false; cur.html = None; cur.text = t; cur.sanitized = None; }
         }
         true
     });

@@ -24,6 +24,9 @@ pub struct BodyCache {
     max_entries: usize,
     max_bytes: usize,
     bodies: HashMap<Key, (Arc<Value>, usize)>,
+    /// The message's prepared body (html/text joined once, html sanitised on the fetch thread),
+    /// kept beside it and dropped with it.
+    prepared: HashMap<Key, Arc<crate::Prepared>>,
     order: VecDeque<Key>,
     bytes: usize,
     threads: HashMap<Key, (Arc<Vec<Value>>, usize)>,
@@ -60,9 +63,14 @@ pub fn weight(m: &Value) -> usize {
     n
 }
 
+/// Rough size of a message's prepared body (the joined parts and the sanitised copy).
+pub fn prepared_weight(p: &crate::Prepared) -> usize {
+    p.html.as_deref().map_or(0, str::len) + p.text.len() + p.sanitized.len()
+}
+
 impl BodyCache {
     pub fn new(max_entries: usize, max_bytes: usize) -> Self {
-        Self { max_entries, max_bytes, bodies: HashMap::new(), order: VecDeque::new(), bytes: 0, threads: HashMap::new(), thread_order: VecDeque::new(), thread_bytes: 0, generation: 0 }
+        Self { max_entries, max_bytes, bodies: HashMap::new(), prepared: HashMap::new(), order: VecDeque::new(), bytes: 0, threads: HashMap::new(), thread_order: VecDeque::new(), thread_bytes: 0, generation: 0 }
     }
 
     /// Changes whenever the cache is cleared (sign-out): fetches started before store nothing.
@@ -101,13 +109,47 @@ impl BodyCache {
         let v = Arc::new(m);
         if let Some((_, old)) = self.bodies.insert(k.clone(), (v.clone(), w)) { self.bytes -= old; }
         self.bytes += w;
+        // a replaced body invalidates the copy prepared from the old one (kept beside it, so it
+        // must never outlive the body it was made from)
+        if let Some(p) = self.prepared.remove(&k) { self.bytes -= prepared_weight(&p); }
         Self::touch(&mut self.order, &k);
         // evict the least recently used, but never the entry just added
         while (self.bodies.len() > self.max_entries || self.bytes > self.max_bytes) && self.order.len() > 1 {
             let Some(old) = self.order.pop_front() else { break };
-            if let Some((_, w)) = self.bodies.remove(&old) { self.bytes -= w; }
+            self.drop_body(&old);
         }
         v
+    }
+
+    /// Store a message's prepared body (sanitised on the fetch thread) beside it; nothing for a
+    /// message that is not cached (a fetch from before a clear stored nothing).
+    pub fn put_prepared(&mut self, account: &str, id: &str, prepared: Arc<crate::Prepared>) {
+        let k = (account.to_string(), id.to_string());
+        if !self.bodies.contains_key(&k) { return; }
+        let w = prepared_weight(&prepared);
+        if let Some(old) = self.prepared.insert(k.clone(), prepared) { self.bytes -= prepared_weight(&old); }
+        self.bytes += w;
+        Self::touch(&mut self.order, &k);
+        // the prepared copy is part of the memory the cache holds: keep it inside the byte budget
+        // too (the entry just prepared is the most recent, so it is never the one evicted)
+        while (self.bodies.len() > self.max_entries || self.bytes > self.max_bytes) && self.order.len() > 1 {
+            let Some(old) = self.order.pop_front() else { break };
+            self.drop_body(&old);
+        }
+    }
+
+    /// The message's prepared body, if it is cached (the normal open path).
+    pub fn get_prepared(&mut self, account: &str, id: &str) -> Option<Arc<crate::Prepared>> {
+        let k = (account.to_string(), id.to_string());
+        let v = self.prepared.get(&k).cloned()?;
+        Self::touch(&mut self.order, &k);
+        Some(v)
+    }
+
+    /// Drop a body and the prepared body kept beside it, adjusting the byte count.
+    fn drop_body(&mut self, k: &Key) {
+        if let Some((_, w)) = self.bodies.remove(k) { self.bytes -= w; }
+        if let Some(p) = self.prepared.remove(k) { self.bytes -= prepared_weight(&p); }
     }
 
     /// A sync brought a fresh copy of a listed message: take over its keywords and mailboxes.
@@ -132,11 +174,13 @@ impl BodyCache {
         let w = weight(m);
         self.bytes = self.bytes + w - *old;
         *old = w;
+        // the body changed: the sanitised copy kept beside it is stale
+        if let Some(p) = self.prepared.remove(&k) { self.bytes -= prepared_weight(&p); }
     }
 
     pub fn remove(&mut self, account: &str, id: &str) {
         let k = (account.to_string(), id.to_string());
-        if let Some((_, w)) = self.bodies.remove(&k) { self.bytes -= w; }
+        self.drop_body(&k);
         if let Some(i) = self.order.iter().position(|x| *x == k) { self.order.remove(i); }
     }
 
@@ -372,5 +416,49 @@ mod tests {
     #[test]
     fn weight_counts_body_values() {
         assert!(weight(&msg("1", &"x".repeat(1000))) >= 1000);
+    }
+
+    #[test]
+    fn prepared_body_is_cached_and_dropped_with_its_message() {
+        let p = || Arc::new(crate::Prepared { html: Some("<p>hi</p>".into()), text: "hi".into(), remote: false, sanitized: "<p>hi</p>".into() });
+        let mut c = BodyCache::default();
+        c.put("a", "1", msg("1", "x"));
+        c.put_prepared("a", "1", p());
+        assert!(c.get_prepared("a", "1").is_some(), "the prepared body is cached with the message");
+        // a message that is not cached has no prepared body (a fetch from before a clear)
+        c.put_prepared("a", "9", p());
+        assert!(c.get_prepared("a", "9").is_none());
+        // removing the message drops its prepared body
+        c.remove("a", "1");
+        assert!(c.get_prepared("a", "1").is_none());
+        // replacing the body (load full body) drops the now-stale prepared copy
+        c.put("a", "2", msg("2", "x"));
+        c.put_prepared("a", "2", p());
+        c.set_bodies("a", "2", &json!({"bodyValues": {"1": {"value": "y"}}}));
+        assert!(c.get_prepared("a", "2").is_none());
+        // fetching the body again replaces it, and the prepared copy made from the old one goes
+        c.put("a", "2", msg("2", "z"));
+        c.put_prepared("a", "2", p());
+        c.put("a", "2", msg("2", "w"));
+        assert!(c.get_prepared("a", "2").is_none());
+        // the prepared body counts toward the byte budget
+        let before = c.bytes();
+        c.put("a", "3", msg("3", "z"));
+        c.put_prepared("a", "3", p());
+        assert!(c.bytes() > before);
+    }
+
+    #[test]
+    fn prepared_bodies_stay_inside_the_byte_budget() {
+        let prepared = |n: usize| Arc::new(crate::Prepared { html: Some("x".repeat(n)), text: "hi".into(), remote: false, sanitized: String::new() });
+        // two bodies (about 1.5 kB each) fit; their prepared copies (about 9 kB each) do not
+        let mut c = BodyCache::new(100, 20_000);
+        c.put("a", "1", msg("1", &"x".repeat(1000)));
+        c.put_prepared("a", "1", prepared(9_000));
+        c.put("a", "2", msg("2", &"y".repeat(1000)));
+        c.put_prepared("a", "2", prepared(9_000));
+        assert!(c.bytes() <= 20_000, "{}", c.bytes());
+        assert!(c.contains("a", "2") && !c.contains("a", "1"), "the least recently used message and its prepared copy go together");
+        assert!(c.get_prepared("a", "1").is_none());
     }
 }
