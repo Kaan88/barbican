@@ -47,15 +47,34 @@ pub fn idle_error(idle: Duration) -> ProviderError {
     ProviderError::new(format!("The AI service stopped sending anything for {minutes} minutes. Try again."))
 }
 
+/// The most a single event, a tool call's arguments or the answer text may hold.
+pub const MAX_EVENT: usize = 16 * 1024 * 1024;
+
+/// The error for something larger than [`MAX_EVENT`].
+pub fn too_large() -> ProviderError {
+    ProviderError::new("The AI service sent an event that is too large.")
+}
+
 /// Splits a byte stream into the data of its events. Pure, so the splitting rules are tested
 /// without a server.
-#[derive(Default)]
 pub struct SseParser {
     /// the start of a UTF-8 sequence cut off at the end of the last chunk
     partial: Vec<u8>,
     /// a `\r` at the end of the last chunk, which may be the first half of a `\r\n`
     cr: bool,
+    /// some text was decoded already (TextDecoder drops a byte order mark only at the start)
+    started: bool,
+    /// the event being received
     buffer: String,
+    /// `buffer[..scanned]` was searched for a blank line already
+    scanned: usize,
+    limit: usize,
+}
+
+impl Default for SseParser {
+    fn default() -> SseParser {
+        SseParser::with_limit(MAX_EVENT)
+    }
 }
 
 fn data_of(event: &str) -> String {
@@ -68,8 +87,13 @@ fn data_of(event: &str) -> String {
 }
 
 impl SseParser {
+    /// A parser that fails once an unfinished event grows past `limit` bytes.
+    pub fn with_limit(limit: usize) -> SseParser {
+        SseParser { partial: Vec::new(), cr: false, started: false, buffer: String::new(), scanned: 0, limit }
+    }
+
     /// Adds a chunk of the body and returns the data of every event it completed.
-    pub fn feed(&mut self, chunk: &[u8]) -> Vec<String> {
+    pub fn feed(&mut self, chunk: &[u8]) -> Result<Vec<String>, ProviderError> {
         let mut text = String::new();
         if std::mem::take(&mut self.cr) {
             text.push('\r');
@@ -100,20 +124,39 @@ impl SseParser {
                 }
             }
         }
+        if !self.started && !text.is_empty() {
+            self.started = true;
+            if let Some(t) = text.strip_prefix('\u{FEFF}') {
+                text = t.to_string();
+            }
+        }
         if text.ends_with('\r') {
             text.pop();
             self.cr = true;
         }
         self.buffer.push_str(&text.replace("\r\n", "\n").replace('\r', "\n"));
         let mut out = Vec::new();
-        while let Some(i) = self.buffer.find("\n\n") {
-            let data = data_of(&self.buffer[..i]);
-            self.buffer.drain(..i + 2);
+        // a blank line may straddle the old end of the buffer
+        let mut from = match self.scanned.checked_sub(1) {
+            Some(last) if self.buffer.as_bytes()[last] == b'\n' => last,
+            _ => self.scanned,
+        };
+        let mut start = 0;
+        while let Some(rel) = self.buffer[from..].find("\n\n") {
+            let i = from + rel;
+            let data = data_of(&self.buffer[start..i]);
             if !data.is_empty() {
                 out.push(data);
             }
+            start = i + 2;
+            from = start;
         }
-        out
+        self.buffer.drain(..start);
+        self.scanned = self.buffer.len();
+        if self.buffer.len() > self.limit {
+            return Err(too_large());
+        }
+        Ok(out)
     }
 
     /// The stream ended: the data of what is left, if any.
@@ -121,6 +164,7 @@ impl SseParser {
         if std::mem::take(&mut self.cr) {
             self.buffer.push('\n');
         }
+        self.scanned = 0;
         let data = data_of(&std::mem::take(&mut self.buffer));
         (!data.is_empty()).then_some(data)
     }
@@ -170,7 +214,7 @@ pub(crate) async fn read_sse(
 ) -> Result<(), ProviderError> {
     let mut parser = SseParser::default();
     while let Some(chunk) = read_within(resp, cancel, idle).await? {
-        for data in parser.feed(&chunk) {
+        for data in parser.feed(&chunk)? {
             if !on_data(data)? {
                 return Ok(());
             }
@@ -188,7 +232,7 @@ mod tests {
 
     fn all(chunks: &[&[u8]]) -> Vec<String> {
         let mut p = SseParser::default();
-        let mut out: Vec<String> = chunks.iter().flat_map(|c| p.feed(c)).collect();
+        let mut out: Vec<String> = chunks.iter().flat_map(|c| p.feed(c).unwrap()).collect();
         out.extend(p.finish());
         out
     }
@@ -235,6 +279,40 @@ mod tests {
     #[test]
     fn bad_utf8_becomes_a_replacement_character() {
         assert_eq!(all(&[b"data: a\xffb\n\n"]), vec!["a\u{FFFD}b"]);
+    }
+
+    #[test]
+    fn a_byte_order_mark_at_the_start_is_dropped() {
+        assert_eq!(all(&[b"\xef\xbb\xbfdata: a\n\n"]), vec!["a"]);
+        // cut inside the mark
+        assert_eq!(all(&[b"\xef", b"\xbb", b"\xbfdata: a\n\n"]), vec!["a"]);
+        // only one, and only at the very start
+        assert!(all(&[b"\xef\xbb\xbf\xef\xbb\xbfdata: a\n\n"]).is_empty());
+        assert_eq!(all(&[b"data: a\n\n", b"\xef\xbb\xbfdata: b\n\n"]), vec!["a"]);
+        assert_eq!(all(&[b"data: \xef\xbb\xbfb\n\n"]), vec!["\u{FEFF}b"]);
+    }
+
+    #[test]
+    fn a_blank_line_split_over_chunks_after_a_long_line() {
+        let long = "é".repeat(5_000);
+        let mut p = SseParser::default();
+        assert!(p.feed(format!("data: {long}").as_bytes()).unwrap().is_empty());
+        assert!(p.feed(b"\n").unwrap().is_empty());
+        assert_eq!(p.feed(b"\ndata: b").unwrap(), vec![long]);
+        assert_eq!(p.finish().as_deref(), Some("b"));
+    }
+
+    #[test]
+    fn an_endless_event_is_refused() {
+        let mut p = SseParser::with_limit(1000);
+        assert!(p.feed(&[b'a'; 600]).unwrap().is_empty());
+        assert_eq!(p.feed(&[b'a'; 600]).unwrap_err().message, "The AI service sent an event that is too large.");
+        // finished events do not count
+        let mut p = SseParser::with_limit(1000);
+        for _ in 0..10 {
+            assert_eq!(p.feed(format!("data: {}\n\n", "b".repeat(500)).as_bytes()).unwrap().len(), 1);
+        }
+        assert_eq!(SseParser::default().limit, 16 * 1024 * 1024);
     }
 
     #[test]

@@ -23,6 +23,8 @@ impl Recorded {
 
 pub struct Reply {
     status: u16,
+    /// the reason phrase; the standard one when `None`
+    reason: Option<&'static str>,
     content_type: &'static str,
     extra: Vec<(String, String)>,
     /// before the status line
@@ -36,7 +38,7 @@ pub struct Reply {
 
 impl Reply {
     pub fn stream(status: u16, parts: Vec<Vec<u8>>) -> Reply {
-        Reply { status, content_type: "text/event-stream", extra: vec![], delay_ms: 0, parts, gap_ms: 10, pause_ms: 0 }
+        Reply { status, reason: None, content_type: "text/event-stream", extra: vec![], delay_ms: 0, parts, gap_ms: 10, pause_ms: 0 }
     }
 
     pub fn json(status: u16, body: &str) -> Reply {
@@ -56,6 +58,10 @@ impl Reply {
     /// Waits this long before answering at all.
     pub fn after(self, ms: u64) -> Reply {
         Reply { delay_ms: ms, ..self }
+    }
+
+    pub fn reason(self, phrase: &'static str) -> Reply {
+        Reply { reason: Some(phrase), ..self }
     }
 
     pub fn with_gap(self, ms: u64) -> Reply {
@@ -112,7 +118,7 @@ fn answer(s: &mut TcpStream, r: &Reply) -> std::io::Result<()> {
     let mut head = format!(
         "HTTP/1.1 {} {}\r\ncontent-type: {}\r\ntransfer-encoding: chunked\r\nconnection: close\r\n",
         r.status,
-        reason(r.status),
+        r.reason.unwrap_or_else(|| reason(r.status)),
         r.content_type
     );
     for (n, v) in &r.extra {

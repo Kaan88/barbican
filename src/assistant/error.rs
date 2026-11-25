@@ -49,6 +49,10 @@ impl ProviderError {
                 return ProviderError::new(s.to_string());
             }
         }
+        if e.is_builder() {
+            // the request could not be put together (checked addresses and keys never get here)
+            return ProviderError::new(format!("Could not build the request: {e}"));
+        }
         ProviderError::network()
     }
 

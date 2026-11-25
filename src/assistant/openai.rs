@@ -5,12 +5,13 @@
 //! The body has `model`, `stream: true`, `messages` and `tools` (only when there are any and the
 //! model is not known to reject them). Nothing else: no temperature, max_tokens, tool_choice,
 //! stream_options or parallel_tool_calls.
-use super::error::{error_from, truthy, ProviderError};
+use super::error::{truthy, ProviderError};
 use super::history::{AssistantTurn, Entry, Raw, ToolCall, ToolDef};
-use super::sse::{read_sse, until_cancelled, Cancel, IDLE};
+use super::http;
+use super::sse::{read_sse, too_large, Cancel, IDLE, MAX_EVENT};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashSet};
-use std::sync::Mutex;
+use std::sync::{Mutex, PoisonError};
 use std::time::Duration;
 
 /// `noToolModels`: `baseUrl|model` pairs that answered a request with tools with a 400 about
@@ -18,13 +19,11 @@ use std::time::Duration;
 static NO_TOOL_MODELS: Mutex<Option<HashSet<String>>> = Mutex::new(None);
 
 fn no_tools(key: &str) -> bool {
-    NO_TOOL_MODELS.lock().map(|s| s.as_ref().is_some_and(|s| s.contains(key))).unwrap_or(false)
+    NO_TOOL_MODELS.lock().unwrap_or_else(PoisonError::into_inner).as_ref().is_some_and(|s| s.contains(key))
 }
 
 fn mark_no_tools(key: &str) {
-    if let Ok(mut s) = NO_TOOL_MODELS.lock() {
-        s.get_or_insert_with(HashSet::new).insert(key.to_string());
-    }
+    NO_TOOL_MODELS.lock().unwrap_or_else(PoisonError::into_inner).get_or_insert_with(HashSet::new).insert(key.to_string());
 }
 
 /// `trimUrl`: what the user typed, trimmed, without trailing slashes.
@@ -32,8 +31,8 @@ pub fn trim_url(url: &str) -> String {
     url.trim().trim_end_matches('/').to_string()
 }
 
-/// An OpenAI-compatible service as the settings describe it.
-#[derive(Clone, Debug)]
+/// An OpenAI-compatible service as the settings describe it. Its `Debug` hides the key.
+#[derive(Clone)]
 pub struct OpenAi {
     /// up to and including `/v1` (no default)
     pub base_url: String,
@@ -42,6 +41,17 @@ pub struct OpenAi {
     pub api_key: String,
     /// the stream's idle limit, [`IDLE`] (tests make it short)
     pub idle: Duration,
+}
+
+impl std::fmt::Debug for OpenAi {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OpenAi")
+            .field("base_url", &self.base_url)
+            .field("model", &self.model)
+            .field("api_key", &if self.api_key.trim().is_empty() { "" } else { "<redacted>" })
+            .field("idle", &self.idle)
+            .finish()
+    }
 }
 
 /// One model turn and why it ended (`finish_reason`).
@@ -178,15 +188,20 @@ fn js_string(v: &Value) -> String {
 }
 
 /// Assembles a turn from the stream's events (`openaiRequest` after the response is OK).
-#[derive(Default)]
 struct Assembler {
     text: String,
     calls: BTreeMap<u64, Partial>,
     stop_reason: Option<String>,
     filter: ThinkFilter,
+    /// the most the text, or one call's name or arguments, may hold ([`MAX_EVENT`])
+    limit: usize,
 }
 
 impl Assembler {
+    fn new(limit: usize) -> Assembler {
+        Assembler { text: String::new(), calls: BTreeMap::new(), stop_reason: None, filter: ThinkFilter::default(), limit }
+    }
+
     /// One event's data; `Ok(false)` at `[DONE]`.
     fn event(&mut self, data: &str, on_text: &mut dyn FnMut(&str)) -> Result<bool, ProviderError> {
         if data.trim() == "[DONE]" {
@@ -209,6 +224,9 @@ impl Assembler {
                 on_text(&shown);
             }
             self.text.push_str(&shown);
+            if self.text.len() > self.limit {
+                return Err(too_large());
+            }
         }
         if let Some(tcs) = d["tool_calls"].as_array() {
             for tc in tcs {
@@ -228,6 +246,9 @@ impl Assembler {
                         Value::String(s) => c.args.push_str(s),
                         other => c.args.push_str(&other.to_string()),
                     }
+                }
+                if c.args.len() > self.limit || c.name.len() > self.limit {
+                    return Err(too_large());
                 }
             }
         }
@@ -266,21 +287,6 @@ impl Assembler {
     }
 }
 
-/// Redirects are followed only by Barbican's rules for requests that carry credentials
-/// (`crate::redirect`): same origin, no https to http, a POST only on 307 and 308, at most 5 hops.
-fn redirect_policy() -> reqwest::redirect::Policy {
-    reqwest::redirect::Policy::custom(|attempt| {
-        let hops = attempt.previous().len().saturating_sub(1);
-        let Some(from) = attempt.previous().last().cloned() else { return attempt.stop() };
-        let status = attempt.status().as_u16();
-        let to = attempt.url().to_string();
-        match crate::redirect::next_url(&from, status, Some(&to), hops, false) {
-            Ok(_) => attempt.follow(),
-            Err(r) => attempt.error(r.message()),
-        }
-    })
-}
-
 impl OpenAi {
     pub fn new(base_url: &str, model: &str, api_key: &str) -> OpenAi {
         OpenAi { base_url: trim_url(base_url), model: model.to_string(), api_key: api_key.to_string(), idle: IDLE }
@@ -292,7 +298,9 @@ impl OpenAi {
 
     /// One model turn (`chat` for an OpenAI-compatible provider). Blocks until the turn is
     /// complete; `on_text` gets each visible piece of the answer as it streams in. Call it from a
-    /// worker thread, not from inside an async runtime.
+    /// worker thread: from inside an async runtime it fails. `on_text` runs on the request's own
+    /// runtime, so it must not block on async code or use `reqwest::blocking`; it should hand the
+    /// text on (a channel, a queued UI update) and return.
     pub fn chat(
         &self,
         system: &str,
@@ -312,33 +320,35 @@ impl OpenAi {
         cancel: &Cancel,
         on_text: &mut dyn FnMut(&str),
     ) -> Result<ChatOutcome, ProviderError> {
-        let client = reqwest::Client::builder()
-            .redirect(redirect_policy())
-            .build()
-            .map_err(|e| ProviderError::new(format!("Could not start the request: {e}")))?;
+        let url = format!("{}/chat/completions", self.base_url);
+        http::check_url(&url)?;
         let key = self.api_key.trim();
+        if !key.is_empty() {
+            http::check_header_value(&format!("Bearer {key}"))?;
+        }
+        let client = http::client()?;
+        // the fallback without tools happens at most once per call
+        let mut retried = false;
         loop {
             let use_tools = !tools.is_empty() && !no_tools(&self.no_tools_key());
             let body = request_body(&self.model, system, history, use_tools.then_some(tools));
-            let mut req = client
-                .post(format!("{}/chat/completions", self.base_url))
-                .header("content-type", "application/json")
-                .body(body.to_string());
+            let mut req = client.post(&url).header("content-type", "application/json").body(body.to_string());
             if !key.is_empty() {
-                req = req.header("authorization", format!("Bearer {key}"));
+                // bearer_auth marks the header as sensitive
+                req = req.bearer_auth(key);
             }
-            let mut resp = until_cancelled(req.send(), cancel).await?.map_err(|e| ProviderError::from_reqwest(&e))?;
-            let status = resp.status();
-            if !status.is_success() {
-                let text = until_cancelled(resp.text(), cancel).await?.unwrap_or_default();
-                let err = error_from(status.as_u16(), status.canonical_reason().unwrap_or(""), &text);
-                if use_tools && status.as_u16() == 400 && err.message.to_lowercase().contains("tool") {
+            let mut resp = http::send(req, cancel).await?;
+            let status = resp.status().as_u16();
+            if !resp.status().is_success() {
+                let err = http::error_of(resp, cancel).await?;
+                if use_tools && !retried && status == 400 && err.message.to_lowercase().contains("tool") {
                     mark_no_tools(&self.no_tools_key());
+                    retried = true;
                     continue;
                 }
                 return Err(err);
             }
-            let mut asm = Assembler::default();
+            let mut asm = Assembler::new(MAX_EVENT);
             read_sse(&mut resp, cancel, self.idle, |data| asm.event(&data, on_text)).await?;
             return Ok(asm.finish(on_text));
         }
@@ -713,12 +723,119 @@ mod tests {
         assert!(server.requests().is_empty());
     }
 
+    fn ok_stream() -> Reply {
+        Reply::stream(200, vec![sse(&[json!({"choices": [{"delta": {"content": "fine"}}]})]).into_bytes()])
+    }
+
     #[test]
     fn redirects_to_another_origin_are_refused() {
-        let other = FakeServer::start(vec![]);
+        // `other` would answer, so a followed redirect would succeed
+        let other = FakeServer::start(vec![ok_stream()]);
         let server = FakeServer::start(vec![Reply::redirect(307, &format!("{}/v1/chat/completions", other.base))]);
         let e = run(&OpenAi::new(&server.base, "m", "sk-test"), &[], &Cancel::new()).0.unwrap_err();
         assert!(e.message.contains("a different address"), "{}", e.message);
+        assert_eq!(e.kind, ErrorKind::Service);
         assert!(other.requests().is_empty());
+    }
+
+    #[test]
+    fn a_same_origin_307_is_followed_with_the_key_and_body() {
+        let server = FakeServer::start(vec![Reply::redirect(307, "/v2/chat/completions"), ok_stream()]);
+        let p = OpenAi::new(&format!("{}/v1", server.base), "m", "sk-test");
+        assert_eq!(run(&p, &[tool()], &Cancel::new()).0.unwrap().turn.text, "fine");
+        let reqs = server.requests();
+        assert_eq!(reqs.len(), 2);
+        assert_eq!(reqs[1].method, "POST");
+        assert_eq!(reqs[1].path, "/v2/chat/completions");
+        assert_eq!(reqs[1].header("authorization").as_deref(), Some("Bearer sk-test"));
+        assert_eq!(reqs[1].body, reqs[0].body);
+        assert!(reqs[1].body.contains("\"tools\""));
+    }
+
+    #[test]
+    fn a_302_for_the_post_is_refused() {
+        let server = FakeServer::start(vec![Reply::redirect(302, "/v2/chat/completions"), ok_stream()]);
+        let e = run(&OpenAi::new(&server.base, "m", "sk-test"), &[], &Cancel::new()).0.unwrap_err();
+        assert_eq!(e.message, crate::redirect::Refused::MethodChange(302).message());
+        assert_eq!(server.requests().len(), 1);
+    }
+
+    #[test]
+    fn stop_from_another_thread_while_a_read_waits() {
+        let first = b"data: {\"choices\":[{\"delta\":{\"content\":\"first\"}}]}\n\n".to_vec();
+        let server = FakeServer::start(vec![Reply::stream(200, vec![first]).then_pause(3000)]);
+        let cancel = Cancel::new();
+        let c2 = cancel.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(200));
+            c2.cancel();
+        });
+        let t = Instant::now();
+        let (r, shown) = run(&OpenAi::new(&server.base, "m", ""), &[], &cancel);
+        assert!(r.unwrap_err().is_aborted());
+        assert_eq!(shown, "first");
+        assert!(t.elapsed() >= Duration::from_millis(200));
+        assert!(t.elapsed() < Duration::from_millis(1500), "{:?}", t.elapsed());
+    }
+
+    #[test]
+    fn stop_while_an_error_body_stalls() {
+        let server = FakeServer::start(vec![Reply::json(500, "{\"error\":").then_pause(3000)]);
+        let cancel = Cancel::new();
+        let c2 = cancel.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(200));
+            c2.cancel();
+        });
+        let t = Instant::now();
+        assert!(run(&OpenAi::new(&server.base, "m", ""), &[], &cancel).0.unwrap_err().is_aborted());
+        assert!(t.elapsed() < Duration::from_millis(1500), "{:?}", t.elapsed());
+    }
+
+    #[test]
+    fn the_servers_own_reason_phrase_is_the_status_text() {
+        let server = FakeServer::start(vec![Reply::json(503, "").reason("Model Is Loading")]);
+        let e = run(&OpenAi::new(&server.base, "m", ""), &[], &Cancel::new()).0.unwrap_err();
+        assert_eq!(e.message, "503: Model Is Loading");
+    }
+
+    #[test]
+    fn only_the_first_64_kib_of_an_error_body_is_read() {
+        // whole, this JSON would give "short"; cut at 64 KiB it is no JSON and the text is used
+        let body = format!("{{\"error\":{{\"message\":\"short\"}},\"pad\":\"{}\"}}", "x".repeat(100 * 1024));
+        let server = FakeServer::start(vec![Reply::json(500, &body)]);
+        let e = run(&OpenAi::new(&server.base, "m", ""), &[], &Cancel::new()).0.unwrap_err();
+        assert!(e.message.starts_with("500: {\"error\":{\"message\":\"short\"},\"pad\":\"xxx"), "{}", &e.message[..60]);
+        assert_eq!(e.message.chars().count(), 505);
+    }
+
+    #[test]
+    fn answers_and_arguments_past_the_limit_are_refused() {
+        let mut asm = Assembler::new(10);
+        let mut sink = |_: &str| {};
+        assert!(asm.event(r#"{"choices":[{"delta":{"content":"0123456"}}]}"#, &mut sink).unwrap());
+        assert_eq!(asm.event(r#"{"choices":[{"delta":{"content":"789ab"}}]}"#, &mut sink).unwrap_err().message, "The AI service sent an event that is too large.");
+        let mut asm = Assembler::new(10);
+        let call = r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"q\":\"x\"}"}}]}}]}"#;
+        assert!(asm.event(call, &mut sink).unwrap());
+        assert!(asm.event(call, &mut sink).is_err());
+    }
+
+    #[test]
+    fn a_key_that_cannot_be_sent_and_a_bad_address() {
+        let server = FakeServer::start(vec![ok_stream()]);
+        let e = run(&OpenAi::new(&server.base, "m", "sk-a\nb"), &[], &Cancel::new()).0.unwrap_err();
+        assert_eq!(e.message, crate::assistant::http::KEY_CHARS);
+        assert!(server.requests().is_empty());
+        let e = run(&OpenAi::new("not a url", "m", ""), &[], &Cancel::new()).0.unwrap_err();
+        assert_eq!(e.message, "not a url/chat/completions is not a valid URL.");
+        assert_ne!(e.kind, ErrorKind::Network);
+    }
+
+    #[test]
+    fn debug_hides_the_key() {
+        let shown = format!("{:?}", OpenAi::new("http://h/v1", "m", "sk-secret-123"));
+        assert!(!shown.contains("sk-secret"), "{shown}");
+        assert!(shown.contains("<redacted>"));
     }
 }
