@@ -1232,11 +1232,12 @@ fn main() -> Result<(), slint::PlatformError> {
             let mut only = SIGN_OUT_ONLY.lock().unwrap_or_else(|e| e.into_inner());
             if !security::sign_out_applies(g.as_ref().map(|c| c.state_key()).as_deref(), only.as_deref()) { return; }
             *only = None;
+            // under the session's lock: a sign-in finishing now sees the new generation and drops
+            SESSION_GEN.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             g.take()
         };
         server_settings::reset(&srv_out);
         let u = w.unwrap();
-        SESSION_GEN.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         // nothing of this account's out-of-office page stays to be shown or written elsewhere
         server_settings::set_account(&srv_out, "");
         *RESTORE_PENDING.lock().unwrap() = None;
@@ -2741,6 +2742,8 @@ fn finish_login(w: slint::Weak<AppWindow>, st: Shared, res: Result<jmap::Client,
                 u.set_server_host(host.into());
                 u.set_logged_in(true);
             });
+            // signed out meanwhile: nothing is loaded, polled or pushed for it
+            if !current() { return; }
             load_mailboxes(w2.clone(), c.clone(), true);
             {
                 let (w3, c3) = (w2.clone(), c.clone());
@@ -2752,14 +2755,16 @@ fn finish_login(w: slint::Weak<AppWindow>, st: Shared, res: Result<jmap::Client,
             }
             // today's events and open tasks for the mail screen's summary tiles
             calendar::load(w2.clone(), c.clone());
+            if !current() { return; }
             check_new_mail(c.clone(), None);
             {
                 // calendar reminders for this login (Bulwark useCalendarAlerts)
                 let c4 = c.clone();
-                let _ = w2.upgrade_in_event_loop(move |u| reminders::start(&u, c4));
+                let _ = w2.upgrade_in_event_loop(move |u| if current() { reminders::start(&u, c4) });
             }
             // the trusted senders address book (reads it; files this computer's list into it)
             trustbook::refresh(w2.clone(), c.clone(), true);
+            if !current() { return; }
             start_push(w2, c);
         }
         Err(e) => {

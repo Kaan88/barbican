@@ -634,7 +634,8 @@ pub const LOCK_MARKER: &str = "appLock";
 /// Every marker in the remembered session and the account list.
 pub fn lock_markers_in(b: &dyn crate::secrets::Backend, profile: &str) -> Vec<String> {
     let mut out: Vec<String> = remembered_in(b, profile).into_iter().chain(accounts_in(b, profile))
-        .filter_map(|a| a[LOCK_MARKER].as_str().map(String::from)).collect();
+        .filter_map(|a| a[LOCK_MARKER].as_str().map(String::from))
+        .flat_map(|m| m.split_whitespace().map(String::from).collect::<Vec<_>>()).collect();
     out.sort();
     out.dedup();
     out
@@ -659,9 +660,12 @@ pub fn set_lock_marker_in(b: &dyn crate::secrets::Backend, profile: &str, marker
     ok
 }
 
-/// A sign-in written while a lock is on keeps the marker the others carry.
+/// A sign-in written while a lock is on keeps the markers the others carry, or, when none does
+/// yet, the stored lock's own fingerprint.
 fn carry_lock_marker(b: &dyn crate::secrets::Backend, profile: &str, v: &mut Value) {
-    let Some(m) = lock_markers_in(b, profile).into_iter().next() else { return };
+    let mut m = lock_markers_in(b, profile).join(" ");
+    if m.is_empty() { m = crate::applock::fingerprint_in(b, profile).unwrap_or_default(); }
+    if m.is_empty() { return; }
     if let Some(o) = v.as_object_mut() { o.insert(LOCK_MARKER.into(), json!(m)); }
 }
 
@@ -1284,6 +1288,17 @@ mod tests {
         assert!(lock_markers_in(&b, P).is_empty());
         remember_in(&b, P, &ann, &Origin::SignIn);
         assert!(lock_markers_in(&b, P).is_empty());
+        // a PIN being changed: both are read
+        assert!(set_lock_marker_in(&b, P, Some("f1 f2")));
+        assert_eq!(lock_markers_in(&b, P), vec!["f1".to_string(), "f2".to_string()]);
+        assert!(set_lock_marker_in(&b, P, None));
+        // a lock on with no marker yet: a sign-in written now gets the lock's own fingerprint
+        let r = crate::applock::Record::new("k7#mpz", 1_000).unwrap();
+        assert!(crate::applock::save_in(&b, P, &r));
+        remember_in(&b, P, &ann, &Origin::SignIn);
+        assert_eq!(lock_markers_in(&b, P), vec![r.fingerprint()]);
+        assert!(set_lock_marker_in(&b, P, None));
+        crate::applock::forget_in(&b, P);
         // an entry that could not be written says so
         assert!(set_lock_marker_in(&b, P, Some("f3")));
         b.fail_writes.set(true);

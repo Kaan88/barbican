@@ -201,6 +201,8 @@ pub enum PinError {
     NotSaved,
     /// No PIN is set.
     NotSet,
+    /// The PIN was turned off (in another window): nothing to unlock.
+    Off,
 }
 
 /// What a stored entry that can't be read means: there is a lock, and nobody knows its PIN. The
@@ -226,6 +228,15 @@ pub fn checked(stored: Stored, markers: &[String]) -> Stored {
         Stored::Missing if !markers.is_empty() => Stored::Unreadable,
         s => s,
     }
+}
+
+/// The marker while a PIN changes: both fingerprints (oauth::lock_markers_in reads each).
+pub fn both_markers(old: &str, new: &str) -> String { format!("{old} {new}") }
+
+/// The stored record's fingerprint, when there is one: a sign-in written while the lock is on,
+/// before any marker carries it, gets it.
+pub fn fingerprint_in(b: &dyn Backend, profile: &str) -> Option<String> {
+    match load_in(b, profile) { Stored::Some(r) => Some(r.fingerprint()), _ => None }
 }
 
 /// A wait never longer than the longest one, whatever the store says (a clock set back, an
@@ -265,16 +276,18 @@ pub fn try_pin_in(b: &dyn Backend, profile: &str, pin: &str, now: i64) -> Result
 
 /// When the next try is allowed (0: now).
 pub fn blocked_until_in(b: &dyn Backend, profile: &str, now: i64) -> i64 {
-    match load_in(b, profile) {
-        Stored::Some(mut r) if r.blocked_until > now => {
-            let wait = clamp_wait(r.blocked_until, now);
-            if wait != r.blocked_until {
-                r.blocked_until = wait;
-                let _ = save_in(b, profile, &r);
-            }
-            wait
-        }
-        _ => 0,
+    match load_in(b, profile) { Stored::Some(r) if r.blocked_until > now => clamp_wait(r.blocked_until, now), _ => 0 }
+}
+
+/// A wait longer than the longest one is written back cut, so it runs out instead of moving along
+/// with the clock. Read again here: the caller holds the [`RecordLock`], so nothing changes it in
+/// between.
+pub fn keep_cut_wait_in(b: &dyn Backend, profile: &str, now: i64) {
+    let Stored::Some(mut r) = load_in(b, profile) else { return };
+    let wait = clamp_wait(r.blocked_until, now);
+    if wait != r.blocked_until {
+        r.blocked_until = wait;
+        let _ = save_in(b, profile, &r);
     }
 }
 
@@ -479,10 +492,26 @@ impl RecordLock {
 
 /// [`try_pin_in`] on the real store, under the [`RecordLock`].
 /// A record the sign-ins' markers don't vouch for opens with no PIN, only with signing out.
+/// No entry and no marker for one: the PIN was turned off (another window), and this one is off too.
 fn try_pin(pin: &str, now: i64) -> Result<Record, PinError> {
     let _l = RecordLock::acquire();
-    if !matches!(read_checked(), Stored::Some(_)) { return Err(PinError::NotSet); }
-    try_pin_in(store(), crate::profile::current(), pin, now)
+    match read_checked() {
+        Stored::Some(_) => try_pin_in(store(), crate::profile::current(), pin, now),
+        Stored::Missing => { *live() = Live::OFF; Err(PinError::Off) }
+        Stored::Unreadable => Err(PinError::NotSet),
+    }
+}
+
+/// [`blocked_until_in`] on the real store; a wait that needs cutting is written back under the
+/// [`RecordLock`].
+fn blocked_until(now: i64) -> i64 {
+    let (b, p) = (store(), crate::profile::current());
+    let until = blocked_until_in(b, p, now);
+    if until > 0 && until == now.saturating_add(LONGEST_WAIT_MS) {
+        let _l = RecordLock::acquire();
+        keep_cut_wait_in(b, p, now);
+    }
+    until
 }
 
 /// The lock as the store and the sign-ins' markers say (see [`checked`]).
@@ -512,29 +541,47 @@ pub fn init() -> Stored {
 /// The window came to the front: another Barbican of this profile may have set a PIN (or a new
 /// one) meanwhile. A PIN that is now there locks this window too; the lock never opens this way.
 /// Locking every window at once ("Lock now" in another process) is not followed.
-pub fn resync() -> bool {
+pub fn resync() -> Resync {
     let s = read_checked();
     let mut l = live();
-    match &s {
+    let (next, change) = resynced(*l, &s, now_ms());
+    *l = next;
+    change
+}
+
+/// What [`resync`] changed in the window.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Resync { Same, Locked, Opened }
+
+/// [`resync`]'s rule: a PIN (or an entry nobody can open) that appeared locks; a lock whose entry
+/// is gone with no marker vouching for one (turned off in another window) is off and opens.
+pub fn resynced(mut l: Live, s: &Stored, now: i64) -> (Live, Resync) {
+    match s {
         Stored::Some(r) => {
             l.hello = r.hello;
             l.timeout = r.timeout;
-            if !l.on { *l = live_for(&s, now_ms()); return true; }
+            if !l.on { return (live_for(s, now), Resync::Locked); }
         }
-        Stored::Unreadable if !l.locked => { *l = live_for(&s, now_ms()); return true; }
+        Stored::Unreadable if !l.locked => return (live_for(s, now), Resync::Locked),
+        Stored::Missing if l.on => {
+            let change = if l.locked { Resync::Opened } else { Resync::Same };
+            return (Live { last_input_ms: now, ..Live::OFF }, change);
+        }
         _ => {}
     }
-    false
+    (l, Resync::Same)
 }
 
 /// The PIN and the lock are gone (sign-out of the last account, a forgotten PIN, turned off),
 /// with the sign-ins' markers.
 pub fn forget() {
+    // the markers first: an entry left without them still opens with its PIN, markers left
+    // without an entry would lock with nobody's
+    crate::oauth::set_lock_marker(None);
     {
         let _l = RecordLock::acquire();
         forget_in(store(), crate::profile::current());
     }
-    crate::oauth::set_lock_marker(None);
     *live() = Live::OFF;
     gui::refresh();
 }
@@ -626,7 +673,11 @@ mod gui {
     pub fn input_event(ev: &slint::winit_030::winit::event::WindowEvent) -> bool {
         use slint::winit_030::winit::event::WindowEvent as E;
         if matches!(ev, E::Focused(true)) {
-            if super::resync() { slint::Timer::single_shot(std::time::Duration::ZERO, || if let Some(u) = ui() { lock_ui(&u); }); }
+            match super::resync() {
+                Resync::Same => {}
+                Resync::Locked => slint::Timer::single_shot(std::time::Duration::ZERO, || if let Some(u) = ui() { lock_ui(&u); }),
+                Resync::Opened => slint::Timer::single_shot(std::time::Duration::ZERO, || if let Some(u) = ui() { opened(&u); }),
+            }
             return false;
         }
         let moved = matches!(ev, E::CursorMoved { .. }) && !cfg!(windows);
@@ -698,7 +749,7 @@ mod gui {
 
     fn refresh_blocked(u: &AppWindow) {
         let g = u.global::<AppLock>();
-        let until = blocked_until_in(store(), profile(), now_ms());
+        let until = blocked_until(now_ms());
         let blocked = until > 0;
         if blocked { g.set_message(blocked_text(until, now_ms()).into()); }
         else if g.get_blocked() { g.set_message("".into()); }
@@ -735,6 +786,7 @@ mod gui {
                     Ok(_) => { opened(&u); return; }
                     Err(PinError::Wrong(_)) => g.set_message("That PIN is not right.".into()),
                     Err(PinError::Blocked(_)) => {}
+                    Err(PinError::Off) => { opened(&u); return; }
                     Err(PinError::NotSet) => g.set_message("This PIN can't be read. Choose \"Forgot your PIN?\" to sign out and continue.".into()),
                     Err(PinError::NotSaved) => g.set_message("Unlocking did not work. Try again.".into()),
                 }
@@ -939,6 +991,7 @@ mod gui {
         match e {
             PinError::Wrong(_) => "That PIN is not right.",
             PinError::Blocked(_) => "Too many tries. Try again later.",
+            PinError::Off => "The PIN was turned off in another Barbican window.",
             _ => "That did not work. Try again.",
         }
     }
@@ -949,29 +1002,50 @@ mod gui {
         let (b, p) = (store(), profile());
         let now = now_ms();
         // the record and the sign-ins' markers with its fingerprint (oauth::LOCK_MARKER)
-        let saved = |r: &Record| -> Result<Live, &'static str> {
+        const FAILED: &str = "That did not work. Try again.";
+        let live_of = |r: &Record| Live { on: true, locked: false, hello: r.hello, timeout: r.timeout, last_input_ms: now };
+        // a first PIN: the entry, then the markers (an entry without them still opens with its
+        // PIN); Windows Hello turned on keeps the PIN's fingerprint, so only the entry is written
+        let saved = |r: &Record, mark: bool| -> Result<Live, &'static str> {
             let ok = { let _l = RecordLock::acquire(); save_in(b, p, r) };
-            if !ok { return Err("That did not work. Try again."); }
-            crate::oauth::set_lock_marker(Some(&r.fingerprint()));
-            Ok(Live { on: true, locked: false, hello: r.hello, timeout: r.timeout, last_input_ms: now })
+            if !ok { return Err(FAILED); }
+            if mark { crate::oauth::set_lock_marker(Some(&r.fingerprint())); }
+            Ok(live_of(r))
         };
         match mode {
             "enable" => {
                 if !new_pin_check(new, new).0 { return Err("That PIN is too easy to guess. Avoid repeats, runs and common choices."); }
-                let r = Record::new(new, PBKDF2_ITERATIONS).ok_or("That did not work. Try again.")?;
-                saved(&r)
+                let r = Record::new(new, PBKDF2_ITERATIONS).ok_or(FAILED)?;
+                saved(&r, true)
             }
             "change" => {
                 let old = try_pin(current, now).map_err(pin_error_text)?;
                 if !new_pin_check(new, new).0 { return Err("That PIN is too easy to guess. Avoid repeats, runs and common choices."); }
                 // a new PIN takes Windows Hello off: it is turned on with the PIN (Bulwark's helloOff)
-                let r = Record { timeout: old.timeout, hello: false, ..Record::new(new, PBKDF2_ITERATIONS).ok_or("That did not work. Try again.")? };
-                saved(&r)
+                let r = Record { timeout: old.timeout, hello: false, ..Record::new(new, PBKDF2_ITERATIONS).ok_or(FAILED)? };
+                // the markers vouch for both PINs while the entry changes, so a write that fails at
+                // any step leaves a stored PIN that opens: both, then the entry, then the new alone
+                let (was, next) = (old.fingerprint(), r.fingerprint());
+                if !crate::oauth::set_lock_marker(Some(&both_markers(&was, &next))) {
+                    crate::oauth::set_lock_marker(Some(&was));
+                    return Err(FAILED);
+                }
+                if !{ let _l = RecordLock::acquire(); save_in(b, p, &r) } {
+                    crate::oauth::set_lock_marker(Some(&was));
+                    return Err(FAILED);
+                }
+                // left with both when this fails: the next start writes the new one alone (init)
+                crate::oauth::set_lock_marker(Some(&next));
+                Ok(live_of(&r))
             }
             "disable" => {
-                try_pin(current, now).map_err(pin_error_text)?;
+                let r = try_pin(current, now).map_err(pin_error_text)?;
+                // the markers first, then the entry: neither failure leaves a PIN that cannot open
+                if !crate::oauth::set_lock_marker(None) {
+                    crate::oauth::set_lock_marker(Some(&r.fingerprint()));
+                    return Err(FAILED);
+                }
                 { let _l = RecordLock::acquire(); forget_in(b, p); }
-                crate::oauth::set_lock_marker(None);
                 Ok(Live::OFF)
             }
             _ => {
@@ -979,7 +1053,7 @@ mod gui {
                 let res = hello::verify(hwnd, "Turn on Windows Hello for Barbican");
                 if res != hello::Outcome::Verified { return Err(res.enable_message()); }
                 r.hello = true;
-                saved(&r)
+                saved(&r, false)
             }
         }
     }
@@ -1393,10 +1467,40 @@ mod tests {
         assert!(save_in(&b, "default", &r));
         assert_eq!(blocked_until_in(&b, "default", now), now + LONGEST_WAIT_MS);
         // the cut wait is kept: read later, it does not move along
+        keep_cut_wait_in(&b, "default", now);
         assert_eq!(blocked_until_in(&b, "default", now + 10), now + LONGEST_WAIT_MS);
         assert_eq!(try_pin_in(&b, "default", "k7#mpz", now), Err(PinError::Blocked(now + LONGEST_WAIT_MS)));
         // and it runs out like any other
         assert!(try_pin_in(&b, "default", "k7#mpz", now + LONGEST_WAIT_MS + 1).is_ok());
+    }
+
+    #[test]
+    fn a_pin_being_changed_opens_with_either_fingerprint() {
+        // the markers carry both while the entry changes (gui::run_dialog), so whichever entry
+        // is stored when a write fails, its PIN opens
+        let (old, new) = (Record::new("k7#mpz", FAST).unwrap(), Record::new("q9!wre", FAST).unwrap());
+        let both: Vec<String> = both_markers(&old.fingerprint(), &new.fingerprint()).split_whitespace().map(String::from).collect();
+        assert_eq!(both.len(), 2);
+        assert_eq!(checked(Stored::Some(old.clone()), &both), Stored::Some(old.clone()));
+        assert_eq!(checked(Stored::Some(new.clone()), &both), Stored::Some(new));
+        assert_eq!(checked(Stored::Some(old), &both[1..]), Stored::Unreadable);
+    }
+
+    #[test]
+    fn focus_follows_another_windows_pin() {
+        let r = Record::new("k7#mpz", FAST).unwrap();
+        let on = live_for(&Stored::Some(r.clone()), 0);
+        // a PIN set elsewhere locks
+        assert_eq!(resynced(Live::OFF, &Stored::Some(r.clone()), 9).1, Resync::Locked);
+        assert_eq!(resynced(Live::OFF, &Stored::Unreadable, 9).1, Resync::Locked);
+        // the same PIN changes nothing; an open window stays open
+        let open = Live { locked: false, ..on };
+        assert_eq!(resynced(open, &Stored::Some(r), 9), (open, Resync::Same));
+        // turned off elsewhere (no entry, no marker): off, and a locked window opens
+        assert_eq!(resynced(on, &Stored::Missing, 9), (Live { last_input_ms: 9, ..Live::OFF }, Resync::Opened));
+        assert_eq!(resynced(open, &Stored::Missing, 9).1, Resync::Same);
+        assert!(!resynced(open, &Stored::Missing, 9).0.on);
+        assert_eq!(resynced(Live::OFF, &Stored::Missing, 9), (Live::OFF, Resync::Same));
     }
 
     #[test]
