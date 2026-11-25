@@ -155,6 +155,9 @@ pub fn is_current(owner: &str) -> bool { current_key().as_deref() == Some(owner)
 /// A full load of `view` for `owner` landed (UI thread): record its states, tell the
 /// notifications waiting for that list, and run a delta asked for while it loaded.
 pub fn loaded(u: &AppWindow, view: View, owner: &str, states: &[Step]) {
+    // a load for a login that is no longer the current one: nothing of it is recorded (the
+    // loaders do not install its data either)
+    if !is_current(owner) { return; }
     let again = with(|l| { l.loaded(view, owner, states); l.finish(view) });
     crate::notices::landed(u, view);
     if again { if let Some(c) = current() { follow(view, u.as_weak(), c); } }
@@ -182,10 +185,12 @@ pub fn push_types(c: &Client, more: bool) -> Vec<&'static str> {
     v
 }
 
-/// A stream asked with the newer types that failed before it opened, for any reason but a
-/// refused sign-in: a server that does not know a type may refuse the request or drop it.
+/// A stream asked with the newer types that the server refused (a 4xx answer) before it opened,
+/// but not a refused sign-in: a server that does not know a type turns the request down. A
+/// transport error (sleep, a Wi-Fi drop) or a server error says nothing about the types, so the
+/// next reconnect keeps them.
 pub fn retry_without_more(more: bool, opened: bool, err: Option<&str>) -> bool {
-    more && !opened && err.is_some_and(|e| !crate::jmap::auth_rejected(e))
+    more && !opened && err.is_some_and(|e| e.starts_with("Push failed (4") && !crate::jmap::auth_rejected(e))
 }
 
 /// Types that live in the calendars, contacts and files accounts too (shared ones included), not
@@ -579,7 +584,9 @@ mod tests {
         let mail = Client::fake("https://mail.example.test", "A", &["urn:ietf:params:jmap:mail"], |_| Ok(vec![]));
         assert_eq!(push_types(&mail, true), PUSH_TYPES.to_vec());
         assert!(retry_without_more(true, false, Some("Push failed (400 Bad Request)")));
-        assert!(retry_without_more(true, false, Some("Push stream closed.")));
+        assert!(!retry_without_more(true, false, Some("Push stream closed.")), "a closed stream is no refusal");
+        assert!(!retry_without_more(true, false, Some("error sending request for url (https://mail.example.test/push)")), "a transport error keeps the types");
+        assert!(!retry_without_more(true, false, Some("Push failed (503 Service Unavailable)")), "a server error keeps the types");
         assert!(!retry_without_more(true, true, Some("Push stream closed.")), "it opened: the types were taken");
         assert!(!retry_without_more(false, false, Some("Push failed (400 Bad Request)")), "already without them");
         assert!(!retry_without_more(true, false, Some("Wrong username, password or 2FA code.")));

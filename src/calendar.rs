@@ -324,6 +324,8 @@ pub fn load(w: slint::Weak<AppWindow>, c: Arc<Client>) {
         let w2 = w.clone();
         let c2 = c.clone();
         let _ = w.upgrade_in_event_loop(move |u| match res {
+            // signed out or switched meanwhile: another login's data is not shown
+            Ok(_) if !crate::livesync::is_current(&owner) => {}
             Ok((cals, events)) => {
                 if let Some(p) = people { crate::cal_extra::set_people(p); }
                 ST.with(|s| s.borrow_mut().calendars = cals);

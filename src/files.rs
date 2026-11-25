@@ -258,6 +258,8 @@ pub fn open(u: &AppWindow, c: Arc<Client>, folder: &str) {
             Ok(nodes)
         })();
         let _ = w.upgrade_in_event_loop(move |u| match res {
+            // signed out or switched meanwhile: another login's data is not shown
+            Ok(_) if !crate::livesync::is_current(&owner) => {}
             Ok(nodes) => {
                 let draft = draft_cap || nodes.iter().any(|n| n["@type"].is_string());
                 ST.with(|s| { let mut s = s.borrow_mut(); s.nodes = nodes; s.draft18 = draft; s.primary = primary; s.legacy = legacy; });

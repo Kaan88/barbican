@@ -158,6 +158,8 @@ pub fn load(w: slint::Weak<AppWindow>, c: Arc<Client>) {
             Ok((books, cards))
         })();
         let _ = w.upgrade_in_event_loop(move |u| match res {
+            // signed out or switched meanwhile: another login's data is not shown
+            Ok(_) if !crate::livesync::is_current(&owner) => {}
             Ok((books, cards)) => {
                 install(&u, books, cards);
                 crate::livesync::loaded(&u, crate::livesync::View::Contacts, &owner, &states);
