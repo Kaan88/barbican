@@ -400,9 +400,13 @@ fn decode_entities(s: &str) -> String {
         }
         if let Some(num) = body.strip_prefix('#') {
             let (hex, digits) = match num.strip_prefix(['x', 'X']) { Some(h) => (true, h), None => (false, num) };
-            let len = digits.chars().take_while(|c| if hex { c.is_ascii_hexdigit() } else { c.is_ascii_digit() }).count().min(8);
+            // the whole run of digits, as browsers read it: leading zeros are any number, and a
+            // number too big for a character (more than 8 significant digits) is U+FFFD
+            let len = digits.bytes().take_while(|c| if hex { c.is_ascii_hexdigit() } else { c.is_ascii_digit() }).count();
             if len > 0 {
-                out.push(u32::from_str_radix(&digits[..len], if hex { 16 } else { 10 }).map_or('\u{fffd}', numeric_char));
+                let sig = digits[..len].trim_start_matches('0');
+                let code = if sig.len() > 8 { None } else if sig.is_empty() { Some(0) } else { u32::from_str_radix(sig, if hex { 16 } else { 10 }).ok() };
+                out.push(code.map_or('\u{fffd}', numeric_char));
                 let used = 1 + 1 + usize::from(hex) + len;
                 rest = &rest[used..];
                 if rest.starts_with(';') { rest = &rest[1..]; }
@@ -550,7 +554,7 @@ pub fn user_tz() -> Tz { crate::agent::local_tz().parse().unwrap_or(chrono_tz::U
 /// (America/Santiago, America/Havana...), the first time of the day that exists.
 pub fn day_start(day: NaiveDate, tz: Tz) -> Option<DateTime<Utc>> {
     let midnight = day.and_time(NaiveTime::MIN);
-    (0..=4 * 24).find_map(|q| tz.from_local_datetime(&(midnight + Duration::minutes(15 * q))).earliest()).map(|d| d.with_timezone(&Utc))
+    (0..=4 * 24).find_map(|q| tz.from_local_datetime(&midnight.checked_add_signed(Duration::minutes(15 * q))?).earliest()).map(|d| d.with_timezone(&Utc))
 }
 
 /// Whether `t` is the first moment of its day in `tz` (a day the page and the block show alone).
@@ -569,13 +573,14 @@ pub fn parse_moment_dt(input: &str, tz: Tz) -> Result<Option<DateTime<Utc>>, ()>
     } else {
         let naive = NaiveDateTime::parse_from_str(&t, "%Y-%m-%d %H:%M").map_err(|_| ())?;
         tz.from_local_datetime(&naive).earliest()
-            .or_else(|| tz.from_local_datetime(&(naive + Duration::hours(1))).earliest()).ok_or(())?.with_timezone(&Utc)
+            .or_else(|| tz.from_local_datetime(&naive.checked_add_signed(Duration::hours(1))?).earliest()).ok_or(())?.with_timezone(&Utc)
     };
     if utc.format("%Y").to_string().len() != 4 { return Err(()); }
     Ok(Some(utc))
 }
 
 /// [`parse_moment_dt`] as the stored text.
+#[cfg(test)]
 pub fn parse_moment(input: &str, tz: Tz) -> Result<Option<String>, ()> {
     Ok(parse_moment_dt(input, tz)?.map(|u| u.format("%Y-%m-%dT%H:%M:%S.000Z").to_string()))
 }
@@ -701,7 +706,8 @@ pub fn duration_secs(d: &str) -> Option<i64> {
         for ch in part.chars() {
             if ch.is_ascii_digit() { num.push(ch); continue; }
             let (_, mult) = units.iter().find(|(u, _)| *u == ch)?;
-            total += num.parse::<i64>().ok()? * mult;
+            // a server's value: too big to be a span is no span (never an overflow)
+            total = total.checked_add(num.parse::<i64>().ok()?.checked_mul(*mult)?)?;
             num.clear();
         }
         if !num.is_empty() { return None; }
@@ -720,11 +726,11 @@ pub fn event_span(ev: &Value, tz: Tz) -> Option<(DateTime<Utc>, DateTime<Utc>)> 
         let day = naive.date();
         let days = (secs as f64 / 86400.0).round() as i64;
         let s = day_start(day, zone)?;
-        let e = day_start(day + Duration::days(days), zone)?;
+        let e = day_start(day.checked_add_signed(Duration::try_days(days)?)?, zone)?;
         return Some((s, e));
     }
     let s = zone.from_local_datetime(&naive).earliest()?.with_timezone(&Utc);
-    Some((s, s + Duration::seconds(secs)))
+    Some((s, s.checked_add_signed(Duration::try_seconds(secs)?)?))
 }
 
 /// The calendar a block goes into: the default one the user may add events to (blockCalendar).
@@ -763,14 +769,25 @@ pub fn with_block(blocks: Option<&Value>, account: &str, block: Option<(DateTime
     m
 }
 
-/// Through the live settings (under their lock), so the settings page's next save keeps it.
-fn remember(account: &str, block: Option<(DateTime<Utc>, DateTime<Utc>)>) {
-    crate::settings::update_pref("vacationCalendarBlocks", |cur| with_block(cur, account, block));
+/// The record of `key` (server, login and account: `Client::key_for`), else one an older
+/// version wrote under the bare account id.
+pub fn block_record_for(blocks: Option<&Value>, key: &str, legacy_id: &str) -> Option<(String, String)> {
+    block_record(blocks, key).or_else(|| block_record(blocks, legacy_id))
 }
 
-fn last_written(account: &str) -> Option<(String, String)> {
+/// The pref with `key`'s record set (or removed), and the older bare-id record it replaces gone.
+pub fn with_block_for(blocks: Option<&Value>, key: &str, legacy_id: &str, block: Option<(DateTime<Utc>, DateTime<Utc>)>) -> Value {
+    with_block(Some(&with_block(blocks, legacy_id, None)), key, block)
+}
+
+/// Through the live settings (under their lock), so the settings page's next save keeps it.
+fn remember(key: &str, legacy_id: &str, block: Option<(DateTime<Utc>, DateTime<Utc>)>) {
+    crate::settings::update_pref("vacationCalendarBlocks", |cur| with_block_for(cur, key, legacy_id, block));
+}
+
+fn last_written(key: &str, legacy_id: &str) -> Option<(String, String)> {
     let mut r = None;
-    crate::settings::with_live(|s| r = block_record(s.prefs.get("vacationCalendarBlocks"), account));
+    crate::settings::with_live(|s| r = block_record_for(s.prefs.get("vacationCalendarBlocks"), key, legacy_id));
     r
 }
 
@@ -794,7 +811,8 @@ pub fn serialized<T>(c: &Client, f: impl FnOnce() -> T) -> T {
     thread_local! { static HELD: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
     static LOCKS: OnceLock<Mutex<HashMap<String, Arc<Mutex<()>>>>> = OnceLock::new();
     if HELD.with(|h| h.get()) { return f(); }
-    let lock = LOCKS.get_or_init(Default::default).lock().unwrap().entry(c.account.clone()).or_default().clone();
+    // per server and login too: two servers can hand out the same short account id
+    let lock = LOCKS.get_or_init(Default::default).lock().unwrap().entry(c.state_key()).or_default().clone();
     let _g = lock.lock().unwrap_or_else(|e| e.into_inner());
     HELD.with(|h| h.set(true));
     let r = f();
@@ -814,7 +832,8 @@ pub fn sync_block(c: &Client, reply: &Reply, trigger: Trigger, previous: Option<
     ]))?;
     let found = r[1][1]["list"].as_array().and_then(|l| l.first()).cloned();
     let span = found.as_ref().and_then(|f| event_span(f, tz));
-    let last = last_written(&acc);
+    let rec = c.key_for(&acc);
+    let last = last_written(&rec, &acc);
     let marked = found.as_ref().is_some_and(|f| f["keywords"][OOO_KEYWORD] == true);
     let block = block_setting();
     let now = Utc::now();
@@ -832,7 +851,7 @@ pub fn sync_block(c: &Client, reply: &Reply, trigger: Trigger, previous: Option<
     };
     match decision {
         Decision::None => {
-            if found.is_none() && last.is_some() && !(reply.is_enabled && block) { remember(&acc, None); }
+            if found.is_none() && last.is_some() && !(reply.is_enabled && block) { remember(&rec, &acc, None); }
             Ok("none")
         }
         Decision::Create(s, e) => {
@@ -840,7 +859,7 @@ pub fn sync_block(c: &Client, reply: &Reply, trigger: Trigger, previous: Option<
             let list = cals[0][1]["list"].as_array().cloned().unwrap_or_default();
             let Some(cal) = block_calendar(&list) else { return Ok("no-calendar") };
             set(json!({"create": {"e": new_block_event(&acc, cal["id"].as_str().unwrap_or(""), &reply.subject, s, e, tz)}}))?;
-            remember(&acc, Some((s, e)));
+            remember(&rec, &acc, Some((s, e)));
             Ok("create")
         }
         Decision::Update(s, e) => {
@@ -848,7 +867,7 @@ pub fn sync_block(c: &Client, reply: &Reply, trigger: Trigger, previous: Option<
             patch["title"] = json!(title_for(&reply.subject));
             patch[format!("keywords/{OOO_KEYWORD}")] = json!(true);
             set(json!({"update": {id: patch}}))?;
-            remember(&acc, Some((s, e)));
+            remember(&rec, &acc, Some((s, e)));
             Ok("update")
         }
         Decision::EndNow(now_end) => {
@@ -857,12 +876,12 @@ pub fn sync_block(c: &Client, reply: &Reply, trigger: Trigger, previous: Option<
             let end = std::cmp::max(start + Duration::seconds(60), Utc.timestamp_opt((now_end.timestamp() + 59) / 60 * 60, 0).single().unwrap_or(now_end));
             set(json!({"update": {id: block_times(start, end, tz)}}))?;
             let written = event_span(&block_times(start, end, tz), tz).map(|x| x.1).unwrap_or(end);
-            remember(&acc, Some((start, written)));
+            remember(&rec, &acc, Some((start, written)));
             Ok("end-now")
         }
         Decision::Destroy => {
             set(json!({"destroy": [id]}))?;
-            remember(&acc, None);
+            remember(&rec, &acc, None);
             Ok("destroy")
         }
     }
@@ -1276,5 +1295,43 @@ mod tests {
         assert_eq!(parse_moment_dt("2026-10-05", berlin).unwrap(), Some(t("2026-10-04T22:00:00Z")));
         assert_eq!(show_moment("2026-10-05T06:30:00Z", berlin), "2026-10-05 08:30");
         assert!(!is_day_start(t("2026-09-06T05:00:00Z"), scl));
+    }
+
+    #[test]
+    fn server_durations_too_big_are_no_span() {
+        assert_eq!(duration_secs("P999999999999999D"), None);
+        assert_eq!(duration_secs("PT9223372036854775807H"), None);
+        assert_eq!(duration_secs("P1DT1S"), Some(86401));
+        let tz: Tz = "Europe/Berlin".parse().unwrap();
+        for d in ["P99999999D", "P999999999999D", "PT99999999999999S", "P99999999W"] {
+            for all_day in [true, false] {
+                let ev = json!({"start": "2026-10-05T00:00:00", "duration": d, "showWithoutTime": all_day, "timeZone": "Europe/Berlin"});
+                assert_eq!(event_span(&ev, tz), None, "{d} {all_day}");
+            }
+        }
+        // the last moment chrono knows, plus the gap hour: an error, not a panic
+        assert!(parse_moment_dt("+262142-12-31 23:59", tz).is_err());
+    }
+
+    #[test]
+    fn numeric_references_take_any_number_of_leading_zeros() {
+        assert_eq!(decode_entities("&#0000000000065;&#x00000000041;&#0;"), "AA\u{fffd}");
+        assert_eq!(decode_entities("&#123456789;x"), "\u{fffd}x");
+        assert_eq!(decode_entities("&#x000000000;"), "\u{fffd}");
+    }
+
+    #[test]
+    fn block_records_are_per_server_and_login_and_old_ones_still_read() {
+        let s = |d: &str| t(d);
+        let old = with_block(None, "b", Some((s("2026-10-05T00:00:00Z"), s("2026-10-06T00:00:00Z"))));
+        // an older version's record, under the bare id, is still found
+        assert_eq!(block_record_for(Some(&old), "https://one.example.test\nann\nb", "b").map(|r| r.0), Some("2026-10-05T00:00:00.000Z".into()));
+        // writing moves it under the full key; another server's account "b" is not this one
+        let new = with_block_for(Some(&old), "https://one.example.test\nann\nb", "b", Some((s("2026-11-01T00:00:00Z"), s("2026-11-02T00:00:00Z"))));
+        assert!(block_record(Some(&new), "b").is_none());
+        assert_eq!(block_record_for(Some(&new), "https://one.example.test\nann\nb", "b").map(|r| r.0), Some("2026-11-01T00:00:00.000Z".into()));
+        assert_eq!(block_record_for(Some(&new), "https://two.example.test\nann\nb", "b"), None);
+        let gone = with_block_for(Some(&new), "https://one.example.test\nann\nb", "b", None);
+        assert_eq!(gone, json!({}));
     }
 }

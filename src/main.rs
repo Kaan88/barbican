@@ -422,6 +422,9 @@ pub fn html_to_text(h: &str) -> String {
 thread_local! { pub(crate) static WV_UNAVAILABLE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
 thread_local! { static RESET_ARMED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
 thread_local! { static SERVER_DEBOUNCE: slint::Timer = slint::Timer::default(); }
+/// The server writes the debounce timer runs, one per slot (server_settings::job_slot).
+type ServerJob = (Arc<jmap::Client>, Box<dyn FnOnce(&jmap::Client) -> Result<(), String> + Send>);
+thread_local! { static SERVER_PENDING: std::cell::RefCell<server_settings::PendingJobs<ServerJob>> = std::cell::RefCell::new(Default::default()); }
 thread_local! { static TEMPLATES: std::cell::RefCell<(String, Vec<Value>)> = const { std::cell::RefCell::new((String::new(), Vec::new())) }; }
 thread_local! { static THREAD_ID: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) }; }
 
@@ -1229,19 +1232,24 @@ fn main() -> Result<(), slint::PlatformError> {
     let rs = refresh_settings.clone();
     ui.on_settings_search(move |_| rs());
 
-    // writes to the server, debounced for typing
+    // writes to the server, debounced for typing. A new write replaces only the waiting one of
+    // its own slot (a key's earlier keystrokes; the out-of-office page is one slot): the timer
+    // runs every waiting write, in order, on one thread
     let server_write = {
         let (w, st) = (ui.as_weak(), state.clone());
-        Arc::new(move |job: Box<dyn FnOnce(&jmap::Client) -> Result<(), String> + Send>, delay_ms: u64| {
+        Arc::new(move |key: &str, job: Box<dyn FnOnce(&jmap::Client) -> Result<(), String> + Send>, delay_ms: u64| {
             let Some(c) = st.lock().unwrap().clone() else { return };
+            SERVER_PENDING.with(|p| p.borrow_mut().put(server_settings::job_slot(key), (c, job)));
             let w = w.clone();
-            let job = std::sync::Mutex::new(Some(job));
             SERVER_DEBOUNCE.with(|t| t.start(slint::TimerMode::SingleShot, std::time::Duration::from_millis(delay_ms), move || {
-                let Some(job) = job.lock().unwrap().take() else { return };
-                let (w, c) = (w.clone(), c.clone());
+                let jobs = SERVER_PENDING.with(|p| p.borrow_mut().take_all());
+                if jobs.is_empty() { return; }
+                let w = w.clone();
                 std::thread::spawn(move || {
-                    if let Err(e) = job(&c) {
-                        let _ = w.upgrade_in_event_loop(move |u| { mail::show_toast(&u, &format!("Not saved: {e}"), false); u.invoke_settings_search(u.get_settings_query()); });
+                    for (_, (c, job)) in jobs {
+                        if let Err(e) = job(&c) {
+                            let _ = w.upgrade_in_event_loop(move |u| { mail::show_toast(&u, &format!("Not saved: {e}"), false); u.invoke_settings_search(u.get_settings_query()); });
+                        }
                     }
                 });
             }));
@@ -1251,7 +1259,7 @@ fn main() -> Result<(), slint::PlatformError> {
     let (pf, cf, rs, srv, sw, wt, stg) = (prefs.clone(), cfg.clone(), refresh_settings.clone(), server_cache.clone(), server_write.clone(), ui.as_weak(), state.clone());
     ui.on_settings_set_toggle(move |key, on| {
         if key.starts_with("server.") {
-            if let Some(job) = server_settings::edit(&key, &serde_json::json!(on), &srv) { sw(job, 10); }
+            if let Some(job) = server_settings::edit(&key, &serde_json::json!(on), &srv) { sw(&key, job, 10); }
             rs();
             return;
         }
@@ -1288,7 +1296,7 @@ fn main() -> Result<(), slint::PlatformError> {
     let (w, pf, cf, rs, srv3, sw3) = (ui.as_weak(), prefs.clone(), cfg.clone(), refresh_settings.clone(), server_cache.clone(), server_write.clone());
     ui.on_settings_set_select(move |key, idx| {
         if key.starts_with("server.") {
-            if let Some(job) = server_settings::edit(&key, &serde_json::json!(idx), &srv3) { sw3(job, 10); }
+            if let Some(job) = server_settings::edit(&key, &serde_json::json!(idx), &srv3) { sw3(&key, job, 10); }
             rs();
             return;
         }
@@ -1308,10 +1316,13 @@ fn main() -> Result<(), slint::PlatformError> {
     });
 
     // text edits are saved as typed, without rebuilding the page (keeps the caret)
-    let (pf, cf, srv, sw, wk) = (prefs.clone(), cfg.clone(), server_cache.clone(), server_write.clone(), ui.as_weak());
+    let (pf, cf, srv, sw, wk, rs) = (prefs.clone(), cfg.clone(), server_cache.clone(), server_write.clone(), ui.as_weak(), refresh_settings.clone());
     ui.on_settings_set_text(move |key, t| {
         if key.starts_with("server.") {
-            if let Some(job) = server_settings::edit(&key, &serde_json::json!(t.to_string()), &srv) { sw(job, 900); }
+            if let Some(job) = server_settings::edit(&key, &serde_json::json!(t.to_string()), &srv) { sw(&key, job, 900); }
+            // a date that is not one yet, or an end before the start: its note shows at once (the
+            // rows are synced in place, so the field and its caret stay)
+            if server_settings::redraw_on_text(&key) { rs(); }
             return;
         }
         // the book's list is applied by "Save changes", not while typing

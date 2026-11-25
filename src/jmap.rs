@@ -416,9 +416,13 @@ impl Client {
 
     /// Who owns cached sync states: server, user and account. Account ids alone repeat across
     /// servers (Stalwart's are short sequential ids), and a state must never cross accounts.
-    pub fn state_key(&self) -> String { format!("{}
+    pub fn state_key(&self) -> String { self.key_for(&self.account) }
+
+    /// [`state_key`](Self::state_key) for another account this login reaches (the account a
+    /// capability's objects live in): per-account state is kept under it, never the bare id.
+    pub fn key_for(&self, account: &str) -> String { format!("{}
 {}
-{}", self.base, self.username, self.account) }
+{}", self.base, self.username, account) }
 
     /// `X/set` with `update`, split by maxObjectsInSet; returns (updated, failed descriptions).
     pub fn update(&self, method: &str, account: &str, patches: Vec<(String, Value)>) -> R<(usize, Vec<String>)> {
