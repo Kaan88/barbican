@@ -1636,8 +1636,9 @@ pub fn vacation_run(c: &Client, shared: &Shared) -> Result<(), String> {
             let mut k = shared.lock().unwrap_or_else(|e| e.into_inner());
             if same_vacation(&k, &key, epoch) {
                 k.vac_saved = Some(plan.after.clone());
-                // only a write of the filters part speaks for it (a failed one is written again next)
-                if plan.touches_filters || plan.after.is_enabled { k.vac_off_failed = still_running; }
+                // only a write of the filters part speaks for it (a failed one is written again next);
+                // a failed one whose script could not be read again keeps what was known
+                if plan.after.is_enabled || (plan.touches_filters && (filters.is_some() || res.is_ok())) { k.vac_off_failed = still_running; }
                 // the reply is on the server, its filters part is not: all of it waits to be written
                 // again as set on the page (Bulwark keeps forwarding and recipients too), and a
                 // reload keeps the page's "off" rather than showing what the script still does
