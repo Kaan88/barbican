@@ -1,0 +1,213 @@
+// Files dialogs (src/files_x.rs): the upload conflict question (G-016, Bulwark
+// components/files/upload-conflict-dialog.tsx), the zip download progress card with Cancel
+// (G-017, files-app.tsx handleDownloadZip) and "New text file" (G-018, new-file-dialog.tsx).
+import { CTheme } from "ctheme.slint";
+import { CheckBox } from "std-widgets.slint";
+
+export global FilesX {
+    // ---- upload conflict: "<name> already exists."
+    in-out property <bool> conflict-open;
+    in-out property <string> conflict-name;
+    in-out property <bool> conflict-folder;
+    // conflicts left, this one included
+    in-out property <int> conflict-remaining;
+    in-out property <bool> conflict-all;
+    // "replace", "keep", "skip"; "" calls the whole upload off
+    callback conflict-answer(string, bool);
+    // ---- zip download progress
+    in-out property <bool> zip-open;
+    in-out property <string> zip-title;
+    in-out property <string> zip-current;
+    // 0..1
+    in-out property <float> zip-progress;
+    callback zip-cancel();
+    // ---- new text file
+    in-out property <bool> newfile-open;
+    in-out property <string> newfile-name;
+    in-out property <string> newfile-error;
+    // a name is typed (spaces alone are none) and the server would take it
+    in-out property <bool> newfile-ok;
+    callback newfile-edited(string);
+    callback newfile-create(string);
+}
+
+component FxBtn inherits Rectangle {
+    in property <string> text;
+    in property <bool> primary;
+    in property <bool> ghost;
+    in property <bool> enabled: true;
+    callback clicked();
+    height: 34px;
+    min-width: lay.preferred-width + 28px;
+    border-radius: 12px;
+    opacity: enabled ? 1 : 0.45;
+    background: primary ? (ta.has-hover ? CTheme.accent.darker(0.1) : CTheme.accent) : (ta.has-hover ? CTheme.hover : transparent);
+    border-width: primary || ghost ? 0px : 1px;
+    border-color: CTheme.line;
+    accessible-role: button;
+    accessible-label: root.text;
+    accessible-action-default => { if root.enabled { root.clicked(); } }
+    ta := TouchArea { enabled: root.enabled; clicked => { root.clicked(); } mouse-cursor: pointer; }
+    lay := HorizontalLayout {
+        alignment: center;
+        Text { text: root.text; color: primary ? CTheme.on-accent : CTheme.text; font-size: 13px; font-weight: 600; vertical-alignment: center; }
+    }
+}
+
+component FxCard inherits Rectangle {
+    in property <length> card-width: 460px;
+    width: min(root.card-width, (root.parent-width) - 32px);
+    in property <length> parent-width;
+    background: CTheme.popup;
+    border-radius: 24px;
+    border-width: 1px;
+    border-color: CTheme.line;
+    drop-shadow-blur: 30px;
+    drop-shadow-color: CTheme.shadow;
+    drop-shadow-offset-y: 12px;
+}
+
+/// Replace, Keep both or Skip; with more than one conflict left, "Do this for all n conflicts".
+/// Enter is Keep both (D-M5-14); Escape and Cancel call the whole upload off.
+export component UploadConflictDialog inherits Rectangle {
+    background: CTheme.scrim;
+    init => { fs.focus(); }
+    property <bool> all: FilesX.conflict-all && FilesX.conflict-remaining > 1;
+    TouchArea { }
+    fs := FocusScope {
+        capture-key-pressed(e) => {
+            if e.text == Key.Escape { FilesX.conflict-answer("", false); return accept; }
+            if e.text == Key.Return { FilesX.conflict-answer("keep", root.all); return accept; }
+            reject
+        }
+        key-pressed(e) => { accept }
+        card := FxCard {
+            parent-width: root.width;
+            card-width: 480px;
+            height: lay.preferred-height;
+            x: (root.width - self.width) / 2;
+            y: (root.height - self.height) / 2;
+            accessible-role: groupbox;
+            accessible-label: FilesX.conflict-name + " already exists.";
+            TouchArea { }
+            lay := VerticalLayout {
+                padding: 22px;
+                spacing: 12px;
+                Text { text: FilesX.conflict-name + " already exists."; color: CTheme.text; font-size: 17px; font-weight: 700; wrap: word-wrap; }
+                Text {
+                    text: FilesX.conflict-folder
+                        ? "Replace adds the files to the existing folder and replaces files with the same name. Keep both makes a second folder with a number."
+                        : "Replace puts the new content into the existing file, so its shares stay. Keep both adds a copy with a number.";
+                    color: CTheme.dim; font-size: 12.5px; wrap: word-wrap;
+                }
+                if FilesX.conflict-remaining > 1: CheckBox {
+                    text: "Do this for all " + FilesX.conflict-remaining + " conflicts";
+                    checked <=> FilesX.conflict-all;
+                }
+                HorizontalLayout {
+                    spacing: 8px;
+                    FxBtn { ghost: true; text: "Cancel"; clicked => { FilesX.conflict-answer("", false); } }
+                    Rectangle { horizontal-stretch: 1; }
+                    FxBtn { text: "Skip"; clicked => { FilesX.conflict-answer("skip", root.all); } }
+                    FxBtn { text: "Replace"; clicked => { FilesX.conflict-answer("replace", root.all); } }
+                    FxBtn { primary: true; text: "Keep both"; clicked => { FilesX.conflict-answer("keep", root.all); } }
+                }
+            }
+        }
+    }
+}
+
+/// "Preparing <name>.zip" with the file being fetched, a bar and Cancel (bottom right).
+export component ZipProgressCard inherits Rectangle {
+    width: 320px;
+    height: lay.preferred-height;
+    background: CTheme.popup;
+    border-radius: 16px;
+    border-width: 1px;
+    border-color: CTheme.line;
+    drop-shadow-blur: 20px;
+    drop-shadow-color: CTheme.shadow;
+    accessible-role: progress-indicator;
+    accessible-label: FilesX.zip-title;
+    accessible-value: Math.round(FilesX.zip-progress * 100) + "%";
+    TouchArea { }
+    lay := VerticalLayout {
+        padding: 14px;
+        spacing: 8px;
+        HorizontalLayout {
+            spacing: 8px;
+            Text { text: FilesX.zip-title; color: CTheme.text; font-size: 13px; font-weight: 700; overflow: elide; horizontal-stretch: 1; vertical-alignment: center; }
+            FxBtn { text: "Cancel"; height: 28px; clicked => { FilesX.zip-cancel(); } }
+        }
+        if FilesX.zip-current != "": Text { text: FilesX.zip-current; color: CTheme.dim; font-size: 11.5px; overflow: elide; }
+        Rectangle {
+            height: 6px;
+            border-radius: 3px;
+            background: CTheme.chip;
+            Rectangle {
+                x: 0;
+                width: parent.width * max(0, min(1, FilesX.zip-progress));
+                height: parent.height;
+                border-radius: 3px;
+                background: CTheme.accent;
+            }
+        }
+    }
+}
+
+/// A name for the new file ("new-file.txt", the base name selected) and Create; a name the
+/// server would refuse says why under the field and Create waits.
+export component NewFileDialog inherits Rectangle {
+    background: CTheme.scrim;
+    property <bool> can: FilesX.newfile-ok;
+    TouchArea { clicked => { FilesX.newfile-open = false; } }
+    FxCard {
+        parent-width: root.width;
+        card-width: 400px;
+        height: lay.preferred-height;
+        x: (root.width - self.width) / 2;
+        y: (root.height - self.height) / 2;
+        TouchArea { }
+        lay := VerticalLayout {
+            padding: 22px;
+            spacing: 12px;
+            Text { text: "New text file"; color: CTheme.text; font-size: 17px; font-weight: 700; }
+            Rectangle {
+                height: 36px;
+                border-radius: 10px;
+                border-width: 1px;
+                border-color: FilesX.newfile-error != "" ? CTheme.rose-fg : (ti.has-focus ? CTheme.ring : CTheme.line);
+                ti := TextInput {
+                    x: 10px;
+                    width: parent.width - 20px;
+                    y: (parent.height - self.height) / 2;
+                    text: FilesX.newfile-name;
+                    color: CTheme.text;
+                    font-size: 13px;
+                    single-line: true;
+                    selection-background-color: CTheme.sel;
+                    selection-foreground-color: CTheme.sel-text;
+                    accessible-label: "File name";
+                    init => {
+                        self.focus();
+                        // the base name, so typing keeps the extension (Bulwark nameSelectionRange)
+                        self.set-selection-offsets(0, 8);
+                    }
+                    edited => { FilesX.newfile-name = self.text; FilesX.newfile-edited(self.text); }
+                    accepted => { if root.can { FilesX.newfile-create(self.text); } }
+                    key-pressed(e) => {
+                        if e.text == Key.Escape { FilesX.newfile-open = false; return accept; }
+                        reject
+                    }
+                }
+            }
+            if FilesX.newfile-error != "": Text { text: FilesX.newfile-error; color: CTheme.rose-fg; font-size: 12px; wrap: word-wrap; }
+            HorizontalLayout {
+                alignment: end;
+                spacing: 8px;
+                FxBtn { text: "Cancel"; clicked => { FilesX.newfile-open = false; } }
+                FxBtn { primary: true; text: "Create"; enabled: root.can; clicked => { FilesX.newfile-create(FilesX.newfile-name); } }
+            }
+        }
+    }
+}

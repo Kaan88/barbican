@@ -42,6 +42,8 @@ mod ctxmenu;
 mod folders;
 mod copymsg;
 mod files;
+mod files_x;
+mod dlnames;
 mod glance;
 mod identities;
 mod masked;
@@ -2327,6 +2329,7 @@ fn main() -> Result<(), slint::PlatformError> {
     tplflow::wire(&ui, state.clone());
     subaddr::wire(&ui);
     share::wire(&ui);
+    files_x::wire(&ui);
 
     // ---------------- mail actions ----------------
     let w = ui.as_weak();
