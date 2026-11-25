@@ -15,36 +15,46 @@ pub(crate) type Snapshot = std::sync::Arc<Map<String, Value>>;
 /// serves from here and never goes back to the disk. Every write of prefs.json goes through
 /// [`Settings::save`] (and [`Settings::flush`]), which puts the new values here first, so the
 /// cache is never older than the file.
-#[cfg_attr(test, allow(dead_code))] // tests write at once: no sequence, nothing pending
 struct Cache {
     /// The file these values belong to (fixed for a process: the profile is read once).
     path: std::path::PathBuf,
     prefs: Snapshot,
-    /// Number of the newest save; a background write of an older one is superseded.
+    /// Number of the newest save; a write of an older one is superseded.
     seq: u64,
     /// The newest save has not landed in the file yet ([`Settings::flush`] writes it at exit).
     pending: bool,
 }
 
-#[cfg(not(test))]
-static CACHE: std::sync::Mutex<Option<Cache>> = std::sync::Mutex::new(None);
-#[cfg(not(test))]
+type CacheCell = std::sync::Mutex<Option<Cache>>;
+
+fn lock(cell: &CacheCell) -> std::sync::MutexGuard<'_, Option<Cache>> {
+    cell.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// Held around every write of the file (the background writes and the flush at exit).
 static WRITE: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+/// The program's one cache.
 #[cfg(not(test))]
-fn with_cache<R>(f: impl FnOnce(&mut Option<Cache>) -> R) -> R {
-    f(&mut CACHE.lock().unwrap_or_else(|e| e.into_inner()))
+fn cache() -> std::sync::Arc<CacheCell> {
+    static CACHE: std::sync::OnceLock<std::sync::Arc<CacheCell>> = std::sync::OnceLock::new();
+    CACHE.get_or_init(|| std::sync::Arc::new(std::sync::Mutex::new(None))).clone()
 }
 
 #[cfg(test)]
 thread_local! {
-    /// Tests: this thread's cache while a [`CacheScope`] is alive (`Some`); without one every load
-    /// reads the file, as tests in parallel share the test process's prefs.json.
-    static TEST_CACHE: std::cell::RefCell<Option<Option<Cache>>> = const { std::cell::RefCell::new(None) };
+    /// Tests: this thread's cache while a [`CacheScope`] is alive; without one every load reads
+    /// the file (into a throwaway cache), as tests in parallel share the process's prefs.json.
+    static TEST_CACHE: std::cell::RefCell<Option<std::sync::Arc<CacheCell>>> = const { std::cell::RefCell::new(None) };
     /// Tests: how often this thread read prefs.json.
     pub static DISK_READS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
     /// Tests: the prefs file of this thread's [`CacheScope`] (its own, so it races no other test).
     static TEST_PATH: std::cell::RefCell<Option<std::path::PathBuf>> = const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+fn cache() -> std::sync::Arc<CacheCell> {
+    TEST_CACHE.with(|t| t.borrow().clone()).unwrap_or_else(|| std::sync::Arc::new(std::sync::Mutex::new(None)))
 }
 
 /// Tests that write the test process's shared settings files (settings.json, prefs.json) or
@@ -52,72 +62,141 @@ thread_local! {
 #[cfg(test)]
 pub(crate) static TEST_FILES: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-#[cfg(test)]
-fn with_cache<R>(f: impl FnOnce(&mut Option<Cache>) -> R) -> R {
-    TEST_CACHE.with(|t| match t.borrow_mut().as_mut() { Some(c) => f(c), None => f(&mut None) })
-}
-
 /// Tests: the settings cache is on for this thread, over a prefs file of its own, until the scope
-/// is dropped; then both are forgotten, so no test sees another's cached values.
+/// is dropped; then the thread's previous cache and file are back (scopes nest), so no test sees
+/// another's cached values.
 #[cfg(test)]
-pub(crate) struct CacheScope(std::path::PathBuf);
+pub(crate) struct CacheScope {
+    file: std::path::PathBuf,
+    prev: Option<(Option<std::path::PathBuf>, Option<std::sync::Arc<CacheCell>>)>,
+}
 
 #[cfg(test)]
 impl CacheScope {
     pub(crate) fn new() -> CacheScope {
         static N: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
         let n = N.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        let p = crate::config_dir().join(format!("prefs-scope-{n}.json"));
-        let _ = std::fs::remove_file(&p);
-        TEST_PATH.with(|t| *t.borrow_mut() = Some(p.clone()));
-        TEST_CACHE.with(|t| *t.borrow_mut() = Some(None));
-        CacheScope(p)
+        let file = crate::config_dir().join(format!("prefs-scope-{n}.json"));
+        let _ = std::fs::remove_file(&file);
+        let _ = std::fs::remove_file(bad_path(&file));
+        let path = TEST_PATH.with(|t| t.replace(Some(file.clone())));
+        let cell = TEST_CACHE.with(|t| t.replace(Some(std::sync::Arc::new(std::sync::Mutex::new(None)))));
+        CacheScope { file, prev: Some((path, cell)) }
     }
 
     /// The scope's prefs file.
-    pub(crate) fn file(&self) -> &std::path::Path { &self.0 }
+    pub(crate) fn file(&self) -> &std::path::Path { &self.file }
 }
 
 #[cfg(test)]
 impl Drop for CacheScope {
     fn drop(&mut self) {
-        TEST_CACHE.with(|t| *t.borrow_mut() = None);
-        TEST_PATH.with(|t| *t.borrow_mut() = None);
-        let _ = std::fs::remove_file(&self.0);
+        if let Some((path, cell)) = self.prev.take() {
+            TEST_CACHE.with(|t| *t.borrow_mut() = cell);
+            TEST_PATH.with(|t| *t.borrow_mut() = path);
+        }
+        let _ = std::fs::remove_file(&self.file);
+        let _ = std::fs::remove_file(bad_path(&self.file));
     }
 }
 
-fn read_file(p: &std::path::Path) -> Map<String, Value> {
-    #[cfg(test)]
-    DISK_READS.with(|n| n.set(n.get() + 1));
-    std::fs::read_to_string(p).ok()
-        .and_then(|t| serde_json::from_str::<Value>(&t).ok())
-        .and_then(|v| match v { Value::Object(m) => Some(m), _ => None })
-        .unwrap_or_default()
+/// Where a prefs file that could not be read is kept (prefs.json.bad).
+fn bad_path(p: &std::path::Path) -> std::path::PathBuf {
+    let mut s = p.as_os_str().to_owned();
+    s.push(".bad");
+    s.into()
 }
 
-/// The prefs as last saved: from the cache, filled from the file once (under the cache's lock, so
-/// a save meanwhile is never replaced by the older file).
-fn current() -> Snapshot {
-    let p = path();
-    with_cache(|c| match c {
-        Some(c) if c.path == p => c.prefs.clone(),
-        _ => {
-            let prefs: Snapshot = std::sync::Arc::new(read_file(&p));
-            *c = Some(Cache { path: p, prefs: prefs.clone(), seq: 0, pending: false });
+/// Keep a copy of a prefs file that could not be read, before anything can save over it. Only
+/// once: a copy already there is never replaced. Whether a copy is there now.
+fn back_up(p: &std::path::Path) -> bool {
+    use std::io::Write;
+    let bad = bad_path(p);
+    let Ok(bytes) = std::fs::read(p) else { return bad.exists() };
+    match std::fs::OpenOptions::new().write(true).create_new(true).open(&bad) {
+        Ok(mut f) => f.write_all(&bytes).and_then(|_| f.sync_all()).is_ok(),
+        Err(e) => e.kind() == std::io::ErrorKind::AlreadyExists,
+    }
+}
+
+/// The prefs in the file, or None when they cannot be used for the session:
+/// - no file: no prefs yet (`{}`);
+/// - a file that is not a settings object (corrupt): copied to prefs.json.bad first, then `{}`
+///   for the session (reading it again would give the same), so the next save cannot lose it;
+///   when no copy could be made, None;
+/// - a file that cannot be read now (locked by another program, access denied): None, and the
+///   next load tries again. Keeping `{}` there would let the next save replace the real
+///   settings with the defaults over what is most likely a passing lock.
+fn read_file(p: &std::path::Path) -> Option<Map<String, Value>> {
+    #[cfg(test)]
+    DISK_READS.with(|n| n.set(n.get() + 1));
+    let bytes = match std::fs::read(p) {
+        Ok(b) => b,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Some(Map::new()),
+        Err(_) => { back_up(p); return None; }
+    };
+    match serde_json::from_slice::<Value>(&bytes) {
+        Ok(Value::Object(m)) => Some(m),
+        _ => back_up(p).then(Map::new),
+    }
+}
+
+/// The prefs in `cell` for the file `p`, read from it when the cache has nothing for it yet
+/// (under the cache's lock, so a save meanwhile is never replaced by the older file). Prefs that
+/// cannot be used (see [`read_file`]) are `{}` for this call and not kept.
+fn fill(cell: &CacheCell, p: &std::path::Path) -> Snapshot {
+    let mut c = lock(cell);
+    if let Some(c) = c.as_ref().filter(|c| c.path == p) { return c.prefs.clone(); }
+    match read_file(p) {
+        Some(m) => {
+            let prefs: Snapshot = std::sync::Arc::new(m);
+            *c = Some(Cache { path: p.to_path_buf(), prefs: prefs.clone(), seq: 0, pending: false });
             prefs
         }
-    })
+        None => std::sync::Arc::new(Map::new()),
+    }
 }
+
+/// The prefs as last saved.
+fn current() -> Snapshot { fill(&cache(), &path()) }
 
 /// The prefs as last saved, without copying them (read-only; a later save makes a new snapshot).
 pub(crate) fn snapshot() -> Snapshot { current() }
 
-fn get_bool(p: &Map<String, Value>, key: &str, default: bool) -> bool {
+/// Writes a prefs file (the real one: [`write_file`]; tests pass their own).
+type Writer<'a> = &'a dyn Fn(&std::path::Path, &Map<String, Value>) -> std::io::Result<()>;
+
+/// Start a save: from now on every load gets `prefs`; the file is still to be written. The save's
+/// number, for [`write_save`].
+fn begin_save(cell: &CacheCell, path: std::path::PathBuf, prefs: Snapshot) -> u64 {
+    let mut c = lock(cell);
+    let seq = c.as_ref().map_or(0, |c| c.seq) + 1;
+    *c = Some(Cache { path, prefs, seq, pending: true });
+    seq
+}
+
+/// Write save `seq` to its file (the caller holds [`WRITE`]): nothing when a newer save
+/// superseded it (that one's own write follows) or it has landed already (a flush). A write that
+/// fails stays pending, for the flush at exit. Whether it wrote.
+fn write_save(cell: &CacheCell, seq: u64, write: Writer) -> bool {
+    let job = lock(cell).as_ref().filter(|c| c.seq == seq && c.pending).map(|c| (c.path.clone(), c.prefs.clone()));
+    let Some((p, prefs)) = job else { return false };
+    if write(&p, &prefs).is_err() { return false; }
+    if let Some(c) = lock(cell).as_mut().filter(|c| c.seq == seq) { c.pending = false; }
+    true
+}
+
+/// Write the newest save if it has not landed yet (the caller holds [`WRITE`]). Whether it wrote.
+fn flush_save(cell: &CacheCell, write: Writer) -> bool {
+    let seq = lock(cell).as_ref().filter(|c| c.pending).map(|c| c.seq);
+    seq.is_some_and(|s| write_save(cell, s, write))
+}
+
+pub(crate) fn get_bool(p: &Map<String, Value>, key: &str, default: bool) -> bool {
     p.get(key).and_then(|v| v.as_bool()).unwrap_or(default)
 }
 
-fn get_str(p: &Map<String, Value>, key: &str, default: &str) -> String {
+pub(crate) fn get_str(p: &Map<String, Value>, key: &str, default: &str) -> String {
     p.get(key).and_then(|v| v.as_str()).unwrap_or(default).to_string()
 }
 
@@ -139,9 +218,21 @@ pub(crate) fn str_pref(key: &str, default: &str) -> String { get_str(&current(),
 #[allow(dead_code)]
 pub(crate) fn int_pref(key: &str, default: i64) -> i64 { get_int(&current(), key, default) }
 
-fn write_file(p: &std::path::Path, prefs: &Map<String, Value>) {
-    if let Some(d) = p.parent() { let _ = std::fs::create_dir_all(d); }
-    if let Ok(t) = serde_json::to_string(prefs) { let _ = std::fs::write(p, t); }
+/// Write the prefs file whole or not at all: a temporary file in the same folder, renamed over it
+/// (a crash or a full disk mid-write leaves the old file, never half of one).
+fn write_file(p: &std::path::Path, prefs: &Map<String, Value>) -> std::io::Result<()> {
+    use std::io::Write;
+    static N: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let dir = p.parent().ok_or_else(|| std::io::Error::other("no folder"))?;
+    std::fs::create_dir_all(dir)?;
+    let text = serde_json::to_string(prefs).map_err(std::io::Error::other)?;
+    let name = p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "prefs.json".into());
+    // a name of its own per write: tests write the shared file from several threads
+    let tmp = dir.join(format!("{name}.{}-{}.tmp", std::process::id(), N.fetch_add(1, std::sync::atomic::Ordering::SeqCst)));
+    let res = std::fs::File::create(&tmp).and_then(|mut f| { f.write_all(text.as_bytes())?; f.sync_all() })
+        .and_then(|_| std::fs::rename(&tmp, p));
+    if res.is_err() { let _ = std::fs::remove_file(&tmp); }
+    res
 }
 
 pub struct Account {
@@ -303,12 +394,8 @@ impl Settings {
 
     /// Blocks until a pending background save has landed (call before the process exits).
     pub fn flush() {
-        #[cfg(not(test))]
-        {
-            let _w = WRITE.lock();
-            let pending = with_cache(|c| c.as_mut().filter(|c| c.pending).map(|c| { c.pending = false; (c.path.clone(), c.prefs.clone()) }));
-            if let Some((p, prefs)) = pending { write_file(&p, &prefs); }
-        }
+        let _w = WRITE.lock();
+        flush_save(&cache(), &write_file);
     }
 
     /// Store one pref value and save.
@@ -320,28 +407,21 @@ impl Settings {
     /// Saves the settings: the cache serves every later `load` at once, and the file is written
     /// off the UI thread, the newest save always winning. Tests write synchronously.
     pub(crate) fn save(&self) {
-        let snap: Snapshot = std::sync::Arc::new(self.prefs.clone());
-        let p = path();
+        let cell = cache();
+        let seq = begin_save(&cell, path(), std::sync::Arc::new(self.prefs.clone()));
         #[cfg(test)]
         {
-            write_file(&p, &snap);
-            with_cache(|c| *c = Some(Cache { path: p, prefs: snap, seq: 0, pending: false }));
+            let _w = WRITE.lock();
+            write_save(&cell, seq, &write_file);
         }
         #[cfg(not(test))]
         {
-            // a change to a synced setting goes to the account (debounced)
+            // a change to a synced setting goes to the account (debounced); after the cache has
+            // it, so whatever that reads back is the new values
             crate::settings_sync::local_saved(&self.prefs);
-            let seq = with_cache(|c| {
-                let seq = c.as_ref().map_or(0, |c| c.seq) + 1;
-                *c = Some(Cache { path: p, prefs: snap, seq, pending: true });
-                seq
-            });
             std::thread::spawn(move || {
                 let _w = WRITE.lock();
-                // superseded by a newer save (its own write follows), or already flushed
-                let Some((p, prefs)) = with_cache(|c| c.as_ref().filter(|c| c.seq == seq).map(|c| (c.path.clone(), c.prefs.clone()))) else { return };
-                write_file(&p, &prefs);
-                with_cache(|c| if let Some(c) = c.as_mut().filter(|c| c.seq == seq) { c.pending = false; });
+                write_save(&cell, seq, &write_file);
             });
         }
     }
@@ -1268,7 +1348,7 @@ mod cache_tests {
     fn reads() -> u32 { DISK_READS.with(|n| n.get()) }
 
     /// What the scope's prefs file holds now.
-    fn on_disk(scope: &CacheScope) -> Map<String, Value> { read_file(scope.file()) }
+    fn on_disk(scope: &CacheScope) -> Map<String, Value> { read_file(scope.file()).expect("a readable prefs file") }
 
     #[test]
     fn a_load_after_a_save_comes_from_memory() {
@@ -1394,5 +1474,177 @@ mod cache_tests {
         assert_eq!(str_pref("leak", ""), "", "a new scope starts from its own file");
         assert_eq!(reads(), before + 1);
         assert!(!scope.file().exists());
+    }
+}
+
+/// The save state machine the program runs (begin, background write, flush), with writers that
+/// record what they were given instead of touching a file.
+#[cfg(test)]
+mod save_order_tests {
+    use super::*;
+    use serde_json::json;
+    use std::cell::RefCell;
+
+    fn prefs(v: Value) -> Snapshot { std::sync::Arc::new(v.as_object().unwrap().clone()) }
+    fn cell() -> CacheCell { std::sync::Mutex::new(None) }
+    fn file() -> std::path::PathBuf { std::path::PathBuf::from("prefs.json") }
+    fn pending(c: &CacheCell) -> bool { lock(c).as_ref().is_some_and(|c| c.pending) }
+    fn cached(c: &CacheCell) -> Value { Value::Object((*lock(c).as_ref().unwrap().prefs).clone()) }
+
+    #[test]
+    fn two_saves_written_out_of_order_keep_the_newest() {
+        let written = RefCell::new(vec![]);
+        let w = |_: &std::path::Path, m: &Map<String, Value>| { written.borrow_mut().push(Value::Object(m.clone())); Ok(()) };
+        let c = cell();
+        let first = begin_save(&c, file(), prefs(json!({"v": 1})));
+        let second = begin_save(&c, file(), prefs(json!({"v": 2})));
+        assert_eq!(cached(&c), json!({"v": 2}), "a load sees the newest save at once");
+        // the second save's thread runs first, then the first one's
+        assert!(write_save(&c, second, &w));
+        assert!(!write_save(&c, first, &w), "the older save is superseded");
+        assert_eq!(*written.borrow(), vec![json!({"v": 2})]);
+        assert!(!pending(&c));
+
+        // in order: the older write finds itself superseded, the newer one writes
+        let c = cell();
+        written.borrow_mut().clear();
+        let first = begin_save(&c, file(), prefs(json!({"v": 1})));
+        let second = begin_save(&c, file(), prefs(json!({"v": 2})));
+        assert!(!write_save(&c, first, &w));
+        assert!(pending(&c), "the newest save has not landed yet");
+        assert!(write_save(&c, second, &w));
+        assert_eq!(*written.borrow(), vec![json!({"v": 2})]);
+    }
+
+    #[test]
+    fn flush_while_a_write_is_pending_writes_it_once() {
+        let written = RefCell::new(vec![]);
+        let w = |_: &std::path::Path, m: &Map<String, Value>| { written.borrow_mut().push(Value::Object(m.clone())); Ok(()) };
+        let c = cell();
+        let seq = begin_save(&c, file(), prefs(json!({"v": 1})));
+        assert!(flush_save(&c, &w));
+        assert!(!pending(&c));
+        // the background write comes after the flush: nothing left to write
+        assert!(!write_save(&c, seq, &w));
+        assert_eq!(*written.borrow(), vec![json!({"v": 1})]);
+        assert_eq!(cached(&c), json!({"v": 1}));
+    }
+
+    #[test]
+    fn flush_after_the_write_landed_writes_nothing() {
+        let written = RefCell::new(0);
+        let w = |_: &std::path::Path, _: &Map<String, Value>| { *written.borrow_mut() += 1; Ok(()) };
+        let c = cell();
+        assert!(!flush_save(&c, &w), "nothing saved, nothing to flush");
+        let seq = begin_save(&c, file(), prefs(json!({"v": 1})));
+        assert!(write_save(&c, seq, &w));
+        assert!(!flush_save(&c, &w));
+        assert_eq!(*written.borrow(), 1);
+    }
+
+    #[test]
+    fn a_failed_write_stays_pending_for_the_flush() {
+        let c = cell();
+        let seq = begin_save(&c, file(), prefs(json!({"v": 1})));
+        let fail = |_: &std::path::Path, _: &Map<String, Value>| Err(std::io::Error::other("disk full"));
+        assert!(!write_save(&c, seq, &fail));
+        assert!(pending(&c));
+        assert_eq!(cached(&c), json!({"v": 1}), "loads keep the saved values");
+        let written = RefCell::new(vec![]);
+        let w = |_: &std::path::Path, m: &Map<String, Value>| { written.borrow_mut().push(Value::Object(m.clone())); Ok(()) };
+        assert!(flush_save(&c, &w));
+        assert_eq!(*written.borrow(), vec![json!({"v": 1})]);
+        assert!(!pending(&c));
+    }
+
+    #[test]
+    fn the_newest_save_is_what_lands_on_disk() {
+        // the real writer, through Settings::save and flush
+        let scope = CacheScope::new();
+        for i in 0..5 { Settings::load().remember("n", json!(i)); }
+        Settings::flush();
+        assert_eq!(read_file(scope.file()).unwrap()["n"], 4);
+    }
+}
+
+/// A prefs file that cannot be read is never replaced by the defaults.
+#[cfg(test)]
+mod bad_file_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn reads() -> u32 { DISK_READS.with(|n| n.get()) }
+
+    #[test]
+    fn a_missing_file_is_no_prefs_and_leaves_no_copy() {
+        let scope = CacheScope::new();
+        assert!(Settings::load().prefs.is_empty());
+        let before = reads();
+        let _ = Settings::load();
+        assert_eq!(reads(), before, "an empty start is kept");
+        assert!(!bad_path(scope.file()).exists());
+    }
+
+    #[test]
+    fn a_corrupt_file_is_kept_as_bad_before_a_save_replaces_it() {
+        let scope = CacheScope::new();
+        let bad = bad_path(scope.file());
+        std::fs::write(scope.file(), "{\"theme\": \"dark\"").unwrap();
+        assert!(Settings::load().prefs.is_empty(), "the session starts from the defaults");
+        assert_eq!(std::fs::read_to_string(&bad).unwrap(), "{\"theme\": \"dark\"");
+        let before = reads();
+        let _ = Settings::load();
+        assert_eq!(reads(), before, "and keeps them: reading the same file again gives the same");
+        Settings::load().remember("density", json!("compact"));
+        assert_eq!(read_file(scope.file()).unwrap()["density"], "compact");
+        assert_eq!(std::fs::read_to_string(&bad).unwrap(), "{\"theme\": \"dark\"", "the copy is untouched");
+        // a later bad file never replaces the first copy
+        std::fs::write(scope.file(), "[1, 2]").unwrap();
+        assert_eq!(read_file(scope.file()), Some(Map::new()));
+        assert_eq!(std::fs::read_to_string(&bad).unwrap(), "{\"theme\": \"dark\"");
+    }
+
+    #[test]
+    fn an_unreadable_file_is_tried_again() {
+        let scope = CacheScope::new();
+        // a folder where the file should be: reading it fails with something other than NotFound
+        std::fs::create_dir_all(scope.file()).unwrap();
+        let before = reads();
+        assert!(Settings::load().prefs.is_empty());
+        assert!(Settings::load().prefs.is_empty());
+        assert_eq!(reads(), before + 2, "nothing was kept, each load tries again");
+        std::fs::remove_dir(scope.file()).unwrap();
+        std::fs::write(scope.file(), r#"{"theme":"light"}"#).unwrap();
+        assert_eq!(Settings::load().str("theme", ""), "light");
+    }
+
+    #[test]
+    fn writes_leave_no_temporary_file() {
+        let scope = CacheScope::new();
+        let mut m = Map::new();
+        m.insert("a".into(), json!(1));
+        write_file(scope.file(), &m).unwrap();
+        m.insert("a".into(), json!(2));
+        write_file(scope.file(), &m).unwrap();
+        assert_eq!(read_file(scope.file()).unwrap()["a"], 2);
+        let name = scope.file().file_name().unwrap().to_string_lossy().to_string();
+        let left: Vec<String> = std::fs::read_dir(scope.file().parent().unwrap()).unwrap().flatten()
+            .map(|e| e.file_name().to_string_lossy().to_string())
+            .filter(|n| n.starts_with(&name) && n.ends_with(".tmp")).collect();
+        assert!(left.is_empty(), "{left:?}");
+    }
+
+    #[test]
+    fn scopes_nest() {
+        let outer = CacheScope::new();
+        Settings::load().remember("where", json!("outer"));
+        {
+            let inner = CacheScope::new();
+            assert_ne!(inner.file(), outer.file());
+            assert_eq!(str_pref("where", ""), "", "the inner scope has its own file and cache");
+            Settings::load().remember("where", json!("inner"));
+        }
+        assert_eq!(str_pref("where", ""), "outer", "the outer scope's cache is back");
+        assert_eq!(path(), outer.file(), "and its file");
     }
 }

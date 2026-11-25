@@ -117,7 +117,7 @@ pub fn rebuild_folders(u: &AppWindow) {
     let prefs = crate::settings::Settings::load();
     let colorful = prefs.bool("colorfulSidebarIcons", false);
     let totals = prefs.bool("showFolderTotalCount", true);
-    let style = crate::a11y::A11y::from(&prefs, crate::a11y::System::default()).unread_style;
+    let style = crate::a11y::A11y::from(&prefs.prefs, crate::a11y::System::default()).unread_style;
     // per-folder settings kept under Bulwark's keys (src/folders.rs)
     let modes = crate::folders::decode_count_modes(prefs.prefs.get(crate::folders::KEY_COUNT_MODES));
     let icons = crate::folders::decode_icons(prefs.prefs.get(crate::folders::KEY_ICONS));

@@ -1,7 +1,6 @@
 //! Bulwark's Settings > Accessibility (lib/accessibility-settings.ts, lib/mail-reading.ts,
 //! lib/cvd-palette.ts) applied natively: the app chrome through Slint globals, the message
 //! body through CSS (and a hash-allowed script for text sizing) in the reader's HTML.
-use crate::settings::Settings;
 
 /// Bulwark ACCESSIBILITY_DEFAULTS (same keys and values as prefs.json stores them).
 pub const DEFAULTS: &[(&str, &str)] = &[
@@ -128,8 +127,16 @@ pub struct A11y {
     pub fit_width: bool,
 }
 
-fn num(p: &Settings, key: &str, default: f32) -> f32 {
-    match p.prefs.get(key) {
+/// The prefs `A11y::from` reads, borrowed (no copy of the map).
+struct P<'a>(&'a serde_json::Map<String, serde_json::Value>);
+
+impl P<'_> {
+    fn str(&self, key: &str, default: &str) -> String { crate::settings::get_str(self.0, key, default) }
+    fn bool(&self, key: &str, default: bool) -> bool { crate::settings::get_bool(self.0, key, default) }
+}
+
+fn num(p: &P, key: &str, default: f32) -> f32 {
+    match p.0.get(key) {
         Some(serde_json::Value::Number(n)) => n.as_f64().map(|f| f as f32).unwrap_or(default),
         Some(serde_json::Value::String(s)) => s.trim().parse().unwrap_or(default),
         _ => default,
@@ -137,7 +144,7 @@ fn num(p: &Settings, key: &str, default: f32) -> f32 {
 }
 
 /// Bulwark SystemToggle: "on" | "off" | "system" (follows Windows).
-fn toggle(p: &Settings, key: &str, system: bool) -> bool {
+fn toggle(p: &P, key: &str, system: bool) -> bool {
     match p.str(key, "system").as_str() { "on" => true, "off" => false, _ => system }
 }
 
@@ -148,12 +155,13 @@ impl A11y {
         if let Some((p, s, a)) = last.as_ref() {
             if std::sync::Arc::ptr_eq(p, &prefs) && *s == sys { return a.clone(); }
         }
-        let a = Self::from(&Settings::with_prefs((*prefs).clone()), sys);
+        let a = Self::from(&prefs, sys);
         *last = Some((prefs, sys, a.clone()));
         a
     }
 
-    pub fn from(p: &Settings, sys: System) -> A11y {
+    pub fn from(prefs: &serde_json::Map<String, serde_json::Value>, sys: System) -> A11y {
+        let p = &P(prefs);
         A11y {
             more_contrast: match p.str("contrast", "system").as_str() { "more" => true, "normal" => false, _ => sys.high_contrast },
             reduce_motion: toggle(p, "reduceMotion", sys.reduce_motion),
@@ -294,7 +302,7 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    fn settings(v: serde_json::Value) -> Settings { Settings::with_prefs(v.as_object().unwrap().clone()) }
+    fn settings(v: serde_json::Value) -> serde_json::Map<String, serde_json::Value> { v.as_object().unwrap().clone() }
 
     #[test]
     fn defaults_follow_bulwark() {

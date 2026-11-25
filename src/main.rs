@@ -339,7 +339,7 @@ fn page(body: &str, images: bool, recolor: bool) -> (String, bool, &'static str)
     let body = &mailview::sanitize_mail_html_opts(body, links_off);
     let p = settings::Settings::load();
     // Settings > Accessibility: spacing, width, links, motion, text size and fitting
-    let a = a11y::A11y::from(&p, a11y::System::detect());
+    let a = a11y::A11y::from(&p.prefs, a11y::System::detect());
     let dark = DARK.with(|d| d.get()) && !p.bool("emailAlwaysLightMode", false);
     let plain = body.starts_with("<pre>");
     let themed = dark && (plain || html_uncolored(body));
