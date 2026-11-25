@@ -529,8 +529,41 @@ pub fn decode_image(bytes: &[u8], edge: u32) -> Result<SharedPixelBuffer<Rgba8Pi
 /// `href="#id"` and `url(#id)` reference is followed (usvg copies what a reference points at).
 const SVG_MAX_NODES: u32 = 100_000;
 const SVG_MAX_EXPANDED: u64 = 100_000;
+/// The most attribute and text bytes once expanded (50k copies of a big data: URL are refused
+/// before usvg decodes a single one).
+const SVG_MAX_EXPANDED_BYTES: u64 = 32 << 20;
 /// The deepest nesting, children and references together (usvg converts recursively).
 const SVG_MAX_DEPTH: u32 = 128;
+/// After conversion (CSS applied): the most nodes drawn, each pattern, mask, clip and filter
+/// counted every time it is drawn.
+const SVG_MAX_DRAWN: u64 = 100_000;
+/// The largest pattern tile and filter region resvg allocates a picture for, in pixels.
+const SVG_MAX_TILE_PIXELS: f64 = 4096.0 * 4096.0;
+const SVG_MAX_FILTER_PIXELS: f64 = 8192.0 * 8192.0;
+/// Pictures inside an SVG (data: only): the largest one, and all of them together, by their
+/// declared size; and their bytes together.
+const SVG_MAX_IMAGE_PIXELS: u64 = 16_000_000;
+const SVG_MAX_IMAGES_PIXELS: u64 = 50_000_000;
+const SVG_MAX_IMAGES_BYTES: u64 = 16 << 20;
+
+fn too_complex() -> String { "The picture is too complex to preview.".to_string() }
+
+/// The most `<style>` rules that point at something (`url(#id)`): each is matched against
+/// every element.
+const SVG_MAX_URL_RULES: usize = 256;
+
+/// Every `url(#id)` in `v`.
+fn url_ids<'a>(v: &'a str, out: &mut Vec<&'a str>) {
+    let mut rest = v;
+    while let Some(i) = rest.find("url(") {
+        rest = &rest[i + 4..];
+        let inner = rest.trim_start().trim_start_matches(['"', '\'']);
+        if let Some(id) = inner.strip_prefix('#') {
+            let end = id.find(|c: char| c == ')' || c == '"' || c == '\'' || c.is_whitespace()).unwrap_or(id.len());
+            out.push(&id[..end]);
+        }
+    }
+}
 
 /// The ids an element points at: `href`/`xlink:href` "#id" and every `url(#id)` in its attributes.
 fn svg_refs<'a, 'i: 'a>(n: resvg::usvg::roxmltree::Node<'a, 'i>) -> Vec<&'a str> {
@@ -540,37 +573,75 @@ fn svg_refs<'a, 'i: 'a>(n: resvg::usvg::roxmltree::Node<'a, 'i>) -> Vec<&'a str>
         if a.name() == "href" {
             if let Some(id) = v.trim().strip_prefix('#') { out.push(id.trim()); }
         }
-        let mut rest = v;
-        while let Some(i) = rest.find("url(") {
-            rest = &rest[i + 4..];
-            let inner = rest.trim_start().trim_start_matches(['"', '\'']);
-            if let Some(id) = inner.strip_prefix('#') {
-                let end = id.find(|c: char| c == ')' || c == '"' || c == '\'' || c.is_whitespace()).unwrap_or(id.len());
-                out.push(&id[..end]);
-            }
-        }
+        url_ids(v, &mut out);
     }
     out
 }
 
-/// Refuse an SVG whose references would expand it past [`SVG_MAX_EXPANDED`] nodes or nest it
-/// deeper than [`SVG_MAX_DEPTH`]: the size of each element with its references is worked out
-/// once (memoised), iteratively, so a 2^40 `<use>` bomb is refused in a few steps. A reference
-/// back into itself counts nothing (usvg skips those).
+/// An element for matching `<style>` selectors, as usvg matches them (svgtree/parse.rs).
+struct CssNode<'a, 'i>(resvg::usvg::roxmltree::Node<'a, 'i>);
+
+impl simplecss::Element for CssNode<'_, '_> {
+    fn parent_element(&self) -> Option<Self> { self.0.parent_element().map(CssNode) }
+    fn prev_sibling_element(&self) -> Option<Self> { self.0.prev_sibling_element().map(CssNode) }
+    fn has_local_name(&self, name: &str) -> bool { self.0.tag_name().name() == name }
+    fn attribute_matches(&self, name: &str, op: simplecss::AttributeOperator) -> bool { self.0.attribute(name).is_some_and(|v| op.matches(v)) }
+    fn pseudo_class_matches(&self, class: simplecss::PseudoClass) -> bool {
+        matches!(class, simplecss::PseudoClass::FirstChild) && self.0.prev_sibling_element().is_none()
+    }
+}
+
+/// What each element points at through `<style>` rules (usvg applies them while converting,
+/// so a chain of patterns can be made with no `url(#)` in any attribute).
+fn css_refs<'a, 'i: 'a>(doc: &'a resvg::usvg::roxmltree::Document<'i>) -> Result<std::collections::HashMap<resvg::usvg::roxmltree::NodeId, Vec<&'a str>>, String> {
+    let mut sheet = simplecss::StyleSheet::new();
+    for n in doc.descendants().filter(|n| n.has_tag_name("style")) {
+        if !matches!(n.attribute("type"), None | Some("text/css")) { continue; }
+        if let Some(t) = n.text() { sheet.parse_more(t); }
+    }
+    let rules: Vec<(&simplecss::Selector, Vec<&str>)> = sheet.rules.iter().filter_map(|r| {
+        let mut ids = Vec::new();
+        for d in &r.declarations { url_ids(d.value, &mut ids); }
+        (!ids.is_empty()).then_some((&r.selector, ids))
+    }).collect();
+    if rules.len() > SVG_MAX_URL_RULES { return Err(too_complex()); }
+    let mut out = std::collections::HashMap::new();
+    if rules.is_empty() { return Ok(out); }
+    for n in doc.descendants().filter(|n| n.is_element()) {
+        let mut ids: Vec<&'a str> = Vec::new();
+        for (sel, rule_ids) in &rules {
+            if sel.matches(&CssNode(n)) { ids.extend(rule_ids.iter().copied()); }
+        }
+        if !ids.is_empty() { out.insert(n.id(), ids); }
+    }
+    Ok(out)
+}
+
+/// Refuse an SVG whose references would expand it past [`SVG_MAX_EXPANDED`] nodes or
+/// [`SVG_MAX_EXPANDED_BYTES`] of attributes and text, or nest it deeper than
+/// [`SVG_MAX_DEPTH`]: what each element comes to with its references is worked out once
+/// (memoised), iteratively, so a 2^40 `<use>` bomb is refused in a few steps. A reference back
+/// into itself counts nothing (usvg skips those).
 fn svg_check(doc: &resvg::usvg::roxmltree::Document) -> Result<(), String> {
     use resvg::usvg::roxmltree::Node;
     use std::collections::HashMap;
-    let too_big = || "The picture is too complex to preview.".to_string();
     let ids: HashMap<&str, Node> =
         doc.descendants().filter(|n| n.is_element()).filter_map(|n| n.attribute("id").map(|id| (id, n))).collect();
-    fn deps<'a, 'i: 'a>(n: Node<'a, 'i>, ids: &HashMap<&str, Node<'a, 'i>>) -> Vec<Node<'a, 'i>> {
+    let css = css_refs(doc)?;
+    fn deps<'a, 'i: 'a>(n: Node<'a, 'i>, ids: &HashMap<&str, Node<'a, 'i>>, css: &HashMap<resvg::usvg::roxmltree::NodeId, Vec<&str>>) -> Vec<Node<'a, 'i>> {
         let mut d: Vec<Node> = n.children().filter(|c| c.is_element()).collect();
         d.extend(svg_refs(n).into_iter().filter_map(|id| ids.get(id).copied()));
+        if let Some(more) = css.get(&n.id()) { d.extend(more.iter().filter_map(|id| ids.get(id).copied())); }
         d
     }
+    fn own_bytes(n: Node) -> u64 {
+        let attrs: usize = n.attributes().map(|a| a.value().len()).sum();
+        let text: usize = n.children().filter_map(|c| c.text()).map(str::len).sum();
+        (attrs + text) as u64
+    }
     let count = doc.descendants().count();
-    // (expanded size, depth) per node, and whether it is being worked out
-    let mut memo: Vec<Option<(u64, u32)>> = vec![None; count + 1];
+    // (expanded size, depth, expanded bytes) per node, and whether it is being worked out
+    let mut memo: Vec<Option<(u64, u32, u64)>> = vec![None; count + 1];
     let mut busy = vec![false; count + 1];
     let mut stack = vec![(doc.root_element(), false)];
     while let Some((n, ready)) = stack.pop() {
@@ -580,45 +651,137 @@ fn svg_check(doc: &resvg::usvg::roxmltree::Document) -> Result<(), String> {
             if busy[i] { continue; }
             busy[i] = true;
             stack.push((n, true));
-            for d in deps(n, &ids) {
+            for d in deps(n, &ids, &css) {
                 let j = d.id().get_usize();
                 if memo[j].is_none() && !busy[j] { stack.push((d, false)); }
             }
-            if stack.len() > SVG_MAX_EXPANDED as usize { return Err(too_big()); }
+            if stack.len() > SVG_MAX_EXPANDED as usize { return Err(too_complex()); }
         } else {
-            let (mut size, mut depth) = (1u64, 0u32);
-            for d in deps(n, &ids) {
-                if let Some((s, h)) = memo[d.id().get_usize()] {
+            let (mut size, mut depth, mut bytes) = (1u64, 0u32, own_bytes(n));
+            for d in deps(n, &ids, &css) {
+                if let Some((s, h, b)) = memo[d.id().get_usize()] {
                     size = size.saturating_add(s);
                     depth = depth.max(h);
+                    bytes = bytes.saturating_add(b);
                 }
             }
             let depth = depth + 1;
-            if size > SVG_MAX_EXPANDED || depth > SVG_MAX_DEPTH { return Err(too_big()); }
-            memo[i] = Some((size, depth));
+            if size > SVG_MAX_EXPANDED || depth > SVG_MAX_DEPTH || bytes > SVG_MAX_EXPANDED_BYTES { return Err(too_complex()); }
+            memo[i] = Some((size, depth, bytes));
             busy[i] = false;
         }
     }
     Ok(())
 }
 
+/// What the pictures of one drawing have used so far (usvg asks again for every `<use>` copy).
+#[derive(Default)]
+struct SvgImageBudget { pixels: std::sync::atomic::AtomicU64, bytes: std::sync::atomic::AtomicU64 }
+
+/// The data: picture resolver: PNG, JPEG, GIF or WebP only, told by its bytes (never an SVG,
+/// which usvg would parse with its own looser options, nor anything else). Its size is read
+/// from the header before anything is decoded, and all pictures of a drawing share a budget.
+fn svg_data_image(data: std::sync::Arc<Vec<u8>>, budget: &SvgImageBudget) -> Option<resvg::usvg::ImageKind> {
+    use resvg::usvg::ImageKind;
+    use std::sync::atomic::Ordering::SeqCst;
+    let r = image::ImageReader::new(std::io::Cursor::new(&data[..])).with_guessed_format().ok()?;
+    let format = r.format()?;
+    if !matches!(format, image::ImageFormat::Png | image::ImageFormat::Jpeg | image::ImageFormat::Gif | image::ImageFormat::WebP) { return None; }
+    let (w, h) = r.into_dimensions().ok()?;
+    let px = w as u64 * h as u64;
+    if px == 0 || px > SVG_MAX_IMAGE_PIXELS { return None; }
+    if budget.pixels.fetch_add(px, SeqCst).saturating_add(px) > SVG_MAX_IMAGES_PIXELS { return None; }
+    let n = data.len() as u64;
+    if budget.bytes.fetch_add(n, SeqCst).saturating_add(n) > SVG_MAX_IMAGES_BYTES { return None; }
+    Some(match format {
+        image::ImageFormat::Png => ImageKind::PNG(data),
+        image::ImageFormat::Jpeg => ImageKind::JPEG(data),
+        image::ImageFormat::Gif => ImageKind::GIF(data),
+        _ => ImageKind::WEBP(data),
+    })
+}
+
+/// What drawing the converted tree costs (CSS applied, so a `<style>` rule's `url(#p)` counts
+/// too): every node each time it is drawn, a pattern's, mask's, clip's or filter's content
+/// every time it is used. The walk stops at [`SVG_MAX_DRAWN`], so it ends quickly whatever the
+/// picture. A pattern tile or filter region too large to allocate is refused too.
+fn svg_draw_check(tree: &resvg::usvg::Tree, ts: resvg::usvg::Transform) -> Result<(), String> {
+    use resvg::usvg::{filter, Group, Node, Paint, Transform};
+    struct Walk { drawn: u64 }
+    impl Walk {
+        fn tick(&mut self) -> Result<(), String> {
+            self.drawn += 1;
+            if self.drawn > SVG_MAX_DRAWN { Err(too_complex()) } else { Ok(()) }
+        }
+        fn paint(&mut self, p: &Paint, ts: Transform, depth: u32) -> Result<(), String> {
+            if let Paint::Pattern(pat) = p {
+                let (sx, sy) = ts.pre_concat(pat.transform()).get_scale();
+                let r = pat.rect();
+                if (r.width() * sx) as f64 * (r.height() * sy) as f64 > SVG_MAX_TILE_PIXELS { return Err(too_complex()); }
+                self.group(pat.root(), Transform::from_scale(sx, sy), depth + 1)?;
+            }
+            Ok(())
+        }
+        fn group(&mut self, g: &Group, ts: Transform, depth: u32) -> Result<(), String> {
+            self.tick()?;
+            if depth > SVG_MAX_DEPTH * 2 { return Err(too_complex()); }
+            let ts = ts.pre_concat(g.transform());
+            let mut clip = g.clip_path();
+            while let Some(c) = clip {
+                self.group(c.root(), ts.pre_concat(c.transform()), depth + 1)?;
+                clip = c.clip_path();
+            }
+            let mut mask = g.mask();
+            while let Some(m) = mask {
+                self.group(m.root(), ts, depth + 1)?;
+                mask = m.mask();
+            }
+            for f in g.filters() {
+                let (sx, sy) = ts.get_scale();
+                let r = f.rect();
+                if (r.width() * sx) as f64 * (r.height() * sy) as f64 > SVG_MAX_FILTER_PIXELS { return Err(too_complex()); }
+                for p in f.primitives() {
+                    self.tick()?;
+                    if let filter::Kind::Image(i) = p.kind() { self.group(i.root(), ts, depth + 1)?; }
+                }
+            }
+            for n in g.children() {
+                match n {
+                    Node::Group(c) => self.group(c, ts, depth + 1)?,
+                    Node::Path(p) => {
+                        self.tick()?;
+                        if let Some(f) = p.fill() { self.paint(f.paint(), ts, depth)?; }
+                        if let Some(s) = p.stroke() { self.paint(s.paint(), ts, depth)?; }
+                    }
+                    Node::Image(_) => self.tick()?,
+                    Node::Text(t) => self.group(t.flattened(), ts, depth + 1)?,
+                }
+            }
+            Ok(())
+        }
+    }
+    Walk { drawn: 0 }.group(tree.root(), ts, 0)
+}
+
 /// Draw an SVG to fit `edge` (at most [`SHOW_EDGE`]): no DTD (so no entity expansion), a
-/// bounded node count and expanded size, and no file or network reference followed (only
-/// data: images). Only drawn when the file is opened, never for a thumbnail.
+/// bounded node count, expanded size and drawing cost, data: pictures only (PNG, JPEG, GIF,
+/// WebP within a budget; never a nested SVG), and no file or network reference followed. Only
+/// drawn when the file is opened, never for a thumbnail.
 pub fn render_svg(bytes: &[u8], edge: u32) -> Result<SharedPixelBuffer<Rgba8Pixel>, String> {
     use resvg::{tiny_skia, usvg, usvg::roxmltree};
     let edge = edge.clamp(1, SHOW_EDGE);
     let text = std::str::from_utf8(bytes).map_err(|_| "The picture could not be read.".to_string())?;
     let xml = roxmltree::ParsingOptions { allow_dtd: false, nodes_limit: SVG_MAX_NODES, ..Default::default() };
     let doc = roxmltree::Document::parse_with_options(text, xml).map_err(|e| match e {
-        roxmltree::Error::NodesLimitReached => "The picture is too complex to preview.".to_string(),
+        roxmltree::Error::NodesLimitReached => too_complex(),
         e => e.to_string(),
     })?;
     svg_check(&doc)?;
+    let budget = std::sync::Arc::new(SvgImageBudget::default());
     let mut opts = usvg::Options::default();
     opts.resources_dir = None;
     opts.image_href_resolver = usvg::ImageHrefResolver {
-        resolve_data: usvg::ImageHrefResolver::default_data_resolver(),
+        resolve_data: Box::new(move |_mime, data, _| svg_data_image(data, &budget)),
         resolve_string: Box::new(|_, _| None),
     };
     let tree = usvg::Tree::from_xmltree(&doc, &opts).map_err(|e| e.to_string())?;
@@ -627,8 +790,10 @@ pub fn render_svg(bytes: &[u8], edge: u32) -> Result<SharedPixelBuffer<Rgba8Pixe
     if !(longest > 0.0) { return Err("The picture is empty.".into()); }
     let k = edge as f32 / longest;
     let (w, h) = (((s.width() * k).round() as u32).clamp(1, edge), ((s.height() * k).round() as u32).clamp(1, edge));
+    let ts = tiny_skia::Transform::from_scale(w as f32 / s.width(), h as f32 / s.height());
+    svg_draw_check(&tree, ts)?;
     let mut pixmap = tiny_skia::Pixmap::new(w, h).ok_or("The picture is empty.")?;
-    resvg::render(&tree, tiny_skia::Transform::from_scale(w as f32 / s.width(), h as f32 / s.height()), &mut pixmap.as_mut());
+    resvg::render(&tree, ts, &mut pixmap.as_mut());
     let rgba: Vec<u8> = pixmap.pixels().iter().flat_map(|p| { let c = p.demultiply(); [c.red(), c.green(), c.blue(), c.alpha()] }).collect();
     Ok(SharedPixelBuffer::clone_from_slice(&rgba, w, h))
 }
@@ -652,7 +817,9 @@ pub struct Lru<V> {
 
 impl<V: Clone> Lru<V> {
     pub fn new(max_items: usize, max_bytes: usize) -> Self { Lru { max_items, max_bytes, bytes: 0, tick: 0, map: HashMap::new() } }
+    #[cfg(test)]
     pub fn len(&self) -> usize { self.map.len() }
+    #[cfg(test)]
     pub fn bytes(&self) -> usize { self.bytes }
     pub fn contains(&self, k: &str) -> bool { self.map.contains_key(k) }
     pub fn get(&mut self, k: &str) -> Option<V> {
@@ -1566,6 +1733,96 @@ mod tests {
         // a reference back into itself is not a bomb
         let own = br##"<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><g id="s"><use href="#s"/><rect width="10" height="10" fill="red"/></g></svg>"##;
         assert!(render_svg(own, 10).is_ok());
+        assert!(started.elapsed() < std::time::Duration::from_secs(5), "{:?}", started.elapsed());
+    }
+
+    fn b64(b: &[u8]) -> String { use base64::Engine; base64::engine::general_purpose::STANDARD.encode(b) }
+
+    /// A PNG declaring `w`×`h` (right checksums) with no pixels: IHDR, an empty IDAT, IEND.
+    fn png_header(w: u32, h: u32) -> Vec<u8> {
+        fn crc(b: &[u8]) -> u32 {
+            let mut c = 0xffff_ffffu32;
+            for &x in b {
+                c ^= x as u32;
+                for _ in 0..8 { c = if c & 1 != 0 { 0xedb8_8320 ^ (c >> 1) } else { c >> 1 }; }
+            }
+            !c
+        }
+        let mut ihdr = b"IHDR".to_vec();
+        ihdr.extend(w.to_be_bytes());
+        ihdr.extend(h.to_be_bytes());
+        ihdr.extend([8, 6, 0, 0, 0]);
+        let mut out = b"\x89PNG\r\n\x1a\n".to_vec();
+        for chunk in [ihdr, b"IDAT".to_vec(), b"IEND".to_vec()] {
+            out.extend(((chunk.len() - 4) as u32).to_be_bytes());
+            out.extend(&chunk);
+            out.extend(crc(&chunk).to_be_bytes());
+        }
+        out
+    }
+
+    /// `<image>` of a data: URL over a red rectangle; true when every pixel is still red.
+    fn only_red(svg: &str) -> bool {
+        let b = render_svg(svg.as_bytes(), 100).unwrap();
+        b.as_slice().iter().all(|p| (p.r, p.g, p.b, p.a) == (255, 0, 0, 255))
+    }
+
+    #[test]
+    fn svg_pictures_are_checked_before_they_are_decoded() {
+        let started = std::time::Instant::now();
+        let outer = |mime: &str, data: &[u8]| format!(
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20"><rect width="40" height="20" fill="red"/><image href="data:{mime};base64,{}" width="40" height="20"/></svg>"#, b64(data));
+        // a nested SVG is never loaded (usvg would parse it with a DTD and no limits)
+        let mut bomb = String::from(r#"<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><defs><g id="a0"><rect width="10" height="10" fill="blue"/></g>"#);
+        for i in 1..=40 { bomb += &format!(r##"<g id="a{i}"><use href="#a{p}"/><use href="#a{p}"/></g>"##, p = i - 1); }
+        bomb += r##"</defs><use href="#a40"/></svg>"##;
+        let mut lol = String::from(r#"<?xml version="1.0"?><!DOCTYPE svg [<!ENTITY l0 "lol">"#);
+        for i in 1..=20 { lol += &format!(r#"<!ENTITY l{i} "&l{p};&l{p};&l{p};&l{p};&l{p};&l{p};&l{p};&l{p};&l{p};&l{p};">"#, p = i - 1); }
+        lol += r#"]><svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><text>&l20;</text></svg>"#;
+        let plain = br#"<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10" fill="blue"/></svg>"#;
+        for (mime, data) in [("image/svg+xml", bomb.as_bytes()), ("image/svg+xml", lol.as_bytes()), ("text/plain", bomb.as_bytes()), ("image/svg+xml", &plain[..])] {
+            assert!(only_red(&outer(mime, data)), "{mime}");
+        }
+        // a picture declaring 60000×60000 is refused from its header, nothing allocated
+        assert!(svg_data_image(std::sync::Arc::new(png_header(60_000, 60_000)), &SvgImageBudget::default()).is_none());
+        assert!(only_red(&outer("image/png", &png_header(60_000, 60_000))));
+        // whatever the mime says, only PNG, JPEG, GIF and WebP bytes are pictures
+        assert!(svg_data_image(std::sync::Arc::new(b"BM not a picture".to_vec()), &SvgImageBudget::default()).is_none());
+        assert!(!only_red(&outer("text/plain", &png(10, 10))));
+        // one budget for every copy of a drawing: 4 × 15 Mpx goes over 50 Mpx
+        let budget = SvgImageBudget::default();
+        let big = std::sync::Arc::new(png_header(5000, 3000));
+        assert_eq!((0..4).filter(|_| svg_data_image(big.clone(), &budget).is_some()).count(), 3);
+        // 10^4 copies of a 4 KB data: URL: refused before usvg decodes any of them
+        let pad = b64(&vec![0u8; 3000]);
+        let mut many = format!(r#"<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><defs><image id="c0" width="1" height="1" href="data:image/png;base64,{pad}"/>"#);
+        for i in 1..=4 { many += &format!(r##"<g id="c{i}">{}</g>"##, format!(r##"<use href="#c{}"/>"##, i - 1).repeat(10)); }
+        many += r##"</defs><use href="#c4"/></svg>"##;
+        assert_eq!(render_svg(many.as_bytes(), 100).unwrap_err(), "The picture is too complex to preview.");
+        assert!(started.elapsed() < std::time::Duration::from_secs(5), "{:?}", started.elapsed());
+    }
+
+    #[test]
+    fn svg_drawing_cost_is_bounded_after_css() {
+        let started = std::time::Instant::now();
+        let complex = Err("The picture is too complex to preview.".to_string());
+        let res = |s: &str| render_svg(s.as_bytes(), 100).map(|_| ());
+        // a pattern tile scaled to 100000 × 100000 px
+        assert_eq!(res(r##"<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><pattern id="p" width="10" height="10" patternUnits="userSpaceOnUse" patternTransform="scale(10000)"><rect width="5" height="5" fill="blue"/></pattern><rect width="10" height="10" fill="url(#p)"/></svg>"##), complex);
+        // a filter region of 10^6 × 10^6
+        assert_eq!(res(r##"<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><filter id="f" x="0" y="0" width="1000000" height="1000000" filterUnits="userSpaceOnUse"><feFlood flood-color="blue"/></filter><rect width="10" height="10" filter="url(#f)"/></svg>"##), complex);
+        // nested patterns chained only through <style> rules (no url(#) in any attribute): 2^30,
+        // refused before usvg converts it (converting this alone takes minutes)
+        let mut css = String::new();
+        let mut defs = String::from(r#"<pattern id="p0" width="1" height="1" patternUnits="userSpaceOnUse"><rect width="1" height="1" fill="blue"/></pattern>"#);
+        for i in 1..=30 {
+            css += &format!(".c{i} {{ fill: url(#p{}); }} ", i - 1);
+            defs += &format!(r#"<pattern id="p{i}" width="1" height="1" patternUnits="userSpaceOnUse"><rect class="c{i}" width="1" height="1"/><rect class="c{i}" width="1" height="1"/></pattern>"#);
+        }
+        let chain = format!(r#"<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><style>{css} .top {{ fill: url(#p30); }}</style><defs>{defs}</defs><rect class="top" width="10" height="10"/></svg>"#);
+        assert_eq!(res(&chain), complex);
+        // an ordinary pattern, filter and style still draw
+        assert_eq!(res(r##"<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><style>.a { fill: url(#p); }</style><pattern id="p" width="2" height="2" patternUnits="userSpaceOnUse"><rect width="1" height="1" fill="blue"/></pattern><filter id="f"><feGaussianBlur stdDeviation="1"/></filter><rect class="a" width="10" height="10" filter="url(#f)"/></svg>"##), Ok(()));
         assert!(started.elapsed() < std::time::Duration::from_secs(5), "{:?}", started.elapsed());
     }
 
