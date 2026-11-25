@@ -65,6 +65,7 @@ mod secrets;
 mod plugins;
 mod plugin_package;
 mod plugin_host;
+mod plugin_hooks;
 mod plugin_catalog;
 #[cfg(test)]
 mod plugin_catalog_check;
@@ -590,6 +591,7 @@ fn effective_plugins() -> Vec<String> {
 
 /// Load what was switched on, unload what was switched off; returns the effective allow-list.
 fn plugins_synced() -> Vec<String> {
+    forget_enabled_cache();
     let en = effective_plugins();
     let grants = plugins::grants_from_prefs(&settings::Settings::load().prefs);
     let errs = PLUGINS.with(|p| plugins::sync(&mut p.borrow_mut(), &en, &grants));
@@ -864,6 +866,48 @@ pub fn plugin_errors() -> Vec<String> {
     v.extend(PLUGIN_LOAD_ERRORS.with(|e| e.borrow().clone()));
     // the text comes from manifests and libraries: one line each, of a bounded length
     v.iter().map(|e| plugins::shown(e, plugins::MAX_SHOWN)).collect()
+}
+
+/// The running API 2 plugins that hear `hook`, in the order they were switched on (src/plugin_hooks.rs). Cheap
+/// when no API 2 plugin runs: the prefs are read only then. A plugin is running only after it was switched on and
+/// synced with its grant, and switching it off parks it at once.
+pub fn plugin_hook_targets(hook: &str) -> Vec<Arc<plugin_host::HostCtx>> {
+    let any = PLUGINS.with(|p| p.try_borrow().map(|l| l.iter().any(|x| x.is_running_v2())).unwrap_or(false));
+    if !any { return vec![]; }
+    let en = cached_enabled_plugins();
+    PLUGINS.with(|p| p.try_borrow().map(|l| plugins::hook_targets(&l, &en, hook)).unwrap_or_default())
+}
+
+/// The API 2 plugins switched on with `hook` that do not run (switched off by the failure limit, failed to load or
+/// start): the send check's guard.
+pub fn plugin_send_guards(hook: &str) -> Vec<String> {
+    let any = PLUGINS.with(|p| p.try_borrow().map(|l| l.iter().any(|x| x.decl.api >= 2 && !x.is_running_v2() && x.handles(hook))).unwrap_or(false));
+    if !any { return vec![]; }
+    let en = effective_plugins();
+    PLUGINS.with(|p| p.try_borrow().map(|l| plugins::send_guards(&l, &en, hook)).unwrap_or_default())
+}
+
+thread_local! {
+    /// [`enabled_plugins`] for the hooks, read once (every hook event would read the settings file again);
+    /// forgotten whenever the plugins are synced or a plugin setting changes, and after 5 s in any case (the list
+    /// can change in other ways too: an import, a removed package).
+    static ENABLED_CACHE: std::cell::RefCell<Option<(std::time::Instant, Vec<String>)>> = const { std::cell::RefCell::new(None) };
+}
+
+fn cached_enabled_plugins() -> Vec<String> {
+    let fresh = ENABLED_CACHE.with(|c| c.borrow().as_ref().filter(|(t, _)| t.elapsed() < std::time::Duration::from_secs(5)).map(|(_, v)| v.clone()));
+    if let Some(v) = fresh { return v; }
+    let v = enabled_plugins();
+    ENABLED_CACHE.with(|c| *c.borrow_mut() = Some((std::time::Instant::now(), v.clone())));
+    v
+}
+
+fn forget_enabled_cache() { ENABLED_CACHE.with(|c| *c.borrow_mut() = None); }
+
+/// A plugin's setting changed in Settings > Add-ons: a running API 2 plugin gets the `settings` message.
+pub fn plugin_settings_changed(key: &str) {
+    forget_enabled_cache();
+    plugin_hooks::settings_changed(PLUGINS.with(|p| p.try_borrow().ok().and_then(|l| plugins::running_v2(&l, key))));
 }
 
 pub fn plugin_compose_check(draft: &serde_json::Value) -> Option<String> {
@@ -2022,6 +2066,11 @@ fn main() -> Result<(), slint::PlatformError> {
         let v = (share > 0.1 && share < 0.95).then(|| json!((share as f64 * 1000.0).round() / 1000.0));
         settings::Settings::put("replyDockShare", v);
     });
+
+    let w = ui.as_weak();
+    ui.on_cancel_send_check(move || compose::cancel_send_check(&w.unwrap(), true));
+    let w = ui.as_weak();
+    ui.on_plugin_watch(move |what| plugin_hooks::watch(&w.unwrap(), &what));
 
     let (w, st, pf) = (ui.as_weak(), state.clone(), prefs.clone());
     ui.on_send_now(move || {

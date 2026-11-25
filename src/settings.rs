@@ -686,6 +686,7 @@ impl Settings {
                 all.insert(id.to_string(), Value::Object(mine));
                 self.prefs.insert("pluginSettings".into(), Value::Object(all));
                 self.save();
+                crate::plugin_settings_changed(id);
                 return;
             }
             k if k.starts_with("plugin:") => {

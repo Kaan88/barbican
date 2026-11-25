@@ -1399,15 +1399,16 @@ fn sync_hashed(plugins: &mut [Plugin], enabled: &[String], loader: &Loader, v2: 
         // Known gap: the file can still be swapped between this hash and the loader opening it (Windows lets a file
         // that is not open be replaced). Holding it open with a share mode that forbids writes is not done here.
         if plugins[i].decl.api >= 2 {
-            // API 2 (B3): loaded and initialised on its own host thread with what the user accepted; no message is
-            // sent to it (hooks and slots come with B4 and B5)
+            // API 2 (B3): loaded and initialised on its own host thread with what the user accepted; it gets the
+            // messages of the hooks it declared and was granted (B4, [`hook_targets`]), slots come with B5
             let p = &plugins[i];
             let Some(g) = v2.grants.iter().find(|g| g.id == p.key) else {
                 plugins[i].load_failed = true;
                 errors.push(format!("{path}: switch it on again to accept what it asks for"));
                 continue;
             };
-            let params = crate::plugin_host::params_for(&p.id, &p.name, &p.version, &p.decl.permissions, &p.decl.http_origins, &p.decl.settings, g);
+            let mut params = crate::plugin_host::params_for(&p.id, &p.name, &p.version, &p.decl.permissions, &p.decl.http_origins, &p.decl.settings, g);
+            params.hooks = p.hooks.clone();
             match crate::plugin_host::start(&v2.loader, std::path::Path::new(&path), p.expect(), params, v2.env.clone(), budget) {
                 Ok(rt) => plugins[i].v2 = Some(rt),
                 Err(e) => { plugins[i].load_failed = true; errors.push(format!("{path}: {e}")); }
@@ -1473,6 +1474,39 @@ pub fn is_active(plugins: &[Plugin], enabled: &[String], id: &str) -> bool {
     plugins.iter().any(|p| p.id == id && p.active(enabled))
 }
 
+/// The running API 2 plugins that hear `hook` ([`crate::plugin_host::HostCtx::hears`]), in the order they were
+/// switched on (`enabled` is the allow-list, which keeps that order): transforms chain in it, and the first
+/// intercept that says no stops the action. API 1 plugins are called by their own functions below.
+pub fn hook_targets(plugins: &[Plugin], enabled: &[String], hook: &str) -> Vec<Arc<crate::plugin_host::HostCtx>> {
+    let mut v: Vec<(usize, Arc<crate::plugin_host::HostCtx>)> = plugins.iter().filter_map(|p| {
+        let rt = p.v2.as_ref()?;
+        let at = enabled.iter().position(|k| *k == p.key)?;
+        (!rt.ctx.is_disabled() && rt.ctx.hears(hook)).then(|| (at, rt.ctx.clone()))
+    }).collect();
+    v.sort_by_key(|x| x.0);
+    v.into_iter().map(|x| x.1).collect()
+}
+
+/// The API 2 plugins switched on (`enabled`: the effective, granted list) whose manifest and grant give them `hook`
+/// but that do not run: the failure limit switched them off for the session, or they failed to load or start. Their
+/// names. The send check fails closed, so these still stop a send until the user switches them off (PLUGINS.md
+/// "What B4 built").
+pub fn send_guards(plugins: &[Plugin], enabled: &[String], hook: &str) -> Vec<String> {
+    let need = crate::plugin_catalog::lookup_hook(hook).map(|h| h.permission);
+    plugins.iter().filter(|p| enabled.contains(&p.key) && p.decl.api >= 2 && !p.is_running_v2() && p.handles(hook))
+        .filter(|p| match &p.v2 {
+            Some(rt) => rt.ctx.would_hear(hook),
+            // parked or never started: its grant covers what the manifest asks for (it is in the effective list)
+            None => need.is_some_and(|n| p.decl.permissions.iter().any(|x| x == n)),
+        })
+        .map(|p| { let n = shown(&p.name, 60).trim().to_string(); if n.is_empty() { p.key.clone() } else { n } }).collect()
+}
+
+/// The running API 2 plugin switched on as `key`, if any (the `settings` message).
+pub fn running_v2(plugins: &[Plugin], key: &str) -> Option<Arc<crate::plugin_host::HostCtx>> {
+    plugins.iter().find(|p| p.key == key).and_then(|p| p.v2.as_ref()).filter(|r| !r.ctx.is_disabled()).map(|r| r.ctx.clone())
+}
+
 /// Rows from every enabled plugin for the open message.
 pub fn email_details(plugins: &[Plugin], enabled: &[String], email: &Value) -> Vec<(String, String, String)> {
     let mut rows = vec![];
@@ -1513,7 +1547,7 @@ pub fn describe(p: &Plugin) -> Value {
     let titles: Vec<&str> = perms.iter().map(|x| permission_text(x).map_or(x.as_str(), |t| t.title)).collect();
     if !titles.is_empty() { note += &format!(" Asks to: {}.", titles.join(", ").to_lowercase()); }
     if p.decl.api >= 2 {
-        note += " Uses plugin API 2. This version runs it with storage, its settings, notices and dialogs, web requests to the sites you allowed and who is signed in; it is not called from mail, calendar or other screens yet.";
+        note += " Uses plugin API 2. This version runs it with storage, its settings, notices and dialogs, web requests to the sites you allowed and who is signed in, and tells it about the mail and composer events it asks for; it cannot add to Barbican's screens yet.";
     }
     json!({"id": p.key, "name": p.name, "version": p.version, "author": p.decl.author, "description": format!("{}{note}", p.description).trim(),
         "hooks": p.hooks, "path": p.path, "packaged": p.decl.package.is_some(), "permissions": perms, "api": p.decl.api,
@@ -2295,6 +2329,28 @@ mod tests {
     unsafe extern "C" fn demo_handle(_: *const c_char) -> *mut c_char { DEMO_HANDLED.fetch_add(1, Ordering::SeqCst); std::ptr::null_mut() }
     unsafe extern "C" fn demo_free(_: *mut c_char) {}
     unsafe extern "C" fn demo_shutdown() { DEMO_SHUTDOWNS.fetch_add(1, Ordering::SeqCst); }
+
+    #[test]
+    fn a_switched_on_send_check_that_does_not_run_guards_the_send() {
+        let mut p = v2_plugin(&["email:send"], &[], "h1");
+        p.hooks = strings(&["onBeforeEmailSend"]);
+        let en = strings(&["dev.example.demo"]);
+        // not started (failed to load or start): it guards
+        p.load_failed = true;
+        let list = vec![p];
+        assert_eq!(send_guards(&list, &en, "onBeforeEmailSend"), strings(&["Demo"]));
+        // switched off by the user (not in the list), without the hook or without its permission: it does not
+        assert!(send_guards(&list, &[], "onBeforeEmailSend").is_empty());
+        assert!(send_guards(&list, &en, "onTransformOutgoingEmail").is_empty());
+        let mut q = v2_plugin(&["email:read"], &[], "h1");
+        q.hooks = strings(&["onBeforeEmailSend"]);
+        assert!(send_guards(&[q], &en, "onBeforeEmailSend").is_empty());
+        // switched off by the failure limit: it guards
+        let mut t = v2_plugin(&["email:send"], &[], "h1");
+        t.hooks = strings(&["onBeforeEmailSend"]);
+        t.tripped.store(true, Ordering::SeqCst);
+        assert_eq!(send_guards(&[t], &en, "onBeforeEmailSend"), strings(&["Demo"]));
+    }
 
     #[test]
     fn api2_plugins_load_with_their_grant_and_get_no_message() {

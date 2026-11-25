@@ -144,8 +144,10 @@ fn tick(u: &AppWindow) {
         ST.with(|s| { if let Some(t) = s.borrow_mut().timer.take() { t.stop(); } });
         return;
     }
-    if u.get_sending() { return; }
+    // nothing is saved while the message is sent or the plugins check it (the send replaces the draft)
+    if u.get_sending() || crate::compose::send_checking() { return; }
     let key = current_key(u);
+    crate::plugin_hooks::draft_tick(key, &|c| crate::compose::draft_payload(u, c));
     let go = ST.with(|s| {
         let s = s.borrow();
         due(key, s.baseline, s.saved, s.changed.map(|t| t.elapsed()).unwrap_or_default(), s.in_flight)

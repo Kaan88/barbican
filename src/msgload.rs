@@ -256,6 +256,8 @@ fn present(u: &AppWindow, c: &Arc<jmap::Client>, id: &str, m: Arc<Value>, thread
     let prow: Vec<PRow> = crate::plugin_email_details(&m).into_iter()
         .map(|(label, value, tone)| PRow { label: label.into(), value: value.into(), tone: tone.into() }).collect();
     let spam_plugin = crate::plugin_spam_active();
+    // API 2 plugins hear it as onEmailOpen (fire and forget)
+    crate::plugin_hooks::email_opened(&m);
     crate::plugin_notices(u);
     let headers = m["headers"].as_array().cloned().unwrap_or_default();
     let sp = spam::analyze(&headers).filter(|_| !spam_plugin).filter(|sp| sp.verdict != "clean" || u.get_spam_show_clean());

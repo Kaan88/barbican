@@ -36,8 +36,8 @@ See `plugins/spam-score` for a complete Rust example (port of Bulwark's Spam Sco
 Status: B2 is built (the manifest checks, the consent dialog and `pluginGrants`, package install and uninstall:
 `src/plugins.rs`, `src/plugin_package.rs`), and so is B3, the core host API (`src/plugin_host.rs`, "What B3 built"
 below): an installed API 2 plugin that the user switched on is loaded, gets the host table and `init_json`, and can use
-storage, its settings, toasts, alert and confirm dialogs, `http.fetch` and the account. No message is sent to it yet:
-hooks (B4) and slots (B5) are the next steps. API 1 (above) keeps loading until Barbican
+storage, its settings, toasts, alert and confirm dialogs, `http.fetch` and the account. B4's first part, the mail and
+composer hooks, is built too ("What B4 built" below); slots (B5) and the other areas' hooks are next. API 1 (above) keeps loading until Barbican
 1.0 and is dropped at 1.0 (decided; see "Decisions" below), so API 1 plugins have until then to move to v2.
 
 ### What B3 built
@@ -55,8 +55,8 @@ hooks (B4) and slots (B5) are the next steps. API 1 (above) keeps loading until 
   `init`): a new instance of it, from the same list entry or a re-read one, waits for that within the load budget, so
   its `init` never overlaps the old `shutdown`. Quitting the app switches every API 2 plugin off and gives their
   `shutdown` 1 s in all.
-  `init_json.features` lists the host methods below and no hooks or slots. `init_json.accounts` is filled only with
-  `account:read`; `regional` has the locale only.
+  `init_json.features` lists the host methods below and the hooks this build fires (B4), no slots. `init_json.accounts`
+  is filled only with `account:read`; `regional` has the locale only.
 - **The gate.** Every `host->call` is checked, in this order, and fails closed: switched off (`disabled`); more than
   50 calls in a second (`rate_limited`; over that budget in 3 one-second windows in a row switches the plugin off for
   the session with the same notice as 3 failed calls in a row, shuts it down, and switching it off and on does not load
@@ -65,9 +65,9 @@ hooks (B4) and slots (B5) are the next steps. API 1 (above) keeps loading until 
   what both the manifest and the user's grant name, plus `ui:observe` and `app:lifecycle`.
 - **Methods answered:** `app.getInfo`; `plugin.getConfig`; `storage.get/set/remove/keys`; `toast.info/success/warning/error`;
   `ui.alert` and `ui.confirm`; `http.fetch`; `user.getSelf` and `user.getAccounts`. Every other method answers
-  `unsupported` (after its permission check). `host->post` checks the envelope and answers 0 (the result is dropped
-  until B4 sends messages that can be deferred) or -1, and -3 once the plugin is off. `host->log` writes one plain
-  line of at most 300 characters to Barbican's log, 20 lines a second.
+  `unsupported` (after its permission check). `host->post` checks the envelope and answers 0 or -1, and -3 once the
+  plugin is off; since B4 a `result` for a message the plugin answered `deferred` ends that message ("What B4 built").
+  `host->log` writes one plain line of at most 300 characters to Barbican's log, 20 lines a second.
 - **Storage** is as "Consent and storage" says: per plugin and login, keys of 1-256 characters, 1 MiB per plugin per
   login counted as the stored JSON's bytes (a set over it answers `quota` and changes nothing), in
   `plugin-data\<id>\<hash of the login>.json`, written to a temporary file and renamed over the old one. Without a
@@ -83,7 +83,7 @@ hooks (B4) and slots (B5) are the next steps. API 1 (above) keeps loading until 
   import keeps the local values) and goes when the package is uninstalled.
   `plugin.getConfig` (and `init_json.settings`) gives every non-secret field: the user's value when it is valid, else
   its default. `secret` fields are not drawn or handed over yet (`secrets.*` is a later step). A change is read at the
-  next `plugin.getConfig`; the `settings` message comes with B4.
+  next `plugin.getConfig`, and since B4 a running plugin also gets the `settings` message with all its values.
 - **Toasts and dialogs** are drawn by the host. Text is made plain (control characters become spaces; direction,
   zero-width and other invisible characters go): a toast is one line of at most 300 characters after the plugin's
   name, at most 5 per plugin in 10 seconds (more are `rate_limited`, not queued). `ui.alert({title, message,
@@ -107,6 +107,98 @@ hooks (B4) and slots (B5) are the next steps. API 1 (above) keeps loading until 
 - **`user.getSelf`** (`account:read`) answers `{accountId, email, name, login, server}`: the signed-in login, the first
   identity's name (else the login) and the server address. `user.getAccounts` answers that one account in Bulwark's
   shape. Never a token, password or the storage key.
+
+### What B4 built (mail and composer hooks)
+
+`src/plugin_host.rs` delivers the messages, `src/plugin_hooks.rs` says what each hook means and builds the payloads,
+the event points are in `src/msgload.rs`, `src/mail.rs`, `src/compose.rs`, `src/autosave.rs` and three `changed`
+handlers in `ui/app.slint` (`plugin-watch`).
+
+- **Who hears what.** A message for a hook is sent only to a running API 2 plugin whose manifest declares the hook (or
+  its old alias) and whose grant holds the hook's catalogue permission (or its second one, `ALSO_PERMISSION`), and only
+  for the hooks this build fires (`plugin_host::FIRED_HOOKS`, also `init_json.features.hooks`). Several plugins on one
+  hook are asked in the order they were switched on. The plugin is called with the spelling its manifest declares.
+- **Delivery.** `{"v":2,"id","type":"hook","name","deadline_ms","payload"}`, plus `account` (the JMAP account id) for a
+  plugin with `email:read` or `account:read`. The plugin's host thread hands messages to `barbican_plugin_handle` one
+  at a time; nothing waits on it, the UI least of all. The reply is NULL ("nothing to say", a null result), `{"v":2,
+  "id","ok":true,"result"}`, `{"v":2,"id","ok":false,"error"}`, or `{"v":2,"id","deferred":true}` followed by a `post`
+  of `{"v":2,"type":"result","id","ok",...}` (a result posted before `handle` returns `deferred` is kept and counts). A reply that is over 4 MiB, not UTF-8 or JSON, has another `v` or `id`,
+  or no `ok` is a failure; so is an error reply. (A panic cannot be caught: unwinding out of an `extern "C"` function
+  aborts the process, so a Rust plugin must `catch_unwind` itself, as "Memory and ownership" says.)
+- **Deadlines.** A hook's budget is its catalogue `budget_ms` (5 s, intercepts 60 s, the send check 10 min), counted
+  from when `handle` is called. A message still queued when its own budget is over is dropped (not a failure: the
+  plugin never saw it). One whose `handle` runs past the budget is a timeout and a failure, and marks the plugin hung:
+  what is queued or sent while it is still inside that `handle` fails at once, without counting; the late answer is
+  dropped and the mark goes when `handle` returns. A plugin still inside one `handle` 10 minutes after that message was
+  queued is switched off for the session. A `deferred` message whose result is not posted within the budget is a
+  timeout and a failure, and the plugin gets `{"type":"cancel","ref":id}`. Calls made `in` a message that is over
+  answer `cancelled`. 3 failures in a row switch the plugin off for the session with the same notice as API 1 and the
+  host-call budget; switching it off (any way) ends every message in flight at once. Only the answer to a hook
+  message resets the row (not the answer to `cancel` or `settings`). At most 64 messages wait for one plugin: past
+  that the oldest waiting observer is dropped (not a failure) and its text freed, and with no observer waiting the
+  new message is.
+- **Kinds.** Observers are fired and forgotten. The send check (`onBeforeEmailSend`) asks every plugin at once and
+  **fails closed**: `false` stops the send ("Not sent: the plugin X stopped this message."), and so does every way of
+  not answering, a timeout, an error, a malformed reply, the plugin switched off on the way, a message it never got
+  ("Not sent: the plugin X could not check this message (why). Press Send to try again, or switch X off in Settings >
+  Add-ons to send without its check."). **A switched-on plugin with the send check that does not run still stops
+  every send**, whether the failure limit switched it off or it failed to load or start, until the user switches it
+  off in Settings > Add-ons (or restarts Barbican): the check fails closed, so a plugin cannot be got past by failing
+  three times or by not starting. A plugin the user switched off is not asked. `{"warning": "..."}` holds the send once, like API 1's `compose.check`; pressing Send again for the
+  same draft and action sends it (the check still runs, and a refusal or failure still stops it). Confirming API 1's
+  warning does not confirm the API 2 check's, nor the other way round.
+  The outgoing transform (`onTransformOutgoingEmail`) runs after the check, one plugin after another, each on the
+  previous result. Its answer is checked (`plugin_hooks::check_outgoing`): it may change the recipients (each entry one
+  valid address, at most 500 per field), the subject (one line, at most 998 characters), the text and HTML bodies (at
+  most 1 MiB each; no HTML for a plain-text message) and, with `email:write`, the keywords of the Sent copy (no system
+  keywords but `$flagged`). Everything else stays as it was whatever the answer says (sender, identity, attachments,
+  threading, the composer id). An answer that is not an object or has a field of the wrong shape or size is a failure
+  and changes nothing; null, `false`, a timeout or a failure keep the message as it was.
+- **The send.** While plugins check, Send shows "Checking…" and is off, and a Cancel button stops the check: nothing
+  is sent, the plugins get `cancel`, and Send runs the check again. The answers count only while the composer still
+  holds the same content (an edit meanwhile, or closing or replacing the composer, drops them). No draft is saved
+  while the plugins check; a save that is still running when they are done is waited for (at most 60 s, then "Not
+  sent: the draft could not be saved."), and the send replaces the draft saved last. **When a transform changes who the message goes to, the send checks run again for the new
+  recipients**: every address must be valid and there must be at least one, recipients outside the organisation that
+  a plugin added are confirmed when that setting is on, then API 1's `compose.check` and the plugins'
+  `onBeforeEmailSend` see the changed message; only then it is sent. These three run in that order and are confirmed
+  like the built-in warnings: pressing Send again skips the one that held and those before it, the later ones still
+  run. A confirmation counts for that draft, that action and that set of added recipients only (none confirmed before
+  the transform counts): a transform that adds someone else is checked again from the start.
+- **Payloads** carry what the hook's permission covers and nothing secret (no token, password or storage key):
+  `onEmailOpen` gets Bulwark's `EmailReadView` (senders, recipients, subject, flags, keywords, preview, the full text,
+  the headers, attachment names, types and sizes; blob ids only with `email:blob-read`; `source` is empty);
+  `onBeforeEmailSend` and `onTransformOutgoingEmail` get Bulwark's `OutgoingEmail` (`email:send`: recipients, subject,
+  both bodies, `authoredText`, `externalRecipients`, attachment names, types and sizes, `keywords`, `mode`,
+  `composerId`; no attachment bytes or text excerpts). A body over 1 MiB is cut: the payload says `truncated: true`
+  and lists the cut fields in `truncatedFields`; the send check is still asked (on the cut text), and a transform may
+  not replace a cut body (an answer that does is refused; the whole body the user wrote is sent); `onDraftChange` gets `DraftView` with the bodies only for a
+  plugin with `compose:check` (it is what the user is typing), else empty bodies and `bodyWithheld: true`.
+- **The `settings` message** `{"type":"settings","values"}` is sent to a running plugin when one of its settings
+  changes in Settings > Add-ons (the values as `plugin.getConfig` gives them).
+
+| Hook | Kind | Fired from | Payload |
+|---|---|---|---|
+| `onEmailOpen` | observer | `msgload.rs` `present` (once per message until it closes) | `EmailReadView` |
+| `onEmailClose` | observer | `plugin_hooks::watch("mail")` (`current-mail` changed) and the next open | `{emailId}` |
+| `onEmailSelectionChange` | observer | `mail.rs` `rebuild_list` (the ticked set changed) | `{emailIds}` (sorted) |
+| `onMailboxChange` | observer | `plugin_hooks::watch("folder")` (`current-folder` changed) | `{mailboxId, role, previousMailboxId}` |
+| `onComposerOpen` | observer | `compose.rs` `open`, `open_draft` | `{mode, inReplyToId, originalSubject, composerId}` |
+| `onComposerClose` | observer | `plugin_hooks::watch("composing")`, or the next composer | `{composerId, draftId, sent}` (`sent` once the server took it while the composer was open; with the in-app undo delay it closes first and says `false`) |
+| `onDraftChange` | observer | `autosave.rs` `tick` (1 s after the last change) | `DraftView` |
+| `onDraftAutoSave` | observer | `compose.rs` `run_save` (every saved draft) | `{draftId, subject, composerId}` |
+| `onBeforeEmailSend` | intercept, fail closed | `compose.rs` `plugin_send`, again in `transformed` | `OutgoingEmail` |
+| `onTransformOutgoingEmail` | transform | `compose.rs` `checked` | `OutgoingEmail` |
+| `onAfterEmailSend` | observer | `compose.rs` `submit` (the server took it) | `{emailId: null, accountId, submissionId, to, cc, bcc, subject, scheduledFor, composerId}` |
+
+Not built in this part: the reply and forward intercepts and transforms (`onBeforeReply*`, `onBeforeForward`,
+`onBeforeComposeOpenTo*`, `onBuildQuoteHeader`, `onBeforeCompose`, `onBeforeEditDraft`), `onBeforeDraftAutoSave`,
+`onRecipientChipsChange`, `onMailtoIntercept`, `onComposeFromLink`, the body and list transforms (`onRenderEmailBody`,
+`onEmailsFetched`, `onEmailListItemRender`), `onEmailContentRender`, `onThreadExpand`, `onBeforeExternalLink`,
+`onAvatarResolve`, the attachment hooks and the send takeover (`onComposeSend`), and every other area's hooks. A
+quick reply and the undo-send restore are not separate surfaces yet; `mode` cannot tell a reply from a reply-all.
+API 1's two hooks are unchanged: `email.details` and `compose.check` are still called synchronously on API 1
+plugins only, as before; an API 2 plugin hears the same events as `onEmailOpen` and `onBeforeEmailSend`.
 
 Bulwark 1.21.2 is the reference vocabulary, not a compatibility target. Hook, slot, host-method and permission names
 are Bulwark's, so a port rewrites the logic, not the API. Which catalogue rows v2 takes is the `barbican_status` column
