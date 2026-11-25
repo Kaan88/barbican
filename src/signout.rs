@@ -166,6 +166,8 @@ pub fn wipe_with(r: &Roots, who: &Who, remove: &dyn Fn(&Path) -> io::Result<()>,
             if gone(&p) { report.removed.push(p); } else { report.pending.push(p); }
             continue;
         }
+        // plugin storage: no plugin's write can be in flight while its file goes, nor land after it went
+        let _storage = p.starts_with(r.config.join("plugin-data")).then(crate::plugin_host::storage_lock);
         let mut done = false;
         for i in 0..attempts.max(1) {
             if remove(&p).is_ok() || gone(&p) { done = true; break; }

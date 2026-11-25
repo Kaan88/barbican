@@ -219,7 +219,10 @@ impl Settings {
     pub fn export(&self) -> Value {
         let desktop: Value = std::fs::read_to_string(crate::config_dir().join("settings.json")).ok()
             .and_then(|t| serde_json::from_str(&t).ok()).unwrap_or(json!({}));
-        json!({"app": "barbican", "version": 1, "settings": Value::Object(self.prefs.clone()), "desktop": desktop})
+        // a plugin's own settings stay on this computer (they can hold what the plugin was told about a server)
+        let mut prefs = self.prefs.clone();
+        prefs.remove("pluginSettings");
+        json!({"app": "barbican", "version": 1, "settings": Value::Object(prefs), "desktop": desktop})
     }
 
     /// Accepts Barbican exports and Bulwark's own settings export (a flat settings object).
@@ -230,7 +233,7 @@ impl Settings {
         // Plugin consent is per computer and per file: never copy an allow-list or its file bindings
         // from a settings file, or an import could switch on code this user has not agreed to run.
         // The current local values stay, so an import does not switch off plugins enabled here either.
-        for key in ["enabledPlugins", "pluginBindings", "pluginGrants"] {
+        for key in ["enabledPlugins", "pluginBindings", "pluginGrants", "pluginSettings"] {
             match self.prefs.get(key) {
                 Some(v) => { imported.insert(key.into(), v.clone()); }
                 None => { imported.remove(key); }
@@ -726,6 +729,8 @@ impl Settings {
     /// Value to store for a select row's chosen index.
     pub fn select_value(&self, key: &str, index: i32) -> Value {
         if key.starts_with("ai.") || key.starts_with("desktop.") { return json!(index); }
+        // a plugin's select setting: `set` turns the index into the option through the plugin's own schema
+        if key.starts_with("pluginSetting:") { return json!(index); }
         if key == crate::trust::POLICY_KEY { return crate::trust::ContentPolicy::ALL.get(index as usize).map_or(Value::Null, |p| json!(p.as_str())); }
         if let Some(o) = option_override(key) { return o.get(index as usize).map(|x| x.0.clone()).unwrap_or(Value::Null); }
         for t in self.schema["tabs"].as_array().unwrap() {
@@ -747,6 +752,28 @@ impl Settings {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_plugin_select_setting_is_stored_as_the_chosen_option() {
+        use serde_json::json;
+        crate::TEST_PLUGIN_SCHEMAS.with(|m| m.borrow_mut().insert("demo".into(),
+            json!({"mode": {"type": "select", "label": "Mode", "options": ["fast", "slow"], "default": "fast"}})));
+        let mut s = super::Settings::with_prefs(Default::default());
+        let mut cfg = crate::ai::Config::default();
+        let v = s.select_value("pluginSetting:demo:mode", 1);
+        assert_eq!(v, json!(1));
+        s.set("pluginSetting:demo:mode", v, &mut cfg);
+        assert_eq!(s.prefs["pluginSettings"]["demo"]["mode"], json!("slow"));
+        // out of range: the last good value stays
+        let v = s.select_value("pluginSetting:demo:mode", 7);
+        s.set("pluginSetting:demo:mode", v, &mut cfg);
+        assert_eq!(s.prefs["pluginSettings"]["demo"]["mode"], json!("slow"));
+        // never exported, and an import keeps the local values
+        assert!(s.export()["settings"].get("pluginSettings").is_none());
+        s.import(&json!({"app": "barbican", "version": 1, "settings": {"pluginSettings": {"demo": {"mode": "fast"}}}})).unwrap();
+        assert_eq!(s.prefs["pluginSettings"]["demo"]["mode"], json!("slow"));
+        crate::TEST_PLUGIN_SCHEMAS.with(|m| m.borrow_mut().clear());
+    }
+
     #[test]
     fn the_trusted_list_changes_through_the_helper_only_when_it_differs() {
         let mut p = serde_json::Map::new();

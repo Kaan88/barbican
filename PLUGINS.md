@@ -50,12 +50,17 @@ hooks (B4) and slots (B5) are the next steps. API 1 (above) keeps loading until 
   plugin off (shown under "Could not load") until it is switched off and on again, and an init that returns after its
   budget is shut down at once. `barbican_plugin_handle` is looked up but never called in this step. Switching the
   plugin off makes every later host call answer `disabled` at once and calls `barbican_plugin_shutdown` on its host
-  thread; switching it on again loads and initialises it again (the library itself stays mapped, as for API 1).
+  thread; switching it on again loads and initialises it again (the library itself stays mapped, as for API 1). A
+  library is in use from its load until its host thread ends (after `shutdown` returned, or after a failed or late
+  `init`): a new instance of it, from the same list entry or a re-read one, waits for that within the load budget, so
+  its `init` never overlaps the old `shutdown`. Quitting the app switches every API 2 plugin off and gives their
+  `shutdown` 1 s in all.
   `init_json.features` lists the host methods below and no hooks or slots. `init_json.accounts` is filled only with
   `account:read`; `regional` has the locale only.
 - **The gate.** Every `host->call` is checked, in this order, and fails closed: switched off (`disabled`); more than
   50 calls in a second (`rate_limited`; over that budget in 3 one-second windows in a row switches the plugin off for
-  the session with the same notice as 3 failed calls in a row); not a catalogued, non-skipped method (`unsupported`);
+  the session with the same notice as 3 failed calls in a row, shuts it down, and switching it off and on does not load
+  it again until the next start); not a catalogued, non-skipped method (`unsupported`);
   the method's catalogue permission not granted (`denied`); not built yet (`unsupported`). What counts as granted is
   what both the manifest and the user's grant name, plus `ui:observe` and `app:lifecycle`.
 - **Methods answered:** `app.getInfo`; `plugin.getConfig`; `storage.get/set/remove/keys`; `toast.info/success/warning/error`;
@@ -66,12 +71,16 @@ hooks (B4) and slots (B5) are the next steps. API 1 (above) keeps loading until 
 - **Storage** is as "Consent and storage" says: per plugin and login, keys of 1-256 characters, 1 MiB per plugin per
   login counted as the stored JSON's bytes (a set over it answers `quota` and changes nothing), in
   `plugin-data\<id>\<hash of the login>.json`, written to a temporary file and renamed over the old one. Without a
-  signed-in login, storage answers `not_found`. Uninstalling removes `plugin-data\<id>\`; signing out removes the
+  signed-in login, storage answers `not_found`. Only a missing file is empty storage: one that cannot be read (locked)
+  or is not a JSON object answers `internal`, and nothing is written over it. Uninstalling removes `plugin-data\<id>\`; signing out removes the
   login's file in every plugin's folder, and the last account's sign-out removes `plugin-data` as a whole. Profiles
-  have their own config folder, so their plugin data is already apart.
+  have their own config folder, so their plugin data is already apart. The sign-out removes plugin data under the
+  storage lock, and a write checks under that lock that its login is still the signed-in one, so a write in flight
+  never puts a file back.
 - **Settings.** The manifest's `settings` are drawn under the plugin's switch in Settings > Add-ons (a boolean as a
   switch, a select as a list, a string or number as a text field; a number outside `min..max` or half-typed keeps the
-  last good value) and kept in the `pluginSettings` pref, which never syncs and goes when the package is uninstalled.
+  last good value) and kept in the `pluginSettings` pref, which never syncs, is left out of a settings export (an
+  import keeps the local values) and goes when the package is uninstalled.
   `plugin.getConfig` (and `init_json.settings`) gives every non-secret field: the user's value when it is valid, else
   its default. `secret` fields are not drawn or handed over yet (`secrets.*` is a later step). A change is read at the
   next `plugin.getConfig`; the `settings` message comes with B4.
@@ -86,9 +95,10 @@ hooks (B4) and slots (B5) are the next steps. API 1 (above) keeps loading until 
 - **`http.fetch(url, {method, headers, body | bodyBase64})`** answers `{ok, status, statusText, url, headers, bodyText,
   bodyBase64}`. https only; no user name or password in the address; never an IP literal, in any spelling; the origin
   must match an accepted `httpOrigins` entry as Bulwark matches it (same port; `*.example.org` covers exactly one more
-  label). The name is resolved once; when it is a private name (`localhost`, a single label, `.lan` and the like) or any
+  label). The name is resolved once, within the fetch's time limit; when it is a private name (`localhost`, a single label, `.lan` and the like) or any
   address is not public (the `src/feed_guard.rs` and `ip_is_public` ranges, IPv4 inside IPv6 included), the hop goes
-  ahead only when that exact origin, not a wildcard, was accepted as a private host. The connection goes only to the
+  ahead only when that exact origin, not a wildcard, was accepted as a private host (also when a wildcard entry
+  matches first). The connection goes only to the
   checked addresses. Redirects (at most 5) are not followed by the HTTP client: each one is checked again the same way,
   a redirect to another origin drops `Authorization`, and 303 (or 301/302 after a POST) goes on as GET without a body.
   No system proxy, no cookie store, no Barbican sign-in or header; `Host`, `Cookie`, `Proxy-*`, `Sec-*` and the

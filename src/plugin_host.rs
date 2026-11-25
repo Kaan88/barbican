@@ -215,6 +215,9 @@ pub struct HostCtx {
     toasts: Mutex<VecDeque<Instant>>,
     dialogs: Mutex<VecDeque<Instant>>,
     logs: Mutex<(Option<Instant>, u32)>,
+    /// Dropped to tell the host thread to call `shutdown` and end: whatever disables the plugin (the user, the
+    /// failure limit, an init given up on) lets it go.
+    stop: Mutex<Option<mpsc::Sender<()>>>,
 }
 
 impl HostCtx {
@@ -223,14 +226,22 @@ impl HostCtx {
         let shown_name = if n.is_empty() { p.id.clone() } else { n };
         HostCtx { p, shown_name, env, disabled: AtomicBool::new(false), tripped: AtomicBool::new(false), in_init: AtomicBool::new(false),
             dialog_open: AtomicBool::new(false), rate: Mutex::new(Rate::default()), toasts: Mutex::new(VecDeque::new()),
-            dialogs: Mutex::new(VecDeque::new()), logs: Mutex::new((None, 0)) }
+            dialogs: Mutex::new(VecDeque::new()), logs: Mutex::new((None, 0)), stop: Mutex::new(None) }
     }
 
     pub fn is_disabled(&self) -> bool { self.disabled.load(Ordering::SeqCst) }
     /// Switched off by the failure limit (not by the user).
     pub fn is_tripped(&self) -> bool { self.tripped.load(Ordering::SeqCst) }
     /// From now on every call answers `disabled` and `post` -3.
-    pub fn disable(&self) { self.disabled.store(true, Ordering::SeqCst); }
+    /// The host thread (if any) is told to call `shutdown` and end.
+    pub fn disable(&self) {
+        self.disabled.store(true, Ordering::SeqCst);
+        lock(&self.stop).take();
+    }
+
+    /// Tests elsewhere: as if the failure limit was reached.
+    #[cfg(test)]
+    pub(crate) fn trip_for_test(&self) { self.trip("test"); }
 
     fn trip(&self, why: &str) {
         self.disable();
@@ -285,7 +296,9 @@ impl HostCtx {
             "plugin.getConfig" => Ok(effective_settings(&self.p.settings, &self.env.stored_settings(&self.p.id))),
             "storage.get" | "storage.set" | "storage.remove" | "storage.keys" => {
                 let a = self.env.account().ok_or_else(|| err("not_found", "nobody is signed in"))?;
-                let s = Storage { root: self.env.data_dir() };
+                let env = &self.env;
+                let signed_in = |k: &str| env.account().is_some_and(|x| x.login_key == k);
+                let s = Storage { root: self.env.data_dir(), signed_in: &signed_in };
                 let key = || arg(0).as_str().ok_or_else(|| err("bad_request", "the key must be text"));
                 match method {
                     "storage.get" => s.get(&self.p.id, &a.login_key, key()?),
@@ -358,9 +371,14 @@ impl HostCtx {
     }
 
     fn fetch(&self, url: &Value, init: &Value) -> Result<Value, HostError> {
-        let resolve = |h: &str, p: u16| self.env.resolve(h, p);
+        let deadline = Instant::now() + FETCH_TIMEOUT;
+        // the system resolver has no time limit of its own: it runs on a worker, and the fetch's deadline counts
+        let resolve = |h: &str, p: u16| {
+            let (env, h) = (self.env.clone(), h.to_string());
+            before_deadline(deadline, move || env.resolve(&h, p)).unwrap_or_else(|| Err(std::io::Error::other("timed out")))
+        };
         let send = |hop: &Hop, req: &Outgoing, deadline: Instant| self.env.send(hop, req, deadline);
-        fetch_with(url, init, &self.p.origins, &self.p.private_hosts, &resolve, &send, Instant::now() + FETCH_TIMEOUT)
+        fetch_with(url, init, &self.p.origins, &self.p.private_hosts, &resolve, &send, deadline)
     }
 
     /// `host->log`: plain, one line, at most 300 characters, [`LOG_LINES_PER_SECOND`].
@@ -453,12 +471,19 @@ pub fn dialog_text(opts: &Value, plugin: &str, confirm: bool) -> DialogText {
 // ---------------------------------------------------------------------------------------------------------------
 
 /// Storage of every plugin, below `root` (`plugin-data`).
-pub struct Storage {
+pub struct Storage<'a> {
     pub root: PathBuf,
+    /// Is this login still the one signed in? Asked under the lock before a write, so a write that waited for a
+    /// sign-out's wipe does not put the file back.
+    pub signed_in: &'a dyn Fn(&str) -> bool,
 }
 
 /// One storage operation at a time (reads, writes and the size check of a set are one step).
 static STORAGE_LOCK: Mutex<()> = Mutex::new(());
+
+/// Held while sign-out wipes `plugin-data`, so a write in flight finishes before the wipe and none lands after it
+/// starts.
+pub fn storage_lock() -> std::sync::MutexGuard<'static, ()> { lock(&STORAGE_LOCK) }
 
 /// The file a login's storage is kept in: a hash of its login key, so the folder names no address.
 pub fn login_file(login_key: &str) -> String {
@@ -467,7 +492,7 @@ pub fn login_file(login_key: &str) -> String {
     format!("{}.json", h.iter().take(16).map(|b| format!("{b:02x}")).collect::<String>())
 }
 
-impl Storage {
+impl Storage<'_> {
     fn path(&self, plugin: &str, login: &str) -> Result<PathBuf, HostError> {
         // the id names a folder: only a checked package id ever does
         if !crate::plugins::valid_id(plugin) { return Err(err("denied", "no storage for this plugin")); }
@@ -475,10 +500,18 @@ impl Storage {
         Ok(self.root.join(plugin).join(login_file(login)))
     }
 
-    fn read(path: &Path) -> serde_json::Map<String, Value> {
-        // a missing or unreadable file is empty storage
-        std::fs::read(path).ok().and_then(|b| serde_json::from_slice::<Value>(&b).ok()).and_then(|v| match v { Value::Object(m) => Some(m), _ => None })
-            .unwrap_or_default()
+    /// The stored map. Only a missing file is empty storage: a file that cannot be read (locked by a virus scanner,
+    /// say) or does not hold a JSON object is an error, so a following set or remove never writes over it.
+    fn read(path: &Path) -> Result<serde_json::Map<String, Value>, HostError> {
+        let bytes = match std::fs::read(path) {
+            Ok(b) => b,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Default::default()),
+            Err(e) => return Err(err("internal", format!("could not read the plugin's storage: {e}"))),
+        };
+        match serde_json::from_slice::<Value>(&bytes) {
+            Ok(Value::Object(m)) => Ok(m),
+            _ => Err(err("internal", "the plugin's storage file is damaged")),
+        }
     }
 
     fn check_key(key: &str) -> Result<(), HostError> {
@@ -489,14 +522,15 @@ impl Storage {
         Self::check_key(key)?;
         let p = self.path(plugin, login)?;
         let _g = lock(&STORAGE_LOCK);
-        Ok(Self::read(&p).remove(key).unwrap_or(Value::Null))
+        Ok(Self::read(&p)?.remove(key).unwrap_or(Value::Null))
     }
 
     pub fn set(&self, plugin: &str, login: &str, key: &str, value: &Value) -> Result<(), HostError> {
         Self::check_key(key)?;
         let p = self.path(plugin, login)?;
         let _g = lock(&STORAGE_LOCK);
-        let mut m = Self::read(&p);
+        if !(self.signed_in)(login) { return Err(err("not_found", "nobody is signed in")); }
+        let mut m = Self::read(&p)?;
         m.insert(key.to_string(), value.clone());
         let bytes = serde_json::to_vec(&Value::Object(m)).map_err(|e| err("internal", e.to_string()))?;
         if bytes.len() > STORAGE_QUOTA_BYTES {
@@ -509,7 +543,8 @@ impl Storage {
         Self::check_key(key)?;
         let p = self.path(plugin, login)?;
         let _g = lock(&STORAGE_LOCK);
-        let mut m = Self::read(&p);
+        if !(self.signed_in)(login) { return Err(err("not_found", "nobody is signed in")); }
+        let mut m = Self::read(&p)?;
         if m.remove(key).is_none() { return Ok(()); }
         let bytes = serde_json::to_vec(&Value::Object(m)).map_err(|e| err("internal", e.to_string()))?;
         write_atomic(&p, &bytes).map_err(|e| err("internal", format!("could not save: {e}")))
@@ -518,7 +553,7 @@ impl Storage {
     pub fn keys(&self, plugin: &str, login: &str) -> Result<Vec<String>, HostError> {
         let p = self.path(plugin, login)?;
         let _g = lock(&STORAGE_LOCK);
-        Ok(Self::read(&p).keys().cloned().collect())
+        Ok(Self::read(&p)?.keys().cloned().collect())
     }
 }
 
@@ -677,19 +712,30 @@ pub fn plan_hop(url: &reqwest::Url, origins: &[String], private_hosts: &[String]
         HostClass::LocalName(_) => true,
         HostClass::Name(_) => crate::plugins::is_private_name(&host),
     };
-    let entry = origins.iter().find(|o| origin_matches(url, o))
-        .ok_or_else(|| err("denied", format!("{} is not one of the sites this plugin may connect to", url.origin().ascii_serialization())))?;
+    if !origins.iter().any(|o| origin_matches(url, o)) {
+        return Err(err("denied", format!("{} is not one of the sites this plugin may connect to", url.origin().ascii_serialization())));
+    }
     let port = url.port_or_known_default().unwrap_or(443);
     let ips = resolve(&host, port).map_err(|_| err("offline", format!("could not find {host}")))?;
     if ips.is_empty() { return Err(err("offline", format!("could not find {host}"))); }
     if local_name || ips.iter().any(|ip| is_private_ip(*ip)) {
         let exact = if port == 443 { format!("https://{host}") } else { format!("https://{host}:{port}") };
+        // only an exact entry the user allowed inside the network counts (a wildcard never does), whichever entry
+        // of the allow-list matched first
         let same = |o: &String| o == &exact || (port == 443 && o == &format!("{exact}:443"));
-        if entry.starts_with("https://*.") || !private_hosts.iter().any(same) {
+        if !private_hosts.iter().any(same) {
             return Err(err("denied", format!("{host} is inside your network, and you did not allow this plugin to reach it")));
         }
     }
     Ok(Hop { url: url.clone(), host, pin: ips.into_iter().map(|ip| SocketAddr::new(ip, port)).collect() })
+}
+
+/// Run `f` on a worker thread and wait for it until `deadline`; `None` when it did not finish in time (the worker
+/// is left to end on its own).
+pub fn before_deadline<T: Send + 'static>(deadline: Instant, f: impl FnOnce() -> T + Send + 'static) -> Option<T> {
+    let (tx, rx) = mpsc::channel();
+    std::thread::Builder::new().name("barbican-plugin-dns".into()).spawn(move || { let _ = tx.send(f()); }).ok()?;
+    rx.recv_timeout(deadline.saturating_duration_since(Instant::now())).ok()
 }
 
 /// Request headers a plugin may not set: what the connection owns, and anything that could carry Barbican's or the
@@ -939,16 +985,60 @@ pub fn init_json(ctx: &HostCtx) -> Value {
 /// A started API 2 plugin: its context and the line to its host thread.
 pub struct Runtime {
     pub ctx: Arc<HostCtx>,
-    /// Dropped to tell the host thread to call `shutdown` and end.
-    stop: Mutex<Option<mpsc::Sender<()>>>,
 }
 
 impl Runtime {
     /// Switch the plugin off: every later call answers `disabled`, and `shutdown` runs on its host thread once it
-    /// is idle (never waited for).
-    pub fn switch_off(&self) {
-        self.ctx.disable();
-        lock(&self.stop).take();
+    /// is idle (see [`wait_all_idle`]).
+    pub fn switch_off(&self) { self.ctx.disable(); }
+}
+
+/// The libraries whose host thread has not ended: loading, inside `init`, running, or inside `shutdown`. A new
+/// instance of a library never starts before the old one's thread ended, whichever list entry it came from, so its
+/// `init` cannot overlap the old `shutdown` (or an `init` that overran its budget).
+static IN_USE: Mutex<Vec<String>> = Mutex::new(Vec::new());
+static IN_USE_FREED: std::sync::Condvar = std::sync::Condvar::new();
+
+/// The key a library is held in use under: the file it was opened from.
+fn library_key(path: &Path) -> String {
+    let p = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf()).to_string_lossy().into_owned();
+    if cfg!(windows) { p.to_lowercase() } else { p }
+}
+
+/// Held by a host thread for its whole life; dropping it frees the library.
+struct InUse(String);
+
+impl Drop for InUse {
+    fn drop(&mut self) {
+        let mut g = lock(&IN_USE);
+        if let Some(i) = g.iter().position(|k| *k == self.0) { g.swap_remove(i); }
+        IN_USE_FREED.notify_all();
+    }
+}
+
+/// Take `library` for a new host thread, waiting until `deadline` for an old one to end.
+fn claim(library: &str, deadline: Instant) -> Option<InUse> {
+    let mut g = lock(&IN_USE);
+    while g.iter().any(|k| k == library) {
+        let left = deadline.checked_duration_since(Instant::now()).filter(|d| !d.is_zero())?;
+        g = IN_USE_FREED.wait_timeout(g, left).map(|(g, _)| g).unwrap_or_else(|e| e.into_inner().0);
+    }
+    g.push(library.to_string());
+    Some(InUse(library.to_string()))
+}
+
+/// Is a host thread of this library still running?
+#[cfg(test)]
+pub fn library_in_use(path: &Path) -> bool { let k = library_key(path); lock(&IN_USE).contains(&k) }
+
+/// Wait until no library has a host thread left, at most until `deadline` (the app's exit gives switched-off plugins a
+/// moment to run `shutdown`). True when all ended.
+pub fn wait_all_idle(deadline: Instant) -> bool {
+    let mut g = lock(&IN_USE);
+    loop {
+        if g.is_empty() { return true; }
+        let Some(left) = deadline.checked_duration_since(Instant::now()).filter(|d| !d.is_zero()) else { return false };
+        g = IN_USE_FREED.wait_timeout(g, left).map(|(g, _)| g).unwrap_or_else(|e| e.into_inner().0);
     }
 }
 
@@ -956,31 +1046,36 @@ impl Drop for Runtime {
     fn drop(&mut self) { self.switch_off(); }
 }
 
-/// Load and initialise an API 2 plugin on its own host thread and wait up to `budget` for `init` to return.
-/// `busy` is set while the host thread is loading or inside `init` (a plugin whose init overran is not loaded again
-/// until it returns). Only `manifest` and `init` of the plugin are called here; `shutdown` follows [`Runtime::switch_off`].
-pub fn start(loader: &V2Loader, path: &Path, expect: Expect, params: Params, env: Arc<dyn HostEnv>, busy: Arc<AtomicBool>, budget: Duration) -> Result<Arc<Runtime>, String> {
+/// Load and initialise an API 2 plugin on its own host thread and wait up to `budget` in all (for an earlier instance
+/// of the same library to end, then for `init` to return). The library stays in use ([`library_in_use`]) until the
+/// host thread ends: after `shutdown` returned, after a failed load or init, or after a late `init` was shut down.
+/// Only `manifest` and `init` of the plugin are called here; `shutdown` follows [`Runtime::switch_off`].
+pub fn start(loader: &V2Loader, path: &Path, expect: Expect, params: Params, env: Arc<dyn HostEnv>, budget: Duration) -> Result<Arc<Runtime>, String> {
+    let deadline = Instant::now() + budget;
+    let library = library_key(path);
+    let Some(held) = claim(&library, deadline) else {
+        return Err("its previous instance is still shutting down; switch it off and on again in a moment".into());
+    };
     let ctx = Arc::new(HostCtx::new(params, env));
     let (done_tx, done_rx) = mpsc::channel::<Result<(), String>>();
     let (stop_tx, stop_rx) = mpsc::channel::<()>();
+    *lock(&ctx.stop) = Some(stop_tx);
     let (l, p, c) = (loader.clone(), path.to_path_buf(), ctx.clone());
-    busy.store(true, Ordering::SeqCst);
-    let b = busy.clone();
     // a fixed thread name: manifest text is untrusted
     let spawned = std::thread::Builder::new().name("barbican-plugin-host".into()).spawn(move || {
+        let _held = held;
         let loaded = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| l(&p)))
             .unwrap_or_else(|_| Err("plugin panicked while loading".to_string()))
             .and_then(|n| check_library_manifest(&n, &expect).map(|_| n));
         let n = match loaded {
             Ok(n) => n,
-            Err(e) => { b.store(false, Ordering::SeqCst); let _ = done_tx.send(Err(e)); return; }
+            Err(e) => { let _ = done_tx.send(Err(e)); return; }
         };
         let init = CString::new(init_json(&c).to_string()).unwrap_or_default();
         let table = host_table(&c);
         c.in_init.store(true, Ordering::SeqCst);
         let out = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe { (n.init)(table, init.as_ptr()) }));
         c.in_init.store(false, Ordering::SeqCst);
-        b.store(false, Ordering::SeqCst);
         let r = match out {
             Err(_) => Err("barbican_plugin_init panicked".to_string()),
             Ok(p) if p.is_null() => Ok(()),
@@ -995,18 +1090,17 @@ pub fn start(loader: &V2Loader, path: &Path, expect: Expect, params: Params, env
         let ok = r.is_ok();
         let late = done_tx.send(r).is_err();
         if !ok { c.disable(); return; }
-        // idle until switched off (or the start gave up waiting: then at once)
+        // idle until switched off (or the start gave up waiting, which disabled it: then at once)
         if !late { let _ = stop_rx.recv(); }
         c.disable();
         if let Some(s) = n.shutdown { let _ = std::panic::catch_unwind(|| unsafe { s() }); }
     });
-    if let Err(e) = spawned { busy.store(false, Ordering::SeqCst); return Err(format!("could not start the plugin's thread: {e}")); }
-    match done_rx.recv_timeout(budget) {
-        Ok(Ok(())) => Ok(Arc::new(Runtime { ctx, stop: Mutex::new(Some(stop_tx)) })),
+    if let Err(e) = spawned { ctx.disable(); return Err(format!("could not start the plugin's thread: {e}")); }
+    match done_rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+        Ok(Ok(())) => Ok(Arc::new(Runtime { ctx })),
         Ok(Err(e)) => { ctx.disable(); Err(e) }
         Err(mpsc::RecvTimeoutError::Timeout) => {
             ctx.disable();
-            drop(stop_tx);
             Err(format!("did not finish loading within {} ms", budget.as_millis()))
         }
         Err(mpsc::RecvTimeoutError::Disconnected) => { ctx.disable(); Err("the plugin's thread died".into()) }
@@ -1256,8 +1350,45 @@ mod tests {
     }
 
     #[test]
+    fn unreadable_or_damaged_storage_is_an_error_and_never_overwritten() {
+        let env = fake("damaged");
+        let c = ctx("dev.example.damaged", &[], &env);
+        let f = env.dir.join("dev.example.damaged").join(login_file(&ann().login_key));
+        std::fs::create_dir_all(f.parent().unwrap()).unwrap();
+        for bad in [&b"[1, 2]"[..], b"{\"half\": ", b"\"text\""] {
+            std::fs::write(&f, bad).unwrap();
+            for (m, a) in [("storage.get", json!(["k"])), ("storage.keys", json!([])), ("storage.set", json!(["k", 1])), ("storage.remove", json!(["k"]))] {
+                assert_eq!(code(c.call(m, &a)), "internal", "{m} on {:?}", String::from_utf8_lossy(bad));
+            }
+            assert_eq!(std::fs::read(&f).unwrap(), bad, "the file is left as it was");
+        }
+        // a file that cannot be read at all (here: a folder in its place, as a lock would): an error, not empty
+        std::fs::remove_file(&f).unwrap();
+        std::fs::create_dir_all(f.join("x")).unwrap();
+        assert_eq!(code(c.call("storage.set", &json!(["k", 1]))), "internal");
+        assert!(f.join("x").is_dir(), "nothing written over it");
+        // only a missing file is empty storage
+        std::fs::remove_dir_all(&f).unwrap();
+        assert_eq!(c.call("storage.get", &json!(["k"])).unwrap(), Value::Null);
+        assert_eq!(code(c.call("storage.set", &json!(["k", 1]))), "ok");
+        let _ = std::fs::remove_dir_all(&env.dir);
+    }
+
+    #[test]
+    fn a_write_after_the_login_signed_out_is_refused() {
+        let env = fake("signedout");
+        let root = env.dir.clone();
+        let other = |k: &str| k == "someone else";
+        let s = Storage { root: root.clone(), signed_in: &other };
+        assert_eq!(s.set("dev.example.gone", &ann().login_key, "k", &json!(1)).unwrap_err().code, "not_found");
+        assert_eq!(s.remove("dev.example.gone", &ann().login_key, "k").unwrap_err().code, "not_found");
+        assert!(!root.join("dev.example.gone").exists(), "nothing put back");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
     fn storage_needs_a_checked_plugin_id() {
-        let s = Storage { root: temp("ids") };
+        let s = Storage { root: temp("ids"), signed_in: &|_| true };
         assert_eq!(s.set("../evil", "k", "a", &json!(1)).unwrap_err().code, "denied");
         assert_eq!(s.set("dev.example.ok", "", "a", &json!(1)).unwrap_err().code, "not_found");
         let _ = std::fs::remove_dir_all(&s.root);
@@ -1424,6 +1555,26 @@ mod tests {
         assert_eq!(public_only("https://nas/").unwrap_err().code, "denied", "a private name needs the consent even before DNS");
     }
 
+    #[test]
+    fn an_exact_private_consent_counts_behind_a_wildcard() {
+        let env = fake("wildfirst");
+        // the wildcard comes first in the list and matches too; the exact entry the user allowed inside the network wins
+        let origins = vec!["https://*.example.org".to_string(), "https://b.example.org".to_string()];
+        let plan = |private: &[String]| plan_hop(&u("https://b.example.org/x"), &origins, private, &|h, port| env.resolve(h, port));
+        assert_eq!(plan(&["https://b.example.org".to_string()]).unwrap().pin[0].ip().to_string(), "10.0.0.5");
+        assert_eq!(plan(&[]).unwrap_err().code, "denied", "without that consent it stays refused");
+        assert_eq!(plan(&["https://*.example.org".to_string()]).unwrap_err().code, "denied", "a wildcard is never a private consent");
+    }
+
+    #[test]
+    fn a_slow_lookup_is_given_up_at_the_deadline() {
+        let t = Instant::now();
+        let r = before_deadline(t + Duration::from_millis(50), || { std::thread::sleep(Duration::from_millis(1500)); 1 });
+        assert!(r.is_none() && t.elapsed() < Duration::from_millis(1000));
+        assert_eq!(before_deadline(Instant::now() + Duration::from_secs(5), || 7), Some(7));
+        assert!(before_deadline(Instant::now(), || 7).is_none_or(|v| v == 7), "a spent deadline does not wait");
+    }
+
     fn redirect(status: u16, to: &str) -> HopReply {
         HopReply { status, status_text: String::new(), headers: vec![("Location".into(), to.into())], body: vec![] }
     }
@@ -1567,11 +1718,9 @@ mod tests {
     fn abi_round_trip_with_an_in_process_plugin() {
         let _g = lock(&RUNTIME_TESTS);
         let env = fake("abi");
-        let busy = Arc::new(AtomicBool::new(false));
         SHUT_DOWN.store(false, Ordering::SeqCst);
         HANDLED.store(false, Ordering::SeqCst);
-        let rt = start(&native(round_trip_init, fake_manifest), Path::new("fake.dll"), expect(), fake_params(), env.clone(), busy.clone(), Duration::from_secs(5)).unwrap();
-        assert!(!busy.load(Ordering::SeqCst));
+        let rt = start(&native(round_trip_init, fake_manifest), Path::new("fake.dll"), expect(), fake_params(), env.clone(), Duration::from_secs(5)).unwrap();
         let out = ROUND_TRIP.lock().unwrap().clone();
         assert_eq!(out[0], format!("abi=2 size={}", std::mem::size_of::<BarbicanHost>()));
         let init: Value = serde_json::from_str(&out[1]).unwrap();
@@ -1624,18 +1773,52 @@ mod tests {
     fn an_init_error_or_another_manifest_keeps_it_off() {
         let _g = lock(&RUNTIME_TESTS);
         let env = fake("initerr");
-        let busy = Arc::new(AtomicBool::new(false));
-        let e = start(&native(failing_init, fake_manifest), Path::new("x"), expect(), fake_params(), env.clone(), busy.clone(), Duration::from_secs(5)).err().unwrap();
+        let e = start(&native(failing_init, fake_manifest), Path::new("x"), expect(), fake_params(), env.clone(), Duration::from_secs(5)).err().unwrap();
         assert!(e.contains("model file missing"), "{e}");
-        let e = start(&native(round_trip_init, other_manifest), Path::new("x"), expect(), fake_params(), env.clone(), busy.clone(), Duration::from_secs(5)).err().unwrap();
+        let e = start(&native(round_trip_init, other_manifest), Path::new("x"), expect(), fake_params(), env.clone(), Duration::from_secs(5)).err().unwrap();
         assert!(e.contains("the library says dev.example.other"), "{e}");
         let mut more = expect();
         more.permissions.push("email:read".into());
-        let e = start(&native(round_trip_init, fake_manifest), Path::new("x"), more, fake_params(), env.clone(), busy.clone(), Duration::from_secs(5)).err().unwrap();
+        let e = start(&native(round_trip_init, fake_manifest), Path::new("x"), more, fake_params(), env.clone(), Duration::from_secs(5)).err().unwrap();
         assert!(e.contains("does not agree") && e.contains("permissions"), "{e}");
         let failing: V2Loader = Arc::new(|_: &Path| Err("missing barbican_plugin_init".into()));
-        assert!(start(&failing, Path::new("x"), expect(), fake_params(), env.clone(), busy.clone(), Duration::from_secs(5)).err().unwrap().contains("barbican_plugin_init"));
-        assert!(!busy.load(Ordering::SeqCst));
+        assert!(start(&failing, Path::new("x"), expect(), fake_params(), env.clone(), Duration::from_secs(5)).err().unwrap().contains("barbican_plugin_init"));
+        let _ = std::fs::remove_dir_all(&env.dir);
+    }
+
+    static OVERLAP_SHUTTING: AtomicBool = AtomicBool::new(false);
+    static OVERLAP_SEEN: AtomicBool = AtomicBool::new(false);
+    unsafe extern "C" fn slow_shutdown() {
+        OVERLAP_SHUTTING.store(true, Ordering::SeqCst);
+        std::thread::sleep(Duration::from_millis(300));
+        OVERLAP_SHUTTING.store(false, Ordering::SeqCst);
+    }
+    unsafe extern "C" fn checking_init(_: *const BarbicanHost, _: *const c_char) -> *mut c_char {
+        if OVERLAP_SHUTTING.load(Ordering::SeqCst) { OVERLAP_SEEN.store(true, Ordering::SeqCst); }
+        std::ptr::null_mut()
+    }
+
+    #[test]
+    fn a_new_instance_waits_for_the_old_one_to_shut_down() {
+        let _g = lock(&RUNTIME_TESTS);
+        let env = fake("overlap");
+        let lib: V2Loader = Arc::new(|_: &Path| Ok(NativeV2 { manifest: fake_manifest, init: checking_init, handle: fake_handle, free: fake_free, shutdown: Some(slow_shutdown) }));
+        let path = Path::new("overlap.dll");
+        OVERLAP_SEEN.store(false, Ordering::SeqCst);
+        let old = start(&lib, path, expect(), fake_params(), env.clone(), Duration::from_secs(5)).unwrap();
+        assert!(library_in_use(path));
+        old.switch_off();
+        drop(old);
+        // another list entry of the same library (a refresh replaced it): its init waits for the old shutdown
+        let new = start(&lib, path, expect(), fake_params(), env.clone(), Duration::from_secs(5)).unwrap();
+        assert!(!OVERLAP_SEEN.load(Ordering::SeqCst), "init ran while the old instance was inside shutdown");
+        // with too little time left the start is refused, not overlapped
+        new.switch_off();
+        let e = start(&lib, path, expect(), fake_params(), env.clone(), Duration::from_millis(20)).err().unwrap();
+        assert!(e.contains("still shutting down"), "{e}");
+        let t = Instant::now();
+        while library_in_use(path) && t.elapsed() < Duration::from_secs(2) { std::thread::sleep(Duration::from_millis(5)); }
+        assert!(!library_in_use(path), "shutdown returned and freed the library");
         let _ = std::fs::remove_dir_all(&env.dir);
     }
 
@@ -1643,13 +1826,12 @@ mod tests {
     fn an_init_over_its_budget_is_given_up_and_shut_down_later() {
         let _g = lock(&RUNTIME_TESTS);
         let env = fake("slow");
-        let busy = Arc::new(AtomicBool::new(false));
         SHUT_DOWN.store(false, Ordering::SeqCst);
         let t = Instant::now();
-        let e = start(&native(slow_init, fake_manifest), Path::new("x"), expect(), fake_params(), env.clone(), busy.clone(), Duration::from_millis(40)).err().unwrap();
+        let e = start(&native(slow_init, fake_manifest), Path::new("x"), expect(), fake_params(), env.clone(), Duration::from_millis(40)).err().unwrap();
         assert!(e.contains("did not finish loading") && t.elapsed() < Duration::from_millis(250), "{e}");
-        assert!(busy.load(Ordering::SeqCst), "still inside init");
-        while busy.load(Ordering::SeqCst) && t.elapsed() < Duration::from_secs(2) { std::thread::sleep(Duration::from_millis(5)); }
+        assert!(library_in_use(Path::new("x")), "still inside init");
+        while library_in_use(Path::new("x")) && t.elapsed() < Duration::from_secs(2) { std::thread::sleep(Duration::from_millis(5)); }
         while !SHUT_DOWN.load(Ordering::SeqCst) && t.elapsed() < Duration::from_secs(2) { std::thread::sleep(Duration::from_millis(5)); }
         assert!(SHUT_DOWN.load(Ordering::SeqCst), "a late init is shut down at once");
         let _ = std::fs::remove_dir_all(&env.dir);

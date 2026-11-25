@@ -200,8 +200,12 @@ impl Plugin {
     /// Stop calling this plugin. The library and backend object stay alive for the process lifetime.
     fn park(&mut self) {
         retire(self.backend.take());
-        // API 2: every later host call answers `disabled`, and `shutdown` runs on its host thread
-        if let Some(rt) = self.v2.take() { rt.switch_off(); }
+        // API 2: every later host call answers `disabled`, and `shutdown` runs on its host thread. Switched off by the
+        // failure limit stays so for the session, as an API 1 plugin does: switching it on again does not reload it
+        if let Some(rt) = self.v2.take() {
+            if rt.ctx.is_tripped() { self.tripped.store(true, Ordering::SeqCst); }
+            rt.switch_off();
+        }
     }
 
     /// The spelling of `hook` this plugin's manifest declared (its aliases are interchangeable).
@@ -1294,6 +1298,14 @@ pub struct V2Load<'a> {
 
 /// Load the plugins the user enabled and unload the ones switched off. Cheap when nothing changed.
 /// Returns load errors (each reported once). API 2 plugins are started with what `grants` accepted for them.
+/// The app quits: every API 2 plugin is switched off, and its `shutdown` gets until `wait` (in all) to return. API 1
+/// plugins have nothing to call.
+pub fn shut_down_v2(plugins: &mut [Plugin], wait: Duration) -> bool {
+    let deadline = std::time::Instant::now() + wait;
+    for p in plugins.iter_mut() { if let Some(rt) = p.v2.take() { rt.switch_off(); } }
+    crate::plugin_host::wait_all_idle(deadline)
+}
+
 pub fn sync(plugins: &mut [Plugin], enabled: &[String], grants: &[Grant]) -> Vec<String> {
     let loader: Loader = Arc::new(|p: &std::path::Path| unsafe { load(p) });
     let v2 = V2Load { grants, loader: Arc::new(|p: &std::path::Path| unsafe { crate::plugin_host::load_library(p) }), env: crate::plugin_host::env() };
@@ -1396,7 +1408,7 @@ fn sync_hashed(plugins: &mut [Plugin], enabled: &[String], loader: &Loader, v2: 
                 continue;
             };
             let params = crate::plugin_host::params_for(&p.id, &p.name, &p.version, &p.decl.permissions, &p.decl.http_origins, &p.decl.settings, g);
-            match crate::plugin_host::start(&v2.loader, std::path::Path::new(&path), p.expect(), params, v2.env.clone(), p.busy.clone(), budget) {
+            match crate::plugin_host::start(&v2.loader, std::path::Path::new(&path), p.expect(), params, v2.env.clone(), budget) {
                 Ok(rt) => plugins[i].v2 = Some(rt),
                 Err(e) => { plugins[i].load_failed = true; errors.push(format!("{path}: {e}")); }
             }
@@ -2330,6 +2342,19 @@ mod tests {
         while DEMO_SHUTDOWNS.load(Ordering::SeqCst) == shutdowns && t.elapsed() < Duration::from_secs(2) { std::thread::sleep(Duration::from_millis(5)); }
         assert_eq!(DEMO_SHUTDOWNS.load(Ordering::SeqCst), shutdowns + 1);
         assert!(describe(&list[0])["description"].as_str().unwrap().contains("Uses plugin API 2"));
+        // on again: a new instance; switched off by the failure limit, it shuts down at once and stays off for the
+        // session, also across switching it off and on
+        assert!(sync_hashed(&mut list, &en, &v1, &with, MS, &fp).is_empty());
+        assert_eq!(v2_loads.load(Ordering::SeqCst), 2);
+        list[0].host_ctx().unwrap().trip_for_test();
+        let t = std::time::Instant::now();
+        while DEMO_SHUTDOWNS.load(Ordering::SeqCst) == shutdowns + 1 && t.elapsed() < Duration::from_secs(2) { std::thread::sleep(Duration::from_millis(5)); }
+        assert_eq!(DEMO_SHUTDOWNS.load(Ordering::SeqCst), shutdowns + 2, "a tripped plugin is shut down");
+        sync_hashed(&mut list, &[], &v1, &with, MS, &fp);
+        assert!(sync_hashed(&mut list, &en, &v1, &with, MS, &fp).is_empty());
+        assert!(list[0].is_tripped() && !list[0].is_running_v2());
+        assert_eq!(v2_loads.load(Ordering::SeqCst), 2, "not loaded again this session");
+        let _ = crate::plugins::drain_notices();
     }
 
     #[test]

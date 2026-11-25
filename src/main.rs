@@ -599,8 +599,16 @@ fn plugins_synced() -> Vec<String> {
 /// A plugin was switched on or off in Settings.
 pub fn plugin_toggled() { plugins_synced(); }
 
+#[cfg(test)]
+thread_local! {
+    /// Tests: a plugin settings schema as if that plugin were installed (this thread only).
+    pub static TEST_PLUGIN_SCHEMAS: std::cell::RefCell<std::collections::HashMap<String, Value>> = std::cell::RefCell::new(Default::default());
+}
+
 /// The settings schema of an installed API 2 plugin (Settings > Add-ons draws and stores its settings).
 pub fn plugin_settings_schema(id: &str) -> Option<Value> {
+    #[cfg(test)]
+    if let Some(v) = TEST_PLUGIN_SCHEMAS.with(|m| m.borrow().get(id).cloned()) { return Some(v); }
     PLUGINS.with(|p| p.borrow().iter().find(|x| x.key == id && x.decl.api >= 2).map(|x| x.decl.settings.clone()))
 }
 
@@ -2523,6 +2531,8 @@ fn main() -> Result<(), slint::PlatformError> {
     });
     // the window can be closed to the tray: the loop runs until Quit
     slint::run_event_loop_until_quit()?;
+    // API 2 plugins run their shutdown (bounded: a plugin that hangs does not keep the app open)
+    PLUGINS.with(|p| plugins::shut_down_v2(&mut p.borrow_mut(), std::time::Duration::from_secs(1)));
     winstate::save(&ui);
     crashguard::done(&config_dir());
     settings::Settings::flush();
