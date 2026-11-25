@@ -115,7 +115,8 @@ pub fn load(w: slint::Weak<AppWindow>, c: Arc<Client>) {
     std::thread::spawn(move || {
         let acc = c.account_for("urn:ietf:params:jmap:contacts");
         let res: Result<(Vec<Value>, Vec<Value>), String> = (|| {
-            let r = c.call(json!([["AddressBook/get", {"accountId": acc, "ids": null}, "a"]]))?;
+            // Stalwart leaves shareWith and myRights out by default (Bulwark client.ts:613 ADDRESS_BOOK_PROPERTIES)
+            let r = c.call(json!([["AddressBook/get", {"accountId": acc, "ids": null, "properties": ["id", "name", "description", "sortOrder", "isDefault", "isSubscribed", "shareWith", "myRights"]}, "a"]]))?;
             let books = r[0][1]["list"].as_array().cloned().unwrap_or_default();
             // every card, paged past the server's query cap, fetched in maxObjectsInGet chunks
             let ids = c.query_all("ContactCard/query", &acc, json!({}))?;
@@ -442,6 +443,8 @@ pub fn group_name(id: &str) -> String {
 }
 
 /// (name, is default) of an address book.
+pub fn book(id: &str) -> Option<Value> { ST.with(|s| s.borrow().books.iter().find(|b| b["id"] == id).cloned()) }
+
 pub fn book_info(id: &str) -> Option<(String, bool)> {
     ST.with(|s| s.borrow().books.iter().find(|b| b["id"] == id).map(|b| (b["name"].as_str().unwrap_or("Address book").to_string(), b["isDefault"] == true)))
 }

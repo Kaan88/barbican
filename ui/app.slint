@@ -26,6 +26,8 @@ import { FilterX, FCond, FAct, FilterRuleRow, FilterRuleEditor, FilterRetroDialo
 export { PimTheme, CtX, CtLine, CtField, CtDupe, FilterX, FCond, FAct }
 // mail extras (p2-mailextras): attachment cards, From override, reply under the message
 import { MxTok, AttCard, FromOverride, AttCards, ReplyDockBar, ReplyDockHandle } from "mailextras.slint";
+import { ShareX, ShareRow, SharePerson, ShareDialog } from "share.slint";
+export { ShareX, ShareRow, SharePerson }
 export { AttCard }
 
 export struct Folder {
@@ -6257,4 +6259,6 @@ export component AppWindow inherits Window {
     if CompX.tpl-fill-open: TplFillDialog { x: 0; y: 0; width: root.width; height: root.height; }
     if CompX.tpl-save-open: TplSaveDialog { x: 0; y: 0; width: root.width; height: root.height; }
     if CompX.sub-open: SubAddrDialog { x: 0; y: 0; width: root.width; height: root.height; }
+    // share a folder, calendar or address book (src/share.rs)
+    if ShareX.open: ShareDialog { x: 0; y: 0; width: root.width; height: root.height; }
 }

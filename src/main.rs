@@ -45,6 +45,7 @@ mod glance;
 mod identities;
 mod masked;
 mod subaddr;
+mod share;
 mod jmap;
 mod lite;
 mod mailview;
@@ -1281,6 +1282,7 @@ fn main() -> Result<(), slint::PlatformError> {
         // was this account's
         tplflow::reset(&u);
         subaddr::reset(&u);
+        share::reset(&u);
         TEMPLATES.with(|t| *t.borrow_mut() = (String::new(), Vec::new()));
         u.set_tpl_names(ModelRc::new(VecModel::from(vec![slint::SharedString::from("Insert template…")])));
         u.set_tpl_index(0);
@@ -2289,6 +2291,7 @@ fn main() -> Result<(), slint::PlatformError> {
     });
     tplflow::wire(&ui, state.clone());
     subaddr::wire(&ui);
+    share::wire(&ui);
 
     // ---------------- mail actions ----------------
     let w = ui.as_weak();
