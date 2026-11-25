@@ -63,6 +63,10 @@ impl Config {
             "showCleanSpam": self.show_clean_spam, "actions": self.actions, "instructions": self.instructions,
             "prompts": self.prompts, "memory": self.memory_on, "hidden": self.hidden,
             "renderMode": self.render_mode, "remoteImages": self.remote_images});
+        // the new assistant settings (src/assistant/config.rs) share the file: keep their entry
+        let mut v = v;
+        let prev: Option<Value> = std::fs::read_to_string(path()).ok().and_then(|s| serde_json::from_str(&s).ok());
+        if let Some(a) = prev.as_ref().and_then(|p| p.get("assistant")).filter(|a| a.is_object()) { v["assistant"] = a.clone(); }
         let _ = std::fs::write(path(), v.to_string());
         if self.key.is_empty() { crate::secrets::delete(SECRET); } else {
             crate::secrets::set(SECRET, &json!({"key": self.key}).to_string());
