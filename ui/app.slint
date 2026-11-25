@@ -2263,7 +2263,7 @@ export component AppWindow inherits Window {
     // (the focused field or menu went away with it), so Ctrl+K and ? never need a click first
     property <bool> any-overlay: ctx-open || ev-open || show-settings || composing || CompX.sched-open || Pd.overlay || admin-dlg != "" || FilesX.conflict-open || FilesX.newfile-open || (FilesV.p-open && app == 3) || AppLock.locked || AppLock.dlg != "";
     changed any-overlay => { if !root.any-overlay { kbd.focus(); } }
-    changed app => { kbd.focus(); }
+    changed app => { kbd.focus(); if self.app != 3 && FilesV.p-open { FilesV.p-close(); } }
     changed logged-in => { root.login-password = ""; root.login-otp = ""; kbd.focus(); }
     changed bx => { root.webview-sync(); }
     changed by => { root.webview-sync(); }
@@ -2321,6 +2321,11 @@ export component AppWindow inherits Window {
             if e.text == Key.Escape { FilesV.p-close(); }
             else if e.text == Key.LeftArrow { FilesV.p-go(-1); }
             else if e.text == Key.RightArrow { FilesV.p-go(1); }
+            // the text or document on show scrolls (ui/files-views.slint FilesV.scrolled)
+            else if e.text == Key.UpArrow || e.text == Key.DownArrow || e.text == Key.PageUp || e.text == Key.PageDown || e.text == Key.Home || e.text == Key.End {
+                FilesV.p-key = e.text;
+                FilesV.p-key-tick += 1;
+            }
             return accept;
         }
         // Ctrl+K opens the command palette whichever field or menu has the focus (not in the composer: link)

@@ -430,9 +430,10 @@ pub fn plan(name: &str, mime: &str, size: u64) -> Plan {
     Plan::Preview(k, size <= cap)
 }
 
-/// Bulwark canShowThumbnail: an image file with a blob, within the thumbnail cap.
+/// Bulwark canShowThumbnail: an image file with a blob, within the thumbnail cap. SVGs keep
+/// their icon (Barbican draws an SVG only when it is opened, never for a listing).
 pub fn can_thumb(name: &str, mime: &str, size: u64, has_blob: bool, on: bool) -> bool {
-    on && has_blob && is_image_name(name) && size <= MAX_THUMB_BYTES && matches!(plan(name, mime, size), Plan::Preview(Kind::Image | Kind::Svg, true))
+    on && has_blob && is_image_name(name) && size <= MAX_THUMB_BYTES && matches!(plan(name, mime, size), Plan::Preview(Kind::Image, true))
 }
 
 // ---------------------------------------------------------------- decoding (pure)
@@ -524,16 +525,103 @@ pub fn decode_image(bytes: &[u8], edge: u32) -> Result<SharedPixelBuffer<Rgba8Pi
     Ok(SharedPixelBuffer::clone_from_slice(t.as_raw(), t.width(), t.height()))
 }
 
-/// Draw an SVG to fit `edge`: no file or network reference is followed (only data: images).
+/// The most XML nodes an SVG may have, and the most it may expand to once every `<use>`,
+/// `href="#id"` and `url(#id)` reference is followed (usvg copies what a reference points at).
+const SVG_MAX_NODES: u32 = 100_000;
+const SVG_MAX_EXPANDED: u64 = 100_000;
+/// The deepest nesting, children and references together (usvg converts recursively).
+const SVG_MAX_DEPTH: u32 = 128;
+
+/// The ids an element points at: `href`/`xlink:href` "#id" and every `url(#id)` in its attributes.
+fn svg_refs<'a, 'i: 'a>(n: resvg::usvg::roxmltree::Node<'a, 'i>) -> Vec<&'a str> {
+    let mut out = Vec::new();
+    for a in n.attributes() {
+        let v = a.value();
+        if a.name() == "href" {
+            if let Some(id) = v.trim().strip_prefix('#') { out.push(id.trim()); }
+        }
+        let mut rest = v;
+        while let Some(i) = rest.find("url(") {
+            rest = &rest[i + 4..];
+            let inner = rest.trim_start().trim_start_matches(['"', '\'']);
+            if let Some(id) = inner.strip_prefix('#') {
+                let end = id.find(|c: char| c == ')' || c == '"' || c == '\'' || c.is_whitespace()).unwrap_or(id.len());
+                out.push(&id[..end]);
+            }
+        }
+    }
+    out
+}
+
+/// Refuse an SVG whose references would expand it past [`SVG_MAX_EXPANDED`] nodes or nest it
+/// deeper than [`SVG_MAX_DEPTH`]: the size of each element with its references is worked out
+/// once (memoised), iteratively, so a 2^40 `<use>` bomb is refused in a few steps. A reference
+/// back into itself counts nothing (usvg skips those).
+fn svg_check(doc: &resvg::usvg::roxmltree::Document) -> Result<(), String> {
+    use resvg::usvg::roxmltree::Node;
+    use std::collections::HashMap;
+    let too_big = || "The picture is too complex to preview.".to_string();
+    let ids: HashMap<&str, Node> =
+        doc.descendants().filter(|n| n.is_element()).filter_map(|n| n.attribute("id").map(|id| (id, n))).collect();
+    fn deps<'a, 'i: 'a>(n: Node<'a, 'i>, ids: &HashMap<&str, Node<'a, 'i>>) -> Vec<Node<'a, 'i>> {
+        let mut d: Vec<Node> = n.children().filter(|c| c.is_element()).collect();
+        d.extend(svg_refs(n).into_iter().filter_map(|id| ids.get(id).copied()));
+        d
+    }
+    let count = doc.descendants().count();
+    // (expanded size, depth) per node, and whether it is being worked out
+    let mut memo: Vec<Option<(u64, u32)>> = vec![None; count + 1];
+    let mut busy = vec![false; count + 1];
+    let mut stack = vec![(doc.root_element(), false)];
+    while let Some((n, ready)) = stack.pop() {
+        let i = n.id().get_usize();
+        if memo[i].is_some() { continue; }
+        if !ready {
+            if busy[i] { continue; }
+            busy[i] = true;
+            stack.push((n, true));
+            for d in deps(n, &ids) {
+                let j = d.id().get_usize();
+                if memo[j].is_none() && !busy[j] { stack.push((d, false)); }
+            }
+            if stack.len() > SVG_MAX_EXPANDED as usize { return Err(too_big()); }
+        } else {
+            let (mut size, mut depth) = (1u64, 0u32);
+            for d in deps(n, &ids) {
+                if let Some((s, h)) = memo[d.id().get_usize()] {
+                    size = size.saturating_add(s);
+                    depth = depth.max(h);
+                }
+            }
+            let depth = depth + 1;
+            if size > SVG_MAX_EXPANDED || depth > SVG_MAX_DEPTH { return Err(too_big()); }
+            memo[i] = Some((size, depth));
+            busy[i] = false;
+        }
+    }
+    Ok(())
+}
+
+/// Draw an SVG to fit `edge` (at most [`SHOW_EDGE`]): no DTD (so no entity expansion), a
+/// bounded node count and expanded size, and no file or network reference followed (only
+/// data: images). Only drawn when the file is opened, never for a thumbnail.
 pub fn render_svg(bytes: &[u8], edge: u32) -> Result<SharedPixelBuffer<Rgba8Pixel>, String> {
-    use resvg::{tiny_skia, usvg};
+    use resvg::{tiny_skia, usvg, usvg::roxmltree};
+    let edge = edge.clamp(1, SHOW_EDGE);
+    let text = std::str::from_utf8(bytes).map_err(|_| "The picture could not be read.".to_string())?;
+    let xml = roxmltree::ParsingOptions { allow_dtd: false, nodes_limit: SVG_MAX_NODES, ..Default::default() };
+    let doc = roxmltree::Document::parse_with_options(text, xml).map_err(|e| match e {
+        roxmltree::Error::NodesLimitReached => "The picture is too complex to preview.".to_string(),
+        e => e.to_string(),
+    })?;
+    svg_check(&doc)?;
     let mut opts = usvg::Options::default();
     opts.resources_dir = None;
     opts.image_href_resolver = usvg::ImageHrefResolver {
         resolve_data: usvg::ImageHrefResolver::default_data_resolver(),
         resolve_string: Box::new(|_, _| None),
     };
-    let tree = usvg::Tree::from_data(bytes, &opts).map_err(|e| e.to_string())?;
+    let tree = usvg::Tree::from_xmltree(&doc, &opts).map_err(|e| e.to_string())?;
     let s = tree.size();
     let longest = s.width().max(s.height());
     if !(longest > 0.0) { return Err("The picture is empty.".into()); }
@@ -547,7 +635,8 @@ pub fn render_svg(bytes: &[u8], edge: u32) -> Result<SharedPixelBuffer<Rgba8Pixe
 
 /// A thumbnail of an image file's bytes.
 pub fn thumbnail(name: &str, mime: &str, bytes: &[u8]) -> Option<SharedPixelBuffer<Rgba8Pixel>> {
-    if preview_kind(name, mime) == Kind::Svg { render_svg(bytes, THUMB_EDGE).ok() } else { decode_image(bytes, THUMB_EDGE).ok() }
+    if preview_kind(name, mime) != Kind::Image { return None; }
+    decode_image(bytes, THUMB_EDGE).ok()
 }
 
 // ---------------------------------------------------------------- thumbnail cache (pure)
@@ -642,16 +731,21 @@ struct View {
     /// the file in the preview, and the generation of its load (a later one wins)
     preview: Option<String>,
     gen: u64,
+    /// the document on show (an .eml's or HTML file's body) and the width it was drawn for,
+    /// to draw it again when the window changes size
+    doc: Option<(String, f32)>,
     /// account id -> its name (the owner of a shared file)
     owners: HashMap<String, String>,
     client: Option<Arc<Client>>,
 }
 
 thread_local! {
+    /// the window's size settling before a document is drawn again for it
+    static RESIZE: slint::Timer = slint::Timer::default();
     static VIEW: RefCell<View> = RefCell::new(View {
         sort: (SortKey::Name, Dir::Asc), seen: None, query: String::new(), query_cwd: None, order: vec![],
         fs: FilesSettings::default(), thumbs: Lru::new(THUMB_ITEMS, THUMB_BYTES), inflight: HashSet::new(), failed: HashSet::new(),
-        preview: None, gen: 0, owners: HashMap::new(), client: None,
+        preview: None, gen: 0, doc: None, owners: HashMap::new(), client: None,
     });
 }
 
@@ -660,7 +754,13 @@ thread_local! {
 pub fn note_client(c: &Arc<Client>) {
     let owners: HashMap<String, String> = c.session["accounts"].as_object()
         .map(|o| o.iter().map(|(id, a)| (id.clone(), a["name"].as_str().unwrap_or("").to_string())).collect()).unwrap_or_default();
-    VIEW.with(|v| { let mut v = v.borrow_mut(); v.owners = owners; v.client = Some(c.clone()); });
+    VIEW.with(|v| {
+        let mut v = v.borrow_mut();
+        // what could not be drawn is tried again (another login, or the files changed meanwhile)
+        v.failed.clear();
+        v.owners = owners;
+        v.client = Some(c.clone());
+    });
 }
 
 fn client() -> Option<Arc<Client>> { VIEW.with(|v| v.borrow().client.clone()) }
@@ -761,26 +861,33 @@ fn thumb_worker(w: slint::Weak<AppWindow>) {
             if lock_queue().is_empty() || WORKING.swap(true, AO::SeqCst) { return; }
             continue;
         };
+        // Err(true): the file is not a picture we can draw (remembered, not tried again);
+        // Err(false): another login meanwhile or a failed download (tried again when redrawn)
         let buf = if crate::livesync::is_current(&j.owner) {
-            j.c.download_from(&j.acc, &j.blob, &j.name, &j.mime).ok().and_then(|b| thumbnail(&j.name, &j.mime, &b))
-        } else { None };
+            match j.c.download_from(&j.acc, &j.blob, &j.name, &j.mime) {
+                Ok(b) => thumbnail(&j.name, &j.mime, &b).ok_or(true),
+                Err(_) => Err(false),
+            }
+        } else { Err(false) };
         let (owner, blob) = (j.owner, j.blob);
         let _ = w.upgrade_in_event_loop(move |u| thumb_done(&u, &owner, blob, buf));
     }
 }
 
-fn thumb_done(u: &AppWindow, owner: &str, blob: String, buf: Option<SharedPixelBuffer<Rgba8Pixel>>) {
+fn thumb_done(u: &AppWindow, owner: &str, blob: String, buf: Result<SharedPixelBuffer<Rgba8Pixel>, bool>) {
     VIEW.with(|v| {
         let mut v = v.borrow_mut();
         v.inflight.remove(&blob);
         match &buf {
-            Some(b) => { let size = (b.width() * b.height() * 4) as usize; v.thumbs.insert(blob.clone(), b.clone(), size); }
-            None => { if v.failed.len() > 2000 { v.failed.clear(); } v.failed.insert(blob.clone()); }
+            Ok(b) => { let size = (b.width() * b.height() * 4) as usize; v.thumbs.insert(blob.clone(), b.clone(), size); }
+            // only a picture that could not be drawn is not asked for again
+            Err(true) => { if v.failed.len() > 2000 { v.failed.clear(); } v.failed.insert(blob.clone()); }
+            Err(false) => {}
         }
     });
     // another login's picture is cached under its blob id, never shown in this one's rows
     if !crate::livesync::is_current(owner) { return; }
-    if let Some(b) = buf { show_thumb(u, &blob, b); } else { drop_want(u, &blob); }
+    match buf { Ok(b) => show_thumb(u, &blob, b), Err(_) => drop_want(u, &blob) }
 }
 
 /// The keys of the nodes whose content is `blob` (one pass over the nodes).
@@ -927,7 +1034,7 @@ fn set_neighbours(u: &AppWindow) {
 enum Shown {
     Image(SharedPixelBuffer<Rgba8Pixel>),
     Text(String, bool),
-    Doc { page: SharedPixelBuffer<Rgba8Pixel>, height: f32, head: Option<EmlHead> },
+    Doc { page: SharedPixelBuffer<Rgba8Pixel>, height: f32, width: f32, body: String, head: Option<EmlHead> },
     Error(String),
 }
 
@@ -939,7 +1046,18 @@ fn addr(a: &Value) -> String {
     if !n.is_empty() && !e.is_empty() { format!("{n} <{e}>") } else if !e.is_empty() { e.into() } else { n.into() }
 }
 
-fn addrs(v: &Value) -> String { v.as_array().map(|l| l.iter().map(addr).filter(|s| !s.is_empty()).collect::<Vec<_>>().join(", ")).unwrap_or_default() }
+fn addrs(v: &Value) -> String { no_bidi(&v.as_array().map(|l| l.iter().map(addr).filter(|s| !s.is_empty()).collect::<Vec<_>>().join(", ")).unwrap_or_default()) }
+
+/// Without the direction controls a sender could use to make a name read backwards (Bulwark
+/// eml-preview.tsx strips them from the header and the attachment names).
+fn no_bidi(s: &str) -> String { s.chars().filter(|c| !crate::attachments::is_bidi_control(*c)).collect() }
+
+/// The width a document is drawn for: the preview's body area (the whole window) less its
+/// margins, at most 1100 px. Worked out from the window, so the first one is right too.
+fn doc_width(u: &AppWindow) -> f32 {
+    let scale = u.window().scale_factor().max(0.1);
+    (u.window().size().width as f32 / scale - 48.0).clamp(320.0, 1100.0)
+}
 
 /// A body for the light renderer: sanitised like a message (mailview), on white.
 fn doc_page(body: &str) -> String {
@@ -954,11 +1072,30 @@ fn render_doc(body: &str, width: f32, scale: f32) -> (SharedPixelBuffer<Rgba8Pix
     (SharedPixelBuffer::clone_from_slice(&buf, pw, ph), ph as f32 / scale)
 }
 
+/// The window changed size: once it has settled, the document on show is drawn again for the
+/// new width (shown meanwhile at the width it was drawn for, never stretched).
+fn resized(u: &AppWindow) {
+    let w = u.as_weak();
+    RESIZE.with(|t| t.start(slint::TimerMode::SingleShot, std::time::Duration::from_millis(300), move || {
+        let Some(u) = w.upgrade() else { return };
+        let Some((body, drawn)) = VIEW.with(|v| v.borrow().doc.clone()) else { return };
+        let width = doc_width(&u);
+        if (width - drawn).abs() < 1.0 || !u.global::<FilesV>().get_p_open() { return; }
+        let gen = VIEW.with(|v| { let mut v = v.borrow_mut(); v.gen += 1; v.gen });
+        let scale = u.window().scale_factor();
+        let w = u.as_weak();
+        std::thread::spawn(move || {
+            let (page, height) = render_doc(&body, width, scale);
+            let _ = w.upgrade_in_event_loop(move |u| preview_done(&u, gen, Shown::Doc { page, height, width, body, head: None }));
+        });
+    }));
+}
+
 /// Open the in-app preview of file `key` (Bulwark FilePreviewModal / ImagePreviewModal).
 pub fn open_preview(u: &AppWindow, c: Arc<Client>, key: &str) {
     let Some(n) = crate::files::node(key) else { return };
     note_client(&c);
-    let gen = VIEW.with(|v| { let mut v = v.borrow_mut(); v.gen += 1; v.preview = Some(key.to_string()); v.gen });
+    let gen = VIEW.with(|v| { let mut v = v.borrow_mut(); v.gen += 1; v.preview = Some(key.to_string()); v.doc = None; v.gen });
     let name = n["name"].as_str().unwrap_or("file").to_string();
     let mime = crate::files::mime(&n);
     let size = n["size"].as_u64().unwrap_or(0);
@@ -991,22 +1128,23 @@ pub fn open_preview(u: &AppWindow, c: Arc<Client>, key: &str) {
     };
     x.set_p_state("loading".into());
     let (acc, blob) = (crate::files::acc_of(&n), n["blobId"].as_str().unwrap_or("").to_string());
-    let width = x.get_p_width().clamp(320.0, 1100.0);
+    let width = doc_width(u);
     let scale = u.window().scale_factor();
     let w = u.as_weak();
     std::thread::spawn(move || {
         let shown = (|| -> Result<Shown, String> {
             if kind == Kind::Eml {
                 let m = crate::reader::parse_eml_in(&c, &acc, &blob)?;
-                let atts = m["attachments"].as_array().map(|l| l.iter().map(|a| format!("{} ({})", a["name"].as_str().unwrap_or("attachment"), crate::human_size(a["size"].as_u64().unwrap_or(0)))).collect::<Vec<_>>().join(", ")).unwrap_or_default();
-                let subject = m["subject"].as_str().unwrap_or("").to_string();
+                let atts = m["attachments"].as_array().map(|l| l.iter().map(|a| format!("{} ({})", no_bidi(a["name"].as_str().unwrap_or("attachment")), crate::human_size(a["size"].as_u64().unwrap_or(0)))).collect::<Vec<_>>().join(", ")).unwrap_or_default();
+                let subject = no_bidi(m["subject"].as_str().unwrap_or(""));
                 let head = EmlHead {
                     from: addrs(&m["from"]), to: addrs(&m["to"]), cc: addrs(&m["cc"]),
                     date: crate::mail::parse_time(&m["sentAt"]).map(|t| t.format("%a %d %b %Y, %H:%M").to_string()).unwrap_or_default(),
                     subject: if subject.is_empty() { "(no subject)".into() } else { subject }, atts,
                 };
-                let (page, height) = render_doc(&crate::body_html(&m), width, scale);
-                return Ok(Shown::Doc { page, height, head: Some(head) });
+                let body = crate::body_html(&m);
+                let (page, height) = render_doc(&body, width, scale);
+                return Ok(Shown::Doc { page, height, width, body, head: Some(head) });
             }
             let bytes = c.download_from(&acc, &blob, &name, &mime)?;
             Ok(match kind {
@@ -1015,7 +1153,7 @@ pub fn open_preview(u: &AppWindow, c: Arc<Client>, key: &str) {
                 Kind::Html => {
                     let (t, _) = decode_text(&bytes, &mime, MAX_HTML_BYTES as usize);
                     let (page, height) = render_doc(&t, width, scale);
-                    Shown::Doc { page, height, head: None }
+                    Shown::Doc { page, height, width, body: t, head: None }
                 }
                 _ => { let (t, cut) = decode_text(&bytes, &mime, TEXT_SHOW_BYTES); Shown::Text(t, cut) }
             })
@@ -1036,9 +1174,11 @@ fn preview_done(u: &AppWindow, gen: u64, shown: Shown) {
             x.set_p_note(if cut { "Only the beginning of the file is shown. Download it to see all of it.".into() } else { "".into() });
             x.set_p_state("text".into());
         }
-        Shown::Doc { page, height, head } => {
+        Shown::Doc { page, height, width, body, head } => {
             x.set_p_doc(slint::Image::from_rgba8(page));
             x.set_p_doc_height(height);
+            x.set_p_doc_width(width);
+            VIEW.with(|v| v.borrow_mut().doc = Some((body, width)));
             if let Some(h) = head {
                 x.set_p_eml(true);
                 x.set_p_from(h.from.into());
@@ -1055,8 +1195,9 @@ fn preview_done(u: &AppWindow, gen: u64, shown: Shown) {
 }
 
 pub fn close_preview(u: &AppWindow) {
-    VIEW.with(|v| { let mut v = v.borrow_mut(); v.gen += 1; v.preview = None; });
+    VIEW.with(|v| { let mut v = v.borrow_mut(); v.gen += 1; v.preview = None; v.doc = None; });
     let x = u.global::<FilesV>();
+    if !x.get_p_open() { return; }
     x.set_p_open(false);
     // the pictures go with it
     x.set_p_image(Default::default());
@@ -1142,6 +1283,8 @@ pub fn wire(ui: &AppWindow, st: crate::Shared) {
     x.on_p_close(move || { if let Some(u) = w.upgrade() { close_preview(&u); } });
     let w = ui.as_weak();
     x.on_p_go(move |d| { if let Some(u) = w.upgrade() { preview_go(&u, d); } });
+    let w = ui.as_weak();
+    x.on_p_resized(move || { if let Some(u) = w.upgrade() { resized(&u); } });
     let w = ui.as_weak();
     x.on_p_download(move || { if let (Some(u), Some(k)) = (w.upgrade(), preview_key()) { u.invoke_fl_download(k.into()); } });
     let (w, c3) = (ui.as_weak(), cl);
@@ -1310,7 +1453,7 @@ mod tests {
         assert!(!can_thumb("a.jpg", "image/jpeg", 10, true, false));
         assert!(!can_thumb("a.txt", "text/plain", 10, true, true));
         assert!(!can_thumb("a.avif", "image/avif", 10, true, true));
-        assert!(can_thumb("a.svg", "", 10, true, true));
+        assert!(!can_thumb("a.svg", "", 10, true, true));
     }
 
     #[test]
@@ -1369,12 +1512,61 @@ mod tests {
 
     #[test]
     fn svg_is_drawn_without_following_references() {
-        let svg = br#"<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="40" height="20"><rect width="40" height="20" fill="red"/><image href="C:/Windows/win.ini" width="10" height="10"/><image xlink:href="https://example.com/x.png" width="10" height="10"/></svg>"#;
-        let b = render_svg(svg, 100).unwrap();
+        // a real PNG on disk (colour 1,2,3) that the SVG points at by absolute path and file URL
+        let dir = std::env::temp_dir().join(format!("barbican-files-view-svg-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("dot.png");
+        std::fs::write(&file, png(10, 10)).unwrap();
+        let path = file.to_string_lossy().replace('\\', "/");
+        let svg = format!(
+            r#"<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="40" height="20"><rect width="40" height="20" fill="red"/><image href="{path}" width="20" height="20"/><image xlink:href="file:///{path}" x="20" width="20" height="20"/><image xlink:href="https://example.com/x.png" width="10" height="10"/></svg>"#
+        );
+        let b = render_svg(svg.as_bytes(), 100).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
         assert_eq!((b.width(), b.height()), (100, 50));
-        let px = b.as_slice()[0];
-        assert_eq!((px.r, px.a), (255, 255));
+        // every pixel is the red rectangle: neither picture was drawn
+        assert!(b.as_slice().iter().all(|p| (p.r, p.g, p.b, p.a) == (255, 0, 0, 255)));
+        // the same picture inline (data:) is drawn: the refusal above is the resolver, not a
+        // renderer that cannot draw pictures
+        use base64::Engine;
+        let data = base64::engine::general_purpose::STANDARD.encode(png(10, 10));
+        let svg = format!(r#"<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20"><rect width="40" height="20" fill="red"/><image href="data:image/png;base64,{data}" width="20" height="20"/></svg>"#);
+        let b = render_svg(svg.as_bytes(), 100).unwrap();
+        let px = b.as_slice()[100 * 10 + 10];
+        assert_eq!((px.r, px.g, px.b, px.a), (1, 2, 3, 255));
         assert!(render_svg(b"<nope", 100).is_err());
+        // the drawn size is capped whatever is asked
+        let b = render_svg(br#"<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>"#, 100_000).unwrap();
+        assert_eq!((b.width(), b.height()), (SHOW_EDGE, SHOW_EDGE));
+    }
+
+    #[test]
+    fn svg_bombs_are_refused_quickly() {
+        let started = std::time::Instant::now();
+        // 2^40 copies of a rectangle through 40 levels of two <use> each
+        let mut svg = String::from(r#"<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><defs><g id="a0"><rect width="1" height="1"/></g>"#);
+        for i in 1..=40 { svg += &format!(r##"<g id="a{i}"><use href="#a{p}"/><use href="#a{p}"/></g>"##, p = i - 1); }
+        svg += r##"</defs><use href="#a40"/></svg>"##;
+        assert_eq!(render_svg(svg.as_bytes(), 100).unwrap_err(), "The picture is too complex to preview.");
+        // the same through url(#…) paint servers
+        let mut svg = String::from(r#"<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><defs><pattern id="p0" width="1" height="1"><rect width="1" height="1"/></pattern>"#);
+        for i in 1..=40 { svg += &format!(r##"<pattern id="p{i}" width="1" height="1"><rect width="1" height="1" fill="url(#p{p})"/><rect width="1" height="1" style="fill: url('#p{p}')"/></pattern>"##, p = i - 1); }
+        svg += r##"</defs><rect width="10" height="10" fill="url(#p40)"/></svg>"##;
+        assert_eq!(render_svg(svg.as_bytes(), 100).unwrap_err(), "The picture is too complex to preview.");
+        // entity expansion (billion laughs): no DTD at all
+        let mut svg = String::from(r#"<?xml version="1.0"?><!DOCTYPE svg [<!ENTITY l0 "lol">"#);
+        for i in 1..=20 { svg += &format!(r#"<!ENTITY l{i} "&l{p};&l{p};&l{p};&l{p};&l{p};&l{p};&l{p};&l{p};&l{p};&l{p};">"#, p = i - 1); }
+        svg += r#"]><svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><text>&l20;</text></svg>"#;
+        assert!(render_svg(svg.as_bytes(), 100).is_err());
+        // too many nodes, and too deep
+        let wide = format!(r#"<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10">{}</svg>"#, "<g/>".repeat(150_000));
+        assert_eq!(render_svg(wide.as_bytes(), 100).unwrap_err(), "The picture is too complex to preview.");
+        let deep = format!(r#"<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10">{}{}</svg>"#, "<g>".repeat(500), "</g>".repeat(500));
+        assert_eq!(render_svg(deep.as_bytes(), 100).unwrap_err(), "The picture is too complex to preview.");
+        // a reference back into itself is not a bomb
+        let own = br##"<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><g id="s"><use href="#s"/><rect width="10" height="10" fill="red"/></g></svg>"##;
+        assert!(render_svg(own, 10).is_ok());
+        assert!(started.elapsed() < std::time::Duration::from_secs(5), "{:?}", started.elapsed());
     }
 
     #[test]

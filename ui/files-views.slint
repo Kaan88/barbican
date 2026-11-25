@@ -91,8 +91,18 @@ export global FilesV {
     in-out property <string> p-atts;
     in-out property <bool> p-has-prev;
     in-out property <bool> p-has-next;
-    // the body's width in logical px (a document is drawn for it)
-    in-out property <length> p-width: 760px;
+    // the width a document was drawn for, in logical px (it is shown at that size, never
+    // stretched); the body area says when it changes size and Rust draws it again (debounced)
+    in-out property <float> p-doc-width: 760;
+    callback p-resized();
+    // a scrolling key (Up, Down, Page Up, Page Down, Home, End) for the text or document on show
+    in-out property <string> p-key;
+    in-out property <int> p-key-tick;
+    public pure function scrolled(y: length, visible: length, total: length) -> length {
+        if p-key == Key.Home { return 0px; }
+        if p-key == Key.End { return min(0px, visible - total); }
+        return max(min(0px, y + (p-key == Key.UpArrow ? 40px : p-key == Key.DownArrow ? -40px : p-key == Key.PageUp ? max(40px, visible - 40px) : p-key == Key.PageDown ? -max(40px, visible - 40px) : 0px)), min(0px, visible - total));
+    }
     callback p-close();
     callback p-go(int);
     callback p-download();
@@ -397,8 +407,7 @@ export component FilePreview inherits Rectangle {
         // body
         area := Rectangle {
             vertical-stretch: 1;
-            init => { FilesV.p-width = min(1100px, self.width - 48px); }
-            changed width => { FilesV.p-width = min(1100px, self.width - 48px); }
+            changed width => { FilesV.p-resized(); }
             if FilesV.p-state == "loading": Text { text: "Loading…"; color: #ffffffcc; font-size: 13px * Prefs.fs; }
             if FilesV.p-state == "error" || FilesV.p-state == "none": Rectangle {
                 width: min(420px, parent.width - 32px);
@@ -443,7 +452,9 @@ export component FilePreview inherits Rectangle {
                         background: Theme.amber-bg;
                         Text { x: 14px; text: FilesV.p-note; color: Theme.amber-fg; font-size: 12px * Prefs.fs; vertical-alignment: center; height: parent.height; overflow: elide; }
                     }
-                    ScrollView {
+                    tsv := ScrollView {
+                        property <int> tick: FilesV.p-key-tick;
+                        changed tick => { self.content-y = FilesV.scrolled(self.content-y, self.visible-height, self.content-height); }
                         vertical-stretch: 1;
                         content-width: self.visible-width;
                         content-height: tx.preferred-height + 32px;
@@ -463,7 +474,7 @@ export component FilePreview inherits Rectangle {
             if FilesV.p-state == "doc": Rectangle {
                 x: (parent.width - self.width) / 2;
                 y: 16px;
-                width: FilesV.p-width;
+                width: min(FilesV.p-doc-width * 1px, parent.width - 32px);
                 height: parent.height - 32px;
                 border-radius: 14px;
                 background: #ffffff;
@@ -486,10 +497,13 @@ export component FilePreview inherits Rectangle {
                         }
                     }
                     ScrollView {
+                        property <int> tick: FilesV.p-key-tick;
+                        changed tick => { self.content-y = FilesV.scrolled(self.content-y, self.visible-height, self.content-height); }
                         vertical-stretch: 1;
-                        content-width: self.visible-width;
+                        // drawn at this width: a narrower window scrolls sideways instead of squeezing it
+                        content-width: max(self.visible-width, FilesV.p-doc-width * 1px);
                         content-height: FilesV.p-doc-height * 1px;
-                        Image { x: 0; y: 0; width: FilesV.p-width; height: FilesV.p-doc-height * 1px; source: FilesV.p-doc; image-fit: fill; }
+                        Image { x: 0; y: 0; width: FilesV.p-doc-width * 1px; height: FilesV.p-doc-height * 1px; source: FilesV.p-doc; image-fit: fill; }
                     }
                 }
             }
