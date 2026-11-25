@@ -511,7 +511,8 @@ pub fn run(cfg: &Config, c: &Client, history: &mut Vec<Msg>, ctx: &Ctx, host: &d
                 None => format!("Error: unknown tool {}", call.name),
                 Some(t) => {
                     host.progress(format!("{} {}", icon(t.name), label(t.name, &call.args)));
-                    let need = t.write && (cfg.actions == 1 || t.name == "send_email");
+                    let to_trash = t.name == "move_messages" && moves_to_trash(c, &call.args);
+                    let need = t.write && (cfg.actions == 1 || to_trash || always_confirm(t.name, &call.args));
                     let n = id_list(&call.args, ctx).len();
                     if need && !host.confirm(describe(t.name, &call.args, n)) {
                         "The user declined this action. Do not retry it unless they ask.".to_string()
@@ -529,6 +530,29 @@ pub fn run(cfg: &Config, c: &Client, history: &mut Vec<Msg>, ctx: &Ctx, host: &d
         history.push(Msg::Results(results));
     }
     Err("Stopped after too many steps.".into())
+}
+
+/// Whether a move goes to the Trash folder, found by its server role (the model may name it by id
+/// or by a translated name). If the folder list cannot be read, the move counts as one to ask about.
+fn moves_to_trash(c: &Client, args: &Value) -> bool {
+    let f = args.get("folder").and_then(|v| v.as_str()).unwrap_or("");
+    match find_folder(c, f) {
+        Ok(id) => c.mailboxes().map(|l| l.iter().any(|m| m["id"].as_str() == Some(id.as_str()) && m["role"].as_str() == Some("trash"))).unwrap_or(true),
+        Err(_) => false,
+    }
+}
+
+/// Actions the user confirms even in Automatic mode: sending, deleting, and removing a filter rule
+/// (the Thunderbird assistant this one follows always asks before sending or deleting).
+fn always_confirm(name: &str, args: &Value) -> bool {
+    match name {
+        "send_email" | "delete_messages" | "remove_filter_rule" => true,
+        "move_messages" => {
+            let f = args.get("folder").and_then(|v| v.as_str()).unwrap_or("").trim().to_lowercase();
+            matches!(f.as_str(), "trash" | "deleted" | "bin" | "deleted items")
+        }
+        _ => false,
+    }
 }
 
 pub fn icon(name: &str) -> &'static str {
@@ -570,4 +594,22 @@ pub fn from_json(v: &Value) -> Vec<Msg> {
         }
         m["r"].as_array().map(|r| Msg::Results(r.iter().map(|x| (x[0].as_str().unwrap_or("").into(), x[1].as_str().unwrap_or("").into())).collect()))
     }).collect()).unwrap_or_default()
+}
+
+#[cfg(test)]
+mod confirm_tests {
+    use super::*;
+
+    #[test]
+    fn sending_and_deleting_always_ask() {
+        let none = serde_json::json!({});
+        assert!(always_confirm("send_email", &none));
+        assert!(always_confirm("delete_messages", &none));
+        assert!(always_confirm("remove_filter_rule", &none));
+        assert!(always_confirm("move_messages", &serde_json::json!({"folder": "Trash"})));
+        assert!(always_confirm("move_messages", &serde_json::json!({"folder": " bin "})));
+        assert!(!always_confirm("move_messages", &serde_json::json!({"folder": "Projects"})));
+        assert!(!always_confirm("mark_messages", &none));
+        assert!(!always_confirm("archive_messages", &none));
+    }
 }
