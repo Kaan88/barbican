@@ -841,11 +841,11 @@ impl Settings {
                 let p = value.as_i64().unwrap_or(0) as i32;
                 if p != cfg.provider {
                     cfg.provider = p;
-                    cfg.base = crate::ai::DEFAULTS[p as usize].0.into();
+                    cfg.set_base(crate::ai::DEFAULTS[p as usize].0);
                     cfg.model = crate::ai::DEFAULTS[p as usize].1.into();
                 }
             }
-            "ai.base" => cfg.base = value.as_str().unwrap_or("").trim().into(),
+            "ai.base" => cfg.set_base(value.as_str().unwrap_or("")),
             "ai.key" => cfg.key = value.as_str().unwrap_or("").trim().into(),
             "ai.model" => {
                 let m = value.as_str().unwrap_or("").trim();

@@ -40,7 +40,7 @@ impl Config {
         let v: Value = std::fs::read_to_string(path()).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or(json!({}));
         // the first load is at startup, before a settings file can be imported: a key entry an
         // earlier build wrote without its origin is bound to the address it is used with now
-        crate::assistant::config::bind_unbound_keys(&v);
+        crate::assistant::config::bind_unbound_keys();
         let provider = (v["provider"].as_i64().unwrap_or(0) as i32).clamp(0, 1);
         let d = DEFAULTS[provider as usize];
         Config {
@@ -58,6 +58,13 @@ impl Config {
             render_mode: (v["renderMode"].as_i64().unwrap_or(0) as i32).clamp(0, 2),
             remote_images: v["remoteImages"].as_bool().unwrap_or(false),
         }
+    }
+
+    /// The user's own edit of the address (the settings page; imports and sync never edit `ai.`
+    /// settings, and the assistant may not): the stored key moves with it to the new origin.
+    pub fn set_base(&mut self, base: &str) {
+        self.base = base.trim().into();
+        crate::assistant::config::rebind_old_key(&self.key, &self.base);
     }
 
     pub fn save(&self) {
@@ -289,7 +296,7 @@ mod save_tests {
         let moved = Config { base: "https://elsewhere.example.test/v1".into(), ..c.clone() };
         assert_eq!(
             moved.post(json!({})).unwrap_err(),
-            "The OpenAI-compatible API key was saved for https://home.example.test, not for https://elsewhere.example.test. Enter the key again in the settings to use it with this address."
+            "The OpenAI-compatible API key was saved for https://home.example.test, not for https://elsewhere.example.test. To use it with https://elsewhere.example.test, enter that address in the settings yourself, or clear the key and enter it again."
         );
         // saving it there keeps the origin; only a changed key binds to the new address
         moved.save();
