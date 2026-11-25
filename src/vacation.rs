@@ -814,10 +814,13 @@ pub fn serialized<T>(c: &Client, f: impl FnOnce() -> T) -> T {
     // per server and login too: two servers can hand out the same short account id
     let lock = LOCKS.get_or_init(Default::default).lock().unwrap().entry(c.state_key()).or_default().clone();
     let _g = lock.lock().unwrap_or_else(|e| e.into_inner());
+    // cleared by a guard: a panic in `f` (caught by the write loop) must not leave the next job
+    // on this thread running without the lock
+    struct Held;
+    impl Drop for Held { fn drop(&mut self) { HELD.with(|h| h.set(false)); } }
     HELD.with(|h| h.set(true));
-    let r = f();
-    HELD.with(|h| h.set(false));
-    r
+    let _held = Held;
+    f()
 }
 
 /// Bring the busy event in line with the reply. Never throws into the save: the caller logs.

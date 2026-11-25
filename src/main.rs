@@ -1318,9 +1318,11 @@ fn main() -> Result<(), slint::PlatformError> {
                         let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| job(&c)))
                             .unwrap_or_else(|_| Err("an internal error stopped this change".into()));
                         if let Err(e) = res {
-                            let _ = w.upgrade_in_event_loop(move |u| { mail::show_toast(&u, &format!("Not saved: {e}"), false); u.invoke_settings_search(u.get_settings_query()); });
+                            let _ = w.upgrade_in_event_loop(move |u| mail::show_toast(&u, &format!("Not saved: {e}"), false));
                         }
                     }
+                    // what the writes changed (a hint, a "Still running" row) shows without a tab change
+                    let _ = w.upgrade_in_event_loop(|u| u.invoke_settings_search(u.get_settings_query()));
                 });
             }));
         })

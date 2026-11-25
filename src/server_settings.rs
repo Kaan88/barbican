@@ -49,6 +49,9 @@ pub struct Cache {
     /// The forwarding address was typed and not stored yet (a save with forwarding off and
     /// nothing stored keeps it in the field only, as Bulwark does).
     pub fwd_typed: bool,
+    /// The last write switched the reply off on the server but the filters script still runs it
+    /// (the page shows "Still running"). Cleared by the next write of the filters part that works.
+    pub vac_off_failed: bool,
     pub scripts: Vec<Value>,
     pub script_text: String,
     pub script_status: String,
@@ -430,7 +433,7 @@ fn keep_vacation(g: &mut Cache, old: Cache) {
     g.vac_src = old.vac_src;
     (g.vac_from_txt, g.vac_to_txt, g.vac_from_pending, g.vac_to_pending) = (old.vac_from_txt, old.vac_to_txt, old.vac_from_pending, old.vac_to_pending);
     (g.vac_reply_dirty, g.vac_forward_dirty, g.vac_audience_dirty) = (old.vac_reply_dirty, old.vac_forward_dirty, old.vac_audience_dirty);
-    (g.vac_sync_dirty, g.fwd_typed) = (old.vac_sync_dirty, old.fwd_typed);
+    (g.vac_sync_dirty, g.fwd_typed, g.vac_off_failed) = (old.vac_sync_dirty, old.fwd_typed, old.vac_off_failed);
 }
 
 fn s(v: &str) -> SharedString { SharedString::from(v) }
@@ -470,7 +473,7 @@ fn clear_vacation(k: &mut Cache) {
     k.vac_src = 0;
     (k.vac_from_txt, k.vac_to_txt, k.vac_from_pending, k.vac_to_pending) = (None, None, false, false);
     (k.vac_reply_dirty, k.vac_forward_dirty, k.vac_audience_dirty) = (false, false, None);
-    (k.vac_sync_dirty, k.fwd_typed) = (false, false);
+    (k.vac_sync_dirty, k.fwd_typed, k.vac_off_failed) = (false, false, false);
 }
 
 /// The out-of-office fields are loaded and belong to the account the pages are for.
@@ -1330,8 +1333,9 @@ fn vacation_rows(k: &Cache, mut out: Vec<SRow>, block_on: bool) -> Vec<SRow> {
     let f = k.vac_filters.clone().unwrap_or_default();
     let tz = vac::user_tz();
     out.push(row("toggle", "server.vacation.isEnabled", "Automatic reply", "On while the dates below apply (or always, without dates).", "", v["isEnabled"] == true));
-    if v["isEnabled"] != true && f.includes_vacation {
-        // switched off here, but the filters script still includes the server's vacation script
+    if k.vac_off_failed && v["isEnabled"] != true && f.includes_vacation {
+        // switching off reached the server, but the filters script still includes its vacation
+        // script (an edit not written yet is not a failure: the script still has it until then)
         out.push(row("button", "server.vacation.retry", "Still running", "The reply is off here, but the filters script still sends it: switching it off there did not go through. It is tried again with your next change.", "Try again", false));
     }
     if f.not_running {
@@ -1620,9 +1624,11 @@ pub fn vacation_run(c: &Client, shared: &Shared) -> Result<(), String> {
         }
         // read before the cache's lock is taken: the page never waits for the server
         let filters = vac::load_filters(c);
+        let mut still_running = false;
         if let Some(e) = res.as_ref().err().cloned() {
             // switched off, and the filters script still runs the reply: the page says so
             if !plan.after.is_enabled && filters.as_ref().is_some_and(|f| f.includes_vacation) {
+                still_running = true;
                 res = Err(format!("The reply is still being sent: switching it off in the filters script did not go through ({e}). It is tried again with your next change."));
             }
         }
@@ -1630,6 +1636,8 @@ pub fn vacation_run(c: &Client, shared: &Shared) -> Result<(), String> {
             let mut k = shared.lock().unwrap_or_else(|e| e.into_inner());
             if same_vacation(&k, &key, epoch) {
                 k.vac_saved = Some(plan.after.clone());
+                // only a write of the filters part speaks for it (a failed one is written again next)
+                if plan.touches_filters || plan.after.is_enabled { k.vac_off_failed = still_running; }
                 // the reply is on the server, its filters part is not: all of it waits to be written
                 // again as set on the page (Bulwark keeps forwarding and recipients too), and a
                 // reload keeps the page's "off" rather than showing what the script still does
@@ -2589,7 +2597,11 @@ mod tests {
         let shared: Shared = Arc::new(Mutex::new(vac_cache(true, "Away")));
         let log = Log::default();
         let c = fake_with("A", &SIEVE_CAPS, &log, sieve_server(script, json!({"isEnabled": false, "subject": "Away", "textBody": "Away", "fromDate": null, "toDate": null})));
+        shared.lock().unwrap().vac_filters = Some(crate::vacation::Filters { includes_vacation: true, ..Default::default() });
         assert_eq!(apply_edit("isEnabled", &json!(false), &mut shared.lock().unwrap_or_else(|e| e.into_inner())), Edit::Save);
+        // switched off and not written yet: the script still has the include, which is no failure
+        let prefs = crate::settings::Settings::with_prefs(Default::default());
+        assert!(!rows("vacation", &shared, &prefs).unwrap().iter().any(|r| r.key.as_str() == "server.vacation.retry"));
         let res = vacation_run(&c, &shared);
         assert!(matches!(&res, Err(e) if e.contains("still being sent")), "{res:?}");
         assert_eq!(sets(&log)[0]["update"]["singleton"]["isEnabled"], false);
@@ -2599,7 +2611,6 @@ mod tests {
             assert!(k.vac_filters.as_ref().is_some_and(|f| f.includes_vacation));
             assert!(k.vac_reply_dirty && k.vac_sync_dirty, "the off waits to be written again");
         }
-        let prefs = crate::settings::Settings::with_prefs(Default::default());
         let r = rows("vacation", &shared, &prefs).unwrap();
         assert!(r.iter().any(|r| r.key.as_str() == "server.vacation.retry" && r.label.as_str() == "Still running"));
         // reopening the page keeps "off" (the server's include alone would read as on); the next
