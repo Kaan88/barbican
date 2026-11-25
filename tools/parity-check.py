@@ -15,7 +15,7 @@ from collections import Counter
 
 HEADER = ["id", "area", "feature", "bulwark_ref", "rust_status",
           "rust_call_site", "csharp_spec", "phase", "size"]
-STATUSES = ["done", "partial", "missing", "unverified"]
+STATUSES = ["done", "partial", "missing", "unverified", "wont-do"]
 ALLOWED_PHASES = [0, 1, 2, 3, 4, 5, 6, 7]
 
 
@@ -48,6 +48,8 @@ def main(path):
             by_status[r["rust_status"]] += 1
         if r["rust_status"] == "done" and not r["rust_call_site"].strip():
             errors.append(f"line {n}: status done needs a rust_call_site ({row_id})")
+        if r["rust_status"] == "wont-do" and not r["rust_call_site"].strip():
+            errors.append(f"line {n}: status wont-do needs the reason in rust_call_site ({row_id})")
         phase = r["phase"].strip()
         if re.fullmatch(r"[0-9]+", phase) and int(phase) in ALLOWED_PHASES:
             by_phase[int(phase)] += 1

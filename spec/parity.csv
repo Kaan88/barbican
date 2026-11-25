@@ -265,12 +265,12 @@ S-keyless-009,settings-account,Your addresses,settings-schema.json (page account
 S-keyless-010,settings-account,Sub-addressing,settings-schema.json (page account),missing,,S-keyless-010,3,S
 S-keyless-011,settings-security,Two-step sign-in,settings-schema.json (page security),missing,,S-keyless-011,3,S
 S-keyless-012,settings-security,Two-step sign-in,settings-schema.json (page security),missing,,S-keyless-012,3,S
-S-keyless-013,settings-security,Lock with a PIN,settings-schema.json (page security),missing,,S-keyless-013,3,S
-S-keyless-014,settings-security,Unlock with Windows Hello,settings-schema.json (page security),missing,,S-keyless-014,3,S
-S-keyless-015,settings-security,Lock after,settings-schema.json (page security),missing,,S-keyless-015,3,S
-S-keyless-016,settings-security,Lock now,settings-schema.json (page security),missing,,S-keyless-016,3,S
-S-keyless-017,settings-security,PIN,settings-schema.json (page security),missing,,S-keyless-017,3,S
-S-keyless-018,settings-security,Passkey,settings-schema.json (page security),missing,,S-keyless-018,3,S
+S-keyless-013,settings-security,Lock with a PIN,settings-schema.json (page security),done,"src/applock.rs (PIN: PBKDF2, backoff, lock screen)",S-keyless-013,3,S
+S-keyless-014,settings-security,Unlock with Windows Hello,settings-schema.json (page security),done,"src/applock.rs (Windows Hello via UserConsentVerifier)",S-keyless-014,3,S
+S-keyless-015,settings-security,Lock after,settings-schema.json (page security),partial,"src/applock.rs (no "When the screen locks" option)",S-keyless-015,3,S
+S-keyless-016,settings-security,Lock now,settings-schema.json (page security),done,"src/applock.rs (Lock now)",S-keyless-016,3,S
+S-keyless-017,settings-security,PIN,settings-schema.json (page security),done,"src/applock.rs (change PIN)",S-keyless-017,3,S
+S-keyless-018,settings-security,Passkey,settings-schema.json (page security),wont-do,"browser WebAuthn passkey; not applicable to a desktop app",S-keyless-018,3,S
 S-keyless-019,settings-notifications,Turn on for this device,settings-schema.json (page notifications),missing,,S-keyless-019,6,S
 S-keyless-020,settings-general,Introductory tour,settings-schema.json (page general),missing,,S-keyless-020,6,S
 S-keyless-021,settings-general,Language,settings-schema.json (page general),missing,,S-keyless-021,7,S
