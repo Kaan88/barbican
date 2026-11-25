@@ -157,7 +157,8 @@ fn load_allowed(path: &str, hash: &str) -> Result<(), String> {
 
 /// Messages for the user (a plugin was switched off); the UI shows them as toasts.
 pub fn drain_notices() -> Vec<String> {
-    std::mem::take(&mut *NOTICES.lock().unwrap_or_else(|e| e.into_inner()))
+    // the last error is the plugin's own text
+    std::mem::take(&mut *NOTICES.lock().unwrap_or_else(|e| e.into_inner())).iter().map(|n| shown(n, MAX_SHOWN)).collect()
 }
 
 impl Plugin {
@@ -278,15 +279,20 @@ fn parse_manifest(v: &Value) -> Result<Meta, String> {
             decl: Declared { api: 2, author: m.author, permissions: m.permissions, optional_permissions: m.optional_permissions,
                 http_origins: m.http_origins, slots: m.slots, package: None } });
     }
-    Ok(Meta {
-        id: v["id"].as_str().filter(|s| !s.is_empty() && !s.starts_with("file:") && !s.chars().any(char::is_control))
-            .ok_or("manifest has no usable id (empty, starts with file:, or has control characters)")?.to_string(),
-        name: v["name"].as_str().unwrap_or("Plugin").to_string(),
-        version: v["version"].as_str().unwrap_or("").to_string(),
-        description: v["description"].as_str().unwrap_or("").to_string(),
-        hooks: v["hooks"].as_array().map(|a| a.iter().filter_map(|h| h.as_str().map(String::from)).collect()).unwrap_or_default(),
-        decl: Declared { api: 1, ..Declared::default() },
-    })
+    let id = v["id"].as_str().filter(|s| !s.is_empty() && s.len() <= 128 && !s.starts_with("file:") && is_plain(s))
+        .ok_or("manifest has no usable id (empty, too long, starts with file:, or has control, direction or zero-width characters)")?.to_string();
+    // the same plain-text rules as API 2: these are shown in Settings and in the consent dialog
+    let mut errors = vec![];
+    let name = plain_text(v, "name", 100, false, &mut errors);
+    let version = plain_text(v, "version", 64, false, &mut errors);
+    let description = plain_text(v, "description", 1000, false, &mut errors);
+    let hooks = string_list(v, "hooks", &mut errors);
+    for h in &hooks {
+        if h.is_empty() || h.chars().count() > 100 || !is_plain(h) { errors.push(format!("hook \"{}\" must be a plain name of at most 100 characters", quoted(h))); }
+    }
+    if !errors.is_empty() { return Err(errors.join("; ")); }
+    Ok(Meta { id, name: if name.trim().is_empty() { "Plugin".into() } else { name }, version, description, hooks,
+        decl: Declared { api: 1, ..Declared::default() } })
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -472,11 +478,12 @@ pub fn valid_semver(v: &str) -> bool {
     v.len() <= 64 && re.is_match(v)
 }
 
-/// `major.minor.patch` of a version, ignoring pre-release and build parts.
-fn version_triple(v: &str) -> (u64, u64, u64) {
+/// `major.minor.patch` of a version, ignoring pre-release and build parts; `None` when it has not three numbers or
+/// one of them does not fit in 64 bits (it is never read as 0).
+fn version_triple(v: &str) -> Option<(u64, u64, u64)> {
     let core = v.split(['-', '+']).next().unwrap_or("");
-    let mut it = core.split('.').map(|x| x.parse::<u64>().unwrap_or(0));
-    (it.next().unwrap_or(0), it.next().unwrap_or(0), it.next().unwrap_or(0))
+    let n: Vec<u64> = core.split('.').map(|x| x.parse::<u64>().ok()).collect::<Option<_>>()?;
+    match n[..] { [a, b, c] => Some((a, b, c)), _ => None }
 }
 
 /// True when `host` is an IP address in any spelling a URL parser accepts: IPv6 in brackets (or with a colon), and
@@ -573,7 +580,7 @@ pub fn installed_identity(dir: &std::path::Path) -> Option<(String, String, Stri
 /// literal, no bare `*`, ASCII (punycode) names. Returns it in lower case.
 pub fn check_origin(raw: &str) -> Result<String, String> {
     let s = raw.trim().to_ascii_lowercase();
-    let bad = |why: &str| Err(format!("httpOrigins entry \"{raw}\": {why}"));
+    let bad = |why: &str| Err(format!("httpOrigins entry \"{}\": {why}", quoted(raw)));
     let Some(rest) = s.strip_prefix("https://") else {
         return bad(if s.starts_with("http://") { "plain http is not allowed, use https" } else { "must start with https://" });
     };
@@ -608,24 +615,50 @@ pub fn origin_host(origin: &str) -> &str {
     rest.rsplit_once(':').map_or(rest, |(h, _)| h)
 }
 
+/// Most entries in one manifest list (`permissions`, `hooks`, ...): more than any real plugin needs.
+const MAX_LIST_ENTRIES: usize = 500;
+
 fn string_list(v: &Value, key: &str, errors: &mut Vec<String>) -> Vec<String> {
     match &v[key] {
         Value::Null => vec![],
+        Value::Array(a) if a.len() > MAX_LIST_ENTRIES => { errors.push(format!("\"{key}\" has more than {MAX_LIST_ENTRIES} entries")); vec![] }
         Value::Array(a) if a.iter().all(Value::is_string) => {
-            let mut out: Vec<String> = vec![];
-            for s in a.iter().filter_map(|x| x.as_str()) { if !out.iter().any(|o| o == s) { out.push(s.to_string()); } }
-            out
+            let mut seen = std::collections::HashSet::new();
+            a.iter().filter_map(|x| x.as_str()).filter(|s| seen.insert(*s)).map(String::from).collect()
         }
         _ => { errors.push(format!("\"{key}\" must be a list of strings")); vec![] }
     }
 }
 
+/// Direction marks and overrides, zero-width and other invisible format characters: they make text read differently
+/// from what it is (a name that looks reversed, two names that look the same).
+pub fn is_invisible(c: char) -> bool {
+    matches!(c, '\u{00AD}' | '\u{061C}' | '\u{180E}' | '\u{200B}'..='\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2060}'..='\u{2064}'
+        | '\u{2066}'..='\u{206F}' | '\u{FEFF}' | '\u{FFF9}'..='\u{FFFB}')
+}
+
+/// Text that is safe to show as one line: no control characters and no [`is_invisible`] ones.
+fn is_plain(s: &str) -> bool { !s.chars().any(|c| c.is_control() || is_invisible(c)) }
+
+/// Longest text from a plugin or its manifest shown in a toast or in the Add-ons errors.
+pub const MAX_SHOWN: usize = 300;
+
+/// Text that came from a plugin (a manifest value, an error message) made fit to show: control characters become
+/// spaces, invisible ones are dropped, and it is cut to `max` characters.
+pub fn shown(s: &str, max: usize) -> String {
+    let clean: String = s.chars().filter(|c| !is_invisible(*c)).map(|c| if c.is_control() { ' ' } else { c }).collect();
+    if clean.chars().count() <= max { clean } else { format!("{}…", clean.chars().take(max).collect::<String>()) }
+}
+
+/// A manifest value quoted inside an error message: [`shown`], at most 64 characters.
+fn quoted(s: &str) -> String { shown(s, 64) }
+
 fn plain_text(v: &Value, key: &str, max: usize, required: bool, errors: &mut Vec<String>) -> String {
     match &v[key] {
-        Value::String(s) if s.chars().count() <= max && !s.chars().any(char::is_control) && (!required || !s.trim().is_empty()) => s.clone(),
+        Value::String(s) if s.chars().count() <= max && is_plain(s) && (!required || !s.trim().is_empty()) => s.clone(),
         Value::Null if !required => String::new(),
         Value::Null => { errors.push(format!("\"{key}\" is missing")); String::new() }
-        _ => { errors.push(format!("\"{key}\" must be text of at most {max} characters without control characters")); String::new() }
+        _ => { errors.push(format!("\"{key}\" must be text of at most {max} characters without control, direction or zero-width characters")); String::new() }
     }
 }
 
@@ -644,7 +677,7 @@ fn check_settings(v: &Value, errors: &mut Vec<String>) -> Value {
     let mut out = serde_json::Map::new();
     for (k, f) in obj {
         let e0 = errors.len();
-        let bad = |why: &str| format!("setting \"{k}\": {why}");
+        let bad = |why: &str| format!("setting \"{}\": {why}", quoted(k));
         if !valid_key(k) { errors.push(bad("the key must be 1-64 characters of A-Z a-z 0-9 . _ -")); continue; }
         let kind = f["type"].as_str().unwrap_or("");
         if !matches!(kind, "boolean" | "string" | "number" | "select" | "secret") {
@@ -694,10 +727,10 @@ pub fn validate_manifest(v: &Value) -> Result<Manifest, String> {
         _ => errors.push("\"api\" must be 2 (an API 1 plugin is a single library dropped into the plugins folder)".into()),
     }
     let id = v["id"].as_str().unwrap_or("").to_string();
-    if !valid_id(&id) { errors.push(format!("\"id\" \"{id}\" must be 3-64 characters of a-z 0-9 . _ -, start with a letter and not end with a dot")); }
+    if !valid_id(&id) { errors.push(format!("\"id\" \"{}\" must be 3-64 characters of a-z 0-9 . _ -, start with a letter and not end with a dot", quoted(&id))); }
     let name = plain_text(v, "name", 100, true, &mut errors);
     let version = v["version"].as_str().unwrap_or("").to_string();
-    if !valid_semver(&version) { errors.push(format!("\"version\" \"{version}\" must be a semantic version such as 1.2.3")); }
+    if !valid_semver(&version) { errors.push(format!("\"version\" \"{}\" must be a semantic version such as 1.2.3", quoted(&version))); }
     let author = plain_text(v, "author", 200, false, &mut errors);
     let description = plain_text(v, "description", 1000, false, &mut errors);
     let homepage = plain_text(v, "homepage", 500, false, &mut errors);
@@ -705,7 +738,7 @@ pub fn validate_manifest(v: &Value) -> Result<Manifest, String> {
     let min_app_version = plain_text(v, "minAppVersion", 64, false, &mut errors);
     if !min_app_version.is_empty() {
         if !valid_semver(&min_app_version) { errors.push("\"minAppVersion\" must be a semantic version such as 0.5.0".into()); }
-        else if version_triple(&min_app_version) > version_triple(env!("CARGO_PKG_VERSION")) {
+        else if !version_triple(&min_app_version).zip(version_triple(env!("CARGO_PKG_VERSION"))).is_some_and(|(need, have)| need <= have) {
             errors.push(format!("needs Barbican {min_app_version} or later (this is {})", env!("CARGO_PKG_VERSION")));
         }
     }
@@ -717,7 +750,7 @@ pub fn validate_manifest(v: &Value) -> Result<Manifest, String> {
             let ext = match k.split('-').next().unwrap_or("") { "windows" => Some("dll"), "linux" => Some("so"), "macos" => Some("dylib"), _ => None };
             let plain = !file.is_empty() && file.len() <= 128 && !file.contains(['/', '\\', ':']) && !file.starts_with('.')
                 && !file.chars().any(char::is_control) && !is_reserved_windows_name(file);
-            if !valid_key(k) { errors.push(format!("library key \"{k}\" must look like windows-x86_64")); }
+            if !valid_key(k) { errors.push(format!("library key \"{}\" must look like windows-x86_64", quoted(k))); }
             else if !plain { errors.push(format!("library \"{k}\" must be a plain file name in the package folder")); }
             else if ext.is_some_and(|e| !file.to_ascii_lowercase().ends_with(&format!(".{e}"))) {
                 errors.push(format!("library \"{k}\" must be a .{} file", ext.unwrap_or("")));
@@ -730,7 +763,7 @@ pub fn validate_manifest(v: &Value) -> Result<Manifest, String> {
     let mut permissions = string_list(v, "permissions", &mut errors);
     for p in &permissions {
         if DROPPED_PERMISSIONS.contains(&p.as_str()) { errors.push(format!("the permission {p} is not available in Barbican")); }
-        else if !known(p) { errors.push(format!("unknown permission {p}")); }
+        else if !known(p) { errors.push(format!("unknown permission {}", quoted(p))); }
     }
     permissions.retain(|p| known(p));
     // like Bulwark: optional permissions this version does not offer are left out, so one package suits several versions
@@ -741,7 +774,7 @@ pub fn validate_manifest(v: &Value) -> Result<Manifest, String> {
     let hooks = string_list(v, "hooks", &mut errors);
     for h in &hooks {
         match lookup_hook(h) {
-            None => errors.push(format!("unknown hook {h}")),
+            None => errors.push(format!("unknown hook {}", quoted(h))),
             Some(c) if c.support == Support::Skip => errors.push(format!("the hook {h} is not available in Barbican")),
             Some(c) => {
                 let also = ALSO_PERMISSION.iter().find(|(n, _)| *n == c.name).map(|(_, p)| *p);
@@ -754,7 +787,7 @@ pub fn validate_manifest(v: &Value) -> Result<Manifest, String> {
     let slots = string_list(v, "slots", &mut errors);
     for s in &slots {
         match SLOTS.iter().find(|x| x.name == s) {
-            None => errors.push(format!("unknown slot {s}")),
+            None => errors.push(format!("unknown slot {}", quoted(s))),
             Some(c) if c.support == Support::Skip => errors.push(format!("the slot {s} is not available in Barbican")),
             // Bulwark `mayOfferSlot` (lib/plugin-sandbox/permissions.ts:113): any one of the slot's permissions
             Some(c) => if !c.permissions.split(';').any(holds) {
@@ -792,19 +825,27 @@ pub struct Grant {
     pub origins: Vec<String>,
     pub private_hosts: Vec<String>,
     pub at: String,
+    /// The author and version of what was accepted; `None` in grants written before they were recorded (and in API
+    /// 1's bindings), which then count as from an unknown author.
+    pub author: Option<String>,
+    pub version: Option<String>,
 }
 
 impl Grant {
     pub fn to_json(&self) -> Value {
-        json!({"id": self.id, "path": self.path, "sha256": self.sha256, "granted": self.granted, "origins": self.origins,
-            "privateHosts": self.private_hosts, "at": self.at})
+        let mut v = json!({"id": self.id, "path": self.path, "sha256": self.sha256, "granted": self.granted, "origins": self.origins,
+            "privateHosts": self.private_hosts, "at": self.at});
+        if let Some(a) = &self.author { v["author"] = a.as_str().into(); }
+        if let Some(x) = &self.version { v["version"] = x.as_str().into(); }
+        v
     }
 
     pub fn from_json(v: &Value) -> Option<Grant> {
         let list = |k: &str| v[k].as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect()).unwrap_or_default();
         Some(Grant { id: v["id"].as_str()?.to_string(), path: v["path"].as_str()?.to_string(), sha256: v["sha256"].as_str()?.to_string(),
             granted: list("granted"), origins: list("origins"), private_hosts: list("privateHosts"),
-            at: v["at"].as_str().unwrap_or("").to_string() })
+            at: v["at"].as_str().unwrap_or("").to_string(),
+            author: v["author"].as_str().map(String::from), version: v["version"].as_str().map(String::from) })
     }
 }
 
@@ -829,22 +870,29 @@ pub fn grants_from_prefs(prefs: &serde_json::Map<String, Value>) -> Vec<Grant> {
 pub enum Consent {
     /// The grant still covers this file and what it asks for: no dialog.
     Granted,
-    /// Ask. `update` is false for a first switch-on (everything is listed) and true when a grant exists but the file
-    /// changed or asks for more: then only what it adds is listed (both empty: "no new permissions").
+    /// Ask, listing `permissions` and `origins`. `update` is true only for an update by the same author that a grant
+    /// exists for; then both lists are empty when it asks for exactly what was accepted ("the same permissions as
+    /// before") and hold everything it asks for otherwise. `update` is false for a first switch-on and for a
+    /// package whose author differs from (or is not known for) the accepted one: everything is listed, as new.
     Ask { update: bool, permissions: Vec<String>, origins: Vec<String> },
 }
 
 /// The rule of PLUGINS.md "Consent": a grant counts only for the same path and SHA-256 and only while the manifest
-/// asks for nothing beyond it. A file with another hash is always off until the user says yes again; only the
-/// permission set carries over, so the update dialog lists just the additions.
-pub fn decide(path: &str, sha256: &str, permissions: &[String], origins: &[String], grant: Option<&Grant>) -> Consent {
-    let Some(g) = grant else {
-        return Consent::Ask { update: false, permissions: permissions.to_vec(), origins: origins.to_vec() };
-    };
-    let added_p: Vec<String> = permissions.iter().filter(|p| !g.granted.contains(p)).cloned().collect();
-    let added_o: Vec<String> = origins.iter().filter(|o| !g.origins.contains(o)).cloned().collect();
-    if g.path == path && g.sha256 == sha256 && added_p.is_empty() && added_o.is_empty() { return Consent::Granted; }
-    Consent::Ask { update: true, permissions: added_p, origins: added_o }
+/// asks for nothing beyond it. A file with another hash is always off until the user says yes again. Nothing of an
+/// old grant is taken over for another author (or one the grant does not name), and a same-author update that asks
+/// for anything else than before lists all of it, never just the difference.
+pub fn decide(path: &str, sha256: &str, author: &str, permissions: &[String], origins: &[String], grant: Option<&Grant>) -> Consent {
+    let all = |update: bool| Consent::Ask { update, permissions: permissions.to_vec(), origins: origins.to_vec() };
+    let Some(g) = grant else { return all(false) };
+    let added_p = permissions.iter().any(|p| !g.granted.contains(p));
+    let added_o = origins.iter().any(|o| !g.origins.contains(o));
+    if g.path == path && g.sha256 == sha256 && !added_p && !added_o { return Consent::Granted; }
+    if g.author.as_deref() != Some(author) { return all(false); }
+    let same = |a: &[String], b: &[String]| a.iter().all(|x| b.contains(x)) && b.iter().all(|x| a.contains(x));
+    if same(permissions, &g.granted) && same(origins, &g.origins) {
+        return Consent::Ask { update: true, permissions: vec![], origins: vec![] };
+    }
+    all(true)
 }
 
 impl Plugin {
@@ -858,13 +906,14 @@ impl Plugin {
 
     pub fn consent(&self, grants: &[Grant]) -> Consent {
         let (p, o) = self.requested();
-        decide(&self.path, &self.fingerprint, &p, &o, grants.iter().find(|g| g.id == self.key))
+        decide(&self.path, &self.fingerprint, &self.decl.author, &p, &o, grants.iter().find(|g| g.id == self.key))
     }
 
     /// The grant recorded when the user says yes. `private_hosts` are the hosts the dialog listed as private.
     pub fn grant(&self, private_hosts: Vec<String>, at: &str) -> Grant {
         let (granted, origins) = self.requested();
-        Grant { id: self.key.clone(), path: self.path.clone(), sha256: self.fingerprint.clone(), granted, origins, private_hosts, at: at.into() }
+        Grant { id: self.key.clone(), path: self.path.clone(), sha256: self.fingerprint.clone(), granted, origins, private_hosts, at: at.into(),
+            author: Some(self.decl.author.clone()), version: Some(self.version.clone()) }
     }
 
     /// The consent dialog (title and plain text) and the private hosts it names. `is_private` says whether a declared
@@ -878,38 +927,88 @@ impl Plugin {
             Consent::Granted => (true, vec![], vec![]),
             Consent::Ask { update, permissions, origins } => (*update, permissions.clone(), origins.clone()),
         };
-        let new_private: Vec<String> = private.iter().filter(|o| !update || !old.is_some_and(|g| g.private_hosts.contains(o))).cloned().collect();
+        // an update by the same author asking for exactly what was accepted: only private hosts not accepted then
+        // are listed. Otherwise everything is listed (what an update adds is marked).
+        let same_set = update && perms.is_empty() && origins.is_empty();
+        let new_private: Vec<String> = private.iter().filter(|o| !same_set || !old.is_some_and(|g| g.private_hosts.contains(o))).cloned().collect();
         let public: Vec<String> = origins.iter().filter(|o| !private.contains(o)).cloned().collect();
-        let mut t = format!("{NATIVE_CODE_LINE}\n\n{}", self.name);
+        let is_new = |granted: &[String], x: &String| update && !granted.contains(x);
+        let mut t = format!("{NATIVE_CODE_LINE}
+
+{}", self.name);
         if !self.version.is_empty() { t += &format!(" {}", self.version); }
         if !self.decl.author.is_empty() { t += &format!(" by {}", self.decl.author); }
-        t += "\n";
-        let nothing_new = perms.is_empty() && public.is_empty() && new_private.is_empty();
+        t += "
+";
+        let changed = match old.and_then(|g| g.version.as_deref()) {
+            Some(v) if v != self.version => format!("Updated from version {v} to {} by the same author", self.version),
+            Some(_) => format!("Its files changed since you switched it on (still version {})", self.version),
+            None => format!("Updated to version {}", self.version),
+        };
         if self.decl.api < 2 {
-            t += "\nIt uses plugin API 1, which has no permissions: Barbican lets it see what these hooks hand it.\n";
+            t += "
+It uses plugin API 1, which has no permissions: Barbican lets it see what these hooks hand it.
+";
             let hooks = if self.hooks.is_empty() { "none declared (it is asked once it is loaded)".to_string() } else { self.hooks.join(", ") };
-            t += &format!("Hooks: {hooks}\n");
-            if update { t += "\nThe file changed since you switched it on.\n"; }
-        } else if update && nothing_new {
-            t += &format!("\nUpdated to version {}, no new permissions.\n", self.version);
+            t += &format!("Hooks: {hooks}
+");
+            if old.is_some() { t += "
+The file changed since you switched it on.
+"; }
+        } else if same_set && new_private.is_empty() {
+            t += &format!("
+{changed}. It asks for the same permissions as before.
+");
         } else {
-            t += &(if update { format!("\nUpdated to version {}. It now also asks to:\n", self.version) } else { "\nIt asks to:\n".to_string() });
+            if let (Some(g), false) = (old, update) {
+                t += &match g.author.as_deref() {
+                    Some(a) => format!("
+You had switched on a plugin with this id by {}. This one is by {}, so nothing you accepted then carries over.
+",
+                        if a.is_empty() { "an unknown author" } else { a },
+                        if self.decl.author.is_empty() { "an unknown author" } else { &self.decl.author }),
+                    None => "
+You had switched on an earlier plugin with this id. Barbican cannot tell whether this one has the same author, so nothing you accepted then carries over.
+".to_string(),
+                };
+            }
+            t += &(if same_set { format!("
+{changed}. It asks for the same permissions as before, and:
+") }
+                else if update { format!("
+{changed}. What it asks for changed; all of it is listed, [New] marks what was not accepted before. It asks to:
+") }
+                else { "
+It asks to:
+".to_string() });
             let mut sorted: Vec<&String> = perms.iter().collect();
             sorted.sort_by_key(|p| !permission_text(p).is_some_and(|x| x.high_risk));
+            let granted = old.map_or(&[][..], |g| &g.granted[..]);
             for p in sorted {
+                let new = if is_new(granted, p) { "[New] " } else { "" };
                 match permission_text(p) {
-                    Some(x) => t += &format!("- {}{}: {}\n", if x.high_risk { "[Needs care] " } else { "" }, x.title, x.body),
-                    None => t += &format!("- {p}\n"),
+                    Some(x) => t += &format!("- {new}{}{}: {}
+", if x.high_risk { "[Needs care] " } else { "" }, x.title, x.body),
+                    None => t += &format!("- {new}{p}
+"),
                 }
             }
-            if perms.is_empty() { t += "- (no new permissions)\n"; }
+            if perms.is_empty() && !same_set { t += "- (no permissions)
+"; }
+            let accepted = old.map_or(&[][..], |g| &g.origins[..]);
             if !public.is_empty() {
-                t += &format!("\n{} (http:fetch):\n", if update { "New sites it may connect to" } else { "Sites it may connect to" });
-                for o in &public { t += &format!("  {o}\n"); }
+                t += "
+Sites it may connect to (http:fetch):
+";
+                for o in &public { t += &format!("  {}{o}
+", if is_new(accepted, o) { "[New] " } else { "" }); }
             }
             if !new_private.is_empty() {
-                t += "\nHosts inside your network (private, loopback or LAN). These let it reach machines on your own network:\n";
-                for o in &new_private { t += &format!("  {o}\n"); }
+                t += "
+Hosts inside your network (private, loopback or LAN). These let it reach machines on your own network:
+";
+                for o in &new_private { t += &format!("  {}{o}
+", if is_new(accepted, o) { "[New] " } else { "" }); }
             }
         }
         if !self.decl.optional_permissions.is_empty() {
@@ -1022,6 +1121,22 @@ pub fn discover_in(folder: &std::path::Path) -> (Vec<Plugin>, Vec<String>) {
     (out, errors)
 }
 
+/// The ids of libraries dropped straight into `folder`, as their sidecar manifests give them (`<name>.manifest.json`,
+/// or `manifest.json` next to the only library), the way [`discover_in`] reads them. A package must not take one of
+/// these ids: it would hide that plugin, and uninstalling it would forget that plugin's grant.
+pub fn dropped_in_ids(folder: &std::path::Path) -> Vec<String> {
+    let Ok(rd) = std::fs::read_dir(folder) else { return vec![] };
+    let libs: Vec<std::path::PathBuf> = rd.flatten().map(|e| e.path()).filter(|p| is_lib(p)).collect();
+    libs.iter().filter_map(|p| {
+        let mut candidates = vec![p.with_extension("manifest.json")];
+        if libs.len() == 1 { candidates.push(folder.join("manifest.json")); }
+        let c = candidates.into_iter().find(|c| c.is_file())?;
+        if std::fs::metadata(&c).ok()?.len() > MAX_MANIFEST_BYTES { return None; }
+        let v: Value = serde_json::from_str(&std::fs::read_to_string(&c).ok()?).ok()?;
+        v["id"].as_str().map(String::from)
+    }).collect()
+}
+
 type FileStamp = (u64, std::time::SystemTime);
 static HASHES: std::sync::OnceLock<Mutex<std::collections::HashMap<std::path::PathBuf, (FileStamp, String)>>> =
     std::sync::OnceLock::new();
@@ -1036,6 +1151,25 @@ fn hash_cache() -> &'static Mutex<std::collections::HashMap<std::path::PathBuf, 
 /// without the cache ([`fresh_fingerprint`]).
 fn fingerprint(p: &std::path::Path) -> Result<String, String> { fingerprint_with(p, true) }
 
+/// Feed a file into `sha` in 64 KiB pieces, never more than `len + 1` bytes (so a file that grows is noticed without
+/// reading all of it). Returns how many bytes were read.
+fn hash_into(sha: &mut Sha256, path: &std::path::Path, len: u64) -> std::io::Result<u64> {
+    use std::io::Read;
+    let mut f = std::fs::File::open(path)?.take(len.saturating_add(1));
+    let mut buf = vec![0u8; 64 * 1024];
+    let mut n = 0u64;
+    loop {
+        let k = f.read(&mut buf)?;
+        if k == 0 { return Ok(n); }
+        sha.update(&buf[..k]);
+        n += k as u64;
+    }
+}
+
+/// Largest package folder that is hashed (all files together; the installer writes at most 32 MB). A larger folder
+/// is reported and not listed, so it can never be switched on, and discovery never reads more than this per package.
+pub const MAX_PACKAGE_BYTES: u64 = 64 * 1024 * 1024;
+
 fn fingerprint_with(p: &std::path::Path, use_cache: bool) -> Result<String, String> {
     let meta = std::fs::metadata(p).map_err(|e| format!("cannot read the file: {e}"))?;
     let stamp = meta.modified().ok().map(|t| (meta.len(), t));
@@ -1044,8 +1178,10 @@ fn fingerprint_with(p: &std::path::Path, use_cache: bool) -> Result<String, Stri
             .get(p).filter(|(s, _)| *s == stamp).map(|(_, h)| h.clone());
         if let Some(h) = hit { return Ok(h); }
     }
-    let bytes = std::fs::read(p).map_err(|e| format!("cannot read the file: {e}"))?;
-    let hash: String = Sha256::digest(&bytes).iter().map(|x| format!("{x:02x}")).collect();
+    let mut sha = Sha256::new();
+    let n = hash_into(&mut sha, p, meta.len()).map_err(|e| format!("cannot read the file: {e}"))?;
+    if n != meta.len() { return Err("the file changed while it was read".into()); }
+    let hash: String = sha.finalize().iter().map(|x| format!("{x:02x}")).collect();
     if let Some(stamp) = stamp {
         hash_cache().lock().unwrap_or_else(|e| e.into_inner()).insert(p.to_path_buf(), (stamp, hash.clone()));
     }
@@ -1083,14 +1219,17 @@ pub fn package_fingerprint(dir: &std::path::Path, use_cache: bool) -> Result<Str
         let hit = hash_cache().lock().unwrap_or_else(|e| e.into_inner()).get(dir).filter(|(_, h)| h.starts_with(&stamp)).map(|(_, h)| h[stamp.len()..].to_string());
         if let Some(h) = hit { return Ok(h); }
     }
+    let total = files.iter().fold(0u64, |a, f| a.saturating_add(f.2));
+    if total > MAX_PACKAGE_BYTES {
+        return Err(format!("the package folder holds more than {} MB, so it is not loaded", MAX_PACKAGE_BYTES >> 20));
+    }
     let mut sha = Sha256::new();
     for (rel, path, len, _) in &files {
-        let bytes = std::fs::read(path).map_err(|e| format!("{rel}: cannot read the file: {e}"))?;
-        if bytes.len() as u64 != *len { return Err(format!("{rel}: changed while it was read")); }
         sha.update((rel.len() as u64).to_le_bytes());
         sha.update(rel.as_bytes());
         sha.update(len.to_le_bytes());
-        sha.update(&bytes);
+        let n = hash_into(&mut sha, path, *len).map_err(|e| format!("{rel}: cannot read the file: {e}"))?;
+        if n != *len { return Err(format!("{rel}: changed while it was read")); }
     }
     let hash: String = sha.finalize().iter().map(|x| format!("{x:02x}")).collect();
     if !files.iter().any(|f| f.3.is_none()) {
@@ -1103,8 +1242,13 @@ pub fn package_fingerprint(dir: &std::path::Path, use_cache: bool) -> Result<Str
 fn merge_discovered(mut old: Vec<Plugin>, new: Vec<Plugin>) -> Vec<Plugin> {
     // the manifest counts too: a package whose manifest changed (new permissions) is a new entry even when its
     // library is the same file
+    // library is the same file. A plugin listed without a manifest (unverified) takes its name, version, hooks and
+    // description from the library once it is loaded, while discovery lists it by file name again: for it only the
+    // file counts, or every refresh would replace a loaded entry and lose its state (switched off for the session, a
+    // call still running).
     let same = |o: &Plugin, n: &Plugin| o.key == n.key && o.path == n.path && o.fingerprint == n.fingerprint
-        && o.decl == n.decl && o.version == n.version && o.name == n.name && o.hooks == n.hooks && o.description == n.description;
+        && o.decl == n.decl && o.verified == n.verified
+        && (!n.verified || (o.version == n.version && o.name == n.name && o.hooks == n.hooks && o.description == n.description));
     new.into_iter().map(|n| match old.iter().position(|o| same(o, &n)) {
         Some(i) => old.swap_remove(i),
         None => n,
@@ -1151,8 +1295,9 @@ fn fresh_fingerprint(p: &Plugin) -> Result<String, String> {
 
 /// Are the plugin's files on disk still the ones discovery hashed (read again, without the cache)? Checked before the
 /// consent dialog, so the user never accepts a hash that no longer describes the files.
-pub fn unchanged_on_disk(p: &Plugin) -> bool {
-    fresh_fingerprint(p).is_ok_and(|h| h == p.fingerprint)
+/// An error when the files cannot be read (or hashed) now.
+pub fn unchanged_on_disk(p: &Plugin) -> Result<bool, String> {
+    fresh_fingerprint(p).map(|h| h == p.fingerprint)
 }
 
 /// Drop every cached hash, so the next discovery reads every file again.
@@ -1191,6 +1336,8 @@ fn sync_hashed(plugins: &mut [Plugin], enabled: &[String], loader: &Loader, budg
             Ok(h) if h == plugins[i].fingerprint => h,
             Ok(_) => {
                 plugins[i].load_failed = true;
+                // the cached hashes no longer describe the files: the next discovery reads them all again
+                forget_cached_hashes();
                 errors.push(format!("{path}: this plugin changed since the plugins folder was read; open Settings > Add-ons and switch it on again"));
                 continue;
             }
@@ -1201,6 +1348,8 @@ fn sync_hashed(plugins: &mut [Plugin], enabled: &[String], loader: &Loader, budg
             errors.push(e);
             continue;
         }
+        // Known gap: the file can still be swapped between this hash and the loader opening it (Windows lets a file
+        // that is not open be replaced). Holding it open with a share mode that forbids writes is not done here.
         // Library::new and manifest() run foreign code: never on the UI thread without a limit
         let (tx, rx) = mpsc::channel();
         let (l, pp) = (loader.clone(), std::path::PathBuf::from(&path));
@@ -1285,7 +1434,7 @@ pub fn compose_check_with(plugins: &[Plugin], enabled: &[String], draft: &Value,
     for p in plugins.iter().filter(|p| p.active(enabled) && p.handles("compose.check")) {
         let w = match p.call("compose.check", draft, budget) {
             Ok(v) => v.and_then(|v| v["warning"].as_str().filter(|w| !w.is_empty()).map(String::from)),
-            Err(e) => Some(format!("The {} plugin could not check this message ({e}).", p.name)),
+            Err(e) => Some(format!("The {} plugin could not check this message ({}).", p.name, shown(&e, MAX_SHOWN))),
         };
         // keep calling the rest so every failing plugin is counted
         if first.is_none() { first = w; }
@@ -1417,6 +1566,10 @@ mod tests {
         let rows = email_details(std::slice::from_ref(&p), &on(&p), &json!({}));
         assert_eq!(rows, vec![("a".to_string(), "b".to_string(), "neutral".to_string())]);
     }
+
+    /// Tests that plant entries in the shared hash cache, or make the code clear it, take turns.
+    static CACHE_TESTS: Mutex<()> = Mutex::new(());
+    fn cache_test() -> std::sync::MutexGuard<'static, ()> { CACHE_TESTS.lock().unwrap_or_else(|e| e.into_inner()) }
 
     fn temp_folder(tag: &str) -> std::path::PathBuf {
         let d = std::env::temp_dir().join(format!("barbican-plugin-test-{tag}-{}", std::process::id()));
@@ -1804,30 +1957,42 @@ mod tests {
         assert!(granted_enabled(std::slice::from_ref(&new), &strings(&["dev.example.demo"]), std::slice::from_ref(&g)).is_empty());
         let (title, body, _) = new.consent_dialog(&c, std::slice::from_ref(&g), &|_| false);
         assert_eq!(title, "Switch on Demo again?");
-        assert!(body.contains("Updated to version 1.1.0, no new permissions."), "{body}");
+        assert!(body.contains("Its files changed since you switched it on (still version 1.1.0). It asks for the same permissions as before."), "{body}");
         assert!(!body.contains("Read your email"), "nothing old is listed again: {body}");
+        // with a version recorded in the grant, the dialog names both
+        let mut older = g.clone();
+        older.version = Some("1.0.0".into());
+        let (_, body, _) = new.consent_dialog(&c, std::slice::from_ref(&older), &|_| false);
+        assert!(body.contains("Updated from version 1.0.0 to 1.1.0 by the same author. It asks for the same permissions as before."), "{body}");
         // a yes pins the new file
         let g2 = new.grant(vec![], "t2");
         assert_eq!(new.consent(&[g2]), Consent::Granted);
     }
 
     #[test]
-    fn a_new_hash_with_added_permissions_lists_only_the_additions() {
+    fn a_new_hash_with_other_permissions_lists_everything_marking_the_additions() {
         let old = v2_plugin(&["email:read", "http:fetch"], &["https://api.example.com"], "h1");
         let g = old.grant(vec![], "t");
         let new = v2_plugin(&["email:read", "http:fetch", "email:send"], &["https://api.example.com", "https://new.example.com", "https://nas.lan"], "h2");
         let c = new.consent(std::slice::from_ref(&g));
-        assert_eq!(c, Consent::Ask { update: true, permissions: strings(&["email:send"]), origins: strings(&["https://new.example.com", "https://nas.lan"]) });
+        assert_eq!(c, Consent::Ask { update: true, permissions: strings(&["email:read", "http:fetch", "email:send"]),
+            origins: strings(&["https://api.example.com", "https://new.example.com", "https://nas.lan"]) });
         let (_, body, private) = new.consent_dialog(&c, std::slice::from_ref(&g), &is_private_name);
-        assert!(body.contains("Updated to version 1.1.0. It now also asks to:"), "{body}");
-        assert!(body.contains("Change mail before it is sent") && !body.contains("Read your email"), "{body}");
-        assert!(body.contains("New sites it may connect to (http:fetch):\n  https://new.example.com\n"), "{body}");
-        assert!(!body.contains("api.example.com"), "{body}");
-        assert!(body.contains("Hosts inside your network") && body.contains("https://nas.lan"), "{body}");
+        assert!(body.contains("What it asks for changed; all of it is listed, [New] marks what was not accepted before."), "{body}");
+        assert!(body.contains("- [New] [Needs care] Change mail before it is sent") && body.contains("- [Needs care] Read your email"), "{body}");
+        assert!(body.contains("Sites it may connect to (http:fetch):\n  https://api.example.com\n  [New] https://new.example.com\n"), "{body}");
+        assert!(body.contains("Hosts inside your network") && body.contains("  [New] https://nas.lan\n"), "{body}");
         assert_eq!(private, ["https://nas.lan"]);
+        // fewer permissions in a new file: everything that is left is listed again, nothing marked new
+        let fewer_new = v2_plugin(&["email:read"], &[], "h2");
+        let c = fewer_new.consent(std::slice::from_ref(&g));
+        assert_eq!(c, Consent::Ask { update: true, permissions: strings(&["email:read"]), origins: vec![] });
+        let (_, body, _) = fewer_new.consent_dialog(&c, std::slice::from_ref(&g), &|_| false);
+        assert!(body.contains("- [Needs care] Read your email") && !body.contains("- [New]"), "{body}");
         // the same file asking for more (an edited manifest) asks again too
         let edited = v2_plugin(&["email:read", "http:fetch", "contacts:read"], &["https://api.example.com"], "h1");
-        assert_eq!(edited.consent(std::slice::from_ref(&g)), Consent::Ask { update: true, permissions: strings(&["contacts:read"]), origins: vec![] });
+        assert_eq!(edited.consent(std::slice::from_ref(&g)),
+            Consent::Ask { update: true, permissions: strings(&["email:read", "http:fetch", "contacts:read"]), origins: strings(&["https://api.example.com"]) });
         // fewer permissions with the same file need no new consent
         let fewer = v2_plugin(&["email:read"], &[], "h1");
         assert_eq!(fewer.consent(std::slice::from_ref(&g)), Consent::Granted);
@@ -1840,8 +2005,142 @@ mod tests {
         let new = v2_plugin(&["http:fetch"], &["https://nas.lan"], "h2");
         let c = new.consent(std::slice::from_ref(&g));
         let (_, body, private) = new.consent_dialog(&c, std::slice::from_ref(&g), &is_private_name);
-        assert!(body.contains("no new permissions") && !body.contains("Hosts inside your network"), "{body}");
+        assert!(body.contains("the same permissions as before") && !body.contains("Hosts inside your network"), "{body}");
         assert_eq!(private, ["https://nas.lan"], "still recorded in the new grant");
+    }
+
+    #[test]
+    fn another_author_takes_nothing_over_from_the_old_grant() {
+        let old = v2_plugin(&["email:read", "http:fetch"], &["https://nas.lan"], "h1");
+        let g = old.grant(vec!["https://nas.lan".into()], "t");
+        let mut other = v2_plugin(&["email:read", "http:fetch"], &["https://nas.lan"], "h2");
+        other.decl.author = "Someone Else".into();
+        let c = other.consent(std::slice::from_ref(&g));
+        assert_eq!(c, Consent::Ask { update: false, permissions: strings(&["email:read", "http:fetch"]), origins: strings(&["https://nas.lan"]) });
+        let (title, body, _) = other.consent_dialog(&c, std::slice::from_ref(&g), &is_private_name);
+        assert_eq!(title, "Switch on Demo?");
+        assert!(body.contains("You had switched on a plugin with this id by Example. This one is by Someone Else, so nothing you accepted then carries over."), "{body}");
+        assert!(body.contains("Read your email") && body.contains("Hosts inside your network") && body.contains("  https://nas.lan\n"), "{body}");
+        assert!(!body.contains("[New]") && !body.contains("Updated"), "{body}");
+        // a grant that does not record its author (written before authors were recorded) counts as another author
+        let mut unknown = g.clone();
+        unknown.author = None;
+        let same_author = v2_plugin(&["email:read", "http:fetch"], &["https://nas.lan"], "h2");
+        let c = same_author.consent(std::slice::from_ref(&unknown));
+        assert!(matches!(c, Consent::Ask { update: false, .. }), "{c:?}");
+        let (_, body, _) = same_author.consent_dialog(&c, std::slice::from_ref(&unknown), &is_private_name);
+        assert!(body.contains("cannot tell whether this one has the same author"), "{body}");
+        // the very same files under an old grant stay on
+        assert_eq!(old.consent(std::slice::from_ref(&unknown)), Consent::Granted);
+    }
+
+    #[test]
+    fn a_loaded_unverified_plugin_keeps_its_state_across_rediscovery() {
+        let mut old = bare("file:x.dll", "C:/p/x.dll", "h1");
+        old.verified = false;
+        old.decl.api = 1;
+        // what the library's own manifest said once it was loaded
+        (old.id, old.name, old.version, old.hooks) = ("x".into(), "X".into(), "2.0".into(), strings(&["email.details"]));
+        old.backend = Some(Arc::new(Recorder(Mutex::new(vec![]))));
+        old.tripped.store(true, Ordering::SeqCst);
+        old.busy.store(true, Ordering::SeqCst);
+        old.failures.store(3, Ordering::SeqCst);
+        let mut found = bare("file:x.dll", "C:/p/x.dll", "h1");
+        found.verified = false;
+        found.decl.api = 1;
+        let merged = merge_discovered(vec![old], vec![found]);
+        assert_eq!(merged.len(), 1);
+        assert!(merged[0].is_tripped() && merged[0].busy.load(Ordering::SeqCst) && merged[0].backend.is_some());
+        assert_eq!((merged[0].name.as_str(), merged[0].failures.load(Ordering::SeqCst)), ("X", 3));
+        // another file at that path is a new entry
+        let mut replaced = bare("file:x.dll", "C:/p/x.dll", "h2");
+        replaced.verified = false;
+        replaced.decl.api = 1;
+        let merged = merge_discovered(merged, vec![replaced]);
+        assert!(!merged[0].is_tripped() && merged[0].backend.is_none());
+    }
+
+    #[test]
+    fn text_from_plugins_is_shown_plain_and_short() {
+        assert_eq!(shown("a\nb\u{202E}c\u{200B}d", 300), "a bcd");
+        let long = "x".repeat(400);
+        let s = shown(&long, MAX_SHOWN);
+        assert_eq!(s.chars().count(), MAX_SHOWN + 1);
+        assert!(s.ends_with('…'));
+        // manifest values are quoted short and plain in errors
+        let e = validate_manifest(&json!({"api": 2, "id": format!("Bad\u{202E}{}", "y".repeat(200)), "name": "N", "version": "1.0.0",
+            "library": {platform_key(): "a.dll"}})).unwrap_err();
+        assert!(!e.contains('\u{202E}') && !e.contains(&"y".repeat(100)), "{e}");
+    }
+
+    #[test]
+    fn names_with_direction_or_zero_width_characters_are_refused() {
+        let base = json!({"api": 2, "id": "dev.example.demo", "name": "Demo", "version": "1.0.0", "library": {platform_key(): "a.dll"}});
+        assert!(validate_manifest(&base).is_ok());
+        for bad in ["De\u{202E}mo", "De\u{200B}mo", "De\u{2066}mo", "\u{FEFF}Demo"] {
+            assert!(validate_manifest(&with(base.clone(), "name", json!(bad))).is_err(), "{bad:?}");
+            assert!(validate_manifest(&with(base.clone(), "author", json!(bad))).is_err(), "{bad:?}");
+        }
+        // an API 1 sidecar goes through the same check
+        assert!(parse_manifest(&json!({"id": "x", "name": "Spam\u{202E}Score"})).is_err());
+        assert!(parse_manifest(&json!({"id": "x", "version": "1\n2"})).is_err());
+        assert!(parse_manifest(&json!({"id": "x", "hooks": ["email.details", "a\u{200B}b"]})).is_err());
+        assert!(parse_manifest(&json!({"id": "x\u{202E}"})).is_err());
+        let m = parse_manifest(&json!({"id": "x", "name": "Spam Score", "hooks": ["email.details", "email.details"]})).unwrap();
+        assert_eq!((m.name.as_str(), m.hooks.len()), ("Spam Score", 1));
+    }
+
+    #[test]
+    fn versions_that_overflow_are_not_read_as_zero() {
+        assert_eq!(version_triple("1.2.3-beta+x"), Some((1, 2, 3)));
+        assert_eq!(version_triple("99999999999999999999999.0.0"), None);
+        let m = json!({"api": 2, "id": "dev.example.demo", "name": "Demo", "version": "1.0.0", "library": {platform_key(): "a.dll"},
+            "minAppVersion": "0.99999999999999999999999.0"});
+        assert!(validate_manifest(&m).unwrap_err().contains("needs Barbican"), "a version too large to read is not 0.0.0");
+        assert!(validate_manifest(&with(m, "minAppVersion", json!("0.0.1"))).is_ok());
+    }
+
+    #[test]
+    fn manifest_lists_are_capped_and_deduplicated() {
+        let mut errors = vec![];
+        let v = json!({"hooks": ["a", "b", "a", "c", "b"]});
+        assert_eq!(string_list(&v, "hooks", &mut errors), strings(&["a", "b", "c"]));
+        let many = json!({"hooks": (0..MAX_LIST_ENTRIES + 1).map(|i| format!("h{i}")).collect::<Vec<_>>()});
+        assert!(string_list(&many, "hooks", &mut errors).is_empty());
+        assert!(errors.iter().any(|e| e.contains("more than")), "{errors:?}");
+    }
+
+    #[test]
+    fn a_package_over_the_size_cap_is_not_listed() {
+        let d = temp_folder("big-package");
+        let pkg = d.join("dev.example.big");
+        std::fs::create_dir_all(&pkg).unwrap();
+        // the size is checked before anything is read, so a file that only claims the size is enough
+        std::fs::File::create(pkg.join("big.bin")).unwrap().set_len(MAX_PACKAGE_BYTES + 1).unwrap();
+        let e = package_fingerprint(&pkg, false).unwrap_err();
+        assert!(e.contains("more than 64 MB"), "{e}");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn the_hash_streams_the_same_as_reading_the_whole_file() {
+        let d = temp_folder("stream");
+        let f = d.join("x.bin");
+        let data: Vec<u8> = (0..200_000u32).map(|i| (i % 251) as u8).collect();
+        std::fs::write(&f, &data).unwrap();
+        let want: String = Sha256::digest(&data).iter().map(|x| format!("{x:02x}")).collect();
+        assert_eq!(fingerprint_with(&f, false).unwrap(), want);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn dropped_in_ids_come_from_the_sidecars() {
+        let d = temp_folder("dropped-ids");
+        std::fs::write(d.join(lib_name("spam")), b"x").unwrap();
+        std::fs::write(d.join("spam.manifest.json"), json!({"id": "spam-score"}).to_string()).unwrap();
+        std::fs::write(d.join(lib_name("plain")), b"x").unwrap();
+        assert_eq!(dropped_in_ids(&d), ["spam-score"]);
+        let _ = std::fs::remove_dir_all(&d);
     }
 
     #[test]
@@ -1956,6 +2255,7 @@ mod tests {
 
     #[test]
     fn a_rebuild_reuses_the_hash_while_size_and_time_are_unchanged() {
+        let _turn = cache_test();
         let d = temp_folder("hash-cache");
         let f = d.join("x.bin");
         std::fs::write(&f, b"one").unwrap();
@@ -2061,6 +2361,7 @@ mod tests {
 
     #[test]
     fn a_load_hashes_the_file_again_without_the_cache() {
+        let _turn = cache_test();
         let d = temp_folder("fresh-load");
         let f = d.join(lib_name("cached"));
         std::fs::write(&f, b"one").unwrap();
@@ -2070,7 +2371,7 @@ mod tests {
         hash_cache().lock().unwrap().insert(f.clone(), ((meta.len(), meta.modified().unwrap()), "from-cache".into()));
         assert_eq!(fingerprint(&f).unwrap(), "from-cache");
         let p = bare("cached", &f.display().to_string(), "from-cache");
-        assert!(!unchanged_on_disk(&p), "the switch-on check reads the file itself");
+        assert_eq!(unchanged_on_disk(&p), Ok(false), "the switch-on check reads the file itself");
         let loads = Arc::new(AtomicUsize::new(0));
         let n = loads.clone();
         let l = stub_loader(move |_| { n.fetch_add(1, Ordering::SeqCst); Ok((stub_meta("cached"), Arc::new(Recorder(Mutex::new(vec![]))) as Arc<dyn PluginBackend>)) });
@@ -2078,10 +2379,12 @@ mod tests {
         let errs = sync_hashed(&mut list, &strings(&["cached"]), &l, MS, &fresh_fingerprint);
         assert!(errs.len() == 1 && errs[0].contains("changed since"), "{errs:?}");
         assert_eq!(loads.load(Ordering::SeqCst), 0, "a file that is not the accepted one is never loaded");
+        assert!(!hash_cache().lock().unwrap().contains_key(&f), "a mismatch forgets the cached hashes");
         // the real hash loads
         let real = fingerprint_with(&f, false).unwrap();
         let mut list = vec![bare("cached", &f.display().to_string(), &real)];
-        assert!(unchanged_on_disk(&list[0]));
+        assert_eq!(unchanged_on_disk(&list[0]), Ok(true));
+        assert!(unchanged_on_disk(&bare("gone", &d.join("missing.dll").display().to_string(), "h")).is_err(), "a read error is its own outcome");
         assert!(sync_hashed(&mut list, &strings(&["cached"]), &l, MS, &fresh_fingerprint).is_empty());
         assert_eq!(loads.load(Ordering::SeqCst), 1);
         let _ = std::fs::remove_dir_all(&d);
@@ -2089,6 +2392,7 @@ mod tests {
 
     #[test]
     fn a_package_hash_without_the_cache_reads_every_file() {
+        let _turn = cache_test();
         let d = temp_folder("fresh-package");
         let pkg = d.join("dev.example.p");
         std::fs::create_dir_all(&pkg).unwrap();

@@ -579,11 +579,18 @@ pub fn plugin_consent(u: &AppWindow, key: &str) -> bool {
     // the files are hashed again without the cache: the user accepts what is on disk now, not what was there when
     // the folder was last read
     let Some(unchanged) = PLUGINS.with(|p| p.borrow().iter().find(|x| x.key == key).map(plugins::unchanged_on_disk)) else { return false };
-    if !unchanged {
-        plugins::forget_cached_hashes();
-        refresh_plugins();
-        mail::show_toast(u, "This plugin's files changed since the list was read. Switch it on again to review it.", false);
-        return false;
+    match unchanged {
+        Ok(true) => {}
+        Ok(false) => {
+            plugins::forget_cached_hashes();
+            refresh_plugins();
+            mail::show_toast(u, "This plugin's files changed since the list was read. Switch it on again to review it.", false);
+            return false;
+        }
+        Err(e) => {
+            mail::show_toast(u, &format!("Could not read this plugin's files, so it stays off: {}", plugins::shown(&e, plugins::MAX_SHOWN)), false);
+            return false;
+        }
     }
     let grants = plugins::grants_from_prefs(&settings::Settings::load().prefs);
     let at = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
@@ -621,7 +628,8 @@ pub fn take_plugin_grant(key: &str) -> Option<serde_json::Value> {
 
 /// Settings > Add-ons > Install plugin: pick a ZIP (or a folder); it is read, checked and unpacked on a worker thread
 /// (a package can be 32 MB), then the Add-ons page is refreshed on the UI thread.
-fn plugin_install(u: &AppWindow, folder: bool) {
+/// `prefs` are the app's settings: replacing a package by another author's forgets the old grant.
+fn plugin_install(u: &AppWindow, folder: bool, prefs: SharedPrefs) {
     // one install or uninstall at a time; the flag stays up until the outcome is shown (or the window is gone)
     let Some(busy) = PluginFolderBusy::take() else {
         mail::show_toast(u, "A plugin is still being installed or removed. Try again when it is done.", false);
@@ -635,11 +643,11 @@ fn plugin_install(u: &AppWindow, folder: bool) {
     let spawned = std::thread::Builder::new().name("barbican-plugin-install".into()).spawn(move || {
         let dir = plugins::dir();
         match plugin_package::prepare(&src, plugin_package::LIMITS) {
-            Err(e) => plugin_install_done(weak, Err(e), busy),
+            Err(e) => plugin_install_done(weak, Err(e), busy, None),
             Ok(pkg) => {
                 let replaces = pkg.replaces(&dir);
                 // the question is asked on the UI thread, owned by the main window
-                let _ = weak.upgrade_in_event_loop(move |u| plugin_install_confirm(&u, pkg, replaces, busy));
+                let _ = weak.upgrade_in_event_loop(move |u| plugin_install_confirm(&u, pkg, replaces, busy, prefs));
             }
         }
     });
@@ -648,6 +656,9 @@ fn plugin_install(u: &AppWindow, folder: bool) {
 
 /// Install and uninstall are refused while one of them runs (the worker thread, the replace question): a second
 /// one would race the first one's staging and backup folders. Cleared when the guard is dropped, on every path.
+/// The app's settings and AI config, as the settings callbacks hold them.
+type SharedPrefs = (Arc<Mutex<settings::Settings>>, Arc<Mutex<ai::Config>>);
+
 static PLUGIN_FOLDER_BUSY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 struct PluginFolderBusy;
@@ -675,7 +686,14 @@ mod plugin_busy_tests {
 }
 
 /// UI thread: ask before replacing a package by another author's, then unpack it on a worker thread.
-fn plugin_install_confirm(u: &AppWindow, pkg: plugin_package::Prepared, replaces: Option<(String, String)>, busy: PluginFolderBusy) {
+fn plugin_install_confirm(u: &AppWindow, pkg: plugin_package::Prepared, replaces: Option<(String, String)>, busy: PluginFolderBusy, prefs: SharedPrefs) {
+    // a library dropped into the plugins folder that goes by this id (from its sidecar or, once loaded, its own
+    // manifest) would be hidden by the package, and uninstalling the package would forget its grant
+    if PLUGINS.with(|p| p.borrow().iter().any(|x| x.decl.package.is_none() && (x.key == pkg.id || x.id == pkg.id))) {
+        mail::show_toast(u, &format!("Could not install the plugin: a plugin dropped into the plugins folder already uses the id \"{}\". Remove that plugin first.", pkg.id), false);
+        return;
+    }
+    let author_changed = replaces.as_ref().is_some_and(|(_, a)| *a != pkg.author);
     if let Some((old_name, old_author)) = replaces.filter(|(_, a)| *a != pkg.author) {
         let who = |a: &str| if a.is_empty() { "an unknown author".to_string() } else { a.to_string() };
         let yes = rfd::MessageDialog::new().set_parent(&u.window().window_handle()).set_level(rfd::MessageLevel::Warning)
@@ -690,17 +708,22 @@ fn plugin_install_confirm(u: &AppWindow, pkg: plugin_package::Prepared, replaces
     }
     let weak = u.as_weak();
     let spawned = std::thread::Builder::new().name("barbican-plugin-install".into())
-        .spawn(move || plugin_install_done(weak, plugin_package::commit(pkg, &plugins::dir()), busy));
+        .spawn(move || plugin_install_done(weak, plugin_package::commit(pkg, &plugins::dir()), busy, author_changed.then_some(prefs)));
     if let Err(e) = spawned { mail::show_toast(u, &format!("Could not start the install: {e}"), false); }
 }
 
 /// Worker thread: show how an install ended (UI thread), then clear the busy flag.
-fn plugin_install_done(weak: slint::Weak<AppWindow>, outcome: Result<plugin_package::Installed, String>, busy: PluginFolderBusy) {
+/// `forget` (another author's package replaced) drops the grant of the package that was replaced.
+fn plugin_install_done(weak: slint::Weak<AppWindow>, outcome: Result<plugin_package::Installed, String>, busy: PluginFolderBusy, forget: Option<SharedPrefs>) {
     let _ = weak.upgrade_in_event_loop(move |u| {
         let _busy = busy;
+        if let (Ok(r), Some((pf, cf))) = (&outcome, &forget) {
+            let dir = plugins::dir().join(&r.id).display().to_string();
+            pf.lock().unwrap().set(&format!("pluginForget:{}", r.id), json!(dir), &mut cf.lock().unwrap());
+        }
         refresh_plugins();
         let msg = match outcome {
-            Err(e) => format!("Could not install the plugin: {e}"),
+            Err(e) => format!("Could not install the plugin: {}", plugins::shown(&e, plugins::MAX_SHOWN)),
             Ok(r) if !r.updated => format!("Installed {} {}. It stays off until you switch it on.", r.name, r.version),
             Ok(r) => {
                 // the wording follows what the consent check now says about the new files
@@ -708,9 +731,11 @@ fn plugin_install_done(weak: slint::Weak<AppWindow>, outcome: Result<plugin_pack
                 let c = PLUGINS.with(|p| p.borrow().iter().find(|x| x.key == r.id).map(|x| x.consent(&grants)));
                 match c {
                     Some(plugins::Consent::Granted) => format!("Updated {} to {}. It is the package you already accepted.", r.name, r.version),
-                    Some(plugins::Consent::Ask { permissions, origins, .. }) if permissions.is_empty() && origins.is_empty() =>
-                        format!("Updated {} to {}. It asks for nothing new, but its files changed: switch it on again to accept the update.", r.name, r.version),
-                    _ => format!("Updated {} to {}. It asks for more than before: switch it on again to review what it adds.", r.name, r.version),
+                    Some(plugins::Consent::Ask { update: true, permissions, origins }) if permissions.is_empty() && origins.is_empty() =>
+                        format!("Updated {} to {}. It asks for the same permissions as before, but its files changed: switch it on again to accept the update.", r.name, r.version),
+                    Some(plugins::Consent::Ask { update: true, .. }) =>
+                        format!("Updated {} to {}. What it asks for changed: switch it on again to review it.", r.name, r.version),
+                    _ => format!("Installed {} {} in place of the earlier plugin with this id. It stays off until you switch it on and accept everything it asks for.", r.name, r.version),
                 }
             }
         };
@@ -784,7 +809,8 @@ pub fn plugin_list() -> Vec<serde_json::Value> {
 pub fn plugin_errors() -> Vec<String> {
     let mut v = PLUGIN_ERRORS.with(|e| e.borrow().clone());
     v.extend(PLUGIN_LOAD_ERRORS.with(|e| e.borrow().clone()));
-    v
+    // the text comes from manifests and libraries: one line each, of a bounded length
+    v.iter().map(|e| plugins::shown(e, plugins::MAX_SHOWN)).collect()
 }
 
 pub fn plugin_compose_check(draft: &serde_json::Value) -> Option<String> {
@@ -1059,7 +1085,9 @@ fn main() -> Result<(), slint::PlatformError> {
     chips::wire(&ui);
     {
         // listed, not loaded: a plugin runs only after the user switches it on
-        plugin_package::sweep_leftovers(&plugins::dir());
+        // not while another Barbican of this profile runs: the folder lock is per process, so its install's staging
+        // folder or backup could be taken for a crash's leftover
+        if first_of_profile { plugin_package::sweep_leftovers(&plugins::dir()); }
         let (found, errors) = plugins::discover();
         PLUGINS.with(|p| *p.borrow_mut() = found);
         PLUGIN_ERRORS.with(|e| *e.borrow_mut() = errors);
@@ -1520,11 +1548,14 @@ fn main() -> Result<(), slint::PlatformError> {
         }
         if key == "plugins.folder" { oauth::open_browser(&plugins::dir().to_string_lossy()); }
         if key == "plugins.install" || key == "plugins.installFolder" {
-            plugin_install(&u, key == "plugins.installFolder");
+            plugin_install(&u, key == "plugins.installFolder", (pf2.clone(), cf2.clone()));
             return;
         }
         if let Some(id) = key.strip_prefix("plugin-uninstall:") {
-            if plugin_uninstall(&u, id) { pf2.lock().unwrap().set(&format!("pluginForget:{id}"), Value::Null, &mut cf2.lock().unwrap()); }
+            if plugin_uninstall(&u, id) {
+                let dir = plugins::dir().join(id).display().to_string();
+                pf2.lock().unwrap().set(&format!("pluginForget:{id}"), json!(dir), &mut cf2.lock().unwrap());
+            }
             plugins_synced();
             u.invoke_settings_search(u.get_settings_query());
             return;

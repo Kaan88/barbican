@@ -124,6 +124,25 @@ fn text(kind: &str, key: &str, label: &str, desc: &str, value: &str) -> SRow {
     r
 }
 
+/// Forget the package installed in `package_dir`: the `pluginGrants` and `pluginBindings` entries for `id` go only when
+/// they pin a file inside that folder (a library dropped into the plugins folder under the same id keeps its own), and
+/// `id` leaves the switched-on list once nothing is left that could switch it on. An empty `package_dir` forgets
+/// nothing.
+pub fn forget_package(prefs: &mut serde_json::Map<String, Value>, id: &str, package_dir: &std::path::Path) {
+    if package_dir.as_os_str().is_empty() { return; }
+    let inside = |path: &str| std::path::Path::new(path).starts_with(package_dir);
+    if let Some(Value::Object(m)) = prefs.get_mut("pluginGrants") {
+        if m.get(id).and_then(|g| g["path"].as_str()).is_some_and(inside) { m.remove(id); }
+    }
+    if let Some(Value::Object(m)) = prefs.get_mut("pluginBindings") {
+        if m.get(id).and_then(|b| b.as_str()).and_then(|b| b.rsplit_once('|')).is_some_and(|(p, _)| inside(p)) { m.remove(id); }
+    }
+    let kept = ["pluginGrants", "pluginBindings"].iter().any(|k| prefs.get(*k).and_then(|m| m.get(id)).is_some());
+    if !kept {
+        if let Some(Value::Array(l)) = prefs.get_mut("enabledPlugins") { l.retain(|x| x.as_str() != Some(id)); }
+    }
+}
+
 impl Settings {
     pub fn load() -> Settings {
         // a save that is still being written in the background is newer than the file
@@ -605,12 +624,8 @@ impl Settings {
                 return;
             }
             k if k.starts_with("pluginForget:") => {
-                // an uninstalled plugin: off, and its grant and binding gone
-                let id = &k[13..];
-                if let Some(Value::Array(l)) = self.prefs.get_mut("enabledPlugins") { l.retain(|x| x.as_str() != Some(id)); }
-                for key in ["pluginGrants", "pluginBindings"] {
-                    if let Some(Value::Object(m)) = self.prefs.get_mut(key) { m.remove(id); }
-                }
+                // an uninstalled (or replaced) package: its own grant and binding gone, and off
+                forget_package(&mut self.prefs, &k[13..], std::path::Path::new(value.as_str().unwrap_or("")));
                 self.save();
                 return;
             }
@@ -909,4 +924,32 @@ pub fn set_pref(key: &str, value: Value) {
     let mut s = Settings::load();
     s.prefs.insert(key.into(), value);
     s.save();
+}
+
+#[cfg(test)]
+mod forget_package_tests {
+    use serde_json::json;
+
+    #[test]
+    fn uninstalling_a_package_keeps_a_dropped_in_plugins_grant() {
+        let dir = std::path::Path::new("C:/cfg/plugins/spam-score");
+        let mut prefs = json!({
+            "enabledPlugins": ["spam-score", "other"],
+            "pluginGrants": {"spam-score": {"id": "spam-score", "path": "C:/cfg/plugins/spam.dll", "sha256": "h"}},
+            "pluginBindings": {"spam-score": "C:/cfg/plugins/spam.dll|h"}
+        }).as_object().unwrap().clone();
+        super::forget_package(&mut prefs, "spam-score", dir);
+        assert!(prefs["pluginGrants"].get("spam-score").is_some() && prefs["pluginBindings"].get("spam-score").is_some());
+        assert_eq!(prefs["enabledPlugins"], json!(["spam-score", "other"]), "still switched on: its own grant is left");
+        // the package's own grant and binding go, and it is switched off
+        prefs["pluginGrants"]["spam-score"]["path"] = json!("C:/cfg/plugins/spam-score/spam.dll");
+        prefs["pluginBindings"]["spam-score"] = json!("C:/cfg/plugins/spam-score/spam.dll|h");
+        super::forget_package(&mut prefs, "spam-score", dir);
+        assert!(prefs["pluginGrants"].get("spam-score").is_none() && prefs["pluginBindings"].get("spam-score").is_none());
+        assert_eq!(prefs["enabledPlugins"], json!(["other"]));
+        // no folder given: nothing is forgotten
+        prefs["pluginGrants"]["other"] = json!({"id": "other", "path": "", "sha256": "h"});
+        super::forget_package(&mut prefs, "other", std::path::Path::new(""));
+        assert!(prefs["pluginGrants"].get("other").is_some());
+    }
 }

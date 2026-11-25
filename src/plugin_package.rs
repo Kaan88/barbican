@@ -312,14 +312,38 @@ pub fn sweep_leftovers(plugins_dir: &Path) {
     sweep_locked(plugins_dir);
 }
 
+/// A staging folder is always removed. A backup (`.old-<id>-<tag>`) is removed only while `<id>` exists: when it does
+/// not, an update stopped between its two renames and the backup is the installed version, so it is put back (and
+/// kept for the next start if that fails).
 fn sweep_locked(plugins_dir: &Path) {
     let Ok(rd) = std::fs::read_dir(plugins_dir) else { return };
-    for e in rd.flatten() {
-        let name = e.file_name().to_string_lossy().to_string();
+    let entries: Vec<(String, PathBuf)> = rd.flatten().map(|e| (e.file_name().to_string_lossy().to_string(), e.path())).collect();
+    for (name, path) in entries {
         if !(name.starts_with(".install-") || name.starts_with(".old-")) { continue; }
-        let Ok(md) = std::fs::symlink_metadata(e.path()) else { continue };
-        if is_link(&md) { let _ = std::fs::remove_dir(e.path()).or_else(|_| std::fs::remove_file(e.path())); }
-        else if md.is_dir() { let _ = std::fs::remove_dir_all(e.path()); }
+        let Ok(md) = std::fs::symlink_metadata(&path) else { continue };
+        if is_link(&md) { let _ = std::fs::remove_dir(&path).or_else(|_| std::fs::remove_file(&path)); continue; }
+        if !md.is_dir() { continue; }
+        if let Some(id) = name.strip_prefix(".old-").and_then(|r| r.rsplit_once('-')).map(|(id, _)| id) {
+            let target = plugins_dir.join(id);
+            if plugins::valid_id(id) && std::fs::symlink_metadata(&target).is_err() {
+                let _ = std::fs::rename(&path, &target);
+                continue;
+            }
+        }
+        let _ = std::fs::remove_dir_all(&path);
+    }
+}
+
+/// `rename`, tried again a few times with a short wait (50, 100, 200 and 400 ms): an antivirus scanner or the search
+/// indexer can hold a file of the folder open for a moment, which Windows reports as a sharing violation.
+fn rename_retry(from: &Path, to: &Path) -> std::io::Result<()> {
+    let mut wait = 50;
+    loop {
+        match std::fs::rename(from, to) {
+            Ok(()) => return Ok(()),
+            Err(e) if wait > 400 || matches!(e.kind(), std::io::ErrorKind::NotFound | std::io::ErrorKind::AlreadyExists) => return Err(e),
+            Err(_) => { std::thread::sleep(std::time::Duration::from_millis(wait)); wait *= 2; }
+        }
     }
 }
 
@@ -330,12 +354,15 @@ pub fn commit(pkg: Prepared, plugins_dir: &Path) -> Result<Installed, String> {
     let Prepared { files, id, name, version, .. } = pkg;
     let _held = folder_lock();
     std::fs::create_dir_all(plugins_dir).map_err(|e| format!("cannot create the plugins folder: {e}"))?;
-    // nothing else can be installing now (the lock), so what is left over is from a crash
-    sweep_locked(plugins_dir);
+    // leftovers are swept only at start (and only by the first Barbican of the profile): another Barbican's install
+    // may be running now, and the lock is per process
     let target = plugins_dir.join(&id);
     let updated = std::fs::symlink_metadata(&target).is_ok();
     if updated && !plugins::installed_identity(&target).is_some_and(|(old, _, _)| old == id) {
         return Err(format!("\"{id}\" in the plugins folder is not an installed package with this id, so it is not replaced"));
+    }
+    if plugins::dropped_in_ids(plugins_dir).contains(&id) {
+        return Err(format!("a plugin dropped into the plugins folder already uses the id \"{id}\": remove that plugin first"));
     }
     let staging = plugins_dir.join(format!(".install-{id}-{}", random_tag()));
     let written = (|| -> Result<(), String> {
@@ -359,17 +386,21 @@ pub fn commit(pkg: Prepared, plugins_dir: &Path) -> Result<Installed, String> {
             return Err("the installed version is loaded: restart Barbican, then install the update".into());
         }
         let old = plugins_dir.join(format!(".old-{id}-{}", random_tag()));
-        if let Err(e) = std::fs::rename(&target, &old) {
+        if let Err(e) = rename_retry(&target, &old) {
             let _ = std::fs::remove_dir_all(&staging);
             return Err(format!("could not replace the installed version ({e}); restart Barbican and try again"));
         }
-        if let Err(e) = std::fs::rename(&staging, &target) {
-            let _ = std::fs::rename(&old, &target);
+        if let Err(e) = rename_retry(&staging, &target) {
             let _ = std::fs::remove_dir_all(&staging);
-            return Err(format!("could not install the plugin: {e}"));
+            if let Err(back) = rename_retry(&old, &target) {
+                // the backup is the installed version now: the sweep at the next start puts it back, never deletes it
+                return Err(format!("could not install the plugin ({e}), and the installed version could not be put back ({back}). \
+                    It is kept in {} and is put back when Barbican starts again.", old.display()));
+            }
+            return Err(format!("could not install the plugin ({e}); the installed version was kept"));
         }
         let _ = std::fs::remove_dir_all(&old);
-    } else if let Err(e) = std::fs::rename(&staging, &target) {
+    } else if let Err(e) = rename_retry(&staging, &target) {
         let _ = std::fs::remove_dir_all(&staging);
         return Err(format!("could not install the plugin: {e}"));
     }
@@ -745,14 +776,18 @@ mod tests {
     }
 
     #[test]
-    fn leftover_staging_folders_are_swept_before_an_install() {
+    fn leftover_staging_folders_are_swept() {
         let root = temp("sweep");
         let plugins_dir = root.join("plugins");
-        for n in [".install-a-1", ".old-b-2"] {
+        for n in [".install-a-1", ".old-dev.example.b-2a3f"] {
             std::fs::create_dir_all(plugins_dir.join(n)).unwrap();
             std::fs::write(plugins_dir.join(n).join("x"), b"x").unwrap();
         }
         std::fs::create_dir_all(plugins_dir.join("keepme")).unwrap();
+        // the backup of a package that is still installed goes
+        std::fs::create_dir_all(plugins_dir.join("dev.example.b")).unwrap();
+        sweep_leftovers(&plugins_dir);
+        std::fs::remove_dir_all(plugins_dir.join("dev.example.b")).unwrap();
         let zip = mkzip(&[f("manifest.json", &manifest("dev.example.demo", "1.0.0")), f(&lib_file(), b"x")]);
         std::fs::write(root.join("p.zip"), &zip).unwrap();
         install(&root.join("p.zip"), &plugins_dir).unwrap();
@@ -777,6 +812,55 @@ mod tests {
         drop(held);
         sweeper.join().unwrap();
         assert!(!staging.exists(), "swept once the install ended");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_backup_whose_package_is_missing_is_put_back_not_swept() {
+        let root = temp("sweep-restore");
+        let plugins_dir = root.join("plugins");
+        let old = plugins_dir.join(".old-dev.example.demo-0a1b2c");
+        std::fs::create_dir_all(&old).unwrap();
+        std::fs::write(old.join("manifest.json"), manifest("dev.example.demo", "1.0.0")).unwrap();
+        // a backup with a name that is no plugin id cannot be one: it goes
+        std::fs::create_dir_all(plugins_dir.join(".old-X-1")).unwrap();
+        sweep_leftovers(&plugins_dir);
+        assert!(!old.exists());
+        assert!(plugins_dir.join("dev.example.demo").join("manifest.json").is_file(), "the update stopped between its renames: put back");
+        assert!(!plugins_dir.join(".old-X-1").exists());
+        // with the package back in place, a second backup of it is removed
+        std::fs::create_dir_all(plugins_dir.join(".old-dev.example.demo-ffff")).unwrap();
+        sweep_leftovers(&plugins_dir);
+        assert!(!plugins_dir.join(".old-dev.example.demo-ffff").exists());
+        assert!(plugins_dir.join("dev.example.demo").is_dir());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn an_install_does_not_sweep() {
+        let root = temp("no-sweep");
+        let plugins_dir = root.join("plugins");
+        // another Barbican's install in progress, as far as this process can tell
+        std::fs::create_dir_all(plugins_dir.join(".install-dev.example.other-1")).unwrap();
+        let zip = mkzip(&[f("manifest.json", &manifest("dev.example.demo", "1.0.0")), f(&lib_file(), b"x")]);
+        std::fs::write(root.join("p.zip"), &zip).unwrap();
+        install(&root.join("p.zip"), &plugins_dir).unwrap();
+        assert!(plugins_dir.join(".install-dev.example.other-1").is_dir());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn an_id_a_dropped_in_plugin_uses_is_refused() {
+        let root = temp("shadow");
+        let plugins_dir = root.join("plugins");
+        std::fs::create_dir_all(&plugins_dir).unwrap();
+        std::fs::write(plugins_dir.join(format!("spam.{}", std::env::consts::DLL_EXTENSION)), b"x").unwrap();
+        std::fs::write(plugins_dir.join("spam.manifest.json"), json!({"id": "dev.example.demo"}).to_string()).unwrap();
+        let zip = mkzip(&[f("manifest.json", &manifest("dev.example.demo", "1.0.0")), f(&lib_file(), b"x")]);
+        std::fs::write(root.join("p.zip"), &zip).unwrap();
+        let e = install(&root.join("p.zip"), &plugins_dir).unwrap_err();
+        assert!(e.contains("dropped into the plugins folder already uses the id"), "{e}");
+        assert!(!plugins_dir.join("dev.example.demo").exists());
         let _ = std::fs::remove_dir_all(&root);
     }
 
