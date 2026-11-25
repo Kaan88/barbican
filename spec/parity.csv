@@ -62,7 +62,7 @@ G-060,settings-unwired,Unwired: dateLocale (showOnboardingOnNewDevices wired by 
 G-061,settings-unwired,"Unwired: toolbarPosition, sidebarAccountSwitcher, showSharedMailAccounts, compactSharedMailboxes, keepAppsLoaded",settings-store.ts,missing,,G-061 (GAPS P2-1),6,M
 G-062,settings-unwired,"Unwired: listColumns, messageListOrderScope",settings-store.ts,missing,,G-062 (GAPS P2-1),6,S
 G-063,settings-unwired,"Unwired: recipientMentionsEnabled, mentionAddsRecipientTo (rtlEditingSupport wired, see M6b-feature-parity)",settings-store.ts,missing,,G-063 (GAPS P2-1),6,S
-G-064,settings-unwired,Unwired: settingsSyncDisabled (settings sync through Mailbox metadata is not implemented),lib/settings-sync.ts,missing,,G-064 (GAPS P2-1),3,S
+G-064,settings-unwired,Unwired: settingsSyncDisabled (settings sync through Mailbox metadata is not implemented),lib/settings-sync.ts,done,"src/settings_sync.rs (own namespace org.barbican.settings in Inbox metadata; allowlist, owner logic, guarded single write)",G-064 (GAPS P2-1),3,S
 G-065,settings-unwired,"No row and no code: defaultReplyMode, printTheme, hiddenCompanyCalendars",settings-store.ts,missing,,G-065 (GAPS P2-1),6,S
 G-066,settings-unwired,"No row and no code: hiddenSharedMailAccounts, sharedMailAccountOrder, allMailFolderIds",settings-store.ts,missing,,G-066 (GAPS P2-1),6,S
 G-067,settings-unwired,"No row and no code: attachmentReminderKeywords, sidebarApps",settings-store.ts,missing,,G-067 (GAPS P2-1),6,S
@@ -109,7 +109,7 @@ G-107,contacts,"vCard import and export, typed entries, photos, duplicates and m
 G-108,sieve,"Filters: edit and reorder, several conditions and actions, header, size and regex, run on existing mail",filters_x.rs; sieve.rs,done,src/filters_x.rs:116,G-108 (GAPS P1-7 (done)),0,-
 G-109,mail,"Sender avatars (Gravatar, BIMI, favicons), .eml and .mbox import",avatars.rs; mailimport.rs,unverified,,G-109 (GAPS P1-14 (part; done)),0,-
 G-110,reader,Truncation notice for long bodies,reader.rs,unverified,,G-110 (GAPS P1-17 (part)),0,-
-S-settingsSyncDisabled,settings-about,Settings sync,stores/settings-store.ts: settingsSyncDisabled,missing,,S-settingsSyncDisabled,3,S
+S-settingsSyncDisabled,settings-about,Settings sync,stores/settings-store.ts: settingsSyncDisabled,done,src/settings_sync.rs (DISABLED_KEY: no pull and no push),S-settingsSyncDisabled,3,S
 S-a11y.reset,settings-accessibility,Reset accessibility settings,settings-schema.json (page accessibility),done,src/main.rs:1091,S-a11y.reset,0,S
 S-colorBlindPalette,settings-accessibility,Colour-blind-safe colours,stores/settings-store.ts: colorBlindPalette,done,src/a11y.rs:128,S-colorBlindPalette,0,S
 S-confirmArchive,settings-accessibility,Confirm before archiving,stores/settings-store.ts: confirmArchive,done,src/a11y.rs:132,S-confirmArchive,0,S
