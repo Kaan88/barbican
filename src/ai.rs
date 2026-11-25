@@ -58,16 +58,23 @@ impl Config {
     }
 
     pub fn save(&self) {
-        let _ = std::fs::create_dir_all(crate::config_dir());
-        let v = json!({"provider": self.provider, "base": self.base, "model": self.model, "lang": self.lang,
-            "showCleanSpam": self.show_clean_spam, "actions": self.actions, "instructions": self.instructions,
-            "prompts": self.prompts, "memory": self.memory_on, "hidden": self.hidden,
-            "renderMode": self.render_mode, "remoteImages": self.remote_images});
-        // the new assistant settings (src/assistant/config.rs) share the file: keep their entry
-        let mut v = v;
-        let prev: Option<Value> = std::fs::read_to_string(path()).ok().and_then(|s| serde_json::from_str(&s).ok());
-        if let Some(a) = prev.as_ref().and_then(|p| p.get("assistant")).filter(|a| a.is_object()) { v["assistant"] = a.clone(); }
-        let _ = std::fs::write(path(), v.to_string());
+        // the file is shared with the new assistant settings (src/assistant/config.rs, the
+        // "assistant" entry) and may hold entries of other versions: only this struct's own
+        // entries change, and a file that is there but does not parse is left as it is
+        match crate::assistant::config::read_file() {
+            Ok(mut v) => {
+                if !v.is_object() { v = json!({}); }
+                let own = json!({"provider": self.provider, "base": self.base, "model": self.model, "lang": self.lang,
+                    "showCleanSpam": self.show_clean_spam, "actions": self.actions, "instructions": self.instructions,
+                    "prompts": self.prompts, "memory": self.memory_on, "hidden": self.hidden,
+                    "renderMode": self.render_mode, "remoteImages": self.remote_images});
+                if let (Some(o), Some(own)) = (v.as_object_mut(), own.as_object()) {
+                    for (k, val) in own { o.insert(k.clone(), val.clone()); }
+                }
+                if let Err(e) = crate::assistant::config::write_file(&v) { eprintln!("{e}"); }
+            }
+            Err(e) => eprintln!("{e}"),
+        }
         if self.key.is_empty() { crate::secrets::delete(SECRET); } else {
             crate::secrets::set(SECRET, &json!({"key": self.key}).to_string());
         }
@@ -228,4 +235,37 @@ pub fn compose_prompt(action: &str, draft: &str, lang: &str) -> String {
         if action == "Translate" { "" } else { " and language" },
         clip(draft, 30000)
     )
+}
+
+#[cfg(test)]
+mod save_tests {
+    use super::*;
+
+    #[test]
+    fn save_changes_only_its_own_entries() {
+        let _files = crate::settings::TEST_FILES.lock().unwrap_or_else(|e| e.into_inner());
+        std::fs::create_dir_all(crate::config_dir()).unwrap();
+        let prev = json!({"assistant": {"version": 2, "claudeLocal": true}, "futureEntry": [1, 2], "model": "old", "renderMode": 2});
+        std::fs::write(path(), prev.to_string()).unwrap();
+        let mut c = Config::load();
+        assert_eq!(c.render_mode, 2);
+        c.model = "new-model".into();
+        c.save();
+        let v: Value = serde_json::from_str(&std::fs::read_to_string(path()).unwrap()).unwrap();
+        assert_eq!(v["assistant"], prev["assistant"]);
+        assert_eq!(v["futureEntry"], json!([1, 2]));
+        assert_eq!(v["model"], "new-model");
+        assert_eq!(v["renderMode"], 2);
+        let _ = std::fs::remove_file(path());
+    }
+
+    #[test]
+    fn save_leaves_an_unreadable_file_alone() {
+        let _files = crate::settings::TEST_FILES.lock().unwrap_or_else(|e| e.into_inner());
+        std::fs::create_dir_all(crate::config_dir()).unwrap();
+        std::fs::write(path(), "{\"provider\": 1, oops").unwrap();
+        Config { model: "x".into(), ..Config::default() }.save();
+        assert_eq!(std::fs::read_to_string(path()).unwrap(), "{\"provider\": 1, oops");
+        let _ = std::fs::remove_file(path());
+    }
 }
