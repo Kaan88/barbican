@@ -780,7 +780,8 @@ fn plugin_uninstall(u: &AppWindow, key: &str) -> bool {
         Err(e) => mail::show_toast(u, &format!("Could not uninstall {name}: {e}"), false),
     }
     refresh_plugins();
-    r.is_ok()
+    // the package folder is gone even when a later step failed: its grant goes too
+    r.is_ok() || std::fs::symlink_metadata(plugins::dir().join(key)).is_err()
 }
 
 /// Re-read the plugins folder (Settings → Add-ons opened).

@@ -434,7 +434,9 @@ pub fn uninstall(id: &str, plugins_dir: &Path, data_dir: &Path) -> Result<(), St
     // back by the sweep at the next start, bringing the uninstalled plugin back
     let backups: Vec<PathBuf> = std::fs::read_dir(plugins_dir).map(|rd| rd.flatten()
         .filter(|e| backup_id(&e.file_name().to_string_lossy()) == Some(id)).map(|e| e.path()).collect()).unwrap_or_default();
-    for dir in [target, data_dir.join(id)].into_iter().chain(backups) {
+    // backups first: one that cannot be removed then leaves the package in place, rather than a package gone and an
+    // old version the sweep would put back
+    for dir in backups.into_iter().chain([target, data_dir.join(id)]) {
         match std::fs::symlink_metadata(&dir) {
             Err(_) => {}
             // a link is removed itself; what it points to is not touched

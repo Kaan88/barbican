@@ -634,10 +634,11 @@ fn string_list(v: &Value, key: &str, errors: &mut Vec<String>) -> Vec<String> {
 
 /// Direction marks and overrides, zero-width and other invisible format characters: they make text read differently
 /// from what it is (a name that looks reversed, two names that look the same). The zero-width non-joiner and joiner
-/// (U+200C, U+200D) are allowed: Persian and Indic writing and joined emoji need them.
+/// (U+200C, U+200D) are allowed: Persian and Indic writing and joined emoji need them. The line and paragraph
+/// separators (U+2028, U+2029) are in too: they would start a new line in a one-line text.
 pub fn is_invisible(c: char) -> bool {
     matches!(c, '\u{00AD}' | '\u{061C}' | '\u{180E}' | '\u{200B}' | '\u{200E}' | '\u{200F}' | '\u{202A}'..='\u{202E}'
-        | '\u{2060}'..='\u{2064}' | '\u{2066}'..='\u{206F}' | '\u{FEFF}' | '\u{FFF9}'..='\u{FFFB}')
+        | '\u{2028}' | '\u{2029}' | '\u{2060}'..='\u{2064}' | '\u{2066}'..='\u{206F}' | '\u{FEFF}' | '\u{FFF9}'..='\u{FFFB}')
 }
 
 /// Text that is safe to show as one line: no control characters and no [`is_invisible`] ones.
@@ -944,7 +945,7 @@ impl Plugin {
         t += "\n";
         // only reached for an update (same, named author)
         let changed = match old.and_then(|g| g.version.as_deref()) {
-            Some(v) if v != self.version => format!("Updated from version {v} to {} by the same author", self.version),
+            Some(v) if v != self.version => format!("Updated from version {v} to {}, naming the same author (packages are not signed, so Barbican cannot prove it)", self.version),
             Some(_) => format!("Its files changed since you switched it on (still version {})", self.version),
             None => format!("Updated to version {}", self.version),
         };
@@ -1082,7 +1083,7 @@ pub fn discover_in(folder: &std::path::Path) -> (Vec<Plugin>, Vec<String>) {
         };
         let verified = meta.is_some();
         let m = meta.unwrap_or_else(|| Meta {
-            id: format!("file:{file}"), name: file.clone(), version: String::new(), hooks: vec![],
+            id: format!("file:{file}"), name: shown(&file, MAX_SHOWN), version: String::new(), hooks: vec![],
             description: "No manifest next to the file, so nothing is known about it until you switch it on. Only switch on plugins you trust.".into(),
             decl: Declared { api: 1, ..Declared::default() },
         });
@@ -1941,7 +1942,7 @@ mod tests {
         let mut older = g.clone();
         older.version = Some("1.0.0".into());
         let (_, body, _) = new.consent_dialog(&c, std::slice::from_ref(&older), &|_| false);
-        assert!(body.contains("Updated from version 1.0.0 to 1.1.0 by the same author. It asks for the same permissions as before."), "{body}");
+        assert!(body.contains("Updated from version 1.0.0 to 1.1.0, naming the same author (packages are not signed, so Barbican cannot prove it). It asks for the same permissions as before."), "{body}");
         // a yes pins the new file
         let g2 = new.grant(vec![], "t2");
         assert_eq!(new.consent(&[g2]), Consent::Granted);
@@ -2462,5 +2463,10 @@ mod tests {
         let _ = std::fs::remove_dir(&link).or_else(|_| std::fs::remove_file(&link));
         assert!(real.join("manifest.json").is_file());
         let _ = std::fs::remove_dir_all(&d);
+    }
+    #[test]
+    fn line_separators_never_show_in_a_one_line_text() {
+        assert!(!is_plain("a\u{2028}b") && !is_plain("a\u{2029}b"));
+        assert_eq!(shown("x\u{202E}lld.exe\u{2028}.dll", 64), "xlld.exe.dll");
     }
 }
