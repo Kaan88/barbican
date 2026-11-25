@@ -2,7 +2,7 @@
 
 **Goal: 1:1 feature parity with Bulwark webmail 1.21.2, including a plugin system with a comparable API.** Barbican has its own native plugin system (C ABI, no web runtime). Bulwark's hooks, slots and host API are the reference vocabulary, so a Bulwark plugin can be ported by hand. Running Bulwark plugins unchanged is **not** a goal (decided 2026-11-23: a web-based plugin runtime is too much complexity).
 
-Updated 2026-11-23 (0.1.0 released, schedule added), after the C# port was dropped (PORT-PLAN-DROPPED.md).
+Updated 2026-11-25 (order from here set by the owner); 2026-11-23 (0.1.0 released, schedule added), after the C# port was dropped (PORT-PLAN-DROPPED.md).
 
 **Inputs:**
 - GAPS.md: Bulwark gaps, as P0–P3.
@@ -16,6 +16,42 @@ Sizes: S = up to 2 days, M = up to a week, L = several weeks. Two tracks run sid
 - **B** builds the plugin platform. B reaches a slot or hook only once A has built the screen behind it.
 
 ---
+
+## Order from here (owner's decision, 2026-11-25)
+
+This order replaces the release table below wherever they disagree. Phases 0-4 and plugin steps B1-B3 are merged.
+
+1. **Finish what is in flight, then stop the plugin track.** B4 part 1 (mail and composer hooks) goes through review and is merged. So do calendar and contact print (G-008, G-010) and the notification tone plus "Refresh cached data" (S-notificationSoundChoice, S-keyless-063). After that, no new plugin work until step 3.
+2. **UI push (track A, the main work).** In this order:
+   1. **Jank, everywhere.** The audit is done: docs/JANK-AUDIT.md (ranked issues and work batches; do batch B, the settings cache, first, then A, the WebView, overlays and focus). Start from an audit that ranks every problem found in these four areas:
+      - **Slow:** work on the UI thread, folder/app/message switches, scrolling long lists, freezes while loading.
+      - **Layout glitches:** jumps, overlaps, misalignment, flicker and size changes while content loads.
+      - **Focus and keyboard:** focus returning after every overlay, shortcuts working without a click, Escape and Enter behaving the same in every dialog.
+      - **Looks off against Bulwark:** spacing, sizes, icons, colours.
+      Fix them worst first.
+   2. **Mail layout:**
+      - `mailLayout` (reading pane right, bottom or off, S-mailLayout);
+      - `toolbarPosition` (S-toolbarPosition);
+      - list columns (S-listColumns, G-062);
+      - density checked against Bulwark;
+      - the sidebar account switcher and shared accounts rows (G-061).
+   3. **Visual polish:**
+      - **Decided (2026-11-25):** Bulwark's look becomes the default theme. The current Bento × Nordic look stays as a built-in alternative. Both get fixed: contrast, the selection, hover, pressed, destructive, success and warning tokens, and one type scale.
+      - merge the Bulwark palette and tuned contrast tokens (`docs/from-csharp/design/legacy-slint/theme.slint`, G-070 part 1);
+      - the font pass (G-092);
+      - icons and density side by side with Bulwark.
+   4. **Shell:**
+      - a sidebar that folds to icons;
+      - a phone-width layout;
+      - pop-out reader and composer windows (G-055);
+      - sidebar apps.
+   5. **Mail list and composer extras:**
+      - list: tabs, hover tag picker, `$pinned`, structured-mail cards (G-073);
+      - composer: @mentions, attach from Files, priority and classification, right-to-left blocks (G-075 to G-079).
+      Then Bulwark's built-in themes, theme import and the tour (G-070, G-085).
+3. **Plugin track resumes:** the rest of B4, then B5 slots on the finished screens, B6 host calls, B7 ported proof plugins.
+4. **Phase 7 large areas**, in their value order: offline and outbox, i18n and time zone, admin writes, delegation and Pro, Files sync and WOPI.
+5. **Last: the settings that show but do nothing** (G-059 to G-069, the desktop window options, swipe, push relay). Each one is wired, or marked `wont-do` with a reason (for example, the mobile-only swipe actions and the web push relay).
 
 ## Schedule
 
