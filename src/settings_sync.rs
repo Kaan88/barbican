@@ -6,9 +6,11 @@
 //! namespace `org.barbican.settings` (not Bulwark's: the two apps' settings differ).
 //!
 //! * The blob is split over entries of at most 8 KB each (Stalwart's per-entry limit), named by a
-//!   random generation (`part.<gen>.<i>`). The parts are written first, then the manifest naming
-//!   the generation, the part count and the SHA-256 of the parts; a reader that finds parts not
-//!   matching the manifest takes it as "not ready" and keeps the local settings.
+//!   random generation (`part.<gen>.<i>`), plus a manifest naming the generation, the part count
+//!   and the SHA-256 of the parts. Parts, manifest and the removal of the old generation go in one
+//!   update of the Inbox (all or nothing), only in the Mailbox state the Inbox was read at; a
+//!   reader that finds parts not matching the manifest takes it as "not ready" and keeps the
+//!   local settings.
 //! * What syncs is an allowlist: the settings schema's preferences and a few Bulwark-keyed values
 //!   with no row ([`EXTRA`]), minus [`DENY`]: plugin consent, sign-ins, the device's state, the
 //!   desktop and assistant settings, and whatever loads content or sends data somewhere.
@@ -382,8 +384,8 @@ impl DeviceState {
     pub fn tracking(&self) -> bool { self.active.is_some() && self.active == self.owner && !self.blocked }
 
     /// A save of `prefs` at `now_ms`. A changed synced key is the owner's change (to push) only
-    /// while [`tracking`](Self::tracking); else the settings become the signed-in account's,
-    /// blocked (never pushed to the account they were of), or, with nobody signed in, nobody's.
+    /// while [`tracking`](Self::tracking); else the settings are blocked (never pushed anywhere;
+    /// the next pull starts over from defaults), held by the signed-in account if there is one.
     pub fn saved(&mut self, prefs: &Map<String, Value>, now_ms: i64) -> Saved {
         let mut out = Saved::default();
         let disabled = prefs.get(DISABLED_KEY) == Some(&json!(true));
@@ -399,13 +401,19 @@ impl DeviceState {
             return out;
         }
         match self.active.clone() {
-            Some(a) if self.owner.as_deref() != Some(a.as_str()) => { self.owner = Some(a); self.blocked = true; }
+            Some(a) if self.owner.as_deref() != Some(a.as_str()) => {
+                self.owner = Some(a);
+                self.base = None;
+                self.dirty.clear();
+            }
             Some(_) => return out, // already blocked for this account
-            None if self.owner.is_some() || self.blocked => { self.owner = None; self.blocked = false; }
-            None => return out,
+            // nobody signed in (after "add account", a sign-out, before a restore): the owner
+            // stays, blocked, so whichever account pulls next starts from defaults; the waiting
+            // changes stay as they were (the reset of that pull drops them)
+            None if self.blocked => return out,
+            None => {}
         }
-        self.base = None;
-        self.dirty.clear();
+        self.blocked = true;
         out.holder = true;
         out
     }
@@ -492,16 +500,21 @@ pub fn supported(c: &Client) -> bool { c.has("urn:ietf:params:jmap:metadata") }
 
 fn inbox(c: &Client) -> Result<String, String> { c.role_ids()?.get("inbox").cloned().ok_or_else(|| "No Inbox.".into()) }
 
-/// The stored blob and the part entries there now. An Inbox that is not returned, or returned
-/// without its metadata, is an error, not "nothing stored".
-pub fn fetch(c: &Client) -> Result<(Remote, Vec<String>), String> {
+/// What a read of the Inbox found: the blob, our part entries there now, and the Mailbox state
+/// it was read at (the write that follows goes only in that state).
+#[derive(Debug)]
+pub struct Fetched { pub remote: Remote, pub parts: Vec<String>, pub state: Option<String> }
+
+/// The stored blob. An Inbox that is not returned, or returned without its metadata, is an
+/// error, not "nothing stored".
+pub fn fetch(c: &Client) -> Result<Fetched, String> {
     let id = inbox(c)?;
     let r = c.call(json!([["Mailbox/get", {"accountId": c.account, "ids": [id.clone()], "properties": ["metadata"]}, "m"]]))?;
     let Some(item) = r.first().and_then(|a| a[1]["list"].as_array()).and_then(|l| l.iter().find(|m| m["id"] == id.as_str())) else {
         return Err("The server did not return the Inbox.".into());
     };
     let Some(meta) = item.get("metadata") else { return Err("The server did not return the Inbox's metadata.".into()) };
-    Ok((decode(meta), part_keys(meta)))
+    Ok(Fetched { remote: decode(meta), parts: part_keys(meta), state: r[0][1]["state"].as_str().map(String::from) })
 }
 
 fn new_gen() -> String {
@@ -512,77 +525,77 @@ fn new_gen() -> String {
 
 #[derive(Debug, PartialEq)]
 enum StoreError {
-    /// The Inbox changed between the parts and the manifest (another computer, ifInState).
+    /// The Inbox changed since it was read (another computer, ifInState).
     Changed,
     Failed(String),
 }
 
-/// One Mailbox/set answer: the new state, or why the Inbox was not updated.
-fn set_answer(r: &[Value], inbox: &str) -> Result<Option<String>, StoreError> {
+/// One Mailbox/set answer, or why the Inbox was not updated.
+fn set_answer(r: &[Value], inbox: &str) -> Result<(), StoreError> {
     let Some(a) = r.first() else { return Err(StoreError::Failed("The server did not answer.".into())) };
     if a[0] == "error" {
         return Err(if a[1]["type"] == "stateMismatch" { StoreError::Changed } else { StoreError::Failed(crate::jmap::method_error(&a[1])) });
     }
     if let Some(e) = a[1]["notUpdated"].get(inbox) { return Err(StoreError::Failed(crate::jmap::set_error(e))); }
-    Ok(a[1]["newState"].as_str().map(String::from))
+    Ok(())
 }
 
-/// Write `settings` as a new generation: the parts, then the manifest, which also removes the
-/// parts in `old` (another generation's). The manifest is written only in the state the parts
-/// left (RFC 8620 §5.3 ifInState, as src/templates.rs does), so a write from another computer in
-/// between is not overwritten unseen.
-fn store(c: &Client, settings: &Map<String, Value>, updated: &str, old: &[String]) -> Result<(), StoreError> {
-    store_gen(c, settings, updated, old, &new_gen())
+/// Write `settings` as a new generation in one update of the Inbox: its parts, the manifest
+/// naming them and the removal of the parts in `old` (another generation's). One object's update
+/// is all or nothing (RFC 8620 §5.3), so only one generation is ever left. `guard`: the Mailbox
+/// state the Inbox was read at (ifInState), so a write from another computer since is not
+/// overwritten unseen.
+fn store(c: &Client, settings: &Map<String, Value>, updated: &str, old: &[String], guard: Option<&str>) -> Result<(), StoreError> {
+    store_gen(c, settings, updated, old, &new_gen(), guard)
 }
 
-fn store_gen(c: &Client, settings: &Map<String, Value>, updated: &str, old: &[String], gen: &str) -> Result<(), StoreError> {
+fn store_gen(c: &Client, settings: &Map<String, Value>, updated: &str, old: &[String], gen: &str, guard: Option<&str>) -> Result<(), StoreError> {
     let (parts, manifest) = encode(settings, updated, gen).map_err(StoreError::Failed)?;
     let inbox = inbox(c).map_err(StoreError::Failed)?;
-    let mut first = Map::new();
-    for (k, v) in &parts { first.insert(format!("metadata/{k}"), v.clone()); }
-    let r = c.request(json!([["Mailbox/set", {"accountId": c.account, "update": { inbox.clone(): first }}, "p"]])).map_err(StoreError::Failed)?;
-    let state = set_answer(&r, &inbox)?;
-    let mut second = Map::new();
-    second.insert(format!("metadata/{}", manifest_key()), manifest);
+    let mut patch = Map::new();
     let fresh = format!("{}{gen}.", part_prefix());
-    for k in old { if !k.starts_with(&fresh) { second.insert(format!("metadata/{k}"), Value::Null); } }
-    let mut args = json!({"accountId": c.account, "update": { inbox.clone(): second }});
-    if let Some(s) = state { args["ifInState"] = json!(s); }
-    let r = c.request(json!([["Mailbox/set", args, "m"]])).map_err(StoreError::Failed)?;
-    set_answer(&r, &inbox).map(|_| ())
+    for k in old { if !k.starts_with(&fresh) { patch.insert(format!("metadata/{k}"), Value::Null); } }
+    for (k, v) in &parts { patch.insert(format!("metadata/{k}"), v.clone()); }
+    patch.insert(format!("metadata/{}", manifest_key()), manifest);
+    let mut args = json!({"accountId": c.account, "update": { inbox.clone(): patch }});
+    if let Some(s) = guard { args["ifInState"] = json!(s); }
+    let r = c.request(json!([["Mailbox/set", args, "s"]])).map_err(StoreError::Failed)?;
+    set_answer(&r, &inbox)
 }
 
 const NEWER: &str = "Another computer synced these settings with a newer Barbican. Update Barbican here to sync again.";
-const RACED: &str = "Another computer changed the settings at the same moment; yours go up with your next change.";
+/// Writes made only in the state that was read; the one after them goes regardless.
+const GUARDED_TRIES: usize = 4;
 
 /// Run `f` on the settings and this device's sync state under their locks; `f` says whether it
 /// changed the settings (to save them).
 type Access<'a> = dyn FnMut(&mut dyn FnMut(&mut Map<String, Value>, &mut DeviceState) -> bool) + 'a;
 
 /// One push for `owner`: read the server's copy (a newer format is never overwritten), merge a
-/// newer one in, write, and acknowledge what was sent. On a stateMismatch it reads and tries
-/// once more. Ok(false): nothing to push for `owner` (its settings are not here).
+/// newer one in, write in the state it was read at, and acknowledge what was sent. On a
+/// stateMismatch it reads, merges and tries again, up to 3 more times; then it writes without
+/// the guard (last writer wins). Ok(false): nothing to push for `owner` (its settings are not here).
 fn push_core(c: &Client, owner: &str, acct: &str, keep_cross: bool, now: &dyn Fn() -> i64, access: &mut Access) -> Result<bool, String> {
-    for attempt in 0..2 {
-        let (remote, old) = fetch(c)?;
-        if remote == Remote::Newer { return Err(NEWER.into()); }
+    for attempt in 0..=GUARDED_TRIES {
+        let f = fetch(c)?;
+        if f.remote == Remote::Newer { return Err(NEWER.into()); }
         let mut job = None;
         access(&mut |prefs, st| {
-            job = st.prepare(prefs, owner, acct, &remote, now(), keep_cross);
+            job = st.prepare(prefs, owner, acct, &f.remote, now(), keep_cross);
             job.as_ref().is_some_and(|p| p.changed)
         });
         let Some(p) = job else { return Ok(false) };
-        match store(c, &p.blob, &p.updated, &old) {
+        let guard = if attempt < GUARDED_TRIES { f.state.as_deref() } else { None };
+        match store(c, &p.blob, &p.updated, &f.parts, guard) {
             Ok(()) => {
                 access(&mut |_, st| { st.pushed(owner, &p); false });
                 return Ok(true);
             }
-            Err(StoreError::Changed) if attempt == 0 => continue,
-            Err(StoreError::Changed) => return Err(RACED.into()),
+            Err(StoreError::Changed) => continue,
             Err(StoreError::Failed(e)) => return Err(e),
         }
     }
-    Err(RACED.into())
+    Err("The server kept refusing the settings.".into())
 }
 
 // ---------------------------------------------------------------- the running program
@@ -638,9 +651,12 @@ fn write_state(v: &Value) {
 
 fn persist(st: &DeviceState) { write_state(&st.to_json()); }
 
-/// Before the settings of a new owner are written: the file says "nobody's" until they are on
-/// disk, so a crash in between never pairs one account with another's settings.
-fn persist_unowned() { write_state(&DeviceState::default().to_json()); }
+/// What the file says while changed settings are not on disk yet: nobody's and blocked, with the
+/// base from before, so after a crash in between any pull resets first and nothing counts as
+/// newer. The real state is written after `Settings::flush`.
+fn interim(old_base: Option<String>) -> Value { json!({"owner": null, "blocked": true, "base": old_base, "dirty": {}}) }
+
+fn persist_interim(old_base: Option<String>) { write_state(&interim(old_base)); }
 
 /// Run `f` on this device's sync state (loaded on first use). Lock order: the live settings, then
 /// this; never take the live settings inside `f`.
@@ -760,14 +776,18 @@ fn forget(owner: &str) {
     crate::settings::with_live(|s| {
         let off = s.prefs.get(DISABLED_KEY) == Some(&json!(true));
         done = with_state(|st| {
+            let old = st.base.clone();
             let d = st.forget(&mut s.prefs, owner, off);
-            // nobody's already: written before the settings, which is the safe order
-            if d { persist(st); }
+            if d { persist_interim(old); }
             d
         });
         if done { s.save(); }
     });
-    if done { crate::settings::Settings::flush(); applied(); }
+    if done {
+        crate::settings::Settings::flush();
+        with_state(|st| persist(st));
+        applied();
+    }
 }
 
 /// The sync was switched back on: pull again for the account signed in.
@@ -784,14 +804,15 @@ fn pull(a: Active) {
     }
     // the account just left gets its waiting changes first
     wait_flushes(std::time::Duration::from_secs(10));
-    let remote = fetch(&a.client).map(|r| r.0);
+    let remote = fetch(&a.client).map(|f| f.remote);
     let keep = keep_cross();
     let mut out = None;
     crate::settings::with_live(|s| {
         if !current(a.gen) { return; }
         let r = with_state(|st| {
+            let old = st.base.clone();
             let r = st.settle(&mut s.prefs, &a.owner, &a.acct, remote, keep);
-            if r.owner_changed { persist_unowned(); } else { persist(st); }
+            if r.owner_changed || r.changed { persist_interim(old); } else { persist(st); }
             r
         });
         if r.changed { s.save(); }
@@ -842,13 +863,18 @@ fn push_as(a: &Active, check_gen: bool) {
         crate::settings::with_live(|s| {
             if check_gen && !current(gen) { return; }
             changed = with_state(|st| {
+                let old = st.base.clone();
                 let c = f(&mut s.prefs, st);
-                persist(st);
+                if c { persist_interim(old); } else { persist(st); }
                 c
             });
             if changed { s.save(); }
         });
-        if changed { redraw = true; crate::settings::Settings::flush(); }
+        if changed {
+            redraw = true;
+            crate::settings::Settings::flush();
+            with_state(|st| persist(st));
+        }
     };
     let res = push_core(&a.client, &a.owner, &a.acct, keep, &now_ms, &mut access);
     if redraw { applied(); }
@@ -1095,14 +1121,53 @@ mod tests {
         st.settle(&mut prefs, "A", "a@x", Ok(blob(json!({"theme": "dark"}), "2026-11-19T00:00:00.000Z")), false);
         assert!(!prefs.contains_key("density"), "{prefs:?}");
         assert_eq!(prefs["theme"], "dark");
-        // and with nobody signed in, a change makes the settings nobody's
+        // and with nobody signed in, a change blocks the settings; the owner and what waits stay
         let mut st = state(Some("A"), None);
+        st.dirty.insert("theme".into(), json!(1));
         st.activate(None);
         let mut prefs = obj(json!({"theme": "x"}));
         assert!(st.saved(&prefs, 1).holder);
-        assert_eq!(st.owner, None);
+        assert_eq!((st.owner.as_deref(), st.blocked, st.dirty.len()), (Some("A"), true, 1));
         prefs.insert("theme".into(), json!("y"));
         assert_eq!(st.saved(&prefs, 2), Saved::default());
+    }
+
+    #[test]
+    fn a_change_with_nobody_signed_in_is_never_pushed_to_the_next_account() {
+        // A's settings, then "add account" (nobody signed in) and a change
+        let mut st = state(Some("A"), Some("2026-11-20T00:00:00.000Z"));
+        let mut prefs = obj(json!({"theme": "light", "density": "compact"}));
+        st.start(&prefs);
+        st.activate(None);
+        prefs.insert("theme".into(), json!("dark"));
+        assert!(st.saved(&prefs, 5).holder);
+        // B signs in, nothing stored on its server: it starts from defaults, nothing of A's goes up
+        st.activate(Some("B"));
+        let r = st.settle(&mut prefs, "B", "b@x", Ok(Remote::Nothing), false);
+        assert!(r.changed && !r.blocked, "{r:?}");
+        assert!(!prefs.contains_key("theme") && !prefs.contains_key("density"), "{prefs:?}");
+        assert_eq!(st.owner.as_deref(), Some("B"));
+        assert!(st.prepare(&mut prefs, "A", "a@x", &Remote::Nothing, 9, false).is_none(), "not A's any more");
+        if let Some(p) = st.prepare(&mut prefs, "B", "b@x", &Remote::Nothing, 9, false) {
+            assert!(p.blob["theme"].is_null() && p.blob["density"].is_null(), "defaults only");
+        }
+        // and the same account signing in again also starts over
+        let mut st = state(Some("A"), Some("2026-11-20T00:00:00.000Z"));
+        let mut prefs = obj(json!({"theme": "light"}));
+        st.start(&prefs);
+        st.activate(None);
+        prefs.insert("theme".into(), json!("dark"));
+        st.saved(&prefs, 5);
+        st.activate(Some("A"));
+        st.settle(&mut prefs, "A", "a@x", Ok(blob(json!({"theme": "system"}), "2026-11-19T00:00:00.000Z")), false);
+        assert_eq!(prefs["theme"], "system");
+    }
+
+    #[test]
+    fn until_the_settings_are_on_disk_the_state_file_says_nobodys_and_blocked() {
+        let v = interim(Some("2026-11-20T00:00:00.000Z".into()));
+        let st = DeviceState::from_json(&v);
+        assert_eq!((st.owner, st.blocked, st.base.as_deref(), st.dirty.len()), (None, true, Some("2026-11-20T00:00:00.000Z"), 0));
     }
 
     #[test]
@@ -1226,10 +1291,11 @@ mod tests {
 
     type Log = Arc<Mutex<Vec<Value>>>;
 
-    /// The fake's Inbox: its metadata, how many manifest writes it refuses with stateMismatch, and
-    /// what Mailbox/get of the metadata answers (None: the usual).
+    /// The fake's Inbox: its metadata and Mailbox state (`s<n>`, one up per write), copies other
+    /// computers write right after each of our reads (one per read, as long as there are any),
+    /// and what Mailbox/get of the metadata answers (None: the usual).
     #[derive(Default)]
-    struct Srv { meta: Value, refuse: usize, get: Option<Value> }
+    struct Srv { meta: Value, n: u64, others: Vec<Value>, get: Option<Value> }
 
     fn fake(caps: &[&str], srv: Srv, log: &Log) -> (Client, Arc<Mutex<Srv>>) {
         let (log, srv) = (log.clone(), Arc::new(Mutex::new(srv)));
@@ -1241,20 +1307,28 @@ mod tests {
                 let a = &c[1];
                 let mut s = s2.lock().unwrap();
                 let r = match m {
-                    "Mailbox/get" if a["properties"] == json!(["metadata"]) => s.get.clone().unwrap_or_else(|| json!({"state": "s1", "list": [{"id": "in1", "metadata": s.meta.clone()}]})),
-                    "Mailbox/get" => json!({"state": "s1", "list": [{"id": "in1", "role": "inbox", "name": "Inbox"}]}),
+                    "Mailbox/get" if a["properties"] == json!(["metadata"]) => {
+                        let r = s.get.clone().unwrap_or_else(|| json!({"state": format!("s{}", s.n), "list": [{"id": "in1", "metadata": s.meta.clone()}]}));
+                        if !s.others.is_empty() {
+                            let o = s.others.remove(0);
+                            s.meta = o;
+                            s.n += 1;
+                        }
+                        r
+                    }
+                    "Mailbox/get" => json!({"state": format!("s{}", s.n), "list": [{"id": "in1", "role": "inbox", "name": "Inbox"}]}),
                     "Mailbox/set" => {
-                        let upd = a["update"]["in1"].as_object().unwrap();
-                        if a.get("ifInState").is_some() && s.refuse > 0 {
-                            s.refuse -= 1;
+                        if a.get("ifInState").is_some_and(|x| *x != json!(format!("s{}", s.n))) {
                             return json!(["error", {"type": "stateMismatch"}, c[2]]);
                         }
                         if !s.meta.is_object() { s.meta = json!({}); }
-                        for (k, v) in upd {
+                        for (k, v) in a["update"]["in1"].as_object().unwrap() {
                             let k = k.strip_prefix("metadata/").unwrap();
                             if v.is_null() { s.meta.as_object_mut().unwrap().remove(k); } else { s.meta[k] = v.clone(); }
                         }
-                        json!({"oldState": "s1", "newState": "s2", "updated": {"in1": null}})
+                        let old = format!("s{}", s.n);
+                        s.n += 1;
+                        json!({"oldState": old, "newState": format!("s{}", s.n), "updated": {"in1": null}})
                     }
                     _ => json!({}),
                 };
@@ -1269,33 +1343,39 @@ mod tests {
     fn sets(log: &Log) -> Vec<Value> { log.lock().unwrap().iter().filter(|c| c[0] == "Mailbox/set").cloned().collect() }
 
     #[test]
-    fn requests_write_parts_then_the_manifest_in_their_state_and_drop_old_parts() {
+    fn one_update_writes_the_parts_and_manifest_and_drops_the_old_generation() {
         let log: Log = Default::default();
-        let (c, _) = fake(CAPS, Srv { meta: json!({"org.barbican.settings.part.old.0": "x", "org.bulwarkmail.template.t": {"name": "T"}}), ..Default::default() }, &log);
+        let (c, srv) = fake(CAPS, Srv { meta: json!({"org.barbican.settings.part.old.0": "x", "org.barbican.settings.manifest": {"gen": "old"}, "org.bulwarkmail.template.t": {"name": "T"}}), n: 7, ..Default::default() }, &log);
         assert!(supported(&c));
-        let (r, old) = fetch(&c).unwrap();
-        assert_eq!((r, old.clone()), (Remote::Nothing, vec!["org.barbican.settings.part.old.0".to_string()]));
+        let f = fetch(&c).unwrap();
+        assert_eq!((f.remote.clone(), f.parts.clone(), f.state.as_deref()), (Remote::NotReady, vec!["org.barbican.settings.part.old.0".to_string()], Some("s7")));
         let mut s = Map::new();
         s.insert("theme".into(), json!("light"));
         s.insert("emailKeywords".into(), json!((0..160).map(|i| json!({"id": format!("k{i}"), "label": "x".repeat(40)})).collect::<Vec<_>>()));
         log.lock().unwrap().clear();
-        store_gen(&c, &s, "2026-11-25T10:00:00.000Z", &old, "beef").unwrap();
+        store_gen(&c, &s, "2026-11-25T10:00:00.000Z", &f.parts, "beef", f.state.as_deref()).unwrap();
         let calls = sets(&log);
-        assert_eq!(calls.len(), 2);
-        let first = calls[0][1]["update"]["in1"].as_object().unwrap();
-        assert!(first.len() > 1 && first.keys().all(|k| k.starts_with("metadata/org.barbican.settings.part.beef.")), "{first:?}");
+        assert_eq!(calls.len(), 1, "one update of the Inbox");
         assert_eq!(calls[0][1]["accountId"], "A1");
-        assert!(calls[0][1].get("ifInState").is_none());
-        let second = calls[1][1]["update"]["in1"].as_object().unwrap();
-        assert_eq!(second["metadata/org.barbican.settings.manifest"]["gen"], "beef");
-        assert_eq!(second["metadata/org.barbican.settings.part.old.0"], Value::Null);
-        assert_eq!(second.len(), 2);
-        assert_eq!(calls[1][1]["ifInState"], "s2", "the state the parts left");
-        let (r, keys) = fetch(&c).unwrap();
-        let Remote::Blob { settings, manifest } = r else { panic!() };
+        assert_eq!(calls[0][1]["ifInState"], "s7", "the state the Inbox was read at");
+        let patch = calls[0][1]["update"]["in1"].as_object().unwrap();
+        let parts: Vec<&String> = patch.keys().filter(|k| k.starts_with("metadata/org.barbican.settings.part.beef.")).collect();
+        assert!(parts.len() > 1, "{patch:?}");
+        assert_eq!(patch["metadata/org.barbican.settings.manifest"]["gen"], "beef");
+        assert_eq!(patch["metadata/org.barbican.settings.manifest"]["parts"], parts.len());
+        assert_eq!(patch["metadata/org.barbican.settings.part.old.0"], Value::Null);
+        assert_eq!(patch.len(), parts.len() + 2);
+        // read back: one generation left, the same settings; Bulwark's template is untouched
+        let f = fetch(&c).unwrap();
+        let Remote::Blob { settings, manifest } = f.remote else { panic!() };
         assert_eq!(settings, s);
         assert_eq!(manifest.updated, "2026-11-25T10:00:00.000Z");
-        assert!(keys.iter().all(|k| k.contains(".beef.")));
+        assert!(f.parts.iter().all(|k| k.contains(".beef.")));
+        assert!(srv.lock().unwrap().meta["org.bulwarkmail.template.t"].is_object());
+        // written without a guard when there is none
+        log.lock().unwrap().clear();
+        store_gen(&c, &s, "2026-11-25T10:00:00.000Z", &f.parts, "cafe", None).unwrap();
+        assert!(sets(&log)[0][1].get("ifInState").is_none());
         let (c, _) = fake(&["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail"], Srv::default(), &log);
         assert!(!supported(&c));
     }
@@ -1309,11 +1389,11 @@ mod tests {
         }
         // metadata that is there and empty is "nothing stored"
         let (c, _) = fake(CAPS, Srv { get: Some(json!({"state": "s1", "list": [{"id": "in1", "metadata": null}]})), ..Default::default() }, &log);
-        assert_eq!(fetch(&c).unwrap().0, Remote::Nothing);
+        assert_eq!(fetch(&c).unwrap().remote, Remote::Nothing);
         // and a pull that fails so keeps the settings (no "nothing stored" push over them)
         let mut st = state(Some("A"), Some("2026-11-20T00:00:00.000Z"));
         let mut prefs = obj(json!({"theme": "light"}));
-        let r = st.settle(&mut prefs, "A", "a", fetch(&fake(CAPS, Srv { get: Some(json!({"list": []})), ..Default::default() }, &log).0).map(|r| r.0), false);
+        let r = st.settle(&mut prefs, "A", "a", fetch(&fake(CAPS, Srv { get: Some(json!({"list": []})), ..Default::default() }, &log).0).map(|f| f.remote), false);
         assert!(!r.push && !r.changed);
     }
 
@@ -1340,7 +1420,7 @@ mod tests {
         st.activate(None); // signed out / switching: the flush goes regardless of who is in now
         let pair = Mutex::new((prefs, st));
         assert_eq!(run(&c, "A", &pair), Ok(true));
-        assert_eq!(sets(&log).len(), 2);
+        assert_eq!(sets(&log).len(), 1);
         assert!(pair.lock().unwrap().1.dirty.is_empty());
         let Remote::Blob { settings, .. } = decode(&srv.lock().unwrap().meta) else { panic!() };
         assert_eq!(settings["theme"], "light");
@@ -1362,43 +1442,61 @@ mod tests {
         // and a pull of it keeps the local settings
         let mut st = state(Some("A"), None);
         let mut prefs = obj(json!({"theme": "light"}));
-        let r = st.settle(&mut prefs, "A", "a", fetch(&c).map(|r| r.0), false);
+        let r = st.settle(&mut prefs, "A", "a", fetch(&c).map(|f| f.remote), false);
         assert!(!r.changed && !r.push);
         assert_eq!(prefs["theme"], "light");
     }
 
+    fn other_copy(settings: Value, updated: &str, gen: &str) -> Value {
+        let (parts, manifest) = encode(&obj(settings), updated, gen).unwrap();
+        meta_of(&parts, &manifest)
+    }
+
     #[test]
-    fn a_write_from_another_computer_in_between_is_read_and_merged_then_retried_once() {
+    fn a_write_from_another_computer_since_the_read_is_merged_and_retried() {
         let log: Log = Default::default();
-        let (c, srv) = fake(CAPS, Srv { refuse: 1, ..Default::default() }, &log);
+        // right after our first read, another computer writes its copy
+        let (c, srv) = fake(CAPS, Srv { others: vec![other_copy(json!({"density": "compact", "theme": "system"}), "2026-11-25T10:00:00.000Z", "0123")], ..Default::default() }, &log);
         let mut st = state(Some("A"), None);
         let mut prefs = obj(json!({"theme": "dark"}));
         st.start(&prefs);
         prefs.insert("theme".into(), json!("light"));
         st.saved(&prefs, ms_of("2026-11-25T11:00:00.000Z").unwrap());
-        // the other computer's copy lands while the first try is out (here: before the retry's read)
-        let other = obj(json!({"density": "compact", "theme": "system"}));
-        let (parts, manifest) = encode(&other, "2026-11-25T10:00:00.000Z", "0123").unwrap();
-        srv.lock().unwrap().meta = meta_of(&parts, &manifest);
         let pair = Mutex::new((prefs, st));
         assert_eq!(run(&c, "A", &pair), Ok(true));
         let calls = sets(&log);
-        assert_eq!(calls.len(), 4, "parts, refused manifest, parts, manifest");
-        assert!(calls[1][1]["ifInState"].is_string() && calls[3][1]["ifInState"].is_string());
+        assert_eq!(calls.len(), 2, "refused, then written in the new state");
+        assert_eq!((calls[0][1]["ifInState"].as_str(), calls[1][1]["ifInState"].as_str()), (Some("s0"), Some("s1")));
         // the other computer's density came in; this computer's later theme stayed
         let g = pair.lock().unwrap();
         assert_eq!((g.0["density"].as_str(), g.0["theme"].as_str()), (Some("compact"), Some("light")));
-        let Remote::Blob { settings, .. } = decode(&srv.lock().unwrap().meta) else { panic!() };
-        assert_eq!((settings["density"].as_str(), settings["theme"].as_str()), (Some("compact"), Some("light")));
         drop(g);
-        // refused twice: an error, and the change stays waiting
+        let m = srv.lock().unwrap().meta.clone();
+        let Remote::Blob { settings, .. } = decode(&m) else { panic!() };
+        assert_eq!((settings["density"].as_str(), settings["theme"].as_str()), (Some("compact"), Some("light")));
+        // one generation: the other computer's parts went with our write
+        assert!(m.as_object().unwrap().keys().all(|k| !k.contains(".0123.")), "{m}");
+    }
+
+    #[test]
+    fn after_three_retries_the_last_writer_wins() {
         let log: Log = Default::default();
-        let (c, _) = fake(CAPS, Srv { refuse: 2, ..Default::default() }, &log);
+        // another computer writes after every one of our reads
+        let others = (0..10).map(|i| other_copy(json!({"density": "compact"}), &format!("2026-11-25T10:00:0{i}.000Z"), &format!("a{i}"))).collect();
+        let (c, srv) = fake(CAPS, Srv { others, ..Default::default() }, &log);
         let mut st = state(Some("A"), None);
-        st.dirty.insert("theme".into(), json!(1));
+        st.dirty.insert("theme".into(), json!(ms_of("2026-11-25T11:00:00.000Z").unwrap()));
         let pair = Mutex::new((obj(json!({"theme": "light"})), st));
-        assert_eq!(run(&c, "A", &pair), Err(RACED.to_string()));
-        assert!(!pair.lock().unwrap().1.dirty.is_empty());
+        assert_eq!(run(&c, "A", &pair), Ok(true));
+        let calls = sets(&log);
+        assert_eq!(calls.len(), 5, "four guarded tries, then one without");
+        assert!(calls[..4].iter().all(|c| c[1]["ifInState"].is_string()));
+        assert!(calls[4][1].get("ifInState").is_none());
+        assert!(pair.lock().unwrap().1.dirty.is_empty());
+        // ours is the copy left (the other computer's copy came in before it: newest wins)
+        let m = srv.lock().unwrap().meta.clone();
+        let Remote::Blob { settings, .. } = decode(&m) else { panic!("{m}") };
+        assert_eq!((settings["theme"].as_str(), settings["density"].as_str()), (Some("light"), Some("compact")));
     }
 
     #[test]
