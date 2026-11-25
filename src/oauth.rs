@@ -492,7 +492,9 @@ fn merge_account(mut all: Vec<Value>, v: &Value, origin: &Origin, session: Optio
 /// [`remember`] against one secret store; the caller holds the [`RefreshLock`].
 fn remember_in(b: &dyn crate::secrets::Backend, profile: &str, v: &Value, origin: &Origin) {
     let session = remembered_in(b, profile);
-    let (all, v) = merge_account(accounts_in(b, profile), v, origin, session.as_ref(), &[]);
+    let mut v = v.clone();
+    carry_lock_marker(b, profile, &mut v);
+    let (all, v) = merge_account(accounts_in(b, profile), &v, origin, session.as_ref(), &[]);
     put_in(b, profile, "session", &v.to_string());
     // keep every signed-in account for the account switcher
     if v["user"].as_str().is_some_and(|u| !u.is_empty()) { put_in(b, profile, "accounts", &Value::Array(all).to_string()); }
@@ -516,6 +518,8 @@ fn update_account_in(b: &dyn crate::secrets::Backend, profile: &str, v: &Value) 
     let mut all = accounts_in(b, profile);
     let Some(slot) = all.iter_mut().find(|a| is_account(a, &[user], server)) else { return };
     *slot = v.clone();
+    carry_lock_marker(b, profile, slot);
+    let v = &slot.clone();
     put_in(b, profile, "accounts", &Value::Array(all).to_string());
     if remembered_in(b, profile).is_some_and(|s| is_account(&s, &[user], server)) { put_in(b, profile, "session", &v.to_string()); }
 }
@@ -533,6 +537,8 @@ fn repair_account_in(b: &dyn crate::secrets::Backend, profile: &str, v: &Value) 
     let Some(slot) = all.iter_mut().find(|a| is_account(a, &[user], server)) else { return false };
     if !cleared(slot) { return false; }
     *slot = v.clone();
+    carry_lock_marker(b, profile, slot);
+    let v = &slot.clone();
     put_in(b, profile, "accounts", &Value::Array(all).to_string());
     if remembered_in(b, profile).is_some_and(|s| cleared(&s)) { put_in(b, profile, "session", &v.to_string()); }
     true
@@ -616,6 +622,56 @@ fn forget_account_in(b: &dyn crate::secrets::Backend, profile: &str, names: &[&s
 pub fn forget_account(names: &[&str], server: &str) -> bool {
     let _lock = RefreshLock::acquire();
     forget_account_in(crate::secrets::store(), crate::profile::current(), names, server)
+}
+
+// ---- the app lock's marker (src/applock.rs) ----
+
+/// The field of a remembered sign-in that says an app lock guards it, with the lock's fingerprint:
+/// a start that finds it, but no lock entry with that fingerprint, stays locked. So deleting or
+/// replacing the lock's own entry does not open the app.
+pub const LOCK_MARKER: &str = "appLock";
+
+/// Every marker in the remembered session and the account list.
+pub fn lock_markers_in(b: &dyn crate::secrets::Backend, profile: &str) -> Vec<String> {
+    let mut out: Vec<String> = remembered_in(b, profile).into_iter().chain(accounts_in(b, profile))
+        .filter_map(|a| a[LOCK_MARKER].as_str().map(String::from)).collect();
+    out.sort();
+    out.dedup();
+    out
+}
+
+/// Set (`Some`) or remove (`None`) the marker on the remembered session and every account. False
+/// when an entry that needed it could not be written.
+pub fn set_lock_marker_in(b: &dyn crate::secrets::Backend, profile: &str, marker: Option<&str>) -> bool {
+    let mark = |a: &mut Value| -> bool {
+        let Some(o) = a.as_object_mut() else { return false };
+        match marker {
+            Some(m) => o.insert(LOCK_MARKER.into(), json!(m)).and_then(|old| old.as_str().map(|s| s != m)).unwrap_or(true),
+            None => o.remove(LOCK_MARKER).is_some(),
+        }
+    };
+    let mut ok = true;
+    let mut all = accounts_in(b, profile);
+    if all.iter_mut().map(|a| mark(a)).fold(false, |x, y| x | y) { ok &= put_in(b, profile, "accounts", &Value::Array(all).to_string()); }
+    if let Some(mut s) = remembered_in(b, profile) {
+        if mark(&mut s) { ok &= put_in(b, profile, "session", &s.to_string()); }
+    }
+    ok
+}
+
+/// A sign-in written while a lock is on keeps the marker the others carry.
+fn carry_lock_marker(b: &dyn crate::secrets::Backend, profile: &str, v: &mut Value) {
+    let Some(m) = lock_markers_in(b, profile).into_iter().next() else { return };
+    if let Some(o) = v.as_object_mut() { o.insert(LOCK_MARKER.into(), json!(m)); }
+}
+
+/// [`lock_markers_in`] on the real store.
+pub fn lock_markers() -> Vec<String> { lock_markers_in(crate::secrets::store(), crate::profile::current()) }
+
+/// [`set_lock_marker_in`] on the real store, under the refresh lock.
+pub fn set_lock_marker(marker: Option<&str>) -> bool {
+    let _lock = RefreshLock::acquire();
+    set_lock_marker_in(crate::secrets::store(), crate::profile::current(), marker)
 }
 
 /// The stored session, told apart: nothing stored, something stored that cannot be read, or the
@@ -1202,5 +1258,35 @@ mod tests {
         let srv = FakeServer::new(true, &["r_orig"]);
         let err = attempts(&b, &srv, false).unwrap_err();
         assert!(crate::jmap::auth_rejected(&err), "{err}");
+    }
+
+    #[test]
+    fn the_lock_marker_is_carried_and_removed() {
+        let b = Fake::default();
+        let ann = json!({"kind": "password", "server": HOST, "user": "ann@example.test", "pass": "pw"});
+        remember_in(&b, P, &ann, &Origin::SignIn);
+        assert!(lock_markers_in(&b, P).is_empty());
+        assert!(set_lock_marker_in(&b, P, Some("f1")));
+        assert_eq!(lock_markers_in(&b, P), vec!["f1".to_string()]);
+        assert_eq!(remembered_in(&b, P).unwrap()[LOCK_MARKER], "f1");
+        // a sign-in written later (a restore, another account) keeps it
+        remember_in(&b, P, &ann, &Origin::Restore { read: None });
+        let bob = json!({"kind": "password", "server": HOST, "user": "bob@example.test", "pass": "pw"});
+        remember_in(&b, P, &bob, &Origin::SignIn);
+        assert!(accounts_in(&b, P).iter().all(|a| a[LOCK_MARKER] == "f1"));
+        update_account_in(&b, P, &json!({"kind": "password", "server": HOST, "user": "ann@example.test", "pass": "pw2"}));
+        assert!(accounts_in(&b, P).iter().all(|a| a[LOCK_MARKER] == "f1"));
+        assert_eq!(lock_markers_in(&b, P), vec!["f1".to_string()]);
+        // a new PIN replaces it everywhere, turning the PIN off removes it
+        assert!(set_lock_marker_in(&b, P, Some("f2")));
+        assert_eq!(lock_markers_in(&b, P), vec!["f2".to_string()]);
+        assert!(set_lock_marker_in(&b, P, None));
+        assert!(lock_markers_in(&b, P).is_empty());
+        remember_in(&b, P, &ann, &Origin::SignIn);
+        assert!(lock_markers_in(&b, P).is_empty());
+        // an entry that could not be written says so
+        assert!(set_lock_marker_in(&b, P, Some("f3")));
+        b.fail_writes.set(true);
+        assert!(!set_lock_marker_in(&b, P, None));
     }
 }

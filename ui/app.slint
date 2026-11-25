@@ -2307,6 +2307,8 @@ export component AppWindow inherits Window {
     }
     Timer { interval: 500ms; running: root.motion-warm; triggered => { root.motion-warm = false; } }
     kbd := FocusScope {
+    // hidden while locked: nothing under the lock screen is drawn or read out
+    visible: !AppLock.locked;
     init => { self.focus(); }
     // the mail search box keeps its arrows for the suggestions under it (src/shortcuts.rs)
     capture-key-pressed(e) => {
@@ -6177,8 +6179,9 @@ export component AppWindow inherits Window {
         }
     }
     }
-    clip-buf := TextInput { width: 0px; height: 0px; opacity: 0; read-only: true; }
+    clip-buf := TextInput { visible: !AppLock.locked; width: 0px; height: 0px; opacity: 0; read-only: true; }
     if root.prompt-open: Scrim {
+        visible: !AppLock.locked;
         TouchArea { clicked => { root.prompt-open = false; } }
         // same shell as the admin dialog: popup surface, Bento tile radius / Nordic 28, 30px shadow
         PopIn {
@@ -6201,18 +6204,19 @@ export component AppWindow inherits Window {
     }
     // ---- productivity overlays (productivity.slint) ----
     if root.logged-in && Pd.search-focus && !Pd.sugg-hidden && Pd.sugg-rows.length > 0 && root.app == 0 && !root.show-settings && !root.composing: SearchSuggest {
+        visible: !AppLock.locked;
         t: root.ptok;
         x: search-box.absolute-position.x - 30px;
         y: search-box.absolute-position.y + search-box.height + 12px;
         width: max(search-box.width + 60px, 280px);
     }
-    if Pd.dnd-active: DragGhost { t: root.ptok; }
-    if Pd.palette-open: CommandPalette { t: root.ptok; x: 0; y: 0; width: root.width; height: root.height; }
-    if Pd.keys-open: ShortcutsSheet { t: root.ptok; x: 0; y: 0; width: root.width; height: root.height; }
+    if Pd.dnd-active: DragGhost { visible: !AppLock.locked; t: root.ptok; }
+    if Pd.palette-open: CommandPalette { visible: !AppLock.locked; t: root.ptok; x: 0; y: 0; width: root.width; height: root.height; }
+    if Pd.keys-open: ShortcutsSheet { visible: !AppLock.locked; t: root.ptok; x: 0; y: 0; width: root.width; height: root.height; }
 
-    if CtX.import-open: ContactImportDialog { }
-    if FilterX.open: FilterRuleEditor { }
-    if FilterX.retro-open: FilterRetroDialog { }
+    if CtX.import-open: ContactImportDialog { visible: !AppLock.locked; }
+    if FilterX.open: FilterRuleEditor { visible: !AppLock.locked; }
+    if FilterX.retro-open: FilterRetroDialog { visible: !AppLock.locked; }
     ctx-popup := PopupWindow {
         close-policy: no-auto-close;
         x: 0; y: 0;
@@ -6259,12 +6263,12 @@ export component AppWindow inherits Window {
         }
     }
     // schedule send / reschedule (src/schedule.rs), over everything
-    if CompX.sched-open: ScheduleDialog { x: 0; y: 0; width: root.width; height: root.height; }
+    if CompX.sched-open: ScheduleDialog { visible: !AppLock.locked; x: 0; y: 0; width: root.width; height: root.height; }
     // template placeholders and save as template (src/tplflow.rs)
-    if CompX.tpl-fill-open: TplFillDialog { x: 0; y: 0; width: root.width; height: root.height; }
-    if CompX.tpl-save-open: TplSaveDialog { x: 0; y: 0; width: root.width; height: root.height; }
-    if CompX.sub-open: SubAddrDialog { x: 0; y: 0; width: root.width; height: root.height; }
+    if CompX.tpl-fill-open: TplFillDialog { visible: !AppLock.locked; x: 0; y: 0; width: root.width; height: root.height; }
+    if CompX.tpl-save-open: TplSaveDialog { visible: !AppLock.locked; x: 0; y: 0; width: root.width; height: root.height; }
+    if CompX.sub-open: SubAddrDialog { visible: !AppLock.locked; x: 0; y: 0; width: root.width; height: root.height; }
     // the app lock's PIN dialog, and the lock screen over absolutely everything (src/applock.rs)
     if AppLock.dlg != "": PinDialog { x: 0; y: 0; width: root.width; height: root.height; }
-    if AppLock.locked: LockScreen { x: 0; y: 0; width: root.width; height: root.height; }
+    if AppLock.locked: LockScreen { x: 0; y: 0; width: root.width; height: root.height; app-busy: root.busy; }
 }

@@ -103,6 +103,8 @@ component LockCard inherits Rectangle {
 // Over everything while the app is locked: it takes every click, scroll and key, and nothing of
 // the app shows through (an opaque ground, as Bulwark's bg-background overlay).
 export component LockScreen inherits Rectangle {
+    /// Signing in or a start-up restore is still running: "Forgot your PIN?" would race it.
+    in property <bool> app-busy;
     background: Theme.ground;
     TouchArea {
         scroll-event(e) => { accept }
@@ -161,9 +163,10 @@ export component LockScreen inherits Rectangle {
             Text {
                 text: "Forgot your PIN?";
                 color: Theme.dim;
+                opacity: root.app-busy ? 0.4 : 1;
                 font-size: 12.5px;
                 horizontal-alignment: center;
-                TouchArea { mouse-cursor: pointer; clicked => { AppLock.forgot(); } }
+                TouchArea { enabled: !root.app-busy; mouse-cursor: root.app-busy ? default : pointer; clicked => { AppLock.forgot(); } }
             }
         }
     }

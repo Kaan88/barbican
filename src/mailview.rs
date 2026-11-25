@@ -336,9 +336,12 @@ pub fn install_focus_hook(ui: &AppWindow) {
     let _ = ui;
 }
 
-/// Hand the OS keyboard focus from the email view back to the app's window (the app locked).
-pub fn release_focus() {
-    WV.with(|w| if let Ok(w) = w.try_borrow() { if let Some(v) = &*w { let _ = v.focus_parent(); } });
+/// The app locked: the email view goes at once, without waiting for a capture to stand in for
+/// it, and hands the OS keyboard focus back to the app's window.
+pub fn hide_now(ui: &AppWindow) {
+    HIDE_PENDING.with(|h| h.set(false));
+    SNAP_TIMER.with(|t| t.stop());
+    WV.with(|w| if let Ok(w) = w.try_borrow() { if let Some(v) = &*w { set_shown(ui, v, false); let _ = v.focus_parent(); } });
 }
 
 /// A key the email view caught (`flags|key`): replay it in the native window so the app's

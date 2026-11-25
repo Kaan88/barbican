@@ -231,6 +231,11 @@ pub fn tray_command(id: &str) {
     let Some(u) = app() else { return };
     match id {
         "open" => show_window(&u),
+        // asked for while locked: once it is unlocked
+        "compose" if crate::applock::locked() => {
+            show_window(&u);
+            crate::applock::after_unlock(Box::new(|| tray_command("compose")));
+        }
         "compose" => {
             show_window(&u);
             u.set_show_settings(false);

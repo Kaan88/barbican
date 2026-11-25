@@ -611,6 +611,7 @@ dependencies = [
  "windows-future",
  "windows-sys 0.60.2",
  "wry",
+ "zeroize",
 ]
 
 [[package]]

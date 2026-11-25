@@ -114,10 +114,18 @@ pub struct Record {
     pub hello: bool,
 }
 
+/// The salt's length: a stored record with another one was not written by Barbican.
+const SALT_LEN: usize = 16;
+
+/// The fewest rounds a stored record may have: one with fewer was not written by Barbican (or
+/// was weakened) and is unreadable. The tests' records use fewer to stay fast.
+fn min_iterations() -> u32 { if cfg!(test) { 1_000 } else { PBKDF2_ITERATIONS } }
+
 fn derive(pin: &str, salt: &[u8], iterations: u32) -> Vec<u8> {
     let mut out = vec![0u8; 32];
     let n = NonZeroU32::new(iterations.max(1)).unwrap_or(NonZeroU32::MIN);
-    ring::pbkdf2::derive(ring::pbkdf2::PBKDF2_HMAC_SHA256, n, salt, normalize(pin).as_bytes(), &mut out);
+    let pin = zeroize::Zeroizing::new(normalize(pin));
+    ring::pbkdf2::derive(ring::pbkdf2::PBKDF2_HMAC_SHA256, n, salt, pin.as_bytes(), &mut out);
     out
 }
 
@@ -126,7 +134,7 @@ fn b64() -> base64::engine::GeneralPurpose { base64::engine::general_purpose::ST
 impl Record {
     /// A new PIN with a new random salt. None when no random bytes could be had.
     pub fn new(pin: &str, iterations: u32) -> Option<Record> {
-        let mut salt = vec![0u8; 16];
+        let mut salt = vec![0u8; SALT_LEN];
         getrandom::getrandom(&mut salt).ok()?;
         let hash = derive(pin, &salt, iterations);
         Some(Record { salt, iterations, hash, failures: 0, blocked_until: 0, timeout: Timeout::Minutes(DEFAULT_TIMEOUT_MINUTES), hello: false })
@@ -135,7 +143,20 @@ impl Record {
     /// The same derivation, compared in constant time (ring's `pbkdf2::verify`).
     pub fn matches(&self, pin: &str) -> bool {
         let Some(n) = NonZeroU32::new(self.iterations) else { return false };
-        ring::pbkdf2::verify(ring::pbkdf2::PBKDF2_HMAC_SHA256, n, &self.salt, normalize(pin).as_bytes(), &self.hash).is_ok()
+        let pin = zeroize::Zeroizing::new(normalize(pin));
+        ring::pbkdf2::verify(ring::pbkdf2::PBKDF2_HMAC_SHA256, n, &self.salt, pin.as_bytes(), &self.hash).is_ok()
+    }
+
+    /// What the remembered sign-ins carry (oauth::LOCK_MARKER): a hash of the salt and the PIN's
+    /// hash, which change with every new PIN and never with the count of tries.
+    pub fn fingerprint(&self) -> String {
+        use sha2::Digest;
+        let mut h = sha2::Sha256::new();
+        h.update(b"barbican-app-lock-v1");
+        h.update(&self.salt);
+        h.update(&self.hash);
+        h.update(self.iterations.to_le_bytes());
+        h.finalize().iter().take(16).map(|b| format!("{b:02x}")).collect()
     }
 
     pub fn to_json(&self) -> String {
@@ -146,13 +167,16 @@ impl Record {
         }).to_string()
     }
 
-    pub fn from_json(text: &str) -> Option<Record> {
+    pub fn from_json(text: &str) -> Option<Record> { Record::parse(text, min_iterations()) }
+
+    /// A stored record, refused when it has fewer rounds than `min_rounds` or a salt of another length.
+    pub fn parse(text: &str, min_rounds: u32) -> Option<Record> {
         let v: Value = serde_json::from_str(text).ok()?;
         if v["kdf"] != "pbkdf2-sha256" { return None; }
         let salt = b64().decode(v["salt"].as_str()?).ok()?;
         let hash = b64().decode(v["hash"].as_str()?).ok()?;
         let iterations = u32::try_from(v["iterations"].as_u64()?).ok()?;
-        if salt.is_empty() || hash.len() != 32 || iterations == 0 { return None; }
+        if salt.len() != SALT_LEN || hash.len() != 32 || iterations < min_rounds.max(1) { return None; }
         let timeout = if v["until"] == "session" { Timeout::Session } else {
             Timeout::Minutes(v["timeoutMinutes"].as_i64().filter(|m| *m > 0).unwrap_or(DEFAULT_TIMEOUT_MINUTES))
         };
@@ -184,12 +208,29 @@ pub enum PinError {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Stored { Missing, Unreadable, Some(Record) }
 
+/// A store that cannot be read, a value that is not text, or not a record: Unreadable (locked).
 pub fn load_in(b: &dyn Backend, profile: &str) -> Stored {
-    match crate::secrets::load(b, profile, SECRET) {
-        None => Stored::Missing,
-        Some(t) => Record::from_json(&t).map_or(Stored::Unreadable, Stored::Some),
+    match crate::secrets::load_checked(b, profile, SECRET) {
+        Err(()) => Stored::Unreadable,
+        Ok(None) => Stored::Missing,
+        Ok(Some(t)) => Record::from_json(&t).map_or(Stored::Unreadable, Stored::Some),
     }
 }
+
+/// The lock at start, checked against the markers the remembered sign-ins carry: a marker with no
+/// lock entry, or one whose fingerprint differs, means the entry was removed or replaced, and the
+/// lock stays on with nobody's PIN (Unreadable: only "Forgot your PIN?" gets out).
+pub fn checked(stored: Stored, markers: &[String]) -> Stored {
+    match stored {
+        Stored::Some(r) if !markers.is_empty() && !markers.contains(&r.fingerprint()) => Stored::Unreadable,
+        Stored::Missing if !markers.is_empty() => Stored::Unreadable,
+        s => s,
+    }
+}
+
+/// A wait never longer than the longest one, whatever the store says (a clock set back, an
+/// edited entry).
+fn clamp_wait(blocked_until: i64, now: i64) -> i64 { blocked_until.min(now.saturating_add(LONGEST_WAIT_MS)) }
 
 pub fn save_in(b: &dyn Backend, profile: &str, r: &Record) -> bool {
     crate::secrets::save(b, profile, SECRET, &r.to_json())
@@ -202,6 +243,12 @@ pub fn forget_in(b: &dyn Backend, profile: &str) {
 /// One PIN try: counted first, checked after (vault.ts:243-262). The right PIN clears the count.
 pub fn try_pin_in(b: &dyn Backend, profile: &str, pin: &str, now: i64) -> Result<Record, PinError> {
     let Stored::Some(mut r) = load_in(b, profile) else { return Err(PinError::NotSet) };
+    let wait = clamp_wait(r.blocked_until, now);
+    if wait != r.blocked_until {
+        // written back, so the cut wait runs out instead of moving along with the clock
+        r.blocked_until = wait;
+        let _ = save_in(b, profile, &r);
+    }
     if r.blocked_until > now { return Err(PinError::Blocked(r.blocked_until)); }
     r.failures = r.failures.saturating_add(1);
     r.blocked_until = now + wait_after(r.failures);
@@ -218,7 +265,17 @@ pub fn try_pin_in(b: &dyn Backend, profile: &str, pin: &str, now: i64) -> Result
 
 /// When the next try is allowed (0: now).
 pub fn blocked_until_in(b: &dyn Backend, profile: &str, now: i64) -> i64 {
-    match load_in(b, profile) { Stored::Some(r) if r.blocked_until > now => r.blocked_until, _ => 0 }
+    match load_in(b, profile) {
+        Stored::Some(mut r) if r.blocked_until > now => {
+            let wait = clamp_wait(r.blocked_until, now);
+            if wait != r.blocked_until {
+                r.blocked_until = wait;
+                let _ = save_in(b, profile, &r);
+            }
+            wait
+        }
+        _ => 0,
+    }
 }
 
 /// "Too many tries. Try again in 2 minutes." (locales/en appLock.blocked_seconds / blocked_minutes)
@@ -285,6 +342,17 @@ fn live() -> MutexGuard<'static, Live> { LIVE.lock().unwrap_or_else(|e| e.into_i
 /// Nothing with mail in it may show now (Bulwark lib/app-lock/state.ts `isAppLockedNow`).
 pub fn locked() -> bool { live().locked }
 
+/// A PIN is set (locked or not).
+pub fn is_on() -> bool { live().on }
+
+/// Whether a notification goes out without its content: always while locked, and whenever a PIN
+/// is set but Barbican's delivered notifications can't be cleared when it locks (no app id of its
+/// own), since they would stay readable in the notification centre.
+pub fn hide_notifications(l: &Live, clearable: bool) -> bool { l.locked || (l.on && !clearable) }
+
+/// [`hide_notifications`] for this process.
+pub fn hide_notification_now() -> bool { hide_notifications(&live(), crate::notify::delivered_clearable()) }
+
 pub fn now_ms() -> i64 { chrono::Utc::now().timestamp_millis() }
 
 // ---------------- notifications while locked ----------------
@@ -304,6 +372,16 @@ pub fn hide_content(n: crate::notify::Note) -> crate::notify::Note {
     // a reminder's id named its event: two at once are one "you have a reminder"
     let id = if n.group == "reminders" { "reminder-locked".to_string() } else { n.id };
     crate::notify::Note { id, title, body: String::new(), context: String::new(), actions: vec![], ..n }
+}
+
+// ---------------- the automation channel (src/automation.rs) ----------------
+
+/// What the test channel may still do while locked: say what state it is in, and act through the
+/// window as a person at the keyboard would (clicks, keys and scrolling land on the lock screen,
+/// which takes them all). Nothing that reads the app's content or drives it directly: no
+/// wv-eval, cal-dump, pim, notes, chips, rx-*, ui, from, cache or shot (a picture of the window).
+pub fn automation_allowed(cmd: &str) -> bool {
+    matches!(cmd, "applock" | "size" | "click" | "dclick" | "move" | "scroll" | "type" | "key")
 }
 
 // ---------------- settings (Password & sign-in > App lock) ----------------
@@ -352,7 +430,7 @@ pub fn rows_for(l: &Live, hello_available: bool) -> Vec<crate::SRow> {
         out.push(h);
     }
     let mut what = srow("value", "", "What this protects",
-        "The PIN keeps someone at this computer out of the app. Barbican keeps no mail on this computer, so there is nothing for it to encrypt; it can't stop a program running under your Windows account. Mail keeps arriving while it's locked, and your account on the server isn't affected.");
+        "The PIN keeps people out of Barbican's window. It doesn't encrypt anything: someone signed in to your Windows account who uses administrator or developer tools, or a program running as you, can still get around it. Mail keeps arriving while it's locked, and your account on the server isn't affected.");
     what.text = "".into();
     out.push(what);
     if !l.on { return out; }
@@ -380,23 +458,83 @@ pub fn timeout_at(current: Timeout, index: i32) -> Option<Timeout> {
 
 fn store() -> &'static dyn Backend { crate::secrets::store() }
 
-/// Read the lock at start: a PIN set means locked. An entry that can't be read locks too, and
-/// only signing out opens it.
-pub fn init() -> Stored {
-    let s = load_in(store(), crate::profile::current());
-    let mut l = live();
-    *l = Live::OFF;
-    match &s {
-        Stored::Some(r) => { *l = Live { on: true, locked: true, hello: r.hello, timeout: r.timeout, last_input_ms: now_ms() }; }
-        Stored::Unreadable => { *l = Live { on: true, locked: true, ..Live::OFF }; }
-        Stored::Missing => {}
+/// One reader-and-writer of the lock record at a time, across Barbican processes of the profile:
+/// two windows trying PINs at once can't each count from the same old number.
+struct RecordLock(#[allow(dead_code)] Option<std::fs::File>);
+
+impl RecordLock {
+    fn acquire() -> RecordLock {
+        let dir = crate::config_dir();
+        let _ = std::fs::create_dir_all(&dir);
+        let Ok(f) = std::fs::OpenOptions::new().write(true).create(true).truncate(false).open(dir.join("applock.lock")) else { return RecordLock(None) };
+        let start = std::time::Instant::now();
+        loop {
+            if f.try_lock().is_ok() { return RecordLock(Some(f)); }
+            // a holder that hangs must not keep the lock screen from answering
+            if start.elapsed() > std::time::Duration::from_secs(10) { return RecordLock(None); }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
     }
+}
+
+/// [`try_pin_in`] on the real store, under the [`RecordLock`].
+/// A record the sign-ins' markers don't vouch for opens with no PIN, only with signing out.
+fn try_pin(pin: &str, now: i64) -> Result<Record, PinError> {
+    let _l = RecordLock::acquire();
+    if !matches!(read_checked(), Stored::Some(_)) { return Err(PinError::NotSet); }
+    try_pin_in(store(), crate::profile::current(), pin, now)
+}
+
+/// The lock as the store and the sign-ins' markers say (see [`checked`]).
+fn read_checked() -> Stored {
+    checked(load_in(store(), crate::profile::current()), &crate::oauth::lock_markers())
+}
+
+/// What the process knows after reading `s`: a PIN set (or an entry nobody can open) locks.
+pub fn live_for(s: &Stored, now: i64) -> Live {
+    match s {
+        Stored::Some(r) => Live { on: true, locked: true, hello: r.hello, timeout: r.timeout, last_input_ms: now },
+        Stored::Unreadable => Live { on: true, locked: true, ..Live::OFF },
+        Stored::Missing => Live::OFF,
+    }
+}
+
+/// Read the lock at start: a PIN set means locked. An entry that can't be read, or that the
+/// sign-ins' markers don't vouch for, locks too, and only signing out opens it. A record the
+/// markers miss on an entry (a sign-in from before) gets them now.
+pub fn init() -> Stored {
+    let s = read_checked();
+    if let Stored::Some(r) = &s { crate::oauth::set_lock_marker(Some(&r.fingerprint())); }
+    *live() = live_for(&s, now_ms());
     s
 }
 
-/// The PIN and the lock are gone (sign-out of the last account, a forgotten PIN, turned off).
+/// The window came to the front: another Barbican of this profile may have set a PIN (or a new
+/// one) meanwhile. A PIN that is now there locks this window too; the lock never opens this way.
+/// Locking every window at once ("Lock now" in another process) is not followed.
+pub fn resync() -> bool {
+    let s = read_checked();
+    let mut l = live();
+    match &s {
+        Stored::Some(r) => {
+            l.hello = r.hello;
+            l.timeout = r.timeout;
+            if !l.on { *l = live_for(&s, now_ms()); return true; }
+        }
+        Stored::Unreadable if !l.locked => { *l = live_for(&s, now_ms()); return true; }
+        _ => {}
+    }
+    false
+}
+
+/// The PIN and the lock are gone (sign-out of the last account, a forgotten PIN, turned off),
+/// with the sign-ins' markers.
 pub fn forget() {
-    forget_in(store(), crate::profile::current());
+    {
+        let _l = RecordLock::acquire();
+        forget_in(store(), crate::profile::current());
+    }
+    crate::oauth::set_lock_marker(None);
     *live() = Live::OFF;
     gui::refresh();
 }
@@ -420,6 +558,14 @@ mod gui {
         static HELLO_TRY: Cell<u64> = const { Cell::new(0) };
         /// The Windows Hello prompt of this lock was asked for already.
         static HELLO_ASKED: Cell<bool> = const { Cell::new(false) };
+        /// What was asked for while locked (the tray's Compose), done once it opens.
+        static AFTER_UNLOCK: RefCell<Vec<Box<dyn FnOnce()>>> = const { RefCell::new(Vec::new()) };
+    }
+
+    /// Run `f` once the app is unlocked (at once when it is).
+    pub fn after_unlock(f: Box<dyn FnOnce()>) {
+        if !locked() { f(); return; }
+        AFTER_UNLOCK.with(|q| { let mut q = q.borrow_mut(); q.push(f); let n = q.len(); if n > 5 { q.drain(..n - 5); } });
     }
     /// 0 not known yet, 1 Windows Hello can check the user here, 2 it can't.
     static HELLO_AVAILABLE: AtomicU8 = AtomicU8::new(0);
@@ -442,7 +588,7 @@ mod gui {
         });
 
         let g = window.global::<AppLock>();
-        g.on_unlock(|pin| unlock_with_pin(pin.to_string()));
+        g.on_unlock(|pin| unlock_with_pin(zeroize::Zeroizing::new(pin.to_string())));
         g.on_hello(ask_hello);
         g.on_use_pin(|| {
             HELLO_TRY.with(|t| t.set(t.get() + 1));
@@ -450,7 +596,11 @@ mod gui {
         });
         g.on_forgot(|| if let Some(u) = ui() { u.global::<AppLock>().set_mode("forgot".into()); bump_focus(&u); });
         g.on_forgot_cancel(|| if let Some(u) = ui() { u.global::<AppLock>().set_mode("pin".into()); refresh_blocked(&u); bump_focus(&u); });
-        g.on_forgot_confirm(|| if let Some(u) = ui() { sign_out_everyone(&u); });
+        g.on_forgot_confirm(|| if let Some(u) = ui() {
+            // a sign-in still on its way would end signed in, after the sign-out, with no PIN
+            if u.get_busy() { u.global::<AppLock>().set_message("Barbican is still signing in. Try again in a moment.".into()); return; }
+            sign_out_everyone(&u);
+        });
         g.on_dlg_edit(|| if let Some(u) = ui() { dialog_check(&u); });
         g.on_dlg_cancel(|| if let Some(u) = ui() { close_dialog(&u); });
         g.on_dlg_save(|| if let Some(u) = ui() { dialog_save(&u); });
@@ -470,14 +620,21 @@ mod gui {
     }
 
     /// Any input event in the window (the winit filter, motion.rs): counts as use, or locks when
-    /// the timeout has passed already.
-    pub fn input_event(ev: &slint::winit_030::winit::event::WindowEvent) {
+    /// the timeout has passed already. True: this event locked, and must not reach the app.
+    /// On Windows the pointer only passing over the window is not use (GetLastInputInfo with the
+    /// window in front counts what is); elsewhere it is, as Bulwark's pointermove (idle.ts:11).
+    pub fn input_event(ev: &slint::winit_030::winit::event::WindowEvent) -> bool {
         use slint::winit_030::winit::event::WindowEvent as E;
-        if !matches!(ev, E::KeyboardInput { .. } | E::MouseInput { .. } | E::MouseWheel { .. } | E::CursorMoved { .. } | E::Touch(_)) { return; }
-        if live().input(now_ms()) {
-            // after this event: the filter runs inside winit's dispatch
-            slint::Timer::single_shot(std::time::Duration::ZERO, || if let Some(u) = ui() { lock_ui(&u); });
+        if matches!(ev, E::Focused(true)) {
+            if super::resync() { slint::Timer::single_shot(std::time::Duration::ZERO, || if let Some(u) = ui() { lock_ui(&u); }); }
+            return false;
         }
+        let moved = matches!(ev, E::CursorMoved { .. }) && !cfg!(windows);
+        if !moved && !matches!(ev, E::KeyboardInput { .. } | E::MouseInput { .. } | E::MouseWheel { .. } | E::Touch(_)) { return false; }
+        if !live().input(now_ms()) { return false; }
+        // after this event: the filter runs inside winit's dispatch
+        slint::Timer::single_shot(std::time::Duration::ZERO, || if let Some(u) = ui() { lock_ui(&u); });
+        true
     }
 
     fn bump_focus(u: &AppWindow) {
@@ -502,8 +659,8 @@ mod gui {
             g.set_busy(false);
             HELLO_ASKED.with(|a| a.set(false));
             g.set_mode(if g.get_hello_ready() { "hello" } else { "pin" }.into());
-            // the mail view's WebView may hold the OS keyboard focus
-            crate::mailview::release_focus();
+            // the mail view goes at once (no capture first), and gives back the OS keyboard focus
+            crate::mailview::hide_now(u);
             // delivered toasts named senders and subjects
             crate::notify::clear_delivered();
         }
@@ -529,7 +686,7 @@ mod gui {
         apply(u);
     }
 
-    /// Lock now (the settings button, the tray).
+    /// Lock now (the settings button).
     pub fn lock_now(u: &AppWindow) {
         { let mut l = live(); if !l.on { return; } l.locked = true; }
         apply(u);
@@ -558,10 +715,11 @@ mod gui {
         g.set_message("".into());
         g.set_busy(false);
         apply(u);
+        for f in AFTER_UNLOCK.with(|q| std::mem::take(&mut *q.borrow_mut())) { f(); }
     }
 
-    /// The slow hash runs off the UI thread.
-    fn unlock_with_pin(pin: String) {
+    /// The slow hash runs off the UI thread; the PIN's copies are wiped when dropped.
+    fn unlock_with_pin(pin: zeroize::Zeroizing<String>) {
         let Some(u) = ui() else { return };
         let g = u.global::<AppLock>();
         if pin.is_empty() || g.get_busy() || g.get_blocked() { return; }
@@ -569,7 +727,8 @@ mod gui {
         g.set_message("".into());
         let w = u.as_weak();
         std::thread::spawn(move || {
-            let res = try_pin_in(store(), profile(), &pin, now_ms());
+            let res = try_pin(&pin, now_ms());
+            drop(pin);
             let _ = w.upgrade_in_event_loop(move |u| {
                 let g = u.global::<AppLock>();
                 match res {
@@ -656,6 +815,7 @@ mod gui {
             KEY_ON => { open_dialog(u, if on { "enable" } else { "disable" }); true }
             KEY_HELLO if on => { open_dialog(u, "hello"); true }
             KEY_HELLO => {
+                let _l = RecordLock::acquire();
                 if let Stored::Some(mut r) = load_in(store(), profile()) {
                     r.hello = false;
                     if save_in(store(), profile(), &r) { live().hello = false; } else { crate::mail::show_toast(u, "That did not work. Try again.", false); }
@@ -670,6 +830,7 @@ mod gui {
         if key != KEY_TIMEOUT { return false; }
         let current = live().timeout;
         let Some(t) = timeout_at(current, index) else { return true };
+        let _l = RecordLock::acquire();
         if let Stored::Some(mut r) = load_in(store(), profile()) {
             r.timeout = t;
             if save_in(store(), profile(), &r) {
@@ -745,20 +906,28 @@ mod gui {
         dialog_check(u);
         if !g.get_dlg_ready() || g.get_dlg_busy() { return; }
         let mode = g.get_dlg().to_string();
-        let (current, new) = (g.get_current().to_string(), g.get_new_pin().to_string());
+        let (current, new) = (zeroize::Zeroizing::new(g.get_current().to_string()), zeroize::Zeroizing::new(g.get_new_pin().to_string()));
         let hwnd = crate::capture::hwnd_of(u.window());
         g.set_dlg_busy(true);
         g.set_dlg_error("".into());
         let w = u.as_weak();
         std::thread::spawn(move || {
             let res = run_dialog(&mode, &current, &new, hwnd);
+            drop((current, new));
             let _ = w.upgrade_in_event_loop(move |u| {
                 let g = u.global::<AppLock>();
                 g.set_dlg_busy(false);
                 match res {
                     Ok(l) => {
-                        { let mut live = live(); live.on = l.on; live.hello = l.hello; live.timeout = l.timeout; live.last_input_ms = now_ms(); }
-                        close_dialog(&u);
+                        // the app locked meanwhile (time without use): it stays locked with what is
+                        // stored now, so the new PIN opens it; a lock turned off opens it
+                        let was_locked = {
+                            let mut live = live();
+                            let was = live.locked;
+                            *live = Live { locked: was && l.on, last_input_ms: now_ms(), ..l };
+                            was
+                        };
+                        if was_locked { apply(&u); } else { close_dialog(&u); }
                     }
                     Err(e) => { g.set_current("".into()); g.set_dlg_error(e.into()); g.set_dlg_ready(false); }
                 }
@@ -779,8 +948,11 @@ mod gui {
     fn run_dialog(mode: &str, current: &str, new: &str, hwnd: isize) -> Result<Live, &'static str> {
         let (b, p) = (store(), profile());
         let now = now_ms();
+        // the record and the sign-ins' markers with its fingerprint (oauth::LOCK_MARKER)
         let saved = |r: &Record| -> Result<Live, &'static str> {
-            if !save_in(b, p, r) { return Err("That did not work. Try again."); }
+            let ok = { let _l = RecordLock::acquire(); save_in(b, p, r) };
+            if !ok { return Err("That did not work. Try again."); }
+            crate::oauth::set_lock_marker(Some(&r.fingerprint()));
             Ok(Live { on: true, locked: false, hello: r.hello, timeout: r.timeout, last_input_ms: now })
         };
         match mode {
@@ -790,19 +962,20 @@ mod gui {
                 saved(&r)
             }
             "change" => {
-                let old = try_pin_in(b, p, current, now).map_err(pin_error_text)?;
+                let old = try_pin(current, now).map_err(pin_error_text)?;
                 if !new_pin_check(new, new).0 { return Err("That PIN is too easy to guess. Avoid repeats, runs and common choices."); }
                 // a new PIN takes Windows Hello off: it is turned on with the PIN (Bulwark's helloOff)
                 let r = Record { timeout: old.timeout, hello: false, ..Record::new(new, PBKDF2_ITERATIONS).ok_or("That did not work. Try again.")? };
                 saved(&r)
             }
             "disable" => {
-                try_pin_in(b, p, current, now).map_err(pin_error_text)?;
-                forget_in(b, p);
+                try_pin(current, now).map_err(pin_error_text)?;
+                { let _l = RecordLock::acquire(); forget_in(b, p); }
+                crate::oauth::set_lock_marker(None);
                 Ok(Live::OFF)
             }
             _ => {
-                let mut r = try_pin_in(b, p, current, now).map_err(pin_error_text)?;
+                let mut r = try_pin(current, now).map_err(pin_error_text)?;
                 let res = hello::verify(hwnd, "Turn on Windows Hello for Barbican");
                 if res != hello::Outcome::Verified { return Err(res.enable_message()); }
                 r.hello = true;
@@ -899,7 +1072,7 @@ mod gui {
     }
 }
 
-pub use gui::{input_event, settings_rows};
+pub use gui::{after_unlock, input_event, settings_rows};
 
 #[cfg(test)]
 mod tests {
@@ -1102,7 +1275,7 @@ mod tests {
         let body = app.split("out property <bool> body-visible:").nth(1).unwrap().split(';').next().unwrap();
         assert!(body.contains("!AppLock.locked"), "{body}");
         let tail = app.trim_end().trim_end_matches('}').trim_end();
-        assert!(tail.ends_with("if AppLock.locked: LockScreen { x: 0; y: 0; width: root.width; height: root.height; }"));
+        assert!(tail.ends_with("if AppLock.locked: LockScreen { x: 0; y: 0; width: root.width; height: root.height; app-busy: root.busy; }"));
         assert!(app.contains("if AppLock.locked { AppLock.focus-tick += 1; return accept; }"));
         let lock = include_str!("../ui/applock.slint");
         let screen = lock.split("export component LockScreen").nth(1).unwrap();
@@ -1111,5 +1284,133 @@ mod tests {
         assert!(screen.contains("scroll-event(e) => { accept }"));
         assert!(screen.contains("key-pressed(e) => { accept }"));
         assert!(screen.contains("e.text == Key.Tab || e.text == Key.Backtab"));
+        // "Forgot your PIN?" waits for a sign-in that is still running
+        assert!(screen.contains("TouchArea { enabled: !root.app-busy;"));
+    }
+
+    /// The window's own children (elements, not properties or handlers), each with its first line.
+    fn top_level_elements(app: &str) -> Vec<(String, String)> {
+        let start = app.find("export component AppWindow").unwrap();
+        let (mut depth, mut out) = (0i32, Vec::new());
+        let lines: Vec<&str> = app[start..].lines().collect();
+        for (i, line) in lines.iter().enumerate() {
+            // strings and comments don't count
+            let mut code = String::new();
+            let (mut in_str, mut slash) = (false, false);
+            for c in line.chars() {
+                if c == '"' { in_str = !in_str; slash = false; continue; }
+                if in_str { continue; }
+                if c == '/' && slash { code.pop(); break; }
+                slash = c == '/';
+                code.push(c);
+            }
+            if depth == 1 {
+                if let Some(k) = code.find('{') {
+                    let ty = code[..k].split_whitespace().last().unwrap_or("");
+                    if ty.starts_with(|c: char| c.is_ascii_uppercase()) {
+                        out.push((ty.to_string(), lines[i..(i + 4).min(lines.len())].join("\n")));
+                    }
+                }
+            }
+            depth += code.matches('{').count() as i32 - code.matches('}').count() as i32;
+            if i > 0 && depth == 0 { break; }
+        }
+        out
+    }
+
+    #[test]
+    fn nothing_under_the_lock_screen_is_drawn_or_read_out() {
+        // a screen reader walks hidden-behind elements too: everything but the lock's own parts
+        // is made invisible while locked
+        let app = include_str!("../ui/app.slint");
+        let kids = top_level_elements(app);
+        assert!(kids.iter().any(|(t, _)| t == "FocusScope"), "{kids:?}");
+        assert!(kids.len() > 15, "{}", kids.len());
+        for (ty, head) in &kids {
+            // a Timer draws nothing; the context menu closes on lock (gui::apply); the warm-up
+            // tile shows only the name; the PIN dialog and the lock screen are the lock
+            if ty == "Timer" || ty == "PopupWindow" || ty == "PinDialog" || ty == "LockScreen" || head.contains("root.motion-warm:") { continue; }
+            assert!(head.contains("visible: !AppLock.locked;"), "{ty}: {head}");
+        }
+    }
+
+    #[test]
+    fn a_removed_or_replaced_entry_stays_locked() {
+        let r = Record::new("k7#mpz", FAST).unwrap();
+        let other = Record::new("k7#mpz", FAST).unwrap();
+        let mine = vec![r.fingerprint()];
+        assert_ne!(r.fingerprint(), other.fingerprint());
+        assert_eq!(checked(Stored::Some(r.clone()), &mine), Stored::Some(r.clone()));
+        // no markers (a sign-in from before, or none at all): the entry alone decides
+        assert_eq!(checked(Stored::Some(r.clone()), &[]), Stored::Some(r.clone()));
+        assert_eq!(checked(Stored::Missing, &[]), Stored::Missing);
+        // deleted, or overwritten with a PIN someone knows
+        assert_eq!(checked(Stored::Missing, &mine), Stored::Unreadable);
+        assert_eq!(checked(Stored::Some(other), &mine), Stored::Unreadable);
+        assert_eq!(checked(Stored::Unreadable, &[]), Stored::Unreadable);
+        let l = live_for(&Stored::Unreadable, 5);
+        assert!(l.on && l.locked);
+        let l = live_for(&Stored::Some(r), 5);
+        assert!(l.on && l.locked && l.last_input_ms == 5);
+        assert_eq!(live_for(&Stored::Missing, 5), Live::OFF);
+    }
+
+    #[test]
+    fn a_store_that_cannot_be_read_locks() {
+        let b = Fake::default();
+        set(&b, "k7#mpz");
+        b.fail_reads.set(true);
+        assert_eq!(load_in(&b, "default"), Stored::Unreadable);
+        assert_eq!(try_pin_in(&b, "default", "k7#mpz", 0), Err(PinError::NotSet));
+        b.fail_reads.set(false);
+        assert!(matches!(load_in(&b, "default"), Stored::Some(_)));
+    }
+
+    #[test]
+    fn a_weak_or_foreign_record_is_refused() {
+        let r = Record::new("k7#mpz", FAST).unwrap();
+        let json = r.to_json();
+        assert!(Record::parse(&json, FAST).is_some());
+        // fewer rounds than the app writes
+        assert!(Record::parse(&json, PBKDF2_ITERATIONS).is_none());
+        let mut v: Value = serde_json::from_str(&json).unwrap();
+        v["iterations"] = json!(PBKDF2_ITERATIONS);
+        assert!(Record::parse(&v.to_string(), PBKDF2_ITERATIONS).is_some());
+        v["iterations"] = json!(1);
+        assert!(Record::parse(&v.to_string(), PBKDF2_ITERATIONS).is_none());
+        // a salt of another length
+        let mut v: Value = serde_json::from_str(&json).unwrap();
+        v["salt"] = json!(b64().encode([7u8; 8]));
+        assert!(Record::parse(&v.to_string(), FAST).is_none());
+    }
+
+    #[test]
+    fn a_wait_far_in_the_future_is_cut_to_the_longest() {
+        let b = Fake::default();
+        let mut r = set(&b, "k7#mpz");
+        let now = 1_000_000;
+        r.blocked_until = i64::MAX / 2;
+        assert!(save_in(&b, "default", &r));
+        assert_eq!(blocked_until_in(&b, "default", now), now + LONGEST_WAIT_MS);
+        // the cut wait is kept: read later, it does not move along
+        assert_eq!(blocked_until_in(&b, "default", now + 10), now + LONGEST_WAIT_MS);
+        assert_eq!(try_pin_in(&b, "default", "k7#mpz", now), Err(PinError::Blocked(now + LONGEST_WAIT_MS)));
+        // and it runs out like any other
+        assert!(try_pin_in(&b, "default", "k7#mpz", now + LONGEST_WAIT_MS + 1).is_ok());
+    }
+
+    #[test]
+    fn automation_is_limited_while_locked() {
+        for c in ["applock", "key", "type", "click"] { assert!(automation_allowed(c), "{c}"); }
+        for c in ["wv-eval", "cal-dump", "pim", "notes", "state", "shot", "open", ""] { assert!(!automation_allowed(c), "{c}"); }
+    }
+
+    #[test]
+    fn notifications_hide_content_when_they_cannot_be_cleared() {
+        let on = Live { on: true, ..Live::OFF };
+        assert!(!hide_notifications(&Live::OFF, false));
+        assert!(!hide_notifications(&on, true));
+        assert!(hide_notifications(&on, false));
+        assert!(hide_notifications(&Live { locked: true, ..on }, true));
     }
 }

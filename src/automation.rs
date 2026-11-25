@@ -297,6 +297,8 @@ fn run(u: &AppWindow, line: &str) -> String {
 fn run_cmd(u: &AppWindow, line: &str) -> String {
     let a: Vec<&str> = line.trim().splitn(2, ' ').collect();
     let args: Vec<&str> = a.get(1).map(|s| s.split(' ').collect()).unwrap_or_default();
+    // behind the app lock only a few commands work (src/applock.rs)
+    if crate::applock::locked() && !crate::applock::automation_allowed(a[0]) { return "locked".into(); }
     let win = u.window();
     let click = |x: f32, y: f32, n: usize| {
         let position = LogicalPosition::new(x, y);
@@ -478,6 +480,7 @@ fn run_cmd(u: &AppWindow, line: &str) -> String {
         "probe-start" => probe_start(u),
         "probe-stop" => probe_stop(),
         "every" => every(u, &args),
+        "applock" => (if crate::applock::locked() { "locked" } else if crate::applock::is_on() { "unlocked" } else { "off" }).into(),
         "size" => { let s = win.size(); format!("{} {} scale {}", s.width, s.height, win.scale_factor()) }
         // resize the (off-screen) window, in logical pixels, to check narrow layouts
         "resize" => { win.set_size(slint::LogicalSize::new(pos(&args, 0).max(400.0), pos(&args, 1).max(300.0))); "ok".into() }

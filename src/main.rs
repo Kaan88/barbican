@@ -1166,6 +1166,7 @@ fn main() -> Result<(), slint::PlatformError> {
         u.set_retry_available(false);
         u.set_status("".into());
         let (server, user, pass, totp) = (server.to_string(), user.to_string(), pass.to_string(), totp.to_string());
+        let gen = SESSION_GEN.load(std::sync::atomic::Ordering::SeqCst);
         std::thread::spawn(move || {
             let res = jmap::Client::connect(&server, &user, &pass, &totp);
             // a 2FA code is single-use, so only the password itself can be remembered; a saved
@@ -1175,7 +1176,7 @@ fn main() -> Result<(), slint::PlatformError> {
                 security::FormEntry::Repair(v) => { if res.is_ok() { oauth::repair_account(&v); } None }
                 security::FormEntry::Nothing => None,
             };
-            finish_login(w, st, res, server, user, rem, oauth::Origin::SignIn);
+            finish_login(w, st, res, server, user, rem, oauth::Origin::SignIn, gen);
         });
     });
 
@@ -1191,10 +1192,11 @@ fn main() -> Result<(), slint::PlatformError> {
         let client = u.get_client_id().trim().to_string();
         let client = if client.is_empty() { "barbican".to_string() } else { client };
         let (server, user) = (server.to_string(), user.to_string());
+        let gen = SESSION_GEN.load(std::sync::atomic::Ordering::SeqCst);
         std::thread::spawn(move || {
             let base = jmap::normalize_base(&server);
             let res = oauth::sign_in(&base, &user, &client).and_then(|t| jmap::Client::connect_oauth(&base, t));
-            finish_login(w, st, res, server, user, remember.then(|| serde_json::json!({"kind": "oauth"})), oauth::Origin::SignIn);
+            finish_login(w, st, res, server, user, remember.then(|| serde_json::json!({"kind": "oauth"})), oauth::Origin::SignIn, gen);
         });
     });
 
@@ -2687,19 +2689,29 @@ fn restore_session(w: slint::Weak<AppWindow>, st: Shared, v: Value, switching: b
             }
         };
         let origin = oauth::Origin::Restore { read: v["refresh"].as_str().map(String::from) };
-        finish_login(w, st, res, server, user, Some(serde_json::json!({"kind": kind, "pass": v["pass"]})), origin);
+        finish_login(w, st, res, server, user, Some(serde_json::json!({"kind": kind, "pass": v["pass"]})), origin, gen);
     });
 }
 
-fn finish_login(w: slint::Weak<AppWindow>, st: Shared, res: Result<jmap::Client, String>, server: String, user: String, remember: Option<Value>, origin: oauth::Origin) {
+/// `gen`: the [`SESSION_GEN`] the sign-in started in. A sign-out since (a forgotten app-lock PIN
+/// signs everyone out while a start-up restore is still connecting) drops the result: nothing is
+/// remembered again and nobody is signed in.
+fn finish_login(w: slint::Weak<AppWindow>, st: Shared, res: Result<jmap::Client, String>, server: String, user: String, remember: Option<Value>, origin: oauth::Origin, gen: u64) {
+    let current = move || SESSION_GEN.load(std::sync::atomic::Ordering::SeqCst) == gen;
     match res {
+        Ok(_) if !current() => {}
         Ok(c) => {
             // an SSO sign-in may leave the user blank: the server's own name for the login then
             // ties the remembered session (and its rotated tokens) to one account entry
             let user = if user.trim().is_empty() { c.username.clone() } else { user };
             let c = Arc::new(c);
-            *RESTORE_PENDING.lock().unwrap() = None;
-            *st.lock().unwrap() = Some(c.clone());
+            {
+                // checked again under the session's lock, which the sign-out takes the session with
+                let mut g = st.lock().unwrap();
+                if !current() { return; }
+                *RESTORE_PENDING.lock().unwrap() = None;
+                *g = Some(c.clone());
+            }
             // the new session starts now: a "Trust sender" click from here on is this account's
             trustbook::begin(&c);
             unified::set_active(&user, c.clone());
@@ -2707,7 +2719,7 @@ fn finish_login(w: slint::Weak<AppWindow>, st: Shared, res: Result<jmap::Client,
             let p = config_path();
             let _ = std::fs::create_dir_all(p.parent().unwrap());
             let _ = std::fs::write(&p, format!("{server}\n{user}\n"));
-            if let Some(v) = remember { remember_session(&c, v, &server, &user, origin); }
+            if let Some(v) = remember.filter(|_| current()) { remember_session(&c, v, &server, &user, origin); }
             let name = c.username.clone();
             *CHAT_USER.lock().unwrap() = name.clone();
             *LOGIN_USER.lock().unwrap() = user.clone();
@@ -2715,6 +2727,7 @@ fn finish_login(w: slint::Weak<AppWindow>, st: Shared, res: Result<jmap::Client,
             let host = restore::server_host(&server);
             let w2 = w.clone();
             let _ = w.upgrade_in_event_loop(move |u| {
+                if !current() { return; }
                 u.invoke_chat_reload();
                 u.set_accounts(accounts_model());
                 u.set_busy(false);
