@@ -20,7 +20,7 @@ chrono-tz = "0.10"
 base64 = "0.22"
 sha2 = "0.10"
 crc32fast = "1"
-getrandom = "0.2"
+getrandom = "0.4"
 # the TOTP code of the account security page (src/security.rs); already in the tree through other crates
 sha1 = "0.10"
 png = "0.17"
