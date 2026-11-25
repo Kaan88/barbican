@@ -31,6 +31,8 @@ export global ShareX {
     in-out property <bool> loading;
     in-out property <string> title;
     in-out property <[ShareRow]> rows;
+    // bumped whenever `rows` is replaced
+    in-out property <int> rows-gen;
     in-out property <bool> adding;
     in-out property <string> search;
     in-out property <[SharePerson]> people;
@@ -83,6 +85,8 @@ export component ShareDialog inherits Rectangle {
     property <bool> adding: ShareX.adding;
     changed adding => { if !self.adding { fs.focus(); } }
     init => { fs.focus(); }
+    property <int> rows-gen: ShareX.rows-gen;
+    changed rows-gen => { if !ShareX.adding { fs.focus(); } }
     TouchArea { clicked => { ShareX.close(); } }
     fs := FocusScope {
         capture-key-pressed(e) => {

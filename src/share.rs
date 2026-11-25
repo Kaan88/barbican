@@ -345,6 +345,8 @@ fn render(u: &AppWindow) {
             }
         }).collect();
         x.set_rows(ModelRc::new(VecModel::from(rows)));
+        // the new rows replace a dropdown that may have held the keyboard: the dialog takes it back
+        x.set_rows_gen(x.get_rows_gen().wrapping_add(1));
         x.set_busy(s.saving.is_some());
     });
     render_people(u);
@@ -429,19 +431,25 @@ pub fn open(u: &AppWindow, c: Arc<Client>, t: Target) {
     });
 }
 
-pub fn close(u: &AppWindow) {
+pub fn close(u: &AppWindow) { close_with(u, true); }
+
+/// `refocus`: the app's shortcuts get the keyboard back (the dialog held it, and Slint does not
+/// hand focus on when the focused element goes away). Not on sign-out: the sign-in page keeps its own.
+fn close_with(u: &AppWindow, refocus: bool) {
     ST.with(|s| s.borrow_mut().close());
     let x = u.global::<ShareX>();
+    let was_open = x.get_open();
     x.set_open(false);
     x.set_loading(false);
     x.set_busy(false);
     x.set_rows(ModelRc::new(VecModel::from(Vec::<crate::ShareRow>::new())));
     x.set_people(ModelRc::new(VecModel::from(Vec::<crate::SharePerson>::new())));
+    if was_open && refocus { u.invoke_focus_keys(); }
 }
 
 /// Signed out: nothing of the last account stays in the dialog or the directory cache.
 pub fn reset(u: &AppWindow) {
-    close(u);
+    close_with(u, false);
     forget_directory();
 }
 
