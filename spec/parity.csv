@@ -6,12 +6,12 @@ G-004,calendar,Import: .ics alerts kept from the file without asking first (D-M4
 G-005,calendar,Reminders: an event's own alert set more than 8 days ahead is missed when the calendar defaults do not reach that far,use-calendar-alerts.ts,done,src/reminders.rs,G-005 (GAPS P0-3),1,S
 G-006,calendar,Webcal: feeds on localhost or LAN hosts not blocked; plain http accepted with a warning,calendar-subscription-sync.ts,done,src/feed_guard.rs,G-006 (GAPS P0-4),1,S
 G-007,platform,Mailto on Linux: .desktop registration code never compiled,n/a (platform),unverified,,G-007 (GAPS P0-5),1,S
-G-008,calendar,Calendar print,calendar-print.tsx,missing,,G-008 (GAPS P1-1),6,S/M
-G-009,calendar,"Find a time depends on Principal/getAvailability, which Stalwart may not support",find-a-time.tsx,partial,,G-009 (GAPS P1-1),6,S/M
-G-010,contacts,Contact print,contact-print.ts,missing,,G-010 (GAPS P1-2),6,S/M
+G-008,calendar,Calendar print,calendar-print.tsx,wont-do,cut 2026-11-25 (docs/FEATURE-CUT.md): printing cut entirely; branch v05-print dropped,G-008 (GAPS P1-1),6,S/M
+G-009,calendar,"Find a time depends on Principal/getAvailability, which Stalwart may not support",find-a-time.tsx,wont-do,cut 2026-11-25 (docs/FEATURE-CUT.md): find a time cut; Suggest times and the availability lookup in src/cal_editor.rs to be removed,G-009 (GAPS P1-1),6,S/M
+G-010,contacts,Contact print,contact-print.ts,wont-do,cut 2026-11-25 (docs/FEATURE-CUT.md): printing cut entirely; branch v05-print dropped,G-010 (GAPS P1-2),6,S/M
 G-011,contacts,Contact activity and related people,contact-activity.tsx,missing,,G-011 (GAPS P1-2),6,S/M
 G-012,contacts,"Security review of contacts input: vCard parsing of untrusted files, photo data URI size, export paths",vcard.ts,done,src/vcard.rs; src/contacts_x.rs,G-012 (GAPS P1-2 (review)),1,S/M
-G-013,files,In-app preview (files open externally today),file-preview-modal.tsx; image-preview-modal.tsx; eml-preview.tsx,partial,"src/files_view.rs (plan, open_preview, preview_done), ui/files-views.slint FilePreview: images, text, HTML, .eml in the app; PDF, audio, video and SVG open outside (SVG needs a sandboxed process); no zoom, Markdown as text",G-013 (GAPS P1-3),4,M
+G-013,files,In-app preview (files open externally today),file-preview-modal.tsx; image-preview-modal.tsx; eml-preview.tsx,partial,"src/files_view.rs (plan, open_preview, preview_done), ui/files-views.slint FilePreview: images, text, HTML, .eml in the app; PDF, audio, video and SVG open outside (SVG needs a sandboxed process); no zoom, Markdown as text; cut by docs/FEATURE-CUT.md: the Blitz light renderer; .eml and HTML previews move to WebView2",G-013 (GAPS P1-3),4,M
 G-014,files,Details panel,file-details-panel.tsx,done,"src/files_view.rs (refresh_details, toggle_details), ui/files-views.slint FileDetails (file-details-panel.tsx:43-176; Share via More menu)",G-014 (GAPS P1-3),4,M
 G-015,files,"Grid and list views, sort, search, thumbnails (Show files as, Default sort, thumbnails, hidden files)",file-views.tsx,done,"src/files_view.rs (begin_render, arrange, decorate, want_thumb, thumb_worker), file-browser.tsx/file-views.tsx parity; no drag-and-drop in grid",G-015 (GAPS P1-3),4,M
 G-016,files,Upload conflict dialog,upload-conflict-dialog.tsx,done,"src/files_x.rs (conflicts, ask_next, run; replace via FileNode/set modified:null), ui/files-dialogs.slint UploadConflictDialog",G-016 (GAPS P1-3),4,M
@@ -29,7 +29,7 @@ G-027,security,Account security: change password (x:AccountPassword),stores/acco
 G-028,security,Account security: TOTP two-factor (x:AccountPassword otpAuth),account-security-settings.tsx,done,src/security.rs (TOTP enable/disable; a saved password is cleared when 2FA turns on),G-028 (GAPS P1-7),3,M
 G-029,security,Account security: app passwords (x:AppPassword) and API keys (x:ApiKey),account-security-settings.tsx,done,"src/security.rs (app passwords and API keys; shown once, copied as a secret)",G-029 (GAPS P1-7),3,M
 G-030,security,Account security: encryption at rest (x:PublicKey),account-security-settings.tsx,done,"src/security.rs (encryption at rest, public keys)",G-030 (GAPS P1-7),3,M
-G-031,security,"App lock (PIN or Windows Hello, lock after) and session timeout",app-lock/; session/,missing,,G-031 (GAPS P1-7),3,M
+G-031,security,"App lock (PIN or Windows Hello, lock after) and session timeout",app-lock/; session/,wont-do,cut 2026-11-25 (docs/FEATURE-CUT.md): app lock cut; the Windows lock screen covers it; src/applock.rs to be removed,G-031 (GAPS P1-7),3,M
 G-032,templates,Templates: edit an existing template,template-manager-modal.tsx; template-form.tsx,done,"src/templates.rs, src/server_settings.rs (refuses stale saves; keeps the stored body when unchanged)",G-032 (GAPS P1-8),3,S/M
 G-033,templates,Templates: rich body,template-form.tsx,done,"src/templates.rs clean_html (HTML source editor, not WYSIWYG)",G-033 (GAPS P1-8),3,S/M
 G-034,templates,Templates: placeholder fill on insert,placeholder-fill-modal.tsx; lib/template-merge.ts,done,"src/templates.rs, src/tplflow.rs (auto-fill dates in English only)",G-034 (GAPS P1-8),3,S/M
@@ -41,9 +41,9 @@ G-039,folders,Folders: pin,organize-settings.tsx,done,"src/folders.rs pin_key, s
 G-040,folders,Folders: mark the whole tree read,organize-settings.tsx,done,"src/folders.rs, src/jmap.rs mark_folders_read",G-040 (GAPS P1-9),3,S/M
 G-041,folders,Folders: per-folder notification mute (notificationMutes),folder-settings.tsx,done,"src/folders.rs, src/main.rs check_new_mail (no account-level mute UI)",G-041 (GAPS P1-9),3,S/M
 G-042,folders,Folders: export and import a folder,mail-transfer/,done,"src/mailexport.rs, src/mailimport.rs (keep folders), src/ctxmenu.rs; target = right-clicked folder, no account-root import",G-042 (GAPS P1-9; P1-11),2,S/M
-G-043,sharing,"Sharing folders, calendars and address books with other users (Barbican shares Files only)",layout/mailbox-share-dialog.tsx; share-collection-dialog.tsx,done,"src/share.rs (folders, calendars, address books: Bulwark presets, principal search)",G-043 (GAPS P1-9),3,M
+G-043,sharing,"Sharing folders, calendars and address books with other users (Barbican shares Files only)",layout/mailbox-share-dialog.tsx; share-collection-dialog.tsx,wont-do,"cut 2026-11-25 (docs/FEATURE-CUT.md): sharing of folders, calendars and address books cut (Files keeps its own share flyout); src/share.rs to be removed",G-043 (GAPS P1-9),3,M
 G-044,live-updates,"Live updates for calendars, contacts, files and identities: push types cover mail only, and there is no /changes delta for them",EventSource types,done,"src/livesync.rs (push + /changes for calendars, contacts, files, identities)",G-044 (GAPS P1-10),3,S/M
-G-045,notifications,ShareNotification and CalendarEventNotification; the notification centre,share-notification-store.ts; calendar-event-notification-store.ts; notifications/notification-center.tsx,partial,"src/notices.rs (share and event notifications, bell with warnings and errors; no plugin notifications)",G-045 (GAPS P1-10),3,M
+G-045,notifications,ShareNotification and CalendarEventNotification; the notification centre,share-notification-store.ts; calendar-event-notification-store.ts; notifications/notification-center.tsx,partial,"src/notices.rs (share and event notifications, bell with warnings and errors; no plugin notifications); kept by docs/FEATURE-CUT.md; share notices from others still show although Barbican no longer shares",G-045 (GAPS P1-10),3,M
 G-046,mail-transfer,Mail export of a folder to mbox or eml,mail-transfer/,done,"src/mailexport.rs (folder and all mail; directory tree, not .zip)",G-046 (GAPS P1-11),2,M
 G-047,mail-transfer,winmail.dat (TNEF) decoding,lib/tnef.ts,done,"src/tnef.rs (attachments, body when outer HTML is empty)",G-047 (GAPS P1-11),2,M
 G-048,mail-transfer,"Email/copy: copy a message to another account (Email/copy inside one login, Email/import across logins)","n/a (JMAP Email/copy, Email/import); stores/email-store.ts:5601-5648, lib/jmap/client.ts:12242/:12290",done,"src/copymsg.rs, src/ctxmenu.rs (copy_to_account, drag-drop move); no cross-account move Undo",G-048 (GAPS P1-11),2,M
@@ -53,44 +53,44 @@ G-051,reader-safety,External sender chip,external-sender-chip.tsx,done,"src/trus
 G-052,reader-safety,BIMI verified badge,brand-verified-badge.tsx; lib/bimi,done,"src/bimi.rs, src/avatars.rs, src/auth.rs (assess); Windows only (DNS TXT)",G-052 (GAPS P1-12),2,S/M
 G-053,reader-safety,"Per-sender trust for remote content (trustedSenders, externalContentPolicy)",trusted-senders-modal.tsx,done,"src/trust.rs, src/trustbook.rs (server Trusted Senders address book), src/main.rs (allow_remote); reply recipients are not trusted on send",G-053 (GAPS P1-12),2,M
 G-054,composer,Confirm before sending to external recipients,external-recipient-confirm.tsx,done,"src/compose.rs (Stage::External, external_warning), src/trust.rs",G-054 (GAPS P1-12),2,S
-G-055,popout,Pop-out windows: message and composer in their own windows,popout/,missing,,G-055 (GAPS P1-13),6,M
+G-055,popout,Pop-out windows: message and composer in their own windows,popout/,wont-do,cut 2026-11-25 (docs/FEATURE-CUT.md): single window; no pop-out reader or composer,G-055 (GAPS P1-13),6,M
 G-056,jmap,"Truncated bodies: a notice shows, but the full body is never fetched",lib/email (isTruncated),done,src/reader.rs; src/bodycache.rs (full-body refetch),G-056 (GAPS P1-14),1,S
 G-057,jmap,Quota is fetched but not shown (storage usage on the Account page),Account page,done,src/quota.rs; src/server_settings.rs,G-057 (GAPS P1-14),1,S
 G-058,composer,"cid: images in a re-opened draft: ROADMAP says placeholders, commit b9b3e99 says restored; re-check",composer draft reopen,done,src/compose.rs (draft cid restore),G-058 (GAPS P1-14),1,S
-G-059,settings-unwired,"Unwired: notificationSoundChoice, pushRelayUrl",settings-store.ts,partial,notificationSoundChoice done (src/notify.rs); pushRelayUrl still unwired,G-059 (GAPS P2-1),6,S
-G-060,settings-unwired,Unwired: dateLocale (showOnboardingOnNewDevices wired by G-085),settings-store.ts,missing,,G-060 (GAPS P2-1),6,S
-G-061,settings-unwired,"Unwired: toolbarPosition, sidebarAccountSwitcher, showSharedMailAccounts, compactSharedMailboxes, keepAppsLoaded",settings-store.ts,missing,,G-061 (GAPS P2-1),6,M
-G-062,settings-unwired,"Unwired: listColumns, messageListOrderScope",settings-store.ts,missing,,G-062 (GAPS P2-1),6,S
-G-063,settings-unwired,"Unwired: recipientMentionsEnabled, mentionAddsRecipientTo (rtlEditingSupport wired, see M6b-feature-parity)",settings-store.ts,missing,,G-063 (GAPS P2-1),6,S
+G-059,settings-unwired,"Unwired: notificationSoundChoice, pushRelayUrl",settings-store.ts,partial,notificationSoundChoice done (src/notify.rs); pushRelayUrl still unwired; cut by docs/FEATURE-CUT.md: pushRelayUrl,G-059 (GAPS P2-1),6,S
+G-060,settings-unwired,Unwired: dateLocale (showOnboardingOnNewDevices wired by G-085),settings-store.ts,wont-do,cut 2026-11-25 (docs/FEATURE-CUT.md): OS date format; the tour (G-085) is cut too,G-060 (GAPS P2-1),6,S
+G-061,settings-unwired,"Unwired: toolbarPosition, sidebarAccountSwitcher, showSharedMailAccounts, compactSharedMailboxes, keepAppsLoaded",settings-store.ts,missing,cut by docs/FEATURE-CUT.md: keepAppsLoaded; the rest is kept,G-061 (GAPS P2-1),6,M
+G-062,settings-unwired,"Unwired: listColumns, messageListOrderScope",settings-store.ts,wont-do,cut 2026-11-25 (docs/FEATURE-CUT.md): list columns and message order cut; list stays newest first,G-062 (GAPS P2-1),6,S
+G-063,settings-unwired,"Unwired: recipientMentionsEnabled, mentionAddsRecipientTo (rtlEditingSupport wired, see M6b-feature-parity)",settings-store.ts,missing,kept by docs/FEATURE-CUT.md; rtlEditingSupport is cut (S-rtlEditingSupport),G-063 (GAPS P2-1),6,S
 G-064,settings-unwired,Unwired: settingsSyncDisabled (settings sync through Mailbox metadata is not implemented),lib/settings-sync.ts,done,"src/settings_sync.rs (own namespace org.barbican.settings in Inbox metadata; allowlist, owner logic, guarded single write)",G-064 (GAPS P2-1),3,S
-G-065,settings-unwired,"No row and no code: defaultReplyMode, printTheme, hiddenCompanyCalendars",settings-store.ts,missing,,G-065 (GAPS P2-1),6,S
+G-065,settings-unwired,"No row and no code: defaultReplyMode, printTheme, hiddenCompanyCalendars",settings-store.ts,missing,cut by docs/FEATURE-CUT.md: printTheme and hiddenCompanyCalendars; defaultReplyMode kept,G-065 (GAPS P2-1),6,S
 G-066,settings-unwired,"No row and no code: hiddenSharedMailAccounts, sharedMailAccountOrder, allMailFolderIds",settings-store.ts,missing,,G-066 (GAPS P2-1),6,S
-G-067,settings-unwired,"No row and no code: attachmentReminderKeywords, sidebarApps",settings-store.ts,missing,,G-067 (GAPS P2-1),6,S
-G-068,settings-unwired,"No row and no code: email/attachment/bundleDownloadTemplate, protocolOpenMode, hideAccountSwitcher",settings-store.ts,missing,,G-068 (GAPS P2-1),6,S
-G-069,settings-keyless,"Keyless schema rows dropped by settings.rs schema_rows: Security, Language, Time zone, Default apps, Contacts import and export, Files display, Storage usage, Vacation audience, forward and keep (plus Export, Import, Reset, Accessibility info rows); see settings.csv S-keyless-###",settings-schema.json (info and keyless rows),missing,,G-069 (GAPS cross-cutting finding 1),6,M
+G-067,settings-unwired,"No row and no code: attachmentReminderKeywords, sidebarApps",settings-store.ts,wont-do,cut 2026-11-25 (docs/FEATURE-CUT.md): attachment reminder keywords and sidebar apps cut,G-067 (GAPS P2-1),6,S
+G-068,settings-unwired,"No row and no code: email/attachment/bundleDownloadTemplate, protocolOpenMode, hideAccountSwitcher",settings-store.ts,missing,cut by docs/FEATURE-CUT.md: download name templates; protocolOpenMode and hideAccountSwitcher kept,G-068 (GAPS P2-1),6,S
+G-069,settings-keyless,"Keyless schema rows dropped by settings.rs schema_rows: Security, Language, Time zone, Default apps, Contacts import and export, Files display, Storage usage, Vacation audience, forward and keep (plus Export, Import, Reset, Accessibility info rows); see settings.csv S-keyless-###",settings-schema.json (info and keyless rows),missing,cut by docs/FEATURE-CUT.md: Language and Time zone rows; the rest kept,G-069 (GAPS cross-cutting finding 1),6,M
 G-070,themes,"Themes: built-in themes, accent colours, custom themes (Barbican has light, dark and system only)",themes-settings.tsx; lib/builtin-themes.ts; theme-compiler.ts,missing,,G-070 (GAPS P2-2),6,M
-G-071,i18n,Language (i18n); Barbican is English only,language-settings.tsx; locale-store.ts,missing,,G-071 (GAPS P2-3),7,L
-G-072,i18n,Time zone picker (Barbican uses the OS time zone),time-zone-picker.tsx,missing,,G-072 (GAPS P2-3),7,S
-G-073,message-list,"Message list extras: list tabs, list columns, hover tag picker, verification-code copy, $pinned, structured-mail cards",message-list-tabs.tsx; list-columns.tsx; structured-mail/,missing,,G-073 (GAPS P2-4),6,M
-G-074,printing,"Printing: conversation, contact and calendar print; print settings (Barbican prints one message)",printing-settings.tsx,partial,,G-074 (GAPS P2-5),6,S/M
+G-071,i18n,Language (i18n); Barbican is English only,language-settings.tsx; locale-store.ts,wont-do,cut 2026-11-25 (docs/FEATURE-CUT.md): English only,G-071 (GAPS P2-3),7,L
+G-072,i18n,Time zone picker (Barbican uses the OS time zone),time-zone-picker.tsx,wont-do,cut 2026-11-25 (docs/FEATURE-CUT.md): follows the OS time zone,G-072 (GAPS P2-3),7,S
+G-073,message-list,"Message list extras: list tabs, list columns, hover tag picker, verification-code copy, $pinned, structured-mail cards",message-list-tabs.tsx; list-columns.tsx; structured-mail/,missing,"cut by docs/FEATURE-CUT.md: list tabs, list columns and structured-mail cards; kept: hover tag picker and $pinned (verification-code copy is done)",G-073 (GAPS P2-4),6,M
+G-074,printing,"Printing: conversation, contact and calendar print; print settings (Barbican prints one message)",printing-settings.tsx,wont-do,"cut 2026-11-25 (docs/FEATURE-CUT.md): printing cut entirely, single-message print included; print code to be removed",G-074 (GAPS P2-5),6,S/M
 G-075,composer-extras,Composer: @mentions of recipients,recipient-mention.tsx,missing,,G-075 (GAPS P2-6),6,S/M
 G-076,composer-extras,Composer: attach from Files,file-picker-dialog.tsx,missing,,G-076 (GAPS P2-6),6,S/M
 G-077,composer-extras,Composer: message priority and classification labels,lib/message-priority.ts; classification-label-picker.tsx,missing,,G-077 (GAPS P2-6),6,S/M
 G-078,composer-extras,Composer: proofreading (next and previous issue; proofreadingPlugins),proofreading/,missing,,G-078 (GAPS P2-6),6,S/M
 G-079,composer-extras,Composer: link to Files,n/a,unverified,,G-079 (GAPS P2-6),6,S/M
-G-080,admin,"Admin writes: create and edit accounts, groups, lists, domains (DKIM and DNS), API keys, OAuth clients, settings editor, spam training, queue retry",admin/; Stalwart WebUI,partial,,G-080 (GAPS P3 (Admin)),7,L
-G-081,plugins,"Plugins: web plugin runtime (slots, hooks, sandbox, OAuth, secrets, settings); Rust has native DLL plugins with two hooks",lib/plugin-*.ts,partial,"src/plugins.rs, src/plugin_package.rs, src/plugin_host.rs, src/plugin_hooks.rs (API 2: packages, grants, core host calls B3, mail and composer hooks B4 part 1 with fail-closed send checks); remaining hooks, slots B5, more host calls B6 to come",G-081 (GAPS P3 (Plugins)),5,L
-G-082,offline,Offline mode and outbox,offline/; lib/offline,missing,,G-082 (GAPS P3),7,L
-G-083,files-sync,"Files sync, WebDAV and WOPI editing",files-sync/; lib/webdav,missing,,G-083 (GAPS P3),7,L
-G-084,delegation,Delegation and impersonation,settings/delegates/; impersonation/,missing,,G-084 (GAPS P3),7,M
-G-085,onboarding,Tour and onboarding,tour/,missing,,G-085 (GAPS P3),6,M
-G-086,pro-org,Pro interface; organisation announcements and disclaimers,pro/; org/,missing,,G-086 (GAPS P3),7,M
+G-080,admin,"Admin writes: create and edit accounts, groups, lists, domains (DKIM and DNS), API keys, OAuth clients, settings editor, spam training, queue retry",admin/; Stalwart WebUI,wont-do,cut 2026-11-25 (docs/FEATURE-CUT.md): admin writes cut; the read-only views and the Actions tab stay,G-080 (GAPS P3 (Admin)),7,L
+G-081,plugins,"Plugins: web plugin runtime (slots, hooks, sandbox, OAuth, secrets, settings); Rust has native DLL plugins with two hooks",lib/plugin-*.ts,wont-do,cut 2026-11-25 (docs/FEATURE-CUT.md): plugin platform cut; AI and spam score stay built in,G-081 (GAPS P3 (Plugins)),5,L
+G-082,offline,Offline mode and outbox,offline/; lib/offline,wont-do,cut 2026-11-25 (docs/FEATURE-CUT.md): offline mode and outbox cut; Barbican needs a connection,G-082 (GAPS P3),7,L
+G-083,files-sync,"Files sync, WebDAV and WOPI editing",files-sync/; lib/webdav,wont-do,"cut 2026-11-25 (docs/FEATURE-CUT.md): Files sync, WebDAV and WOPI editing cut; the Files app stays",G-083 (GAPS P3),7,L
+G-084,delegation,Delegation and impersonation,settings/delegates/; impersonation/,wont-do,cut 2026-11-25 (docs/FEATURE-CUT.md): delegation and impersonation cut,G-084 (GAPS P3),7,M
+G-085,onboarding,Tour and onboarding,tour/,wont-do,cut 2026-11-25 (docs/FEATURE-CUT.md): tour and onboarding cut,G-085 (GAPS P3),6,M
+G-086,pro-org,Pro interface; organisation announcements and disclaimers,pro/; org/,wont-do,cut 2026-11-25 (docs/FEATURE-CUT.md): Pro interface and organisation announcements cut,G-086 (GAPS P3),7,M
 G-087,distribution,"Distribution: MSI, portable zip, deb and AppImage packaging and release workflows exist in Rust but have never run; the MSI has never been compiled",ROADMAP; wix/main.wxs,unverified,,G-087 (GAPS Roadmap items),7,M
 G-088,updater,"Auto-updater: download and install have never run end to end; needs a public asset mirror (BARBICAN_UPDATE_ASSET_BASE), BARBICAN_UPDATE_FEED, BARBICAN_UPDATE_PUBKEY and the signing secret",updater.rs,unverified,,G-088 (GAPS Roadmap items),7,S
 G-089,desktop,Tray: start at login implemented but not exercised,desktop.rs,unverified,,G-089 (GAPS Roadmap items),7,S
 G-090,platform,"Linux platform layer never compiled; WebKitGTK, Secret Service and portal colour scheme unverified",platform/,unverified,,G-090 (GAPS Roadmap items),7,M
 G-091,rte,Rich-text composer: IME unverified with a real IME; pre-edit covers the text after the caret instead of pushing it aside,rte/layout.rs; IME TextInput,unverified,,G-091 (GAPS Roadmap items),6,S
-G-092,design,"Polish font pass: a side-by-side check of sizes and weights against Bulwark per view, through hidden automation",design/,unverified,,G-092 (GAPS Roadmap items),6,M
+G-092,design,"Polish font pass: a side-by-side check of sizes and weights against Bulwark per view, through hidden automation",design/,wont-do,cut 2026-11-25 (docs/FEATURE-CUT.md): Barbican no longer copies Bulwark's look; no side-by-side font pass,G-092 (GAPS Roadmap items),6,M
 G-093,docs,"ROADMAP.md out of date: later items were done in 54d75d7, 9482bdd, 8b501d4 and 04f7b96; the context-menus line is stale",ROADMAP.md,done,ROADMAP.md,G-093 (GAPS Roadmap items),0,S
 G-094,composer,Recipient chips with autocomplete,recipients.rs; chips.rs (Bulwark email-composer.tsx RecipientInput),unverified,,G-094 (GAPS P0-1 (done)),0,-
 G-095,composer,Schedule send,schedule.rs (Bulwark schedule-send-dialog.tsx),unverified,,G-095 (GAPS P0-2 (done)),0,-
@@ -104,7 +104,7 @@ G-102,productivity,Drag and drop and resizable panes,productivity.slint; panes.j
 G-103,productivity,Command palette (Ctrl+K) and search everything,palette.rs,unverified,,G-103 (GAPS P1-1 (done)),0,-
 G-104,productivity,"Search quality: syntax chips, suggestions, highlights",palette.rs; gsearch.rs,unverified,,G-104 (GAPS P1-2 (done)),0,-
 G-105,productivity,Keyboard shortcuts for every app and the ? sheet,shortcuts.rs,unverified,,G-105 (GAPS P1-3 (done)),0,-
-G-106,calendar,"Agenda, tasks view and editor, .ics import, webcal, birthdays, find a time",cal_extra.rs,unverified,,G-106 (GAPS P1-4 (done)),0,-
+G-106,calendar,"Agenda, tasks view and editor, .ics import, webcal, birthdays, find a time",cal_extra.rs,unverified,cut by docs/FEATURE-CUT.md: find a time (G-009); the rest kept,G-106 (GAPS P1-4 (done)),0,-
 G-107,contacts,"vCard import and export, typed entries, photos, duplicates and merge, directory",vcard.rs; contacts_x.rs; contact_merge.rs,unverified,,G-107 (GAPS P1-5 (done)),0,-
 G-108,sieve,"Filters: edit and reorder, several conditions and actions, header, size and regex, run on existing mail",filters_x.rs; sieve.rs,done,src/filters_x.rs:116,G-108 (GAPS P1-7 (done)),0,-
 G-109,mail,"Sender avatars (Gravatar, BIMI, favicons), .eml and .mbox import",avatars.rs; mailimport.rs,unverified,,G-109 (GAPS P1-14 (part; done)),0,-
@@ -145,9 +145,9 @@ S-density,settings-appearance,Density,stores/settings-store.ts: density,done,src
 S-enableUnifiedMailbox,settings-appearance,Unified mailbox,stores/settings-store.ts: enableUnifiedMailbox,done,src/main.rs:1005,S-enableUnifiedMailbox,0,S
 S-includeGroupInUnified,settings-appearance,Include group inboxes,stores/settings-store.ts: includeGroupInUnified,done,src/main.rs:1013,S-includeGroupInUnified,0,S
 S-interfaceLayout,settings-appearance,Interface layout,stores/settings-store.ts: interfaceLayout,done,src/mail.rs:584,S-interfaceLayout,0,S
-S-keepAppsLoaded,settings-appearance,Keep apps loaded,stores/settings-store.ts: keepAppsLoaded,missing,,S-keepAppsLoaded,6,S
+S-keepAppsLoaded,settings-appearance,Keep apps loaded,stores/settings-store.ts: keepAppsLoaded,wont-do,cut 2026-11-25 (docs/FEATURE-CUT.md): web tab memory setting; cut,S-keepAppsLoaded,6,S
 S-mailLayout,settings-appearance,Mail layout,stores/settings-store.ts: mailLayout,missing,,S-mailLayout,6,S
-S-proInterface,settings-appearance,Pro interface (experimental),stores/settings-store.ts: proInterface,missing,,S-proInterface,7,S
+S-proInterface,settings-appearance,Pro interface (experimental),stores/settings-store.ts: proInterface,wont-do,cut 2026-11-25 (docs/FEATURE-CUT.md): Pro interface cut,S-proInterface,7,S
 S-showFolderTotalCount,settings-appearance,Show total message count,stores/settings-store.ts: showFolderTotalCount,done,src/mail.rs:118,S-showFolderTotalCount,0,S
 S-showRailAccountList,settings-appearance,Show account avatars on the navigation rail,stores/settings-store.ts: showRailAccountList,missing,,S-showRailAccountList,6,S
 S-showSharedMailAccounts,settings-appearance,Show shared mail accounts,stores/settings-store.ts: showSharedMailAccounts,missing,,S-showSharedMailAccounts,6,S
@@ -181,7 +181,7 @@ S-quickReplyEnabled,settings-composing,Quick reply,stores/settings-store.ts: qui
 S-recipientMentionsEnabled,settings-composing,Mention recipients with @,stores/settings-store.ts: recipientMentionsEnabled,missing,,S-recipientMentionsEnabled,6,S
 S-replyIdentityMatch,settings-composing,Received address matching,stores/settings-store.ts: replyIdentityMatch,done,src/compose.rs:307,S-replyIdentityMatch,0,S
 S-replyUnderMessage,settings-composing,Replies under the message,stores/settings-store.ts: replyUnderMessage,done,src/compose.rs:426,S-replyUnderMessage,0,S
-S-rtlEditingSupport,settings-composing,Right-to-left editing support,stores/settings-store.ts: rtlEditingSupport,missing,,S-rtlEditingSupport,6,S
+S-rtlEditingSupport,settings-composing,Right-to-left editing support,stores/settings-store.ts: rtlEditingSupport,wont-do,cut 2026-11-25 (docs/FEATURE-CUT.md): right-to-left editing cut,S-rtlEditingSupport,6,S
 S-sendDelaySeconds,settings-composing,Undo send,stores/settings-store.ts: sendDelaySeconds,done,src/compose.rs:879,S-sendDelaySeconds,0,S
 S-signatureNewMailEnabled,settings-composing,Signature on new mail,stores/settings-store.ts: signatureNewMailEnabled,done,src/compose.rs:333,S-signatureNewMailEnabled,0,S
 S-signaturePosition,settings-composing,Signature position,stores/settings-store.ts: signaturePosition,done,src/compose.rs:339,S-signaturePosition,0,S
@@ -197,12 +197,12 @@ S-filenameSpaceReplacement,settings-files,Spaces,stores/settings-store.ts: filen
 S-filenameStripDiacritics,settings-files,Strip diacritics,stores/settings-store.ts: filenameStripDiacritics,done,"src/dlnames.rs apply_transforms (NFD, marks stripped)",S-filenameStripDiacritics,4,S
 S-postExportAction,settings-files,After export,stores/settings-store.ts: postExportAction,done,"src/files_x.rs / reader.rs: after a single .eml save, apply_routed archive or delete",S-postExportAction,4,S
 S-dateFormat,settings-general,Date format,stores/settings-store.ts: dateFormat,done,src/mail.rs:66,S-dateFormat,0,S
-S-dateLocale,settings-general,Date format region,stores/settings-store.ts: dateLocale,missing,,S-dateLocale,6,S
+S-dateLocale,settings-general,Date format region,stores/settings-store.ts: dateLocale,wont-do,cut 2026-11-25 (docs/FEATURE-CUT.md): follows the OS date format,S-dateLocale,6,S
 S-firstDayOfWeek,settings-general,First day of week,stores/settings-store.ts: firstDayOfWeek,done,src/calendar.rs:170,S-firstDayOfWeek,0,S
-S-showOnboardingOnNewDevices,settings-general,Show on new devices,stores/settings-store.ts: showOnboardingOnNewDevices,missing,,S-showOnboardingOnNewDevices,6,S
-S-webviewBackgroundCloseMinutes,settings-general,Free the mail view's memory in the background,stores/settings-store.ts: webviewBackgroundCloseMinutes,missing,,S-webviewBackgroundCloseMinutes,6,S
+S-showOnboardingOnNewDevices,settings-general,Show on new devices,stores/settings-store.ts: showOnboardingOnNewDevices,wont-do,cut 2026-11-25 (docs/FEATURE-CUT.md): tour cut,S-showOnboardingOnNewDevices,6,S
+S-webviewBackgroundCloseMinutes,settings-general,Free the mail view's memory in the background,stores/settings-store.ts: webviewBackgroundCloseMinutes,wont-do,cut 2026-11-25 (docs/FEATURE-CUT.md): web and mobile memory setting; cut,S-webviewBackgroundCloseMinutes,6,S
 S-timeFormat,settings-general,Time format,stores/settings-store.ts: timeFormat,done,src/calendar.rs:177,S-timeFormat,0,S
-S-timeZone,settings-general,Time zone,stores/settings-store.ts: timeZone,missing,,S-timeZone,7,S
+S-timeZone,settings-general,Time zone,stores/settings-store.ts: timeZone,wont-do,cut 2026-11-25 (docs/FEATURE-CUT.md): follows the OS time zone,S-timeZone,7,S
 S-archiveMode,settings-message_list,Archive in,stores/settings-store.ts: archiveMode,done,src/mail.rs:990,S-archiveMode,0,S
 S-clearSearchOnFolderChange,settings-message_list,Clear search when switching folders,stores/settings-store.ts: clearSearchOnFolderChange,done,src/main.rs:846,S-clearSearchOnFolderChange,0,S
 S-confirmBulkDelete,settings-message_list,Confirm before deleting several messages,stores/settings-store.ts: confirmBulkDelete,done,src/ctxmenu.rs:537,S-confirmBulkDelete,0,S
@@ -210,8 +210,8 @@ S-deleteAction,settings-message_list,Delete action,stores/settings-store.ts: del
 S-disableThreading,settings-message_list,Group messages by conversation,stores/settings-store.ts: disableThreading,done,src/main.rs:334,S-disableThreading,0,S
 S-emailsPerPage,settings-message_list,Emails per page,stores/settings-store.ts: emailsPerPage,done,src/mail.rs:68,S-emailsPerPage,0,S
 S-groupListByDate,settings-message_list,Group by date,stores/settings-store.ts: groupListByDate,done,src/mail.rs:64,S-groupListByDate,0,S
-S-listColumns,settings-message_list,Show the list as columns,stores/settings-store.ts: listColumns,missing,,S-listColumns,6,S
-S-messageListOrderScope,settings-message_list,Apply to all folders,stores/settings-store.ts: messageListOrderScope,missing,,S-messageListOrderScope,6,S
+S-listColumns,settings-message_list,Show the list as columns,stores/settings-store.ts: listColumns,wont-do,cut 2026-11-25 (docs/FEATURE-CUT.md): list columns cut,S-listColumns,6,S
+S-messageListOrderScope,settings-message_list,Apply to all folders,stores/settings-store.ts: messageListOrderScope,wont-do,cut 2026-11-25 (docs/FEATURE-CUT.md): message order cut,S-messageListOrderScope,6,S
 S-mvInboxType,settings-message_list,Inbox type,stores/settings-store.ts: mvInboxType,done,src/mail.rs:584,S-mvInboxType,0,S
 S-mvUnreadSectionSize,settings-message_list,Unread messages shown,stores/settings-store.ts: mvUnreadSectionSize,done,src/mail.rs:587,S-mvUnreadSectionSize,0,S
 S-permanentlyDeleteJunk,settings-message_list,Permanently delete Junk,stores/settings-store.ts: permanentlyDeleteJunk,done,src/mail.rs:984,S-permanentlyDeleteJunk,0,S
@@ -220,8 +220,8 @@ S-showAttachmentChips,settings-message_list,Show attachments in the list,stores/
 S-showPreview,settings-message_list,Show preview text,stores/settings-store.ts: showPreview,done,src/mail.rs:65,S-showPreview,0,S
 S-showTagChips,settings-message_list,Show tags in the list,stores/settings-store.ts: showTagChips,done,src/main.rs:2114,S-showTagChips,0,S
 S-showVerificationCodes,settings-message_list,Show verification codes,stores/settings-store.ts: showVerificationCodes,done,src/mail.rs:71,S-showVerificationCodes,0,S
-S-swipeLeftAction,settings-message_list,Swipe left action (mobile),stores/settings-store.ts: swipeLeftAction,missing,,S-swipeLeftAction,6,S
-S-swipeRightAction,settings-message_list,Swipe right action (mobile),stores/settings-store.ts: swipeRightAction,missing,,S-swipeRightAction,6,S
+S-swipeLeftAction,settings-message_list,Swipe left action (mobile),stores/settings-store.ts: swipeLeftAction,wont-do,cut 2026-11-25 (docs/FEATURE-CUT.md): mobile only,S-swipeLeftAction,6,S
+S-swipeRightAction,settings-message_list,Swipe right action (mobile),stores/settings-store.ts: swipeRightAction,wont-do,cut 2026-11-25 (docs/FEATURE-CUT.md): mobile only,S-swipeRightAction,6,S
 S-tintListRowsByTag,settings-message_list,Tint list rows by tag color,stores/settings-store.ts: tintListRowsByTag,done,src/mail.rs:72,S-tintListRowsByTag,0,S
 S-calendarNotificationSound,settings-notifications,Sound for reminders,stores/settings-store.ts: calendarNotificationSound,done,src/reminders.rs:415,S-calendarNotificationSound,0,S
 S-calendarNotificationsEnabled,settings-notifications,Event notifications,stores/settings-store.ts: calendarNotificationsEnabled,done,src/reminders.rs:414,S-calendarNotificationsEnabled,0,S
@@ -230,12 +230,12 @@ S-emailNotificationSound,settings-notifications,Sound for new mail,stores/settin
 S-emailNotificationsEnabled,settings-notifications,Email notifications,stores/settings-store.ts: emailNotificationsEnabled,done,src/main.rs:562,S-emailNotificationsEnabled,0,S
 S-faviconUnreadBadge,settings-notifications,Unread count on the taskbar icon,stores/settings-store.ts: faviconUnreadBadge,done,src/mail.rs:190,S-faviconUnreadBadge,0,S
 S-keepRunningInTray,settings-notifications,Keep running in the tray when the window is closed,stores/settings-store.ts: keepRunningInTray,missing,,S-keepRunningInTray,6,S
-S-desktopOpenOnDoubleClick,settings-general,Open messages in a new window on double-click,stores/settings-store.ts: desktopOpenOnDoubleClick,missing,,S-desktopOpenOnDoubleClick,6,S
-S-desktopComposeInWindow,settings-general,Always write messages in a new window,stores/settings-store.ts: desktopComposeInWindow,missing,,S-desktopComposeInWindow,6,S
-S-desktopRestoreWindows,settings-general,Reopen windows at start,stores/settings-store.ts: desktopRestoreWindows,missing,,S-desktopRestoreWindows,6,S
+S-desktopOpenOnDoubleClick,settings-general,Open messages in a new window on double-click,stores/settings-store.ts: desktopOpenOnDoubleClick,wont-do,cut 2026-11-25 (docs/FEATURE-CUT.md): pop-out windows cut,S-desktopOpenOnDoubleClick,6,S
+S-desktopComposeInWindow,settings-general,Always write messages in a new window,stores/settings-store.ts: desktopComposeInWindow,wont-do,cut 2026-11-25 (docs/FEATURE-CUT.md): pop-out windows cut,S-desktopComposeInWindow,6,S
+S-desktopRestoreWindows,settings-general,Reopen windows at start,stores/settings-store.ts: desktopRestoreWindows,wont-do,cut 2026-11-25 (docs/FEATURE-CUT.md): pop-out windows cut,S-desktopRestoreWindows,6,S
 S-notificationSoundChoice,settings-notifications,Tone,stores/settings-store.ts: notificationSoundChoice,done,"src/notify.rs (Tone, desktop_sound_name), src/reminders.rs; no preview",S-notificationSoundChoice,6,S
 S-pushNotifyInboxOnly,settings-notifications,Inbox only,stores/settings-store.ts: pushNotifyInboxOnly,done,src/main.rs:568,S-pushNotifyInboxOnly,0,S
-S-pushRelayUrl,settings-notifications,Push relay,stores/settings-store.ts: pushRelayUrl,missing,,S-pushRelayUrl,6,S
+S-pushRelayUrl,settings-notifications,Push relay,stores/settings-store.ts: pushRelayUrl,wont-do,cut 2026-11-25 (docs/FEATURE-CUT.md): web push relay; not needed on the desktop,S-pushRelayUrl,6,S
 S-unreadBadgeAllAccounts,settings-notifications,Count unread mail in all accounts,stores/settings-store.ts: unreadBadgeAllAccounts,done,src/mail.rs:189,S-unreadBadgeAllAccounts,0,S
 S-nestedTags,settings-organize,Nested tags,stores/settings-store.ts: nestedTags,done,src/main.rs:1025,S-nestedTags,0,S
 S-avatars.refresh,settings-privacy,Refresh sender icons,stores/settings-store.ts: avatars.refresh,done,src/main.rs:1100,S-avatars.refresh,0,S
@@ -252,7 +252,7 @@ S-mailAttachmentAction,settings-reading,Attachment click action,stores/settings-
 S-markAsReadDelay,settings-reading,Mark as read,stores/settings-store.ts: markAsReadDelay,done,src/msgload.rs:36,S-markAsReadDelay,0,S
 S-messageSpacing,settings-reading,Message spacing,stores/settings-store.ts: messageSpacing,done,src/main.rs:255,S-messageSpacing,0,S
 S-returnToListAfterAction,settings-reading,"Return to list after delete, archive, move or mark unread",stores/settings-store.ts: returnToListAfterAction,done,src/mail.rs:1011,S-returnToListAfterAction,0,S
-S-debugMode,settings-troubleshooting,Detailed logging,stores/settings-store.ts: debugMode,missing,,S-debugMode,6,S
+S-debugMode,settings-troubleshooting,Detailed logging,stores/settings-store.ts: debugMode,wont-do,cut 2026-11-25 (docs/FEATURE-CUT.md): detailed logging switch cut,S-debugMode,6,S
 S-keyless-001,settings-account,Email address,settings-schema.json (page account),done,"src/settings.rs, src/server_settings.rs (Settings > Account)",S-keyless-001,3,S
 S-keyless-002,settings-account,Username,settings-schema.json (page account),missing,,S-keyless-002,3,S
 S-keyless-003,settings-account,Authentication,settings-schema.json (page account),done,"src/settings.rs, src/server_settings.rs (Settings > Account)",S-keyless-003,3,S
@@ -267,13 +267,13 @@ S-keyless-011,settings-security,Two-step sign-in,settings-schema.json (page secu
 S-keyless-012,settings-security,Two-step sign-in,settings-schema.json (page security),missing,,S-keyless-012,3,S
 S-keyless-013,settings-security,Lock with a PIN,settings-schema.json (page security),done,"src/applock.rs (PIN: PBKDF2, backoff, lock screen)",S-keyless-013,3,S
 S-keyless-014,settings-security,Unlock with Windows Hello,settings-schema.json (page security),done,src/applock.rs (Windows Hello via UserConsentVerifier),S-keyless-014,3,S
-S-keyless-015,settings-security,Lock after,settings-schema.json (page security),partial,src/applock.rs (no 'When the screen locks' option),S-keyless-015,3,S
+S-keyless-015,settings-security,Lock after,settings-schema.json (page security),wont-do,cut 2026-11-25 (docs/FEATURE-CUT.md): app lock cut,S-keyless-015,3,S
 S-keyless-016,settings-security,Lock now,settings-schema.json (page security),done,src/applock.rs (Lock now),S-keyless-016,3,S
 S-keyless-017,settings-security,PIN,settings-schema.json (page security),done,src/applock.rs (change PIN),S-keyless-017,3,S
 S-keyless-018,settings-security,Passkey,settings-schema.json (page security),wont-do,browser WebAuthn passkey; not applicable to a desktop app,S-keyless-018,3,S
 S-keyless-019,settings-notifications,Turn on for this device,settings-schema.json (page notifications),missing,,S-keyless-019,6,S
-S-keyless-020,settings-general,Introductory tour,settings-schema.json (page general),missing,,S-keyless-020,6,S
-S-keyless-021,settings-general,Language,settings-schema.json (page general),missing,,S-keyless-021,7,S
+S-keyless-020,settings-general,Introductory tour,settings-schema.json (page general),wont-do,cut 2026-11-25 (docs/FEATURE-CUT.md): tour cut,S-keyless-020,6,S
+S-keyless-021,settings-general,Language,settings-schema.json (page general),wont-do,cut 2026-11-25 (docs/FEATURE-CUT.md): English only,S-keyless-021,7,S
 S-keyless-022,settings-general,Open email links in {appName},settings-schema.json (page general),missing,,S-keyless-022,6,S
 S-keyless-023,settings-general,Open calendar links in {appName},settings-schema.json (page general),missing,,S-keyless-023,6,S
 S-keyless-024,settings-general,How links open,settings-schema.json (page general),missing,,S-keyless-024,6,S
@@ -291,7 +291,7 @@ S-keyless-035,settings-accessibility,Warnings before sending,settings-schema.jso
 S-keyless-036,settings-accessibility,Asking before deleting several messages,settings-schema.json (page accessibility),partial,"src/mail.rs:1086, src/ctxmenu.rs:595 (confirmBulkDelete); link row to the other settings page not drawn",S-keyless-036,6,S
 S-keyless-037,settings-accessibility,Do not disturb,settings-schema.json (page accessibility),done,"src/main.rs:967, src/reminders.rs:593 (doNotDisturb on the Notifications page, where Bulwark keeps it)",S-keyless-037,6,S
 S-keyless-038,settings-accessibility,Sounds and the unread badge,settings-schema.json (page accessibility),done,"src/main.rs:970, src/reminders.rs:593, src/mail.rs:207-208, src/unified.rs:214; tone read through notify::Tone",S-keyless-038,6,S
-S-keyless-039,settings-message_list,Message list order,settings-schema.json (page message_list),missing,jmap.rs list_sort hardcodes receivedAt desc; no messageListOrder presets or scope,S-keyless-039,6,S
+S-keyless-039,settings-message_list,Message list order,settings-schema.json (page message_list),wont-do,cut 2026-11-25 (docs/FEATURE-CUT.md): message order cut; newest first stays,S-keyless-039,6,S
 S-keyless-040,settings-composing,Check spelling and grammar while I type,settings-schema.json (page composing),partial,"src/settings.rs:49,353 shown; proofreading add-on path not built (local spellCheck works, src/rte/spell.rs)",S-keyless-040,6,S
 S-keyless-041,settings-vacation,Reply automatically,settings-schema.json (page vacation),done,src/server_settings.rs vacation_rows (Settings > Out of office),S-keyless-041,3,S
 S-keyless-042,settings-vacation,Reply to,settings-schema.json (page vacation),done,src/server_settings.rs vacation_rows (Settings > Out of office),S-keyless-042,3,S
@@ -302,7 +302,7 @@ S-keyless-046,settings-vacation,Forward messages,settings-schema.json (page vaca
 S-keyless-047,settings-vacation,Forward to,settings-schema.json (page vacation),done,src/server_settings.rs vacation_rows (Settings > Out of office),S-keyless-047,3,S
 S-keyless-048,settings-vacation,Keep in inbox,settings-schema.json (page vacation),done,src/server_settings.rs vacation_rows (Settings > Out of office),S-keyless-048,3,S
 S-keyless-049,settings-calendar,Calendar opens in,settings-schema.json (page calendar),missing,no calendar view-mode preference read,S-keyless-049,6,S
-S-keyless-050,settings-calendar,Organize invitations as,settings-schema.json (page calendar),missing,organizer is always the login address (src/cal_editor.rs:684),S-keyless-050,6,S
+S-keyless-050,settings-calendar,Organize invitations as,settings-schema.json (page calendar),wont-do,cut 2026-11-25 (docs/FEATURE-CUT.md): organiser is always the login address,S-keyless-050,6,S
 S-keyless-051,settings-calendar,Working days,settings-schema.json (page calendar),done,"src/settings.rs:381-391 workday toggles -> calendarWorkingDays, read src/calendar.rs:168, src/cal_editor.rs:1353 (clearing the last day is allowed, Bulwark refuses)",S-keyless-051,6,S
 S-keyless-052,settings-contacts,Import contacts,settings-schema.json (page contacts),done,src/settings.rs:379 contacts.import -> src/contacts_x.rs start_import,S-keyless-052,6,S
 S-keyless-053,settings-contacts,Export contacts,settings-schema.json (page contacts),done,src/settings.rs:380 contacts.export -> src/contacts_x.rs export_all,S-keyless-053,6,S
