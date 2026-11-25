@@ -64,6 +64,7 @@ mod plugin_catalog_check;
 mod security;
 mod server_settings;
 mod settings;
+mod settings_sync;
 mod sieve;
 mod templates;
 mod tplflow;
@@ -1022,6 +1023,8 @@ fn main() -> Result<(), slint::PlatformError> {
             g.take()
         };
         server_settings::reset(&srv_out);
+        // nothing more is pushed to (or pulled from) the account signed out
+        settings_sync::end();
         let u = w.unwrap();
         SESSION_GEN.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         // nothing of this account's out-of-office page stays to be shown or written elsewhere
@@ -1133,6 +1136,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let u = w.unwrap();
         SESSION_GEN.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         *st.lock().unwrap() = None;
+        settings_sync::end();
         server_settings::set_account(&srv_add, "");
         u.set_user("".into());
         u.set_login_password("".into());
@@ -1195,6 +1199,21 @@ fn main() -> Result<(), slint::PlatformError> {
 
     let prefs = Arc::new(Mutex::new(settings::Settings::load()));
     settings::register_live(prefs.clone());
+    {
+        // settings pulled from the account: redraw what they shape
+        let w = ui.as_weak();
+        settings_sync::init(&prefs.lock().unwrap().prefs, Box::new(move || {
+            let _ = w.upgrade_in_event_loop(|u| {
+                apply_theme(&u);
+                apply_ui_prefs(&u);
+                rte::spell::reload();
+                u.set_show_advanced_settings(settings::Settings::load().bool("showAdvancedSettings", false));
+                mail::rebuild_folders(&u);
+                mail::rebuild_list(&u);
+                u.invoke_settings_search(u.get_settings_query());
+            });
+        }));
+    }
     ui.set_show_advanced_settings(prefs.lock().unwrap().bool("showAdvancedSettings", false));
     let st_acc = state.clone();
     let account_info = move || {
@@ -2469,6 +2488,8 @@ fn finish_login(w: slint::Weak<AppWindow>, st: Shared, res: Result<jmap::Client,
             *st.lock().unwrap() = Some(c.clone());
             // the new session starts now: a "Trust sender" click from here on is this account's
             trustbook::begin(&c);
+            // this account's synced settings (pulled in the background; nothing is pushed to it before)
+            settings_sync::begin(c.clone());
             unified::set_active(&user, c.clone());
             if unified::enabled() { unified::warm_up(Some(w.clone())); }
             let p = config_path();

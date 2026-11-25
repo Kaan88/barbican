@@ -35,6 +35,13 @@ fn path() -> std::path::PathBuf {
     crate::config_dir().join("prefs.json")
 }
 
+/// The extracted schema, for settings sync's type checks.
+pub(crate) fn schema_value() -> std::sync::Arc<Value> { schema() }
+
+/// The values a select row offers when they come from Barbican's own list (see
+/// `option_override`), for settings sync's type checks.
+pub(crate) fn option_values(key: &str) -> Option<Vec<Value>> { option_override(key).map(|o| o.into_iter().map(|(v, _)| v).collect()) }
+
 /// Keyless controls in the extracted schema that map to a known setting.
 fn key_for_label(label: &str) -> Option<&'static str> {
     match label {
@@ -162,7 +169,7 @@ impl Settings {
 
     /// Writes the settings file off the UI thread. `LATEST` serves `load` until the write lands
     /// and the newest save always wins. Tests write synchronously.
-    fn save(&self) {
+    pub(crate) fn save(&self) {
         #[cfg(test)]
         {
             let _ = std::fs::create_dir_all(crate::config_dir());
@@ -170,6 +177,8 @@ impl Settings {
         }
         #[cfg(not(test))]
         {
+            // a change to a synced setting goes to the account (debounced)
+            crate::settings_sync::local_saved(&self.prefs);
             let seq = SAVE_SEQ.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
             if let Ok(mut l) = LATEST.lock() { *l = Some(self.prefs.clone()); }
             let prefs = self.prefs.clone();
@@ -311,7 +320,9 @@ impl Settings {
                     let invert = r["invert"].as_bool() == Some(true);
                     let dflt = r["default"].as_bool().unwrap_or(false);
                     let v = self.bool(key, dflt);
-                    out.push(toggle(key, label, desc, if invert { !v } else { v }));
+                    // Barbican keeps it in the account's metadata, not on Bulwark's web server
+                    let desc = if key == crate::settings_sync::DISABLED_KEY { crate::settings_sync::row_desc() } else { desc.to_string() };
+                    out.push(toggle(key, label, &desc, if invert { !v } else { v }));
                     // desktop: local spell checking (Windows spell checker) next to Bulwark's proofreading add-on toggle
                     if key == "proofreading" {
                         out.push(toggle("spellCheck", "Underline misspelled words",
@@ -683,6 +694,16 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn the_settings_sync_row_is_live() {
+        let s = Settings::with_prefs(Map::new());
+        let rows = s.schema_rows("about");
+        let r = rows.iter().find(|r| r.key == crate::settings_sync::DISABLED_KEY).expect("row");
+        assert!(r.on, "on by default (Bulwark settingsSyncDisabled: false)");
+        assert!(s.is_inverted(crate::settings_sync::DISABLED_KEY));
+        assert!(r.desc.contains("Plugins"), "{}", r.desc);
+    }
 
     // One test so the APPDATA override can't race other tests touching config_dir().
     #[test]
