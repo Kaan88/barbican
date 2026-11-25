@@ -1296,8 +1296,6 @@ pub struct V2Load<'a> {
     pub env: Arc<dyn crate::plugin_host::HostEnv>,
 }
 
-/// Load the plugins the user enabled and unload the ones switched off. Cheap when nothing changed.
-/// Returns load errors (each reported once). API 2 plugins are started with what `grants` accepted for them.
 /// The app quits: every API 2 plugin is switched off, and its `shutdown` gets until `wait` (in all) to return. API 1
 /// plugins have nothing to call.
 pub fn shut_down_v2(plugins: &mut [Plugin], wait: Duration) -> bool {
@@ -1306,6 +1304,8 @@ pub fn shut_down_v2(plugins: &mut [Plugin], wait: Duration) -> bool {
     crate::plugin_host::wait_all_idle(deadline)
 }
 
+/// Load the plugins the user enabled and unload the ones switched off. Cheap when nothing changed.
+/// Returns load errors (each reported once). API 2 plugins are started with what `grants` accepted for them.
 pub fn sync(plugins: &mut [Plugin], enabled: &[String], grants: &[Grant]) -> Vec<String> {
     let loader: Loader = Arc::new(|p: &std::path::Path| unsafe { load(p) });
     let v2 = V2Load { grants, loader: Arc::new(|p: &std::path::Path| unsafe { crate::plugin_host::load_library(p) }), env: crate::plugin_host::env() };
