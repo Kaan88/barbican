@@ -424,18 +424,24 @@ finish.
   plugin writes only to `plugin-data\<id>\`. The hash is read again without any cache before the consent dialog and
   before the library is loaded (a file swapped between that read and the load is not caught); a package folder that is
   a link or junction, or holds an entry that is neither a file nor a folder, is not listed.
-  Nothing of an old grant carries over to a package by another author, or when the grant does not record its author
-  (written by Barbican 0.2.0 or an API 1 binding): the dialog lists everything, as for a first install, and says that
-  what was accepted before does not count. For an update by the same author the dialog names the old and new version
-  and says "it asks for the same permissions as before" when it asks for exactly the accepted set; otherwise it lists
-  everything it asks for and marks what is new, never just the difference.
+  Nothing of an old grant carries over to a package by another author, when either names no author, or when the
+  grant does not record its author (written by Barbican 0.2.0 or an API 1 binding): the dialog lists everything, as
+  for a first install, and says that what was accepted before does not count. For an update by the same (named) author
+  the dialog names the old and new version and says "it asks for the same permissions as before" only when it asks for
+  exactly the accepted set; otherwise (more, fewer or other) it lists everything it asks for and marks what is new,
+  never just the difference.
   An install never replaces anything but a package with the same id, asks first when the new package's author differs
-  from the installed one (and then forgets the old grant), refuses an id that a library dropped into the plugins
-  folder already uses, and ids that end in `.dll`, `.so`, `.dylib` or `.json` are refused. Uninstalling forgets only
-  the grant that pins a file inside the package's own folder. Leftover staging folders are removed when the first
-  Barbican of the profile starts; a backup of an update that stopped between its two renames is put back then, never
-  deleted. Text from a manifest is shown only without control, direction and zero-width characters; error texts are
-  cut to 300 characters.
+  from the installed one or either names none (and then forgets the old grant), refuses an id that a library dropped
+  into the plugins folder already uses, and ids that end in `.dll`, `.so`, `.dylib` or `.json` are refused.
+  Uninstalling removes the package's folder, its data and its update backups, and forgets only the grant that pins a
+  file inside the package's own folder. Leftover staging folders are removed when the first Barbican of the profile
+  starts; when an update stopped between its two renames, the newest backup that holds a readable manifest of that id
+  is put back then and the other backups of it are removed.
+  Text in an API 2 manifest with control, direction or zero-width characters is refused (the zero-width non-joiner
+  and joiner, which Persian and Indic writing and joined emoji need, are allowed). An API 1 manifest (a sidecar or the
+  library's own) is read as Barbican 0.2.0 read it, so a plugin that loaded then keeps loading: its text is cleaned
+  and shortened for display instead, a number given as the version counts as text, and hooks that are not plain names
+  are left out. Error texts are cut to 300 characters.
   An API 1 grant pins the library file (path and SHA-256) but not its sidecar manifest: a sidecar that is edited later
   can change the name and the hooks shown, not the code that runs.
 - **Optional permissions** are asked for at run time with `permissions.request([...])` (a consent dialog; the answer

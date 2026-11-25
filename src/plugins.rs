@@ -279,20 +279,22 @@ fn parse_manifest(v: &Value) -> Result<Meta, String> {
             decl: Declared { api: 2, author: m.author, permissions: m.permissions, optional_permissions: m.optional_permissions,
                 http_origins: m.http_origins, slots: m.slots, package: None } });
     }
-    let id = v["id"].as_str().filter(|s| !s.is_empty() && s.len() <= 128 && !s.starts_with("file:") && is_plain(s))
-        .ok_or("manifest has no usable id (empty, too long, starts with file:, or has control, direction or zero-width characters)")?.to_string();
-    // the same plain-text rules as API 2: these are shown in Settings and in the consent dialog
-    let mut errors = vec![];
-    let name = plain_text(v, "name", 100, false, &mut errors);
-    let version = plain_text(v, "version", 64, false, &mut errors);
-    let description = plain_text(v, "description", 1000, false, &mut errors);
-    let hooks = string_list(v, "hooks", &mut errors);
-    for h in &hooks {
-        if h.is_empty() || h.chars().count() > 100 || !is_plain(h) { errors.push(format!("hook \"{}\" must be a plain name of at most 100 characters", quoted(h))); }
-    }
-    if !errors.is_empty() { return Err(errors.join("; ")); }
-    Ok(Meta { id, name: if name.trim().is_empty() { "Plugin".into() } else { name }, version, description, hooks,
-        decl: Declared { api: 1, ..Declared::default() } })
+    // API 1 manifests are read as Barbican 0.2.0 read them, so a plugin that loaded then keeps loading: text is
+    // cleaned for display (control, direction and zero-width characters, length) instead of refused, a number given
+    // as the version counts as text, and hooks that are not plain names (no hook has such a name) are left out
+    let id = v["id"].as_str().filter(|s| !s.is_empty() && !s.starts_with("file:") && !s.chars().any(char::is_control))
+        .ok_or("manifest has no usable id (empty, starts with file:, or has control characters)")?.to_string();
+    let text = |k: &str, max: usize| match &v[k] {
+        Value::String(s) => shown(s, max).trim().to_string(),
+        Value::Number(n) => n.to_string(),
+        _ => String::new(),
+    };
+    let name = text("name", 100);
+    let mut seen = std::collections::HashSet::new();
+    let hooks: Vec<String> = v["hooks"].as_array().map(|a| a.iter().take(MAX_LIST_ENTRIES).filter_map(|h| h.as_str())
+        .filter(|h| !h.is_empty() && h.chars().count() <= 100 && is_plain(h) && seen.insert(*h)).map(String::from).collect()).unwrap_or_default();
+    Ok(Meta { id, name: if name.is_empty() { "Plugin".into() } else { name }, version: text("version", 64),
+        description: text("description", 1000), hooks, decl: Declared { api: 1, ..Declared::default() } })
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -631,10 +633,11 @@ fn string_list(v: &Value, key: &str, errors: &mut Vec<String>) -> Vec<String> {
 }
 
 /// Direction marks and overrides, zero-width and other invisible format characters: they make text read differently
-/// from what it is (a name that looks reversed, two names that look the same).
+/// from what it is (a name that looks reversed, two names that look the same). The zero-width non-joiner and joiner
+/// (U+200C, U+200D) are allowed: Persian and Indic writing and joined emoji need them.
 pub fn is_invisible(c: char) -> bool {
-    matches!(c, '\u{00AD}' | '\u{061C}' | '\u{180E}' | '\u{200B}'..='\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2060}'..='\u{2064}'
-        | '\u{2066}'..='\u{206F}' | '\u{FEFF}' | '\u{FFF9}'..='\u{FFFB}')
+    matches!(c, '\u{00AD}' | '\u{061C}' | '\u{180E}' | '\u{200B}' | '\u{200E}' | '\u{200F}' | '\u{202A}'..='\u{202E}'
+        | '\u{2060}'..='\u{2064}' | '\u{2066}'..='\u{206F}' | '\u{FEFF}' | '\u{FFF9}'..='\u{FFFB}')
 }
 
 /// Text that is safe to show as one line: no control characters and no [`is_invisible`] ones.
@@ -870,10 +873,13 @@ pub fn grants_from_prefs(prefs: &serde_json::Map<String, Value>) -> Vec<Grant> {
 pub enum Consent {
     /// The grant still covers this file and what it asks for: no dialog.
     Granted,
-    /// Ask, listing `permissions` and `origins`. `update` is true only for an update by the same author that a grant
-    /// exists for; then both lists are empty when it asks for exactly what was accepted ("the same permissions as
-    /// before") and hold everything it asks for otherwise. `update` is false for a first switch-on and for a
-    /// package whose author differs from (or is not known for) the accepted one: everything is listed, as new.
+    /// An update by the same author that asks for exactly what was accepted (new files, the same permissions and
+    /// sites): the dialog says so and lists only private hosts that were not accepted as such.
+    SamePermissions,
+    /// Ask, listing `permissions` and `origins` (everything it asks for). `update` is true for an update by the same
+    /// author that asks for anything else than was accepted (more, fewer or other): what is new is marked. `update` is
+    /// false for a first switch-on and for a package whose author differs from the accepted one or is not known
+    /// (empty, or not recorded in the grant).
     Ask { update: bool, permissions: Vec<String>, origins: Vec<String> },
 }
 
@@ -887,11 +893,10 @@ pub fn decide(path: &str, sha256: &str, author: &str, permissions: &[String], or
     let added_p = permissions.iter().any(|p| !g.granted.contains(p));
     let added_o = origins.iter().any(|o| !g.origins.contains(o));
     if g.path == path && g.sha256 == sha256 && !added_p && !added_o { return Consent::Granted; }
-    if g.author.as_deref() != Some(author) { return all(false); }
+    // an empty author names nobody: two packages without one are not known to be by the same author
+    if author.is_empty() || g.author.as_deref() != Some(author) { return all(false); }
     let same = |a: &[String], b: &[String]| a.iter().all(|x| b.contains(x)) && b.iter().all(|x| a.contains(x));
-    if same(permissions, &g.granted) && same(origins, &g.origins) {
-        return Consent::Ask { update: true, permissions: vec![], origins: vec![] };
-    }
+    if same(permissions, &g.granted) && same(origins, &g.origins) { return Consent::SamePermissions; }
     all(true)
 }
 
@@ -923,92 +928,65 @@ impl Plugin {
         let (_, all_origins) = self.requested();
         let private: Vec<String> = all_origins.iter().filter(|o| !origin_host(o).starts_with("*.") && is_private(origin_host(o))).cloned().collect();
         let old = grants.iter().find(|g| g.id == self.key);
-        let (update, perms, origins) = match consent {
-            Consent::Granted => (true, vec![], vec![]),
-            Consent::Ask { update, permissions, origins } => (*update, permissions.clone(), origins.clone()),
-        };
         // an update by the same author asking for exactly what was accepted: only private hosts not accepted then
         // are listed. Otherwise everything is listed (what an update adds is marked).
-        let same_set = update && perms.is_empty() && origins.is_empty();
+        let same_set = matches!(consent, Consent::SamePermissions);
+        let (update, perms, origins) = match consent {
+            Consent::Granted | Consent::SamePermissions => (true, vec![], vec![]),
+            Consent::Ask { update, permissions, origins } => (*update, permissions.clone(), origins.clone()),
+        };
         let new_private: Vec<String> = private.iter().filter(|o| !same_set || !old.is_some_and(|g| g.private_hosts.contains(o))).cloned().collect();
         let public: Vec<String> = origins.iter().filter(|o| !private.contains(o)).cloned().collect();
         let is_new = |granted: &[String], x: &String| update && !granted.contains(x);
-        let mut t = format!("{NATIVE_CODE_LINE}
-
-{}", self.name);
+        let mut t = format!("{NATIVE_CODE_LINE}\n\n{}", self.name);
         if !self.version.is_empty() { t += &format!(" {}", self.version); }
         if !self.decl.author.is_empty() { t += &format!(" by {}", self.decl.author); }
-        t += "
-";
+        t += "\n";
+        // only reached for an update (same, named author)
         let changed = match old.and_then(|g| g.version.as_deref()) {
             Some(v) if v != self.version => format!("Updated from version {v} to {} by the same author", self.version),
             Some(_) => format!("Its files changed since you switched it on (still version {})", self.version),
             None => format!("Updated to version {}", self.version),
         };
         if self.decl.api < 2 {
-            t += "
-It uses plugin API 1, which has no permissions: Barbican lets it see what these hooks hand it.
-";
+            t += "\nIt uses plugin API 1, which has no permissions: Barbican lets it see what these hooks hand it.\n";
             let hooks = if self.hooks.is_empty() { "none declared (it is asked once it is loaded)".to_string() } else { self.hooks.join(", ") };
-            t += &format!("Hooks: {hooks}
-");
-            if old.is_some() { t += "
-The file changed since you switched it on.
-"; }
+            t += &format!("Hooks: {hooks}\n");
+            if old.is_some() { t += "\nThe file changed since you switched it on.\n"; }
         } else if same_set && new_private.is_empty() {
-            t += &format!("
-{changed}. It asks for the same permissions as before.
-");
+            t += &format!("\n{changed}. It asks for the same permissions as before.\n");
         } else {
             if let (Some(g), false) = (old, update) {
                 t += &match g.author.as_deref() {
-                    Some(a) => format!("
-You had switched on a plugin with this id by {}. This one is by {}, so nothing you accepted then carries over.
-",
-                        if a.is_empty() { "an unknown author" } else { a },
-                        if self.decl.author.is_empty() { "an unknown author" } else { &self.decl.author }),
-                    None => "
-You had switched on an earlier plugin with this id. Barbican cannot tell whether this one has the same author, so nothing you accepted then carries over.
-".to_string(),
+                    Some(a) if !a.is_empty() && !self.decl.author.is_empty() => format!(
+                        "\nYou had switched on a plugin with this id by {a}. This one is by {}, so nothing you accepted then carries over.\n",
+                        self.decl.author),
+                    _ => "\nYou had switched on an earlier plugin with this id. Barbican cannot tell whether this one has the same author, \
+                        so nothing you accepted then carries over.\n".to_string(),
                 };
             }
-            t += &(if same_set { format!("
-{changed}. It asks for the same permissions as before, and:
-") }
-                else if update { format!("
-{changed}. What it asks for changed; all of it is listed, [New] marks what was not accepted before. It asks to:
-") }
-                else { "
-It asks to:
-".to_string() });
+            t += &(if same_set { format!("\n{changed}. It asks for the same permissions as before, and:\n") }
+                else if update { format!("\n{changed}. What it asks for changed; all of it is listed, [New] marks what was not accepted before. It asks to:\n") }
+                else { "\nIt asks to:\n".to_string() });
             let mut sorted: Vec<&String> = perms.iter().collect();
             sorted.sort_by_key(|p| !permission_text(p).is_some_and(|x| x.high_risk));
             let granted = old.map_or(&[][..], |g| &g.granted[..]);
             for p in sorted {
                 let new = if is_new(granted, p) { "[New] " } else { "" };
                 match permission_text(p) {
-                    Some(x) => t += &format!("- {new}{}{}: {}
-", if x.high_risk { "[Needs care] " } else { "" }, x.title, x.body),
-                    None => t += &format!("- {new}{p}
-"),
+                    Some(x) => t += &format!("- {new}{}{}: {}\n", if x.high_risk { "[Needs care] " } else { "" }, x.title, x.body),
+                    None => t += &format!("- {new}{p}\n"),
                 }
             }
-            if perms.is_empty() && !same_set { t += "- (no permissions)
-"; }
+            if perms.is_empty() && !same_set { t += "- (no permissions)\n"; }
             let accepted = old.map_or(&[][..], |g| &g.origins[..]);
             if !public.is_empty() {
-                t += "
-Sites it may connect to (http:fetch):
-";
-                for o in &public { t += &format!("  {}{o}
-", if is_new(accepted, o) { "[New] " } else { "" }); }
+                t += "\nSites it may connect to (http:fetch):\n";
+                for o in &public { t += &format!("  {}{o}\n", if is_new(accepted, o) { "[New] " } else { "" }); }
             }
             if !new_private.is_empty() {
-                t += "
-Hosts inside your network (private, loopback or LAN). These let it reach machines on your own network:
-";
-                for o in &new_private { t += &format!("  {}{o}
-", if is_new(accepted, o) { "[New] " } else { "" }); }
+                t += "\nHosts inside your network (private, loopback or LAN). These let it reach machines on your own network:\n";
+                for o in &new_private { t += &format!("  {}{o}\n", if is_new(accepted, o) { "[New] " } else { "" }); }
             }
         }
         if !self.decl.optional_permissions.is_empty() {
@@ -1208,6 +1186,7 @@ pub fn package_fingerprint(dir: &std::path::Path, use_cache: bool) -> Result<Str
             if md.is_dir() { walk(&e.path(), &r, depth + 1, out)?; }
             else if md.is_file() { out.push((r, e.path(), md.len(), md.modified().ok())); }
             else { return Err(format!("{r}: neither a file nor a folder")); }
+            if out.len() > 1000 { return Err("the package folder is too large or too deep".into()); }
         }
         Ok(())
     }
@@ -1241,7 +1220,6 @@ pub fn package_fingerprint(dir: &std::path::Path, use_cache: bool) -> Result<Str
 /// Keep the state (loaded library, failure count) of entries that are unchanged; take new or replaced files as found.
 fn merge_discovered(mut old: Vec<Plugin>, new: Vec<Plugin>) -> Vec<Plugin> {
     // the manifest counts too: a package whose manifest changed (new permissions) is a new entry even when its
-    // library is the same file
     // library is the same file. A plugin listed without a manifest (unverified) takes its name, version, hooks and
     // description from the library once it is loaded, while discovery lists it by file name again: for it only the
     // file counts, or every refresh would replace a loaded entry and lose its state (switched off for the session, a
@@ -1944,7 +1922,7 @@ mod tests {
         // another path is another file
         let mut moved = v2_plugin(&["email:read"], &[], "h1");
         moved.path = "C:/elsewhere/demo.dll".into();
-        assert_eq!(moved.consent(std::slice::from_ref(&g)), Consent::Ask { update: true, permissions: vec![], origins: vec![] });
+        assert_eq!(moved.consent(std::slice::from_ref(&g)), Consent::SamePermissions);
     }
 
     #[test]
@@ -1953,7 +1931,7 @@ mod tests {
         let g = old.grant(vec![], "t");
         let new = v2_plugin(&["email:read", "http:fetch"], &["https://api.example.com"], "h2");
         let c = new.consent(std::slice::from_ref(&g));
-        assert_eq!(c, Consent::Ask { update: true, permissions: vec![], origins: vec![] }, "off until the user says yes again");
+        assert_eq!(c, Consent::SamePermissions, "off until the user says yes again");
         assert!(granted_enabled(std::slice::from_ref(&new), &strings(&["dev.example.demo"]), std::slice::from_ref(&g)).is_empty());
         let (title, body, _) = new.consent_dialog(&c, std::slice::from_ref(&g), &|_| false);
         assert_eq!(title, "Switch on Demo again?");
@@ -2035,6 +2013,42 @@ mod tests {
     }
 
     #[test]
+    fn an_empty_author_is_never_the_same_author() {
+        let mut old = v2_plugin(&["email:read"], &[], "h1");
+        old.decl.author = String::new();
+        let g = old.grant(vec![], "t");
+        let mut new = v2_plugin(&["email:read"], &[], "h2");
+        new.decl.author = String::new();
+        let c = new.consent(std::slice::from_ref(&g));
+        assert_eq!(c, Consent::Ask { update: false, permissions: strings(&["email:read"]), origins: vec![] });
+        let (_, body, _) = new.consent_dialog(&c, std::slice::from_ref(&g), &|_| false);
+        assert!(body.contains("cannot tell whether this one has the same author") && !body.contains("by the same author"), "{body}");
+        // the very same files still count
+        assert_eq!(old.consent(std::slice::from_ref(&g)), Consent::Granted);
+    }
+
+    #[test]
+    fn an_update_asking_for_fewer_permissions_is_not_the_same_set() {
+        let old = v2_plugin(&["email:read", "http:fetch"], &["https://api.example.com"], "h1");
+        let g = old.grant(vec![], "t");
+        let none = v2_plugin(&[], &[], "h2");
+        let c = none.consent(std::slice::from_ref(&g));
+        assert_eq!(c, Consent::Ask { update: true, permissions: vec![], origins: vec![] });
+        let (_, body, _) = none.consent_dialog(&c, std::slice::from_ref(&g), &|_| false);
+        assert!(!body.contains("the same permissions as before") && body.contains("What it asks for changed") && body.contains("- (no permissions)"), "{body}");
+    }
+
+    #[test]
+    fn a_flat_package_folder_with_too_many_files_is_refused() {
+        let d = temp_folder("flat-many");
+        let pkg = d.join("dev.example.flat");
+        std::fs::create_dir_all(&pkg).unwrap();
+        for i in 0..1002 { std::fs::write(pkg.join(format!("f{i}")), b"").unwrap(); }
+        assert!(package_fingerprint(&pkg, false).unwrap_err().contains("too large"));
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
     fn a_loaded_unverified_plugin_keeps_its_state_across_rediscovery() {
         let mut old = bare("file:x.dll", "C:/p/x.dll", "h1");
         old.verified = false;
@@ -2081,13 +2095,28 @@ mod tests {
             assert!(validate_manifest(&with(base.clone(), "name", json!(bad))).is_err(), "{bad:?}");
             assert!(validate_manifest(&with(base.clone(), "author", json!(bad))).is_err(), "{bad:?}");
         }
-        // an API 1 sidecar goes through the same check
-        assert!(parse_manifest(&json!({"id": "x", "name": "Spam\u{202E}Score"})).is_err());
-        assert!(parse_manifest(&json!({"id": "x", "version": "1\n2"})).is_err());
-        assert!(parse_manifest(&json!({"id": "x", "hooks": ["email.details", "a\u{200B}b"]})).is_err());
-        assert!(parse_manifest(&json!({"id": "x\u{202E}"})).is_err());
-        let m = parse_manifest(&json!({"id": "x", "name": "Spam Score", "hooks": ["email.details", "email.details"]})).unwrap();
-        assert_eq!((m.name.as_str(), m.hooks.len()), ("Spam Score", 1));
+        // the joiners Persian, Indic and emoji text needs are allowed
+        assert!(validate_manifest(&with(base.clone(), "name", json!("\u{0645}\u{06cc}\u{200c}\u{062e}\u{0648}\u{0627}\u{0647}\u{0645}"))).is_ok());
+        assert!(validate_manifest(&with(base.clone(), "description", json!("A \u{1F469}\u{200D}\u{1F4BB} plugin"))).is_ok());
+    }
+
+    #[test]
+    fn api1_manifests_that_loaded_before_are_cleaned_not_refused() {
+        // what Barbican 0.2.0 accepted keeps loading: a line break in the description, a number as version, a hook that
+        // is not text, direction characters in the name
+        let m = parse_manifest(&json!({"id": "spam-score", "name": "Spam\u{202E}Score", "version": 2,
+            "description": "Scores spam.\nSecond line.", "hooks": ["email.details", 5, "a\u{200B}b", "email.details"]})).unwrap();
+        assert_eq!(m.name, "SpamScore");
+        assert_eq!(m.version, "2");
+        assert_eq!(m.description, "Scores spam. Second line.");
+        assert_eq!(m.hooks, ["email.details"], "plain hook names only, once each");
+        let long = parse_manifest(&json!({"id": "x", "name": "n".repeat(500)})).unwrap();
+        assert!(long.name.chars().count() <= 101);
+        assert_eq!(parse_manifest(&json!({"id": "x", "name": 7})).unwrap().name, "7");
+        assert_eq!(parse_manifest(&json!({"id": "x"})).unwrap().name, "Plugin");
+        // the id rules are those of 0.2.0
+        assert!(parse_manifest(&json!({"id": "x\ny"})).is_err());
+        assert!(parse_manifest(&json!({"id": "file:x"})).is_err());
     }
 
     #[test]

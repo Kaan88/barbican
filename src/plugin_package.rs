@@ -312,25 +312,41 @@ pub fn sweep_leftovers(plugins_dir: &Path) {
     sweep_locked(plugins_dir);
 }
 
-/// A staging folder is always removed. A backup (`.old-<id>-<tag>`) is removed only while `<id>` exists: when it does
-/// not, an update stopped between its two renames and the backup is the installed version, so it is put back (and
-/// kept for the next start if that fails).
+/// The id of a backup folder name, `.old-<id>-<tag>`.
+fn backup_id(name: &str) -> Option<&str> {
+    name.strip_prefix(".old-")?.rsplit_once('-').map(|(id, _)| id)
+}
+
+/// A staging folder is always removed, and so is a backup (`.old-<id>-<tag>`) while `<id>` exists. When `<id>` is
+/// missing, an update stopped between its two renames: the newest backup that holds a readable manifest of that id is
+/// the installed version and is put back, and the other backups of that id are removed (all of them are kept for the
+/// next start if putting it back fails).
 fn sweep_locked(plugins_dir: &Path) {
     let Ok(rd) = std::fs::read_dir(plugins_dir) else { return };
     let entries: Vec<(String, PathBuf)> = rd.flatten().map(|e| (e.file_name().to_string_lossy().to_string(), e.path())).collect();
+    let mut orphans: std::collections::BTreeMap<String, Vec<(std::time::SystemTime, PathBuf)>> = Default::default();
     for (name, path) in entries {
         if !(name.starts_with(".install-") || name.starts_with(".old-")) { continue; }
         let Ok(md) = std::fs::symlink_metadata(&path) else { continue };
         if is_link(&md) { let _ = std::fs::remove_dir(&path).or_else(|_| std::fs::remove_file(&path)); continue; }
         if !md.is_dir() { continue; }
-        if let Some(id) = name.strip_prefix(".old-").and_then(|r| r.rsplit_once('-')).map(|(id, _)| id) {
-            let target = plugins_dir.join(id);
-            if plugins::valid_id(id) && std::fs::symlink_metadata(&target).is_err() {
-                let _ = std::fs::rename(&path, &target);
+        if let Some(id) = backup_id(&name).filter(|id| plugins::valid_id(id)) {
+            if std::fs::symlink_metadata(plugins_dir.join(id)).is_err() {
+                orphans.entry(id.to_string()).or_default().push((md.modified().unwrap_or(std::time::UNIX_EPOCH), path));
                 continue;
             }
         }
         let _ = std::fs::remove_dir_all(&path);
+    }
+    for (id, mut backups) in orphans {
+        backups.sort_by(|a, b| b.0.cmp(&a.0));
+        let keep = backups.iter().position(|(_, p)| plugins::installed_identity(p).is_some_and(|(i, _, _)| i == id));
+        if let Some(i) = keep {
+            if std::fs::rename(&backups[i].1, plugins_dir.join(&id)).is_err() { continue; }
+        }
+        for (k, (_, p)) in backups.iter().enumerate() {
+            if Some(k) != keep { let _ = std::fs::remove_dir_all(p); }
+        }
     }
 }
 
@@ -394,8 +410,9 @@ pub fn commit(pkg: Prepared, plugins_dir: &Path) -> Result<Installed, String> {
             let _ = std::fs::remove_dir_all(&staging);
             if let Err(back) = rename_retry(&old, &target) {
                 // the backup is the installed version now: the sweep at the next start puts it back, never deletes it
-                return Err(format!("could not install the plugin ({e}), and the installed version could not be put back ({back}). \
-                    It is kept in {} and is put back when Barbican starts again.", old.display()));
+                // that sentence first: the toast is cut to 300 characters
+                return Err(format!("the installed version is kept in {} and is put back when Barbican starts again. \
+                    Installing failed ({e}) and putting it back failed too ({back}).", old.display()));
             }
             return Err(format!("could not install the plugin ({e}); the installed version was kept"));
         }
@@ -413,7 +430,11 @@ pub fn uninstall(id: &str, plugins_dir: &Path, data_dir: &Path) -> Result<(), St
     let _held = folder_lock();
     let target = plugins_dir.join(id);
     if plugins::loaded_under(&target) { return Err("this plugin is loaded: switch it off, restart Barbican, then uninstall it".into()); }
-    for dir in [target, data_dir.join(id)] {
+    // backups of this package go too: one left over from an update (removing it failed then) would otherwise be put
+    // back by the sweep at the next start, bringing the uninstalled plugin back
+    let backups: Vec<PathBuf> = std::fs::read_dir(plugins_dir).map(|rd| rd.flatten()
+        .filter(|e| backup_id(&e.file_name().to_string_lossy()) == Some(id)).map(|e| e.path()).collect()).unwrap_or_default();
+    for dir in [target, data_dir.join(id)].into_iter().chain(backups) {
         match std::fs::symlink_metadata(&dir) {
             Err(_) => {}
             // a link is removed itself; what it points to is not touched
@@ -833,6 +854,56 @@ mod tests {
         sweep_leftovers(&plugins_dir);
         assert!(!plugins_dir.join(".old-dev.example.demo-ffff").exists());
         assert!(plugins_dir.join("dev.example.demo").is_dir());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn only_the_newest_readable_backup_is_put_back() {
+        let root = temp("sweep-newest");
+        let plugins_dir = root.join("plugins");
+        let mk = |tag: &str, version: Option<&str>| {
+            let p = plugins_dir.join(format!(".old-dev.example.demo-{tag}"));
+            std::fs::create_dir_all(&p).unwrap();
+            match version {
+                Some(v) => std::fs::write(p.join("manifest.json"), manifest("dev.example.demo", v)).unwrap(),
+                None => std::fs::write(p.join("half-deleted.bin"), b"x").unwrap(),
+            }
+            // folder times must differ
+            std::thread::sleep(std::time::Duration::from_millis(30));
+        };
+        mk("aa", Some("1.0.0"));
+        mk("bb", Some("2.0.0"));
+        mk("cc", None); // the newest, but without a manifest: not a package
+        sweep_leftovers(&plugins_dir);
+        let names: Vec<String> = std::fs::read_dir(&plugins_dir).unwrap().flatten().map(|e| e.file_name().to_string_lossy().to_string()).collect();
+        assert_eq!(names, ["dev.example.demo"], "the others are removed");
+        let v: serde_json::Value = serde_json::from_slice(&std::fs::read(plugins_dir.join("dev.example.demo").join("manifest.json")).unwrap()).unwrap();
+        assert_eq!(v["version"], "2.0.0");
+        // a backup holding another id's manifest is not put back
+        let p = plugins_dir.join(".old-dev.example.other-dd");
+        std::fs::create_dir_all(&p).unwrap();
+        std::fs::write(p.join("manifest.json"), manifest("dev.example.demo", "3.0.0")).unwrap();
+        sweep_leftovers(&plugins_dir);
+        assert!(!p.exists() && !plugins_dir.join("dev.example.other").exists());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn uninstall_removes_the_packages_backups() {
+        let root = temp("uninstall-backups");
+        let plugins_dir = root.join("plugins");
+        let data_dir = root.join("plugin-data");
+        std::fs::create_dir_all(plugins_dir.join("dev.example.demo")).unwrap();
+        let stale = plugins_dir.join(".old-dev.example.demo-0123");
+        std::fs::create_dir_all(&stale).unwrap();
+        std::fs::write(stale.join("manifest.json"), manifest("dev.example.demo", "1.0.0")).unwrap();
+        let other = plugins_dir.join(".old-dev.example.demo2-0123");
+        std::fs::create_dir_all(&other).unwrap();
+        uninstall("dev.example.demo", &plugins_dir, &data_dir).unwrap();
+        assert!(!stale.exists(), "it would come back at the next start");
+        assert!(other.exists(), "another id's backup is left alone");
+        sweep_leftovers(&plugins_dir);
+        assert!(!plugins_dir.join("dev.example.demo").exists(), "the uninstalled plugin does not come back");
         let _ = std::fs::remove_dir_all(&root);
     }
 

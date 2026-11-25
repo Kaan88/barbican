@@ -654,11 +654,11 @@ fn plugin_install(u: &AppWindow, folder: bool, prefs: SharedPrefs) {
     if let Err(e) = spawned { mail::show_toast(u, &format!("Could not start the install: {e}"), false); }
 }
 
-/// Install and uninstall are refused while one of them runs (the worker thread, the replace question): a second
-/// one would race the first one's staging and backup folders. Cleared when the guard is dropped, on every path.
 /// The app's settings and AI config, as the settings callbacks hold them.
 type SharedPrefs = (Arc<Mutex<settings::Settings>>, Arc<Mutex<ai::Config>>);
 
+/// Install and uninstall are refused while one of them runs (the worker thread, the replace question): a second
+/// one would race the first one's staging and backup folders. Cleared when the guard is dropped, on every path.
 static PLUGIN_FOLDER_BUSY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 struct PluginFolderBusy;
@@ -693,13 +693,20 @@ fn plugin_install_confirm(u: &AppWindow, pkg: plugin_package::Prepared, replaces
         mail::show_toast(u, &format!("Could not install the plugin: a plugin dropped into the plugins folder already uses the id \"{}\". Remove that plugin first.", pkg.id), false);
         return;
     }
-    let author_changed = replaces.as_ref().is_some_and(|(_, a)| *a != pkg.author);
-    if let Some((old_name, old_author)) = replaces.filter(|(_, a)| *a != pkg.author) {
-        let who = |a: &str| if a.is_empty() { "an unknown author".to_string() } else { a.to_string() };
+    // another author, or one of them names none (then nobody can tell): ask, and forget the old grant afterwards
+    let other_author = |a: &str| a != pkg.author || a.is_empty() || pkg.author.is_empty();
+    let author_changed = replaces.as_ref().is_some_and(|(_, a)| other_author(a));
+    if let Some((old_name, old_author)) = replaces.filter(|(_, a)| other_author(a)) {
+        let text = if old_author.is_empty() || pkg.author.is_empty() {
+            format!("This replaces {old_name} with {} {}. Barbican cannot tell whether both are by the same author, so what you accepted \
+                for the old one does not carry over. The new plugin is switched off until you accept what it asks for.", pkg.name, pkg.version)
+        } else {
+            format!("This replaces {old_name} by {old_author} with {} {} by {}. What you accepted for the old one does not carry over. \
+                The new plugin is switched off until you accept what it asks for.", pkg.name, pkg.version, pkg.author)
+        };
         let yes = rfd::MessageDialog::new().set_parent(&u.window().window_handle()).set_level(rfd::MessageLevel::Warning)
             .set_title("Replace an installed plugin?")
-            .set_description(format!("This replaces {old_name} by {} with {} {} by {}. The new plugin is switched off until you accept what it asks for.",
-                who(&old_author), pkg.name, pkg.version, who(&pkg.author)).as_str())
+            .set_description(text.as_str())
             .set_buttons(rfd::MessageButtons::YesNo).show();
         if yes != rfd::MessageDialogResult::Yes {
             mail::show_toast(u, "Nothing was installed.", false);
@@ -731,7 +738,7 @@ fn plugin_install_done(weak: slint::Weak<AppWindow>, outcome: Result<plugin_pack
                 let c = PLUGINS.with(|p| p.borrow().iter().find(|x| x.key == r.id).map(|x| x.consent(&grants)));
                 match c {
                     Some(plugins::Consent::Granted) => format!("Updated {} to {}. It is the package you already accepted.", r.name, r.version),
-                    Some(plugins::Consent::Ask { update: true, permissions, origins }) if permissions.is_empty() && origins.is_empty() =>
+                    Some(plugins::Consent::SamePermissions) =>
                         format!("Updated {} to {}. It asks for the same permissions as before, but its files changed: switch it on again to accept the update.", r.name, r.version),
                     Some(plugins::Consent::Ask { update: true, .. }) =>
                         format!("Updated {} to {}. What it asks for changed: switch it on again to review it.", r.name, r.version),
