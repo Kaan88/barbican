@@ -2307,6 +2307,8 @@ export component AppWindow inherits Window {
     init => { self.focus(); }
     // the mail search box keeps its arrows for the suggestions under it (src/shortcuts.rs)
     capture-key-pressed(e) => {
+        // the share dialog holds the keyboard (ui/share.slint); a key that still lands here does nothing
+        if ShareX.open { if e.text == Key.Escape { ShareX.close(); } return accept; }
         // Ctrl+K opens the command palette whichever field or menu has the focus (not in the composer: link)
         if e.modifiers.control && !e.modifiers.shift && !e.modifiers.alt && e.text == "k" && !root.composing && !Pd.palette-open {
             if Pd.key-hook(e.text, false, true, false) { return accept; }

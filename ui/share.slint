@@ -1,7 +1,7 @@
 // Share a mail folder, calendar or address book with other users (Bulwark
 // share-collection-dialog.tsx): who has access and how much, add a person or group from the
 // server's directory, remove access. Logic: src/share.rs.
-import { ComboBox, ScrollView } from "std-widgets.slint";
+import { ComboBox, ListView, ScrollView } from "std-widgets.slint";
 import { CTheme } from "ctheme.slint";
 
 // One current share: the dropdown lists the presets, plus the stored grant when it is none of them.
@@ -37,6 +37,10 @@ export global ShareX {
     in-out property <bool> people-loading;
     in-out property <string> dir-note;
     in-out property <string> empty-note;
+    // more people match than are listed
+    in-out property <string> more-note;
+    // a change is being saved: every row waits for it
+    in-out property <bool> busy;
     callback close();
     callback set-preset(string, int);
     callback remove(string);
@@ -75,12 +79,18 @@ component Initial inherits Rectangle {
 
 export component ShareDialog inherits Rectangle {
     background: CTheme.scrim;
+    // the keyboard stays in the dialog: nothing behind it acts on a key while it is open
+    property <bool> adding: ShareX.adding;
+    changed adding => { if !self.adding { fs.focus(); } }
+    init => { fs.focus(); }
     TouchArea { clicked => { ShareX.close(); } }
-    FocusScope {
+    fs := FocusScope {
         capture-key-pressed(e) => {
             if e.text == Key.Escape { ShareX.close(); return accept; }
             reject
         }
+        // keys the search field does not take stop here
+        key-pressed(e) => { accept }
         if ShareX.loading: Rectangle {
             width: 160px;
             height: 56px;
@@ -149,7 +159,7 @@ export component ShareDialog inherits Rectangle {
                                         alignment: center;
                                         ComboBox {
                                             width: 150px;
-                                            enabled: !r.saving;
+                                            enabled: !ShareX.busy;
                                             model: r.options;
                                             current-index: r.index;
                                             selected => { ShareX.set-preset(r.id, self.current-index); }
@@ -161,8 +171,8 @@ export component ShareDialog inherits Rectangle {
                                             width: 32px;
                                             height: 32px;
                                             border-radius: 8px;
-                                            background: dt.has-hover && !r.saving ? CTheme.rose-bg : transparent;
-                                            dt := TouchArea { enabled: !r.saving; clicked => { ShareX.remove(r.id); } }
+                                            background: dt.has-hover && !ShareX.busy ? CTheme.rose-bg : transparent;
+                                            dt := TouchArea { enabled: !ShareX.busy; clicked => { ShareX.remove(r.id); } }
                                             Text {
                                                 text: r.saving ? "\u{E895}" : "\u{E74D}";
                                                 font-family: CTheme.icons;
@@ -208,42 +218,39 @@ export component ShareDialog inherits Rectangle {
                         if !ShareX.people-loading && ShareX.dir-note != "": Text { text: ShareX.dir-note; color: CTheme.dim; font-size: 12px; wrap: word-wrap; }
                         if ShareX.people-loading: Text { text: "Loading users…"; color: CTheme.dim; font-size: 12.5px; horizontal-alignment: center; height: 36px; vertical-alignment: center; }
                         if ShareX.empty-note != "": Text { text: ShareX.empty-note; color: CTheme.dim; font-size: 12px; horizontal-alignment: center; height: 32px; vertical-alignment: center; }
-                        if ShareX.people.length > 0: Rectangle {
-                            height: min(pl.preferred-height, 192px);
-                            ScrollView {
-                                pl := VerticalLayout {
-                                    for p in ShareX.people: Rectangle {
-                                        height: 46px;
-                                        border-radius: 8px;
-                                        background: pt.has-hover ? CTheme.hover : transparent;
-                                        opacity: p.saving ? 0.5 : 1;
-                                        pt := TouchArea { enabled: !p.saving; clicked => { ShareX.add(p.id); } }
+                        if ShareX.people.length > 0: ListView {
+                            height: min(ShareX.people.length * 46px, 192px);
+                            for p in ShareX.people: Rectangle {
+                                height: 46px;
+                                border-radius: 8px;
+                                background: pt.has-hover && !ShareX.busy ? CTheme.hover : transparent;
+                                opacity: p.saving ? 0.5 : 1;
+                                pt := TouchArea { enabled: !ShareX.busy; clicked => { ShareX.add(p.id); } }
+                                HorizontalLayout {
+                                    padding-left: 8px;
+                                    padding-right: 8px;
+                                    spacing: 8px;
+                                    VerticalLayout { alignment: center; Initial { text: p.initial; } }
+                                    VerticalLayout {
+                                        alignment: center;
+                                        horizontal-stretch: 1;
                                         HorizontalLayout {
-                                            padding-left: 8px;
-                                            padding-right: 8px;
-                                            spacing: 8px;
-                                            VerticalLayout { alignment: center; Initial { text: p.initial; } }
-                                            VerticalLayout {
-                                                alignment: center;
-                                                horizontal-stretch: 1;
-                                                HorizontalLayout {
-                                                    spacing: 6px;
-                                                    Text { text: p.name; color: CTheme.text; font-size: 13px; font-weight: 600; overflow: elide; }
-                                                    if p.group: Rectangle {
-                                                        width: gl.preferred-width + 8px;
-                                                        border-radius: 4px;
-                                                        background: CTheme.chip;
-                                                        gl := Text { text: "Group"; color: CTheme.dim; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; }
-                                                    }
-                                                    Rectangle { horizontal-stretch: 1; }
-                                                }
-                                                if p.email != "": Text { text: p.email; color: CTheme.dim; font-size: 11.5px; overflow: elide; }
+                                            spacing: 6px;
+                                            Text { text: p.name; color: CTheme.text; font-size: 13px; font-weight: 600; overflow: elide; }
+                                            if p.group: Rectangle {
+                                                width: gl.preferred-width + 8px;
+                                                border-radius: 4px;
+                                                background: CTheme.chip;
+                                                gl := Text { text: "Group"; color: CTheme.dim; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; }
                                             }
+                                            Rectangle { horizontal-stretch: 1; }
                                         }
+                                        if p.email != "": Text { text: p.email; color: CTheme.dim; font-size: 11.5px; overflow: elide; }
                                     }
                                 }
                             }
                         }
+                        if ShareX.more-note != "": Text { text: ShareX.more-note; color: CTheme.dim; font-size: 12px; wrap: word-wrap; }
                         HorizontalLayout {
                             alignment: end;
                             ShBtn { text: "Cancel"; clicked => { ShareX.adding = false; ShareX.search-edited(""); } }

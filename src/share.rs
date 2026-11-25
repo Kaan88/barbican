@@ -8,10 +8,12 @@ use crate::{AppWindow, ShareX};
 use serde_json::{json, Map, Value};
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 use std::cell::RefCell;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 pub const MAIL_SHARE: &str = "urn:ietf:params:jmap:mail:share";
+const PRINCIPALS_OWNER: &str = "urn:ietf:params:jmap:principals:owner";
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Kind { Mailbox, Calendar, AddressBook }
@@ -20,13 +22,16 @@ impl Kind {
     fn object(self) -> &'static str {
         match self { Kind::Mailbox => "Mailbox", Kind::Calendar => "Calendar", Kind::AddressBook => "AddressBook" }
     }
-    /// What Bulwark sends as `using` for the type (client.ts getMailboxShareWith, calendarUsing, contactUsing).
-    fn using(self) -> Vec<&'static str> {
-        match self {
-            Kind::Mailbox => vec!["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail", MAIL_SHARE],
+    /// What Bulwark sends as `using` for the type (client.ts getMailboxShareWith, and calendarUsing /
+    /// contactUsing at 7749-7763, which add principals:owner when the session has it).
+    fn using(self, owner: bool) -> Vec<&'static str> {
+        let mut v = match self {
+            Kind::Mailbox => return vec!["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail", MAIL_SHARE],
             Kind::Calendar => vec!["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:calendars"],
             Kind::AddressBook => vec!["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:contacts"],
-        }
+        };
+        if owner { v.push(PRINCIPALS_OWNER); }
+        v
     }
     /// The presets the dropdown offers (share-collection-dialog.tsx:79-83; the admin's
     /// sharingRights restriction has no counterpart here, so the write presets are always there).
@@ -173,7 +178,7 @@ pub fn book_target(c: &Client, id: &str) -> Option<Target> {
 
 // ---------------- the dialog ----------------
 
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Target {
     pub kind: Kind,
     pub account: String,
@@ -182,10 +187,36 @@ pub struct Target {
 }
 
 const DIR_TTL: Duration = Duration::from_secs(5 * 60);
+/// At most this many people are listed to add; the search narrows the rest.
+const MAX_PEOPLE: usize = 200;
 
-/// One principal listing per login, kept a few minutes (lib/jmap/principal-directory.ts).
+/// One principal listing per server and login, kept a few minutes (lib/jmap/principal-directory.ts).
 static DIRECTORY: Mutex<Option<(String, Instant, Vec<Value>, bool)>> = Mutex::new(None);
+/// Bumped by sign-out: a listing fetched for the account before it is not kept.
+static DIR_EPOCH: AtomicU64 = AtomicU64::new(0);
 
+fn dir_key(c: &Client) -> String { format!("{}|{}|{}", c.base, c.username, c.account) }
+
+/// The cached listing for `key`, or `fetch` (contacts_x::fetch_directory); a failed listing is not
+/// kept, nor one that started before a reset.
+fn directory_with(key: &str, fetch: impl FnOnce() -> Result<(Vec<Value>, bool), String>) -> Result<(Vec<Value>, bool), String> {
+    if let Some((k, at, list, restricted)) = DIRECTORY.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
+        if k == key && at.elapsed() < DIR_TTL { return Ok((list.clone(), *restricted)); }
+    }
+    let epoch = DIR_EPOCH.load(Ordering::SeqCst);
+    let (list, restricted) = fetch()?;
+    let mut d = DIRECTORY.lock().unwrap_or_else(|e| e.into_inner());
+    if DIR_EPOCH.load(Ordering::SeqCst) == epoch { *d = Some((key.to_string(), Instant::now(), list.clone(), restricted)); }
+    Ok((list, restricted))
+}
+
+fn forget_directory() {
+    let mut d = DIRECTORY.lock().unwrap_or_else(|e| e.into_inner());
+    DIR_EPOCH.fetch_add(1, Ordering::SeqCst);
+    *d = None;
+}
+
+/// The dialog's state, apart from the window so the answers' bookkeeping can be tested.
 #[derive(Default)]
 struct State {
     target: Option<Target>,
@@ -196,7 +227,68 @@ struct State {
     principals: Vec<Value>,
     dir_loading: bool,
     dir_note: String,
+    /// The principal whose change is being saved: one at a time, every row waits meanwhile.
     saving: Option<String>,
+}
+
+/// What the window does with a save's answer.
+#[derive(Debug, PartialEq)]
+enum Saved { Stale, Done(&'static str), Failed(String), Gone(String) }
+
+impl State {
+    fn open(&mut self, t: Target, c: Option<Arc<Client>>) -> u64 {
+        let gen = self.gen + 1;
+        *self = State { gen, target: Some(t), client: c, dir_loading: true, ..Default::default() };
+        gen
+    }
+    fn close(&mut self) { let gen = self.gen + 1; *self = State { gen, ..Default::default() }; }
+    /// The shares read on open; false when the answer is for an earlier dialog.
+    fn loaded(&mut self, gen: u64, shares: Vec<(String, Value)>) -> bool {
+        if gen != self.gen || self.target.is_none() { return false; }
+        self.shares = shares;
+        true
+    }
+    fn directory(&mut self, gen: u64, res: Result<(Vec<Value>, bool), String>) -> bool {
+        if gen != self.gen || self.target.is_none() { return false; }
+        self.dir_loading = false;
+        match res {
+            Ok((list, restricted)) => {
+                self.principals = list;
+                if restricted { self.dir_note = "Your server doesn't allow browsing its user directory, so only your groups and people who have shared with you are listed. An administrator can turn on directory queries in Stalwart's sharing settings.".into(); }
+            }
+            Err(_) => self.dir_note = "Couldn't load the list of users and groups.".into(),
+        }
+        true
+    }
+    /// Start saving `principal`'s change; None while another one is being saved.
+    fn begin(&mut self, principal: &str) -> Option<(Target, Option<Arc<Client>>, u64)> {
+        if self.saving.is_some() { return None; }
+        let t = self.target.clone()?;
+        self.saving = Some(principal.to_string());
+        Some((t, self.client.clone(), self.gen))
+    }
+    /// The set's answer, then the re-read's: a refused change keeps the dialog as it was; a
+    /// re-read that fails closes it, as Bulwark's load does (mailbox-share-dialog.tsx:38-43).
+    fn finish(&mut self, gen: u64, set: Result<(), String>, reread: Option<Result<Vec<(String, Value)>, String>>, done: &'static str) -> Saved {
+        if gen != self.gen || self.target.is_none() { return Saved::Stale; }
+        self.saving = None;
+        match (set, reread) {
+            (Err(e), _) => Saved::Failed(if e.is_empty() { "Failed to update sharing".into() } else { e }),
+            (Ok(()), Some(Ok(shares))) => { self.shares = shares; Saved::Done(done) }
+            (Ok(()), Some(Err(e))) => Saved::Gone(e),
+            (Ok(()), None) => Saved::Done(done),
+        }
+    }
+    /// The rights to send for a pick in `principal`'s dropdown; None for the read-only Custom entry
+    /// (share-collection-dialog.tsx:86-87) and for the level the share already has.
+    fn pick(&self, principal: &str, index: i32) -> Option<Value> {
+        let kind = self.target.as_ref()?.kind;
+        let offered = kind.presets();
+        let p = *offered.get(usize::try_from(index).ok()?)?;
+        let now = self.shares.iter().find(|(id, _)| id == principal).map(|(_, r)| detect_preset(kind, r));
+        if now == Some(p) { return None; }
+        preset_rights(kind, p)
+    }
 }
 
 thread_local! {
@@ -233,6 +325,7 @@ pub fn sharee_label(p: Option<&Value>, id: &str, dir_loading: bool) -> (String, 
 
 fn initial(s: &str) -> String { s.chars().find(|c| c.is_alphanumeric()).map(|c| c.to_uppercase().to_string()).unwrap_or_else(|| "?".into()) }
 
+/// The current shares and the people to add.
 fn render(u: &AppWindow) {
     let x = u.global::<ShareX>();
     ST.with(|s| {
@@ -252,9 +345,22 @@ fn render(u: &AppWindow) {
             }
         }).collect();
         x.set_rows(ModelRc::new(VecModel::from(rows)));
+        x.set_busy(s.saving.is_some());
+    });
+    render_people(u);
+}
+
+/// The people to add, at most MAX_PEOPLE of them: typing in the search only rebuilds this list.
+fn render_people(u: &AppWindow) {
+    let x = u.global::<ShareX>();
+    ST.with(|s| {
+        let s = s.borrow();
+        let Some(t) = &s.target else { return };
         let own = s.client.as_ref().map(|c| own_id(c, t.kind)).unwrap_or_default();
         let q = x.get_search().to_string();
-        let people: Vec<crate::SharePerson> = candidates(&s.principals, &own, &s.shares, &q).into_iter().map(|p| {
+        let all = candidates(&s.principals, &own, &s.shares, &q);
+        let more = all.len() > MAX_PEOPLE;
+        let people: Vec<crate::SharePerson> = all.into_iter().take(MAX_PEOPLE).map(|p| {
             let name = p["name"].as_str().unwrap_or("").to_string();
             let email = p["email"].as_str().unwrap_or("").to_string();
             let id = p["id"].as_str().unwrap_or("");
@@ -266,6 +372,7 @@ fn render(u: &AppWindow) {
         }).collect();
         let empty = if s.dir_loading || !people.is_empty() { "" } else if !q.trim().is_empty() { "No matches." } else if s.dir_note.is_empty() { "No other users or groups found." } else { "" };
         x.set_people(ModelRc::new(VecModel::from(people)));
+        x.set_more_note(if more { format!("Showing the first {MAX_PEOPLE}: type to narrow the list.").into() } else { SharedString::new() });
         x.set_people_loading(s.dir_loading);
         x.set_dir_note(s.dir_note.as_str().into());
         x.set_empty_note(empty.into());
@@ -277,35 +384,21 @@ fn own_id(c: &Client, kind: Kind) -> String {
     c.account_for(match kind { Kind::Mailbox => "urn:ietf:params:jmap:mail", Kind::Calendar => "urn:ietf:params:jmap:calendars", Kind::AddressBook => "urn:ietf:params:jmap:contacts" })
 }
 
+fn using(c: &Client, kind: Kind) -> Vec<&'static str> { kind.using(c.has(PRINCIPALS_OWNER)) }
+
 fn fetch(c: &Client, t: &Target) -> Result<Vec<(String, Value)>, String> {
-    let r = c.request_using(&t.kind.using(), get_call(t.kind, &t.account, &t.id))?;
+    let r = c.request_using(&using(c, t.kind), get_call(t.kind, &t.account, &t.id))?;
     parse_get(t.kind, &r, &t.id)
 }
 
 fn apply(c: &Client, t: &Target, principal: &str, rights: Option<Value>) -> Result<(), String> {
-    let r = c.request_using(&t.kind.using(), set_call(t.kind, &t.account, &t.id, principal, rights))?;
+    let r = c.request_using(&using(c, t.kind), set_call(t.kind, &t.account, &t.id, principal, rights))?;
     parse_set(t.kind, &r, &t.id)
-}
-
-/// The directory (contacts_x::fetch_directory), shared while fresh; a failed listing is not kept.
-fn directory(c: &Client) -> Result<(Vec<Value>, bool), String> {
-    let key = format!("{}|{}", c.username, c.account);
-    if let Some((k, at, list, restricted)) = DIRECTORY.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
-        if *k == key && at.elapsed() < DIR_TTL { return Ok((list.clone(), *restricted)); }
-    }
-    let (list, restricted) = crate::contacts_x::fetch_directory(c)?;
-    *DIRECTORY.lock().unwrap_or_else(|e| e.into_inner()) = Some((key, Instant::now(), list.clone(), restricted));
-    Ok((list, restricted))
 }
 
 /// Open the dialog: the shares are read first (a spinner until then), the people to add next.
 pub fn open(u: &AppWindow, c: Arc<Client>, t: Target) {
-    let gen = ST.with(|s| {
-        let mut s = s.borrow_mut();
-        s.gen += 1;
-        *s = State { gen: s.gen, target: Some(t.clone()), client: Some(c.clone()), dir_loading: true, ..Default::default() };
-        s.gen
-    });
+    let gen = ST.with(|s| s.borrow_mut().open(t.clone(), Some(c.clone())));
     let x = u.global::<ShareX>();
     x.set_title(format!("Share \u{201c}{}\u{201d}", t.name).into());
     x.set_search("".into());
@@ -313,47 +406,35 @@ pub fn open(u: &AppWindow, c: Arc<Client>, t: Target) {
     x.set_loading(true);
     x.set_open(true);
     render(u);
-    let (w, c1, t1) = (u.as_weak(), c.clone(), t.clone());
+    let (w, c1) = (u.as_weak(), c.clone());
     std::thread::spawn(move || {
-        let res = fetch(&c1, &t1);
-        let _ = w.upgrade_in_event_loop(move |u| {
-            if ST.with(|s| s.borrow().gen) != gen { return; }
-            match res {
-                Ok(shares) => {
-                    ST.with(|s| s.borrow_mut().shares = shares);
-                    u.global::<ShareX>().set_loading(false);
-                    render(&u);
-                }
-                Err(e) => { close(&u); crate::mail::show_toast(&u, &e, false); }
+        let res = fetch(&c1, &t);
+        let _ = w.upgrade_in_event_loop(move |u| match res {
+            Ok(shares) => {
+                if !ST.with(|s| s.borrow_mut().loaded(gen, shares)) { return; }
+                u.global::<ShareX>().set_loading(false);
+                render(&u);
+            }
+            Err(e) => {
+                if ST.with(|s| s.borrow().gen) != gen { return; }
+                close(&u);
+                crate::mail::show_toast(&u, &e, false);
             }
         });
     });
     let w = u.as_weak();
     std::thread::spawn(move || {
-        let res = directory(&c);
-        let _ = w.upgrade_in_event_loop(move |u| {
-            ST.with(|s| {
-                let mut s = s.borrow_mut();
-                if s.gen != gen { return; }
-                s.dir_loading = false;
-                match res {
-                    Ok((list, restricted)) => {
-                        s.principals = list;
-                        if restricted { s.dir_note = "Your server doesn't allow browsing its user directory, so only your groups and people who have shared with you are listed. An administrator can turn on directory queries in Stalwart's sharing settings.".into(); }
-                    }
-                    Err(_) => s.dir_note = "Couldn't load the list of users and groups.".into(),
-                }
-            });
-            render(&u);
-        });
+        let res = directory_with(&dir_key(&c), || crate::contacts_x::fetch_directory(&c));
+        let _ = w.upgrade_in_event_loop(move |u| { if ST.with(|s| s.borrow_mut().directory(gen, res)) { render(&u); } });
     });
 }
 
 pub fn close(u: &AppWindow) {
-    ST.with(|s| { let mut s = s.borrow_mut(); s.gen += 1; s.target = None; s.client = None; s.shares.clear(); s.saving = None; });
+    ST.with(|s| s.borrow_mut().close());
     let x = u.global::<ShareX>();
     x.set_open(false);
     x.set_loading(false);
+    x.set_busy(false);
     x.set_rows(ModelRc::new(VecModel::from(Vec::<crate::ShareRow>::new())));
     x.set_people(ModelRc::new(VecModel::from(Vec::<crate::SharePerson>::new())));
 }
@@ -361,44 +442,39 @@ pub fn close(u: &AppWindow) {
 /// Signed out: nothing of the last account stays in the dialog or the directory cache.
 pub fn reset(u: &AppWindow) {
     close(u);
-    *DIRECTORY.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    forget_directory();
 }
 
 /// Grant, change or remove one principal's rights, then read the shares back from the server
 /// (mailbox-share-dialog.tsx:80-84), with Bulwark's toasts.
 fn change(u: &AppWindow, principal: String, rights: Option<Value>, done: &'static str, then_close_add: bool) {
-    let Some((t, c, gen)) = ST.with(|s| {
-        let mut s = s.borrow_mut();
-        if s.saving.is_some() { return None; }
-        let r = Some((s.target.clone()?, s.client.clone()?, s.gen));
-        s.saving = Some(principal.clone());
-        r
-    }) else { return };
+    let Some((t, Some(c), gen)) = ST.with(|s| s.borrow_mut().begin(&principal)) else { return };
     render(u);
     let w = u.as_weak();
     std::thread::spawn(move || {
-        let res = apply(&c, &t, &principal, rights).and_then(|()| fetch(&c, &t));
+        let set = apply(&c, &t, &principal, rights);
+        let reread = set.is_ok().then(|| fetch(&c, &t));
         let _ = w.upgrade_in_event_loop(move |u| {
-            if ST.with(|s| s.borrow().gen) != gen { return; }
-            let ok = res.is_ok();
-            ST.with(|s| {
-                let mut s = s.borrow_mut();
-                s.saving = None;
-                if let Ok(shares) = &res { s.shares = shares.clone(); }
-            });
-            if ok && then_close_add { let x = u.global::<ShareX>(); x.set_adding(false); x.set_search("".into()); }
-            render(&u);
-            crate::mail::show_toast(&u, &res.map(|_| done.to_string()).unwrap_or_else(|e| if e.is_empty() { "Failed to update sharing".into() } else { e }), false);
+            match ST.with(|s| s.borrow_mut().finish(gen, set, reread, done)) {
+                Saved::Stale => {}
+                Saved::Done(msg) => {
+                    if then_close_add { let x = u.global::<ShareX>(); x.set_adding(false); x.set_search("".into()); }
+                    render(&u);
+                    crate::mail::show_toast(&u, msg, false);
+                }
+                Saved::Failed(e) => { render(&u); crate::mail::show_toast(&u, &e, false); }
+                Saved::Gone(e) => { close(&u); crate::mail::show_toast(&u, &e, false); }
+            }
         });
     });
 }
 
 fn set_preset(u: &AppWindow, principal: &str, index: i32) {
-    let Some(kind) = ST.with(|s| s.borrow().target.as_ref().map(|t| t.kind)) else { return };
-    let offered = kind.presets();
-    // the extra "Custom" (or no longer offered) entry is read-only (share-collection-dialog.tsx:86-87)
-    let Some(rights) = offered.get(index.max(0) as usize).and_then(|p| preset_rights(kind, *p)).filter(|_| index >= 0) else { render(u); return };
-    change(u, principal.to_string(), Some(rights), "Access updated", false);
+    match ST.with(|s| s.borrow().pick(principal, index)) {
+        Some(rights) => change(u, principal.to_string(), Some(rights), "Access updated", false),
+        // put the dropdown back on what the share has
+        None => render(u),
+    }
 }
 
 fn add(u: &AppWindow, principal: &str) {
@@ -417,7 +493,7 @@ pub fn wire(ui: &AppWindow) {
     let w = ui.as_weak();
     x.on_add(move |p| { if let Some(u) = w.upgrade() { add(&u, &p); } });
     let w = ui.as_weak();
-    x.on_search_edited(move |q| { if let Some(u) = w.upgrade() { u.global::<ShareX>().set_search(q); render(&u); } });
+    x.on_search_edited(move |q| { if let Some(u) = w.upgrade() { u.global::<ShareX>().set_search(q); render_people(&u); } });
 }
 
 #[cfg(test)]
@@ -475,9 +551,10 @@ mod tests {
         assert_eq!(set_call(Kind::AddressBook, "A1", "b1", "a/b~c", None)[0][1]["update"]["b1"], json!({"shareWith/a~1b~0c": null}));
         assert_eq!(get_call(Kind::AddressBook, "A1", "b1"),
             json!([["AddressBook/get", {"accountId": "A1", "ids": ["b1"], "properties": ["id", "shareWith", "myRights"]}, "0"]]));
-        assert!(Kind::Mailbox.using().contains(&MAIL_SHARE));
-        assert!(Kind::Calendar.using().contains(&"urn:ietf:params:jmap:calendars"));
-        assert!(Kind::AddressBook.using().contains(&"urn:ietf:params:jmap:contacts"));
+        assert_eq!(Kind::Mailbox.using(true), vec!["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail", MAIL_SHARE]);
+        assert_eq!(Kind::Calendar.using(false), vec!["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:calendars"]);
+        assert_eq!(Kind::Calendar.using(true), vec!["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:calendars", PRINCIPALS_OWNER]);
+        assert_eq!(Kind::AddressBook.using(true), vec!["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:contacts", PRINCIPALS_OWNER]);
     }
 
     #[test]
@@ -555,5 +632,115 @@ mod tests {
         assert_eq!(log[0][0][1]["update"]["c1"]["shareWith/p1"]["mayReadItems"], json!(true));
         assert_eq!(log[1][0][1]["update"]["c1"]["shareWith/denied"], Value::Null);
         assert_eq!(log[2][0][0], "Calendar/get");
+    }
+
+    fn target(id: &str) -> Target { Target { kind: Kind::AddressBook, account: "A1".into(), id: id.into(), name: "Friends".into() } }
+    fn read() -> Value { preset_rights(Kind::AddressBook, Preset::Read).unwrap() }
+
+    #[test]
+    fn answers_for_an_earlier_dialog_are_dropped() {
+        let mut s = State::default();
+        let g1 = s.open(target("b1"), None);
+        let g2 = s.open(target("b2"), None);
+        assert!(g2 > g1);
+        assert!(!s.loaded(g1, vec![("old".into(), read())]));
+        assert!(!s.directory(g1, Ok((vec![json!({"id": "old"})], false))));
+        assert!(s.shares.is_empty() && s.principals.is_empty() && s.dir_loading);
+        assert!(s.loaded(g2, vec![("p1".into(), read())]));
+        assert!(s.directory(g2, Err("x".into())));
+        assert!(!s.dir_loading && s.dir_note.starts_with("Couldn't"));
+        // a save that answers after the dialog closed (or reopened) changes nothing
+        let (t, _, g) = s.begin("p1").unwrap();
+        assert_eq!(t.id, "b2");
+        s.close();
+        assert!(s.target.is_none());
+        assert_eq!(s.finish(g, Ok(()), Some(Ok(vec![("p9".into(), read())])), "Access updated"), Saved::Stale);
+        assert!(s.shares.is_empty());
+        assert!(!s.loaded(g, vec![("p1".into(), read())]));
+    }
+
+    #[test]
+    fn one_save_at_a_time() {
+        let mut s = State::default();
+        let g = s.open(target("b1"), None);
+        s.loaded(g, vec![("p1".into(), read()), ("p2".into(), read())]);
+        assert!(s.begin("p1").is_some());
+        assert_eq!(s.saving.as_deref(), Some("p1"));
+        assert!(s.begin("p2").is_none(), "a second change waits for the first");
+        // refused: the shares stay as they were, and the next change may start
+        assert_eq!(s.finish(g, Err("You do not have permission to do that.".into()), None, "Access updated"), Saved::Failed("You do not have permission to do that.".into()));
+        assert_eq!(s.shares.len(), 2);
+        assert!(s.saving.is_none());
+        assert!(s.begin("p2").is_some());
+        assert_eq!(s.finish(g, Err(String::new()), None, "Access removed"), Saved::Failed("Failed to update sharing".into()));
+        // saved: the shares are what the server read back
+        s.begin("p2").unwrap();
+        assert_eq!(s.finish(g, Ok(()), Some(Ok(vec![("p1".into(), read())])), "Access removed"), Saved::Done("Access removed"));
+        assert_eq!(s.shares.len(), 1);
+        // saved, but the re-read failed: the dialog closes with the error
+        s.begin("p1").unwrap();
+        assert_eq!(s.finish(g, Ok(()), Some(Err("It no longer exists.".into())), "Access updated"), Saved::Gone("It no longer exists.".into()));
+    }
+
+    #[test]
+    fn picking_a_level() {
+        let mut s = State::default();
+        let g = s.open(Target { kind: Kind::Calendar, ..target("c1") }, None);
+        s.loaded(g, vec![("p1".into(), preset_rights(Kind::Calendar, Preset::Read).unwrap()), ("p2".into(), json!({"mayReadItems": true, "mayDelete": true}))]);
+        // the level the share has already: nothing to send
+        assert_eq!(s.pick("p1", 1), None);
+        assert_eq!(s.pick("p1", 2), preset_rights(Kind::Calendar, Preset::ReadWrite));
+        assert_eq!(s.pick("p1", 0), preset_rights(Kind::Calendar, Preset::FreeBusy));
+        // the extra Custom entry (index past the presets) and nonsense are read-only
+        assert_eq!(s.pick("p2", 4), None);
+        assert_eq!(s.pick("p2", -1), None);
+        assert_eq!(s.pick("p2", 3), preset_rights(Kind::Calendar, Preset::Manager));
+        s.close();
+        assert_eq!(s.pick("p1", 2), None);
+    }
+
+    #[test]
+    fn directory_cache_per_server_and_reset() {
+        let calls = std::cell::Cell::new(0);
+        let fetch = || { calls.set(calls.get() + 1); Ok((vec![json!({"id": "p1"})], false)) };
+        let a = Client::fake("https://one.example.test", "A1", &[], |_| Ok(vec![]));
+        let b = Client::fake("https://two.example.test", "A1", &[], |_| Ok(vec![]));
+        assert_ne!(dir_key(&a), dir_key(&b), "same login on another server is another directory");
+        let (ka, kb) = (dir_key(&a), dir_key(&b));
+        forget_directory();
+        directory_with(&ka, fetch).unwrap();
+        directory_with(&ka, fetch).unwrap();
+        assert_eq!(calls.get(), 1, "kept while fresh");
+        directory_with(&kb, fetch).unwrap();
+        assert_eq!(calls.get(), 2);
+        // a failed listing is not kept
+        forget_directory();
+        assert!(directory_with(&ka, || Err("down".into())).is_err());
+        directory_with(&ka, fetch).unwrap();
+        assert_eq!(calls.get(), 3);
+        // a listing that was on its way while the user signed out is not kept
+        forget_directory();
+        let got = directory_with(&ka, || { forget_directory(); Ok((vec![json!({"id": "gone"})], false)) }).unwrap();
+        assert_eq!(got.0[0]["id"], "gone");
+        assert!(DIRECTORY.lock().unwrap_or_else(|e| e.into_inner()).is_none());
+        directory_with(&ka, fetch).unwrap();
+        assert_eq!(calls.get(), 4);
+        forget_directory();
+    }
+
+    #[test]
+    fn account_capabilities() {
+        let c = Client::fake("https://mail.example.test", "A1", &["urn:ietf:params:jmap:mail", MAIL_SHARE], |_| Ok(vec![]));
+        // listed for the session only: not for this account
+        assert!(!c.account_has(MAIL_SHARE, "A1"));
+        c.set_live_session(json!({"accounts": {"A1": {"accountCapabilities": {MAIL_SHARE: {}, "urn:ietf:params:jmap:mail": {}}}, "B2": {"accountCapabilities": {}}}}));
+        assert!(c.account_has(MAIL_SHARE, "A1"));
+        assert!(!c.account_has(MAIL_SHARE, "B2"));
+        assert!(!c.account_has(MAIL_SHARE, "C3"));
+        // principals:owner joins the calendar and contacts using only when the session has it
+        assert_eq!(using(&c, Kind::Calendar), vec!["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:calendars"]);
+        let o = Client::fake("https://mail.example.test", "A1", &[PRINCIPALS_OWNER], |_| Ok(vec![]));
+        assert!(using(&o, Kind::AddressBook).contains(&PRINCIPALS_OWNER));
+        assert!(!using(&o, Kind::Mailbox).contains(&PRINCIPALS_OWNER));
     }
 }
