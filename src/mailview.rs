@@ -45,9 +45,18 @@ thread_local! {
     static NEXT_BG: RefCell<String> = const { RefCell::new(String::new()) };
     /// The Files preview holds the view (an .eml or HTML file is on show or loading there).
     static FILES: Cell<bool> = const { Cell::new(false) };
-    /// The reader's message is being drawn again after the Files preview had the view: the view
-    /// stays hidden (the reader's capture shows) until that page is ready.
+    /// The reader's page is being put back (or drawn again) after the Files preview had the
+    /// view: the view stays hidden, with the reader's capture in its place, until the shell
+    /// says the page is on screen (`revealed:N`), or the watchdog gives up waiting.
     static HELD: Cell<bool> = const { Cell::new(false) };
+    static HOLD_TIMER: slint::Timer = slint::Timer::default();
+    /// The reader's page in the shell is out of date (it was loading when the preview took the
+    /// view, or the reader drew it again meanwhile): drawn again once the reader is back.
+    static STALE: Cell<bool> = const { Cell::new(false) };
+    /// A reader page is loading (shown, not yet revealed).
+    static READER_PENDING: Cell<bool> = const { Cell::new(false) };
+    /// The colour of the reader's page on show (put back with it after the preview).
+    static READER_BG: RefCell<String> = const { RefCell::new(String::new()) };
 }
 
 /// A file's page colour (files_view::doc_page draws files on white).
@@ -67,7 +76,7 @@ pub const FILE_BG: &str = "#ffffff";
 /// a web URL to the browser and cancel the load), but `target=_top/_parent` reaches the view's
 /// own top-level navigation on every platform. New windows open in the browser or the composer.
 const SHELL_JS: &str = r#"(function(){
-var cur=null,nxt=null,seq=0,arrows=false;
+var cur=null,nxt=null,kept=null,seq=0,arrows=false;
 function post(m){try{window.ipc.postMessage(m)}catch(e){}}
 // the view owns the OS keyboard focus once it was clicked: pass the app's shortcuts back to the native side
 function kd(e){try{if(e.defaultPrevented||e.isComposing)return;var t=e.target,n=t&&t.tagName;
@@ -102,14 +111,21 @@ addL.call(f,'load',function(){try{fix(f.contentDocument)}catch(e){}ready()});f.s
 if(d&&laidOut(d)){fix(d);requestAnimationFrame(ready);return}
 requestAnimationFrame(poll)})();},
 reveal:function(s){if(s!==seq||!nxt)return;var f=nxt;nxt=null;document.documentElement.style.background=f._bg;
-f.style.visibility='visible';if(cur)cur.remove();cur=f},
+f.style.visibility='visible';if(cur)cur.remove();cur=f;requestAnimationFrame(function(){post('revealed:'+s)})},
 cancel:function(s){seq=s;if(nxt){nxt.remove();nxt=null}},
 dim:function(on){if(cur)cur.style.opacity=on?'0.4':''},
 // the Files preview: Left / Right go back to the app (previous / next file), scroll keys sent from it
 arrows:function(on){arrows=!!on},
 scroll:function(k){if(!cur)return;try{var w=cur.contentWindow,h=Math.max(40,w.innerHeight-40);
 if(k==='Home')w.scrollTo(0,0);else if(k==='End')w.scrollTo(0,1e9);else w.scrollBy(0,k==='Up'?-40:k==='Down'?40:k==='PageUp'?-h:h)}catch(e){}},
-clear:function(bg){seq++;if(nxt){nxt.remove();nxt=null}if(cur){cur.remove();cur=null}document.documentElement.style.background=bg}
+blank:function(bg){seq++;if(nxt){nxt.remove();nxt=null}if(cur){cur.remove();cur=null}document.documentElement.style.background=bg},
+clear:function(bg){if(kept){kept.remove();kept=null}this.blank(bg)},
+// the Files preview takes the view: the reader's page is kept aside, hidden (its scroll
+// position too), and put back when the preview closes
+park:function(){if(nxt){nxt.remove();nxt=null}if(kept){kept.remove();kept=null}if(cur){cur.style.visibility='hidden';kept=cur;cur=null}},
+unpark:function(s,bg){seq=s;if(nxt){nxt.remove();nxt=null}if(cur){cur.remove();cur=null}
+if(kept){cur=kept;kept=null;cur.style.visibility='visible';bg=cur._bg}document.documentElement.style.background=bg;
+requestAnimationFrame(function(){post('revealed:'+s)})}
 };post('shell')})();"#;
 
 /// The reader's background in the current theme (Theme.reader, the tile colour).
@@ -156,12 +172,16 @@ fn page_bg(c: &str) {
     WV.with(|w| if let Some(v) = &*w.borrow() { paint_host(v, c); });
 }
 
+/// Chromium (WebView2) resolves the host names of a page's links ahead of a click unless the page
+/// turns it off; the shell and every message or file page do (main.rs csp_with).
+pub const NO_DNS_PREFETCH: &str = "<meta http-equiv=\"x-dns-prefetch-control\" content=\"off\">";
+
 pub fn shell_html() -> String {
     // the shell's own policy is the most a message may get; each message frame narrows it with
     // its own (images blocked unless allowed, only our accessibility script by its hash)
     let bg = reader_bg();
     format!(
-        "<!doctype html><html style=\"background:{bg}\"><head><meta charset=utf-8>\
+        "<!doctype html><html style=\"background:{bg}\"><head><meta charset=utf-8>{NO_DNS_PREFETCH}\
 <meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src 'unsafe-inline' *; font-src * data:; img-src * data:; script-src 'unsafe-inline'; base-uri 'none'; frame-src 'self' about:; object-src 'none'; form-action 'none'\">\
 <style>html,body{{margin:0;padding:0;height:100%;overflow:hidden}}</style></head><body><script>{SHELL_JS}</script></body></html>"
     )
@@ -238,12 +258,13 @@ fn run_js(js: String) {
 /// mail) turns the loading bar on and is still only shown once laid out, never half parsed.
 pub fn show(doc: &str, bg: &str, script: bool, on_ready: Option<Box<dyn FnOnce() -> bool>>) -> u64 {
     if FILES.with(|f| f.get()) {
-        // the Files preview holds the view: the reader's page is drawn again once it closes
-        // (files_release); the native side still takes its part now
+        // the Files preview holds the view: the reader's page is drawn again once the reader is
+        // back on screen (sync); the native side still takes its part now
         if let Some(f) = on_ready { let _ = f(); }
+        STALE.with(|s| s.set(true));
         return DOC_SEQ.with(|s| s.get());
     }
-    load(doc, bg, script, on_ready, false)
+    load(doc, bg, script, on_ready, FileLoad::Reader)
 }
 
 /// Show an .eml's or HTML file's page (files_view::doc_page) in the Files preview, with the
@@ -255,28 +276,52 @@ pub fn show(doc: &str, bg: &str, script: bool, on_ready: Option<Box<dyn FnOnce()
 pub fn show_file(doc: &str, on_ready: Box<dyn FnOnce() -> bool>) -> bool {
     let built = WV.with(|w| w.try_borrow().map_or(false, |w| w.is_some()));
     if crate::WV_UNAVAILABLE.with(|x| x.get()) || !built { return false; }
-    if !FILES.with(|f| f.replace(true)) {
-        // the reader's message leaves the view (put back by files_release)
-        SLOW.with(|s| s.set(false));
-        if let Some(u) = ui() { u.set_r_loading(false); }
-    }
+    let park = enter_files();
     // a file has no "reported as phishing" state: its links work like a message's
     set_links_off(false);
-    load(doc, FILE_BG, false, Some(on_ready), true);
+    load(doc, FILE_BG, false, Some(on_ready), if park { FileLoad::First } else { FileLoad::Next });
     true
 }
+
+/// The Files preview takes the view (true: just now). A reader page still waiting to be revealed
+/// gives up its place: its native side (msgload's header update) runs now, as [`show`] does
+/// while the preview holds the view, so the header and the body never disagree afterwards, and
+/// the page is drawn again once the reader is back.
+fn enter_files() -> bool {
+    if FILES.with(|f| f.replace(true)) { return false; }
+    let pending = ON_READY.with(|r| r.borrow_mut().take());
+    unhold(false);
+    if let Some((_, f)) = pending { let _ = f(); }
+    if READER_PENDING.with(|p| p.replace(false)) { STALE.with(|s| s.set(true)); }
+    READY_TIMER.with(|t| t.stop());
+    SLOW.with(|s| s.set(false));
+    if let Some(u) = ui() { u.set_r_loading(false); }
+    true
+}
+
+/// What `load` is loading: a reader page, the first file of a preview (the reader's page is
+/// kept aside first), or another file.
+#[derive(Clone, Copy, PartialEq)]
+enum FileLoad { Reader, First, Next }
 
 /// The frame sandbox of a file's page: never `allow-scripts`.
 fn file_sandbox() -> &'static str { sandbox(false) }
 
 /// Load `doc` into a hidden frame of the shell. A file's page starts from an empty view (no
 /// earlier file or message shows under it for a frame) and lets Left / Right through.
-fn load(doc: &str, bg: &str, script: bool, on_ready: Option<Box<dyn FnOnce() -> bool>>, file: bool) -> u64 {
+fn load(doc: &str, bg: &str, script: bool, on_ready: Option<Box<dyn FnOnce() -> bool>>, kind: FileLoad) -> u64 {
+    let file = kind != FileLoad::Reader;
     let seq = DOC_SEQ.with(|s| { s.set(s.get() + 1); s.get() });
+    if !file {
+        // this page supersedes whatever the reader had
+        STALE.with(|s| s.set(false));
+        READER_PENDING.with(|p| p.set(true));
+    }
     let bg_js = serde_json::to_string(bg).unwrap_or_default();
     let js = format!(
-        "window.__bb&&(__bb.arrows({file}),{}__bb.show({seq},{},{bg_js},{}))",
-        if file { format!("__bb.clear({bg_js}),") } else { String::new() },
+        "window.__bb&&(__bb.arrows({file}),{}{}__bb.show({seq},{},{bg_js},{}))",
+        if kind == FileLoad::First { "__bb.park()," } else { "" },
+        if file { format!("__bb.blank({bg_js}),") } else { String::new() },
         serde_json::to_string(doc).unwrap_or_default(),
         serde_json::to_string(if file { file_sandbox() } else { sandbox(script) }).unwrap_or_default()
     );
@@ -312,7 +357,8 @@ pub fn cancel_pending() {
 }
 
 fn drop_pending() {
-    HELD.with(|h| h.set(false));
+    // a held reader keeps its capture: the next page's reveal (or the watchdog) lets it go
+    READER_PENDING.with(|p| p.set(false));
     let seq = DOC_SEQ.with(|s| { s.set(s.get() + 1); s.get() });
     ON_READY.with(|r| *r.borrow_mut() = None);
     READY_TIMER.with(|t| t.stop());
@@ -340,10 +386,15 @@ fn ready(seq: u64, from_view: bool) {
     }
     // the native side refused it (the message it belongs to is no longer the open one)
     if let Some(f) = cb { if !f() { drop_pending(); return; } }
-    HELD.with(|h| h.set(false));
+    let files = FILES.with(|f| f.get());
+    if !files {
+        READER_PENDING.with(|p| p.set(false));
+        READER_BG.with(|b| *b.borrow_mut() = NEXT_BG.with(|n| n.borrow().clone()));
+    }
     if let Some(u) = ui() {
-        // a capture taken before this page is out of date
-        if !SHOWN.with(|x| x.get()) { set_snap(&u, FILES.with(|f| f.get()), None); }
+        // a capture taken before this page is out of date (a held reader keeps it until the
+        // page is on screen)
+        if !SHOWN.with(|x| x.get()) && !HELD.with(|h| h.get()) { set_snap(&u, files, None); }
         // the header just changed (thread strip, attachments, a file's header): put the view at
         // its new place before the page shows, not one frame later
         sync(&u);
@@ -368,8 +419,10 @@ pub fn theme_changed() {
 pub fn clear() {
     crate::CUR.with(|c| *c.borrow_mut() = None);
     // the Files preview holds the view: files_release empties it
-    if FILES.with(|f| f.get()) { return; }
-    HELD.with(|h| h.set(false));
+    if FILES.with(|f| f.get()) { STALE.with(|s| s.set(false)); return; }
+    unhold(false);
+    STALE.with(|s| s.set(false));
+    READER_PENDING.with(|p| p.set(false));
     DOC_SEQ.with(|s| s.set(s.get() + 1));
     ON_READY.with(|r| *r.borrow_mut() = None);
     READY_TIMER.with(|t| t.stop());
@@ -380,9 +433,13 @@ pub fn clear() {
     page_bg(reader_bg());
 }
 
-/// The Files preview closed: the view leaves its place at once and goes back to the reader,
-/// empty, with the open message (if any) drawn in it again, hidden until the reader shows.
+/// The Files preview closed: the view leaves its place at once and goes back to the reader.
+/// The reader's page kept aside when the preview took the view comes back as it was (scroll
+/// position too); one that is out of date is drawn again once the reader is on screen (sync).
+/// Either way the view stays hidden, the reader's capture in its place, until the page shows.
 pub fn files_release(ui: &AppWindow) {
+    // nothing held from before survives a release (a stale hold would keep the reader hidden)
+    unhold(false);
     if !FILES.with(|f| f.get()) { return; }
     // out of the preview's place at once (whatever the window shows next)
     HIDE_PENDING.with(|h| h.set(false));
@@ -393,20 +450,53 @@ pub fn files_release(ui: &AppWindow) {
     x.set_p_snap_on(false);
     x.set_p_snap(Default::default());
     // the file's page (or the one still loading) goes
-    DOC_SEQ.with(|s| s.set(s.get() + 1));
+    let seq = DOC_SEQ.with(|s| { s.set(s.get() + 1); s.get() });
     ON_READY.with(|r| *r.borrow_mut() = None);
     READY_TIMER.with(|t| t.stop());
     SLOW.with(|s| s.set(false));
-    run_js(format!("window.__bb&&(__bb.arrows(false),__bb.clear('{}'))", reader_bg()));
-    page_bg(reader_bg());
-    if has_message(ui) {
-        // the reader (perhaps on screen again already) keeps its capture until the page is back
-        HELD.with(|h| h.set(true));
-        let before = DOC_SEQ.with(|s| s.get());
-        crate::render_current(ui);
-        // nothing was drawn (no message after all): nothing to wait for
-        if DOC_SEQ.with(|s| s.get()) == before { HELD.with(|h| h.set(false)); }
+    // the reader's links are as its message says again
+    set_links_off(crate::CUR.with(|c| c.borrow().as_ref().is_some_and(|c| c.links_off)));
+    if has_message(ui) && !STALE.with(|s| s.get()) {
+        hold();
+        let bg = READER_BG.with(|b| b.borrow().clone());
+        let bg = if bg.is_empty() { reader_bg().to_string() } else { bg };
+        run_js(format!("window.__bb&&(__bb.arrows(false),__bb.unpark({seq},{}))", serde_json::to_string(&bg).unwrap_or_default()));
+        page_bg(&bg);
+    } else {
+        run_js(format!("window.__bb&&(__bb.arrows(false),__bb.clear('{}'))", reader_bg()));
+        page_bg(reader_bg());
+        STALE.with(|s| s.set(has_message(ui)));
     }
+}
+
+/// Whether the Files preview holds the view (the reader must not change what it shows).
+pub fn files_active() -> bool { FILES.with(|f| f.get()) }
+
+/// Keep the reader's view hidden (its capture showing) until its page is on screen.
+fn hold() {
+    HELD.with(|h| h.set(true));
+    // a page that never says so is shown anyway, rather than a reader with no body
+    HOLD_TIMER.with(|t| t.start(slint::TimerMode::SingleShot, Duration::from_millis(1500), || unhold(true)));
+}
+
+/// The held page is on screen (or the wait is over): the view may show again.
+fn unhold(resync: bool) {
+    HOLD_TIMER.with(|t| t.stop());
+    if !HELD.with(|h| h.replace(false)) { return; }
+    if resync { if let Some(u) = ui() { sync(&u); } }
+}
+
+/// The reader is on screen again with an out-of-date page: draw the open message again, with
+/// the view held until it shows.
+fn redraw_stale(ui: &AppWindow) {
+    if FILES.with(|f| f.get()) || !STALE.with(|s| s.get()) || HELD.with(|h| h.get()) || !ui.get_body_visible() { return; }
+    STALE.with(|s| s.set(false));
+    if !has_message(ui) { return; }
+    hold();
+    let before = DOC_SEQ.with(|s| s.get());
+    crate::render_current(ui);
+    // nothing was drawn (no message after all): nothing to wait for
+    if DOC_SEQ.with(|s| s.get()) == before { unhold(false); }
 }
 
 /// A scrolling key for the file on show (Up, Down, PageUp, PageDown, Home, End), pressed while
@@ -526,6 +616,17 @@ pub fn sanitize_mail_html_opts(html: &str, links_off: bool) -> String {
 /// One pass: `Ok(None)` when nothing needs removing, `Err` when the work budget ran out.
 const LINK_OFF_ATTRS: &str = "title=\"Link disabled: this message was reported as phishing\" aria-disabled=\"true\" ";
 
+/// A `rel=...` attribute (as written) says exactly "stylesheet": quotes, case and surrounding
+/// spaces aside, nothing else (a character reference or another token makes it something else).
+fn link_rel_is_stylesheet(attr: &str) -> bool {
+    let Some((_, v)) = attr.split_once('=') else { return false };
+    let v = v.trim_matches(|c: char| c.is_ascii() && is_html_ws(c as u8));
+    let v = v.strip_prefix('"').and_then(|x| x.strip_suffix('"'))
+        .or_else(|| v.strip_prefix('\'').and_then(|x| x.strip_suffix('\'')))
+        .unwrap_or(v);
+    v.trim_matches(|c: char| c.is_ascii() && is_html_ws(c as u8)).eq_ignore_ascii_case("stylesheet")
+}
+
 fn sanitize_pass(s: &str, links_off: bool) -> Result<Option<String>, ()> {
     let b = s.as_bytes();
     let mut budget: usize = b.len().saturating_mul(24).saturating_add(1 << 20);
@@ -574,7 +675,12 @@ fn sanitize_pass(s: &str, links_off: bool) -> Result<Option<String>, ()> {
         // a form's controls shadow its members by name (`form.closest`, `form.style`); both of
         // our in-frame scripts call those on every element. With the form gone its controls are
         // associated with nothing, so their names cannot shadow.
-        if name == "base" || name == "form" || (name == "meta" && has("http-equiv")) {
+        // a <link> other than a stylesheet only warms up connections to the sender's hosts
+        // (dns-prefetch, preconnect, prefetch, preload, prerender, modulepreload): DNS and TCP
+        // reach the network even where the CSP blocks the fetch, so it goes. A stylesheet stays
+        // (the CSP decides whether a remote one loads).
+        let link_kept = || attrs.iter().find(|a| a.0 == "rel").is_some_and(|a| link_rel_is_stylesheet(&s[a.1..a.2]));
+        if name == "base" || name == "form" || (name == "meta" && has("http-equiv")) || (name == "link" && !link_kept()) {
             dels.push((i, end));
         } else if links_off && (name == "a" || name == "area") {
             let dead = |n: &str| matches!(n, "href" | "xlink:href" | "target" | "rel" | "ping" | "download" | "tabindex");
@@ -629,10 +735,80 @@ mod tests {
     }
 
     #[test]
+    fn opening_a_file_runs_the_readers_pending_header_update() {
+        use std::{cell::Cell, rc::Rc};
+        // msgload's header update for a message still loading when the preview takes the view
+        let ran = Rc::new(Cell::new(false));
+        let r = ran.clone();
+        super::ON_READY.with(|o| *o.borrow_mut() = Some((7, Box::new(move || { r.set(true); true }))));
+        super::READER_PENDING.with(|p| p.set(true));
+        assert!(super::enter_files());
+        assert!(ran.get(), "the header follows the message it was loading");
+        assert!(super::ON_READY.with(|o| o.borrow().is_none()));
+        // the body it was loading never showed: drawn again once the reader is back
+        assert!(super::STALE.with(|s| s.get()));
+        assert!(super::files_active());
+        // only the first file takes the view
+        assert!(!super::enter_files());
+        // while the preview holds the view a reader page runs its native part at once and is
+        // drawn later, and the file's page stays
+        super::STALE.with(|s| s.set(false));
+        let seq = super::DOC_SEQ.with(|s| s.get());
+        let ran2 = Rc::new(Cell::new(false));
+        let r2 = ran2.clone();
+        assert_eq!(super::show("<p>x</p>", "#ffffff", false, Some(Box::new(move || { r2.set(true); true }))), seq);
+        assert!(ran2.get() && super::STALE.with(|s| s.get()));
+        assert_eq!(super::DOC_SEQ.with(|s| s.get()), seq, "nothing was sent to the view");
+        // the reader's other calls leave the file alone too
+        super::clear();
+        assert!(!super::STALE.with(|s| s.get()), "a closed reader has nothing to draw again");
+        assert_eq!(super::DOC_SEQ.with(|s| s.get()), seq);
+    }
+
+    #[test]
+    fn a_held_reader_shows_once_its_page_is_on_screen() {
+        super::HELD.with(|h| h.set(true));
+        let seq = super::DOC_SEQ.with(|s| { s.set(s.get() + 3); s.get() });
+        // an earlier page's report does not count
+        super::on_ipc(&format!("revealed:{}", seq - 1));
+        assert!(super::HELD.with(|h| h.get()));
+        super::on_ipc(&format!("revealed:{seq}"));
+        assert!(!super::HELD.with(|h| h.get()));
+        // the shell reports every reveal and the page it puts back after a preview
+        assert!(super::SHELL_JS.contains("post('revealed:'+s)"));
+        assert_eq!(super::SHELL_JS.matches("post('revealed:'+s)").count(), 2);
+    }
+
+    #[test]
     fn left_and_right_come_back_from_a_file() {
         assert_eq!(parse_key("|ArrowLeft"), Some((vec![], char::from(Key::LeftArrow).to_string())));
         assert_eq!(parse_key("|ArrowRight"), Some((vec![], char::from(Key::RightArrow).to_string())));
         assert_eq!(parse_key("|ArrowUp"), None);
+    }
+
+    #[test]
+    fn link_warmups_are_removed_and_stylesheets_stay() {
+        for h in [
+            "<link rel=\"dns-prefetch\" href=\"//track.example\">",
+            "<LINK REL=preconnect href=https://track.example>",
+            "<link href='https://track.example/x' rel='prefetch'>",
+            "<link rel=\"preload\" as=\"image\" href=\"https://track.example/p.gif\">",
+            "<link rel=prerender href=https://track.example/>",
+            "<link rel=\"modulepreload\" href=\"https://track.example/m.js\">",
+            "<link rel=\"stylesheet preconnect\" href=\"https://track.example/\">",
+            "<link rel=\"dns&#45;prefetch\" href=\"//track.example\">",
+            "<link rel = \" DNS-Prefetch \" href=//track.example>",
+            "<link href=//track.example>",
+            "<link/rel=preconnect/href=//track.example>",
+        ] {
+            let o = san(&format!("a{h}b"));
+            assert_eq!(o, "ab", "{h}");
+        }
+        for h in ["<link rel=\"stylesheet\" href=\"https://e.example/s.css\">", "<link REL='StyleSheet' href=s.css>", "<link rel = \" stylesheet \" href=s.css>"] {
+            assert_eq!(san(h), h);
+        }
+        assert!(!super::link_rel_is_stylesheet("rel"));
+        assert!(!super::link_rel_is_stylesheet("rel=\"stylesheet\"x"));
     }
 
     #[test]
@@ -771,6 +947,7 @@ mod tests {
     #[test]
     fn shell_and_policy_are_hardened() {
         assert!(super::shell_html().contains("base-uri 'none'"));
+        assert!(super::shell_html().contains("<meta http-equiv=\"x-dns-prefetch-control\" content=\"off\">"));
         // the shell reads message documents through saved prototype members only
         let js = super::SHELL_JS;
         for bad in ["d.URL", "d.body", "d.querySelectorAll", "d.__bbd", "d.defaultView", "d.documentElement", "d.readyState", "a[i].setAttribute"] {
@@ -861,6 +1038,9 @@ fn on_ipc(msg: &str) {
         if let Some(js) = PENDING_JS.with(|p| p.borrow_mut().take()) { run_js(js); }
     } else if let Some(n) = msg.strip_prefix("ready:").and_then(|n| n.parse::<u64>().ok()) {
         ready(n, true);
+    } else if let Some(n) = msg.strip_prefix("revealed:").and_then(|n| n.parse::<u64>().ok()) {
+        // the reader's page is on screen in the view: a held view may show now
+        if n == DOC_SEQ.with(|s| s.get()) && !FILES.with(|f| f.get()) { unhold(true); }
     } else if let Some(k) = msg.strip_prefix("key:") {
         if let Some(u) = ui() { forward_key(&u, k); }
     } else if msg == "dirty" {
@@ -1052,9 +1232,11 @@ pub fn sync(ui: &AppWindow) {
         if ui.get_render_mode() == 0 { ui.set_render_mode(2); if ui.get_current_mail() != "" { crate::render_current(ui); } }
         return;
     }
+    if UI.with(|u| u.borrow().is_none()) { UI.with(|u| *u.borrow_mut() = Some(ui.as_weak())); }
+    // closing a Files preview left the reader's page out of date: drawn now that it is back
+    redraw_stale(ui);
     let t = target(ui);
     let want = t.want;
-    if UI.with(|u| u.borrow().is_none()) { UI.with(|u| *u.borrow_mut() = Some(ui.as_weak())); }
     // registering fails until the window has a renderer: retry until it takes
     if !NOTIFIER.with(|n| n.get()) {
         let ok = ui.window().set_rendering_notifier(|state, _| {

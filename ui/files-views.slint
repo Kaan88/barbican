@@ -487,6 +487,8 @@ export component FilePreview inherits Rectangle {
                 clip: true;
                 TouchArea { }
                 VerticalLayout {
+                    // an HTML file has no header: its rounded top corners stay clear of the view
+                    if !FilesV.p-eml: Rectangle { height: 12px; }
                     // an .eml's header (Bulwark EmlPreview)
                     if FilesV.p-eml: Rectangle {
                         background: Theme.tile;

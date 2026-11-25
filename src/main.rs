@@ -126,8 +126,10 @@ fn csp_with(images: bool, script: Option<&str>) -> String {
     };
     // with remote content blocked, a remote stylesheet or font is a tracking beacon like an image
     let (style, font, img) = if images { ("'unsafe-inline' http: https:", "http: https: data:", "http: https: data:") } else { ("'unsafe-inline'", "data:", "data:") };
+    // link host names are not resolved ahead of a click either (mailview::NO_DNS_PREFETCH)
     format!(
-        "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src {style}; font-src {font}; img-src {img}; script-src {scripts}; object-src 'none'; base-uri 'none'; frame-src 'none'; form-action 'none'\">"
+        "{}<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src {style}; font-src {font}; img-src {img}; script-src {scripts}; object-src 'none'; base-uri 'none'; frame-src 'none'; form-action 'none'\">",
+        mailview::NO_DNS_PREFETCH
     )
 }
 
@@ -138,6 +140,7 @@ mod csp_tests {
         let c = super::csp_with(false, None);
         assert!(c.contains("style-src 'unsafe-inline';") && c.contains("font-src data:;") && c.contains("img-src data:;"), "{c}");
         assert!(c.contains("script-src 'none'") && c.contains("base-uri 'none'"));
+        assert!(c.starts_with(super::mailview::NO_DNS_PREFETCH));
         let c = super::csp_with(true, Some("x"));
         assert!(c.contains("style-src 'unsafe-inline' http: https:;") && c.contains("font-src http: https: data:;") && c.contains("img-src http: https: data:;"));
         assert!(c.contains("script-src 'sha256-"));
@@ -234,8 +237,9 @@ fn render_current_then(u: &AppWindow, on_ready: Option<Box<dyn FnOnce() -> bool>
         let c = c.borrow();
         let Some(cur) = c.as_ref() else { return };
         u.set_images_blocked(cur.remote && !cur.allow && mode != 2);
-        // the page (links lose their address) and the navigation handlers read this
-        mailview::set_links_off(cur.links_off);
+        // the page (links lose their address) and the navigation handlers read this; not while
+        // the Files preview holds the view (its file's links work; put back when it closes)
+        if !mailview::files_active() { mailview::set_links_off(cur.links_off); }
         if cur.remote && !cur.allow && mode != 2 {
             let o = images_offers(u);
             u.set_images_can_load(o.load_once);
