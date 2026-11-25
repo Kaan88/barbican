@@ -214,14 +214,18 @@ pub(crate) fn bind_unbound_keys() {
     }
 }
 
-/// The user's own edit of an address (the settings page: imports, sync and the assistant's
-/// `change_setting` never edit `ai.` settings): the stored key the slot uses, `key`, moves with
-/// it to the new origin.
+/// The user's own committed edit of an address (the settings page: imports, sync and the
+/// assistant's `change_setting` never edit `ai.` settings): the stored key the slot uses, `key`,
+/// moves with it to the new origin. An address with no origin moves nothing.
 fn rebind(slot: &str, key: &str, base_url: &str) {
     let key = key.trim();
+    let origin = origin_of(base_url);
+    if origin.is_empty() {
+        return;
+    }
     for name in [slot, OLD_SECRET] {
         if read_entry(name).is_some_and(|(k, _)| k == key) {
-            write_entry(name, key, &origin_of(base_url));
+            write_entry(name, key, &origin);
         }
     }
 }
@@ -245,12 +249,19 @@ fn check_stored(slot: &str, key: &str, base_url: &str, kind: Kind) -> Result<(),
     let to = origin_of(base_url);
     match stored_origin(slot, key) {
         Some(Some(o)) if o == to => Ok(()),
-        Some(o) if !key.is_empty() => Err(format!(
-            "The {} API key was saved for {}, not for {to}. To use it with {to}, enter that address in the settings yourself, or clear the key and enter it again.",
-            kind.label(),
-            o.filter(|o| !o.is_empty()).unwrap_or_else(|| "another address".into()),
-        )),
+        Some(o) if !key.is_empty() => Err(refusal(kind.label(), o.as_deref().filter(|o| !o.is_empty()), &to)),
         _ => Ok(()),
+    }
+}
+
+/// The refusal: it never suggests moving the key to the new address by editing it (an import may
+/// have put it there), only setting the old one back or entering the key again.
+fn refusal(label: &str, from: Option<&str>, to: &str) -> String {
+    match from {
+        Some(from) => format!(
+            "The {label} API key was saved for {from}, but the address is now {to}. If you did not change it (an import can), set it back to {from}. To use {to}, clear the key and enter it again."
+        ),
+        None => format!("The {label} API key was saved for another address, but the address is now {to}. To use {to}, clear the key and enter it again."),
     }
 }
 
@@ -372,8 +383,9 @@ impl Settings {
         }
     }
 
-    /// The user's own edit of the OpenAI-compatible address (the settings page): the stored key
-    /// moves with it. A file (an import, a sync) never goes through here.
+    /// The user's own committed edit of the OpenAI-compatible address (the settings page, once the
+    /// field is accepted or left, never per keystroke): the stored key moves with it. A file (an
+    /// import, a sync) never goes through here.
     pub fn set_openai_base_url(&mut self, url: &str) {
         self.openai_base_url = url.trim().to_string();
         rebind(OPENAI_SECRET, &self.openai_key, &self.openai_base_url);
@@ -1123,7 +1135,7 @@ mod tests {
     }
 
     fn refusal(label: &str, from: &str, to: &str) -> String {
-        format!("The {label} API key was saved for {from}, not for {to}. To use it with {to}, enter that address in the settings yourself, or clear the key and enter it again.")
+        format!("The {label} API key was saved for {from}, but the address is now {to}. If you did not change it (an import can), set it back to {from}. To use {to}, clear the key and enter it again.")
     }
 
     fn answer() -> Reply {
@@ -1231,10 +1243,16 @@ mod tests {
         let _files = crate::settings::TEST_FILES.lock().unwrap_or_else(|e| e.into_inner());
         clean_store();
         let (home, moved, imported) = ("https://home.example.test", "https://moved.example.test", "https://imported.example.test");
-        // the earlier settings page: the user edits `ai.base`, the same key keeps working there
+        // the earlier settings page: the user edits `ai.base` and leaves the field; the same key
+        // keeps working there
         let mut cfg = crate::ai::Config { base: format!("{home}/v1"), key: "sk-stored-dummy".into(), ..crate::ai::Config::default() };
         cfg.save();
-        crate::settings::Settings::load().set("ai.base", json!(format!("{moved}/v1")), &mut cfg);
+        let mut page = crate::settings::Settings::load();
+        for typed in ["https://moved", "https://moved.example.test", format!("{moved}/v1").as_str()] {
+            page.set("ai.base", json!(typed), &mut cfg);
+            assert_eq!(origin_in_store(OLD_SECRET).as_deref(), Some(home), "a keystroke moves nothing");
+        }
+        cfg.commit_base();
         assert_eq!(origin_in_store(OLD_SECRET).as_deref(), Some(moved));
         assert_eq!(check_old_key("sk-stored-dummy", &format!("{moved}/v1"), Kind::OpenAi), Ok(()));
         let s = Settings::load();
@@ -1245,14 +1263,28 @@ mod tests {
         assert_eq!(origin_in_store(OLD_SECRET).as_deref(), Some("https://api.anthropic.com"));
         crate::settings::Settings::load().set("ai.provider", json!(0), &mut cfg);
         crate::settings::Settings::load().set("ai.base", json!(format!("{moved}/v1")), &mut cfg);
+        cfg.commit_base();
+        assert_eq!(origin_in_store(OLD_SECRET).as_deref(), Some(moved));
         // an import that changes the address is still refused
         let mut file = read_file().unwrap();
         file["base"] = json!(format!("{imported}/v1"));
         write_file(&file).unwrap();
-        let after = crate::ai::Config::load();
+        let mut after = crate::ai::Config::load();
         assert_eq!(check_old_key(&after.key, &after.base, Kind::OpenAi), Err(refusal("OpenAI-compatible", moved, imported)));
         let s = Settings::load();
         assert_eq!(key_check(&s, Kind::OpenAi, &s.openai_base_url).unwrap_err().message, refusal("OpenAI-compatible", moved, imported));
+        // entering and leaving the imported address without changing it moves nothing
+        after.commit_base();
+        assert_eq!(origin_in_store(OLD_SECRET).as_deref(), Some(moved));
+        // nor does a keystroke there that is never committed, nor an address with no origin
+        crate::settings::Settings::load().set("ai.base", json!(format!("{imported}/v1/")), &mut after);
+        assert_eq!(origin_in_store(OLD_SECRET).as_deref(), Some(moved));
+        let mut bad = after.clone();
+        crate::settings::Settings::load().set("ai.base", json!("not an address"), &mut bad);
+        bad.commit_base();
+        assert_eq!(origin_in_store(OLD_SECRET).as_deref(), Some(moved));
+        rebind(OPENAI_SECRET, "sk-stored-dummy", "");
+        assert_eq!(origin_in_store(OLD_SECRET).as_deref(), Some(moved));
         // the new settings' setters do the same for their slots
         clean_store();
         let mut s = Settings { openai_base_url: format!("{home}/v1"), openai_key: "sk-stored-dummy".into(), ..with_anthropic("sk-stored-dummy-ant") };
@@ -1313,7 +1345,7 @@ mod tests {
         let a = with_anthropic("sk-stored-none");
         assert_eq!(
             key_check(&a, Kind::Anthropic, DEFAULT_ANTHROPIC_URL).unwrap_err().message,
-            refusal("Anthropic", "another address", "https://api.anthropic.com")
+            "The Anthropic API key was saved for another address, but the address is now https://api.anthropic.com. To use https://api.anthropic.com, clear the key and enter it again."
         );
         // only a key that differs from the stored one binds to the current address
         s.openai_key = "sk-stored-retyped".into();

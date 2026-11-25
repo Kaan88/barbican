@@ -2174,6 +2174,8 @@ export component AppWindow inherits Window {
     callback settings-set-toggle(string, bool);
     callback settings-set-select(string, int);
     callback settings-set-text(string, string);
+    // a one-line field accepted or left (after its settings-set-text edits)
+    callback settings-commit-text(string, string);
     callback settings-button(string);
     callback load-images();
     callback trust-sender();
@@ -6207,6 +6209,8 @@ export component AppWindow inherits Window {
                                         text: r.text;
                                         input-type: r.kind == "password" ? InputType.password : InputType.text;
                                         edited(t) => { root.settings-set-text(r.key, t); }
+                                        accepted(t) => { root.settings-commit-text(r.key, t); }
+                                        changed has-focus => { if !self.has-focus { root.settings-commit-text(r.key, self.text); } }
                                     }
                                     if r.kind == "value": Text { text: r.text; color: Theme.dim; horizontal-alignment: right; width: 240px; overflow: elide; }
                                     // a used / limit line (Account > Storage usage): the percentage and a bar; index is the percent, -1 no bar

@@ -17,6 +17,9 @@ pub struct Config {
     pub hidden: bool,
     pub render_mode: i32, // 0 WebView2, 1 Blitz, 2 plain text
     pub remote_images: bool,
+    /// The address before the edit in progress in the settings page (`ai.base`), none when no
+    /// edit is: see [`Config::commit_base`]
+    pub base_edit_from: Option<String>,
 }
 
 pub const DEFAULTS: [(&str, &str); 2] = [
@@ -57,14 +60,36 @@ impl Config {
             hidden: v["hidden"].as_bool().unwrap_or(false),
             render_mode: (v["renderMode"].as_i64().unwrap_or(0) as i32).clamp(0, 2),
             remote_images: v["remoteImages"].as_bool().unwrap_or(false),
+            base_edit_from: None,
         }
     }
 
-    /// The user's own edit of the address (the settings page; imports and sync never edit `ai.`
-    /// settings, and the assistant may not): the stored key moves with it to the new origin.
+    /// A committed change of the address (a service switch): the stored key moves with it to the
+    /// new origin. Imports and sync never edit `ai.` settings, and the assistant may not.
     pub fn set_base(&mut self, base: &str) {
         self.base = base.trim().into();
+        self.base_edit_from = None;
         crate::assistant::config::rebind_old_key(&self.key, &self.base);
+    }
+
+    /// One keystroke in the address field: saved as typed, but the stored key stays bound where
+    /// it was until the edit is committed ([`Config::commit_base`]), so a stray keystroke in an
+    /// imported address never moves the key there.
+    pub fn edit_base(&mut self, base: &str) {
+        if self.base_edit_from.is_none() {
+            self.base_edit_from = Some(self.base.clone());
+        }
+        self.base = base.trim().into();
+    }
+
+    /// The address field accepted or left: when the edit changed the address, the stored key
+    /// moves with it to the new origin; entering and leaving the field unchanged moves nothing.
+    pub fn commit_base(&mut self) {
+        if let Some(from) = self.base_edit_from.take() {
+            if from.trim() != self.base {
+                crate::assistant::config::rebind_old_key(&self.key, &self.base);
+            }
+        }
     }
 
     pub fn save(&self) {
@@ -296,7 +321,7 @@ mod save_tests {
         let moved = Config { base: "https://elsewhere.example.test/v1".into(), ..c.clone() };
         assert_eq!(
             moved.post(json!({})).unwrap_err(),
-            "The OpenAI-compatible API key was saved for https://home.example.test, not for https://elsewhere.example.test. To use it with https://elsewhere.example.test, enter that address in the settings yourself, or clear the key and enter it again."
+            "The OpenAI-compatible API key was saved for https://home.example.test, but the address is now https://elsewhere.example.test. If you did not change it (an import can), set it back to https://home.example.test. To use https://elsewhere.example.test, clear the key and enter it again."
         );
         // saving it there keeps the origin; only a changed key binds to the new address
         moved.save();

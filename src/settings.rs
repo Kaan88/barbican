@@ -845,7 +845,7 @@ impl Settings {
                     cfg.model = crate::ai::DEFAULTS[p as usize].1.into();
                 }
             }
-            "ai.base" => cfg.set_base(value.as_str().unwrap_or("")),
+            "ai.base" => cfg.edit_base(value.as_str().unwrap_or("")),
             "ai.key" => cfg.key = value.as_str().unwrap_or("").trim().into(),
             "ai.model" => {
                 let m = value.as_str().unwrap_or("").trim();
