@@ -590,6 +590,7 @@ fn effective_plugins() -> Vec<String> {
 
 /// Load what was switched on, unload what was switched off; returns the effective allow-list.
 fn plugins_synced() -> Vec<String> {
+    forget_enabled_cache();
     let en = effective_plugins();
     let grants = plugins::grants_from_prefs(&settings::Settings::load().prefs);
     let errs = PLUGINS.with(|p| plugins::sync(&mut p.borrow_mut(), &en, &grants));
@@ -872,12 +873,38 @@ pub fn plugin_errors() -> Vec<String> {
 pub fn plugin_hook_targets(hook: &str) -> Vec<Arc<plugin_host::HostCtx>> {
     let any = PLUGINS.with(|p| p.try_borrow().map(|l| l.iter().any(|x| x.is_running_v2())).unwrap_or(false));
     if !any { return vec![]; }
-    let en = enabled_plugins();
+    let en = cached_enabled_plugins();
     PLUGINS.with(|p| p.try_borrow().map(|l| plugins::hook_targets(&l, &en, hook)).unwrap_or_default())
 }
 
+/// The plugins switched on with `hook` that the failure limit switched off (the send check's guard).
+pub fn plugin_tripped_guards(hook: &str) -> Vec<String> {
+    let any = PLUGINS.with(|p| p.try_borrow().map(|l| l.iter().any(|x| x.is_tripped())).unwrap_or(false));
+    if !any { return vec![]; }
+    let en = effective_plugins();
+    PLUGINS.with(|p| p.try_borrow().map(|l| plugins::tripped_guards(&l, &en, hook)).unwrap_or_default())
+}
+
+thread_local! {
+    /// [`enabled_plugins`] for the hooks, read once (every hook event would read the settings file again);
+    /// forgotten whenever the plugins are synced or a plugin setting changes, and after 5 s in any case (the list
+    /// can change in other ways too: an import, a removed package).
+    static ENABLED_CACHE: std::cell::RefCell<Option<(std::time::Instant, Vec<String>)>> = const { std::cell::RefCell::new(None) };
+}
+
+fn cached_enabled_plugins() -> Vec<String> {
+    let fresh = ENABLED_CACHE.with(|c| c.borrow().as_ref().filter(|(t, _)| t.elapsed() < std::time::Duration::from_secs(5)).map(|(_, v)| v.clone()));
+    if let Some(v) = fresh { return v; }
+    let v = enabled_plugins();
+    ENABLED_CACHE.with(|c| *c.borrow_mut() = Some((std::time::Instant::now(), v.clone())));
+    v
+}
+
+fn forget_enabled_cache() { ENABLED_CACHE.with(|c| *c.borrow_mut() = None); }
+
 /// A plugin's setting changed in Settings > Add-ons: a running API 2 plugin gets the `settings` message.
 pub fn plugin_settings_changed(key: &str) {
+    forget_enabled_cache();
     plugin_hooks::settings_changed(PLUGINS.with(|p| p.try_borrow().ok().and_then(|l| plugins::running_v2(&l, key))));
 }
 

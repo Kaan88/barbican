@@ -1487,6 +1487,20 @@ pub fn hook_targets(plugins: &[Plugin], enabled: &[String], hook: &str) -> Vec<A
     v.into_iter().map(|x| x.1).collect()
 }
 
+/// The plugins switched on (`enabled`: the effective, granted list) whose manifest and grant give them `hook` but that
+/// the failure limit switched off for the session: their names. The send check fails closed, so these still stop a
+/// send until the user switches them off (PLUGINS.md "What B4 built").
+pub fn tripped_guards(plugins: &[Plugin], enabled: &[String], hook: &str) -> Vec<String> {
+    let need = crate::plugin_catalog::lookup_hook(hook).map(|h| h.permission);
+    plugins.iter().filter(|p| enabled.contains(&p.key) && p.decl.api >= 2 && p.is_tripped() && p.handles(hook))
+        .filter(|p| match &p.v2 {
+            Some(rt) => rt.ctx.would_hear(hook),
+            // parked: its grant covered what the manifest asks for (it is in the effective list)
+            None => need.is_some_and(|n| p.decl.permissions.iter().any(|x| x == n)),
+        })
+        .map(|p| { let n = shown(&p.name, 60).trim().to_string(); if n.is_empty() { p.key.clone() } else { n } }).collect()
+}
+
 /// The running API 2 plugin switched on as `key`, if any (the `settings` message).
 pub fn running_v2(plugins: &[Plugin], key: &str) -> Option<Arc<crate::plugin_host::HostCtx>> {
     plugins.iter().find(|p| p.key == key).and_then(|p| p.v2.as_ref()).filter(|r| !r.ctx.is_disabled()).map(|r| r.ctx.clone())

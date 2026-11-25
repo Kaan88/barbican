@@ -122,7 +122,7 @@ handlers in `ui/app.slint` (`plugin-watch`).
   plugin with `email:read` or `account:read`. The plugin's host thread hands messages to `barbican_plugin_handle` one
   at a time; nothing waits on it, the UI least of all. The reply is NULL ("nothing to say", a null result), `{"v":2,
   "id","ok":true,"result"}`, `{"v":2,"id","ok":false,"error"}`, or `{"v":2,"id","deferred":true}` followed by a `post`
-  of `{"v":2,"type":"result","id","ok",...}`. A reply that is over 4 MiB, not UTF-8 or JSON, has another `v` or `id`,
+  of `{"v":2,"type":"result","id","ok",...}` (a result posted before `handle` returns `deferred` is kept and counts). A reply that is over 4 MiB, not UTF-8 or JSON, has another `v` or `id`,
   or no `ok` is a failure; so is an error reply. (A panic cannot be caught: unwinding out of an `extern "C"` function
   aborts the process, so a Rust plugin must `catch_unwind` itself, as "Memory and ownership" says.)
 - **Deadlines.** A hook's budget is its catalogue `budget_ms` (5 s, intercepts 60 s, the send check 10 min), counted
@@ -133,13 +133,19 @@ handlers in `ui/app.slint` (`plugin-watch`).
   queued is switched off for the session. A `deferred` message whose result is not posted within the budget is a
   timeout and a failure, and the plugin gets `{"type":"cancel","ref":id}`. Calls made `in` a message that is over
   answer `cancelled`. 3 failures in a row switch the plugin off for the session with the same notice as API 1 and the
-  host-call budget; switching it off (any way) ends every message in flight at once.
+  host-call budget; switching it off (any way) ends every message in flight at once. Only the answer to a hook
+  message resets the row (not the answer to `cancel` or `settings`). At most 64 messages wait for one plugin: past
+  that the oldest waiting observer is dropped (not a failure), and with no observer waiting the new message is.
 - **Kinds.** Observers are fired and forgotten. The send check (`onBeforeEmailSend`) asks every plugin at once and
   **fails closed**: `false` stops the send ("Not sent: the plugin X stopped this message."), and so does every way of
   not answering, a timeout, an error, a malformed reply, the plugin switched off on the way, a message it never got
   ("Not sent: the plugin X could not check this message (why). Press Send to try again, or switch X off in Settings >
-  Add-ons to send without its check."). `{"warning": "..."}` holds the send once, like API 1's `compose.check`;
-  pressing Send again for the same draft sends it (the check still runs, and a refusal or failure still stops it).
+  Add-ons to send without its check."). **A plugin with the send check that the failure limit switched off still
+  stops every send** until the user switches it off in Settings > Add-ons (or restarts Barbican): the check fails
+  closed, so a plugin that keeps failing cannot be got past by failing three times. A plugin the user switched off
+  is not asked. `{"warning": "..."}` holds the send once, like API 1's `compose.check`; pressing Send again for the
+  same draft and action sends it (the check still runs, and a refusal or failure still stops it). Confirming API 1's
+  warning does not confirm the API 2 check's, nor the other way round.
   The outgoing transform (`onTransformOutgoingEmail`) runs after the check, one plugin after another, each on the
   previous result. Its answer is checked (`plugin_hooks::check_outgoing`): it may change the recipients (each entry one
   valid address, at most 500 per field), the subject (one line, at most 998 characters), the text and HTML bodies (at
@@ -149,16 +155,22 @@ handlers in `ui/app.slint` (`plugin-watch`).
   and changes nothing; null, `false`, a timeout or a failure keep the message as it was.
 - **The send.** While plugins check, Send shows "Checking…" and is off, and a Cancel button stops the check: nothing
   is sent, the plugins get `cancel`, and Send runs the check again. The answers count only while the composer still
-  holds the same draft (an edit meanwhile, or closing the composer, drops them). **When a transform changes who the
-  message goes to, the send checks run again for the new recipients**: every address must be valid and there must be
-  at least one, recipients outside the organisation that a plugin added are confirmed once when that setting is on,
-  then API 1's `compose.check` and the plugins' `onBeforeEmailSend` see the changed message; only then it is sent.
+  holds the same content (an edit meanwhile, or closing or replacing the composer, drops them). No draft is saved
+  while the plugins check; a save that is still running when they are done is waited for, and the send replaces the
+  draft saved last. **When a transform changes who the message goes to, the send checks run again for the new
+  recipients**: every address must be valid and there must be at least one, recipients outside the organisation that
+  a plugin added are confirmed when that setting is on, then API 1's `compose.check` and the plugins'
+  `onBeforeEmailSend` see the changed message; only then it is sent. A warning of these is confirmed for that draft,
+  that action and that set of added recipients only (none of the warnings confirmed before the transform counts): a
+  transform that adds someone else is checked again.
 - **Payloads** carry what the hook's permission covers and nothing secret (no token, password or storage key):
   `onEmailOpen` gets Bulwark's `EmailReadView` (senders, recipients, subject, flags, keywords, preview, the full text,
   the headers, attachment names, types and sizes; blob ids only with `email:blob-read`; `source` is empty);
   `onBeforeEmailSend` and `onTransformOutgoingEmail` get Bulwark's `OutgoingEmail` (`email:send`: recipients, subject,
   both bodies, `authoredText`, `externalRecipients`, attachment names, types and sizes, `keywords`, `mode`,
-  `composerId`; no attachment bytes or text excerpts); `onDraftChange` gets `DraftView` with the bodies only for a
+  `composerId`; no attachment bytes or text excerpts). A body over 1 MiB is cut: the payload says `truncated: true`
+  and lists the cut fields in `truncatedFields`; the send check is still asked (on the cut text), and a transform may
+  not replace a cut body (an answer that does is refused; the whole body the user wrote is sent); `onDraftChange` gets `DraftView` with the bodies only for a
   plugin with `compose:check` (it is what the user is typing), else empty bodies and `bodyWithheld: true`.
 - **The `settings` message** `{"type":"settings","values"}` is sent to a running plugin when one of its settings
   changes in Settings > Add-ons (the values as `plugin.getConfig` gives them).
@@ -170,7 +182,7 @@ handlers in `ui/app.slint` (`plugin-watch`).
 | `onEmailSelectionChange` | observer | `mail.rs` `rebuild_list` (the ticked set changed) | `{emailIds}` (sorted) |
 | `onMailboxChange` | observer | `plugin_hooks::watch("folder")` (`current-folder` changed) | `{mailboxId, role, previousMailboxId}` |
 | `onComposerOpen` | observer | `compose.rs` `open`, `open_draft` | `{mode, inReplyToId, originalSubject, composerId}` |
-| `onComposerClose` | observer | `plugin_hooks::watch("composing")`, or the next composer | `{composerId, draftId, sent}` |
+| `onComposerClose` | observer | `plugin_hooks::watch("composing")`, or the next composer | `{composerId, draftId, sent}` (`sent` once the server took it while the composer was open; with the in-app undo delay it closes first and says `false`) |
 | `onDraftChange` | observer | `autosave.rs` `tick` (1 s after the last change) | `DraftView` |
 | `onDraftAutoSave` | observer | `compose.rs` `run_save` (every saved draft) | `{draftId, subject, composerId}` |
 | `onBeforeEmailSend` | intercept, fail closed | `compose.rs` `plugin_send`, again in `transformed` | `OutgoingEmail` |

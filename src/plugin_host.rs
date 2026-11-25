@@ -261,6 +261,10 @@ struct Live {
     /// A hook message: only its answer shows the plugin works again (resets the failure count). The answer to a
     /// `cancel` or `settings` message does not, or a plugin could answer those to undo its own timeouts.
     hook: bool,
+    /// An observer's message (a hook nobody waits for): the first to go when too many wait ([`MAX_QUEUED`]).
+    droppable: bool,
+    /// A `result` the plugin posted before its `handle` returned `deferred`: it ends the message when it does.
+    early: Option<Value>,
 }
 
 #[derive(Default)]
@@ -288,6 +292,9 @@ pub enum Outcome {
     Dropped(String),
     /// The plugin was switched off before it answered.
     Disabled,
+    /// The failure limit switched the plugin off for the session before this message (the send check counts it as
+    /// a plugin that cannot check: PLUGINS.md "What B4 built").
+    Tripped,
     /// The host cancelled it (the user pressed Cancel).
     Cancelled,
 }
@@ -301,6 +308,7 @@ impl Outcome {
             Outcome::TimedOut => Some("it did not answer in time".into()),
             Outcome::Dropped(why) => Some(why.clone()),
             Outcome::Disabled => Some("it was switched off".into()),
+            Outcome::Tripped => Some("it was switched off for this session after repeated failures".into()),
             Outcome::Cancelled => Some("the check was cancelled".into()),
         }
     }
@@ -318,6 +326,9 @@ enum Parsed { Answer(Value), Deferred, Failed(String) }
 pub const HOLD_CAP: Duration = Duration::from_secs(600);
 /// Budget of the host's own messages that are not hooks (`settings`, `cancel`).
 pub const MESSAGE_BUDGET: Duration = Duration::from_secs(5);
+/// Most messages waiting for one plugin. Past it the oldest waiting observer is dropped (not a failure: the plugin
+/// never saw it); with no observer waiting, the new message is.
+pub const MAX_QUEUED: usize = 64;
 
 /// The hooks this build fires (`init_json.features.hooks`); the rest are delivered from later steps on. Mail and the
 /// composer (ROADMAP Phase 5 B4, first part).
@@ -551,9 +562,11 @@ impl HostCtx {
     /// Does the plugin hear this hook? It is fired by this build ([`FIRED_HOOKS`]), catalogued and not skipped, the
     /// manifest declares it (or its alias) and the hook's permission (or its second one) was granted. A message for
     /// any other hook is never sent.
-    pub fn hears(&self, hook: &str) -> bool {
+    pub fn hears(&self, hook: &str) -> bool { !self.is_disabled() && self.would_hear(hook) }
+
+    /// [`HostCtx::hears`], switched off or not (a plugin the failure limit switched off still guards the send).
+    pub fn would_hear(&self, hook: &str) -> bool {
         use crate::plugin_catalog::{lookup_hook, resolve_alias, Support};
-        if self.is_disabled() { return false; }
         let want = resolve_alias(hook);
         let Some(h) = lookup_hook(want).filter(|h| h.support != Support::Skip) else { return false };
         if !FIRED_HOOKS.contains(&h.name) || !self.p.hooks.iter().any(|d| resolve_alias(d) == want) { return false; }
@@ -616,7 +629,16 @@ impl HostCtx {
             }
             g.watching = true;
         }
-        g.live.insert(id, Live { budget, queued: Instant::now(), phase: Phase::Queued, done, check, hook: kind == "hook" });
+        let droppable = kind == "hook" && done.is_none();
+        let mut bumped = None;
+        if g.live.values().filter(|l| l.phase == Phase::Queued).count() >= MAX_QUEUED {
+            let oldest = g.live.iter().filter(|(_, l)| l.phase == Phase::Queued && l.droppable).map(|(k, _)| *k).min();
+            match oldest {
+                Some(k) => bumped = Some(g.live.remove(&k).and_then(|l| l.done)),
+                None => { drop(g); return refuse(done, Outcome::Dropped("too many of its events are waiting".into())); }
+            }
+        }
+        g.live.insert(id, Live { budget, queued: Instant::now(), phase: Phase::Queued, done, check, hook: kind == "hook", droppable, early: None });
         let sent = g.queue.as_ref().is_some_and(|q| q.send((id, text)).is_ok());
         if !sent {
             let d = g.live.remove(&id).and_then(|l| l.done);
@@ -625,6 +647,7 @@ impl HostCtx {
         }
         drop(g);
         self.msgs_cv.notify_all();
+        if let Some(Some(d)) = bumped { d(Outcome::Dropped("too many of its events were waiting".into())); }
         Some(id)
     }
 
@@ -687,7 +710,15 @@ impl HostCtx {
             if g.hung == Some(id) { g.hung = None; }
             let running = g.live.get(&id).map(|l| matches!(l.phase, Phase::Running(_)));
             match (running, parsed) {
-                (Some(true), Parsed::Deferred) => { if let Some(l) = g.live.get_mut(&id) { l.phase = Phase::Deferred(start); } None }
+                (Some(true), Parsed::Deferred) => match g.live.get_mut(&id) {
+                    // the result was posted before handle returned: it ends the message now
+                    Some(l) if l.early.is_some() => {
+                        let v = l.early.take().unwrap_or_default();
+                        g.live.remove(&id).map(|l| (l, parse_reply(&v.to_string().into_bytes(), id, false)))
+                    }
+                    Some(l) => { l.phase = Phase::Deferred(start); None }
+                    None => None,
+                },
                 (Some(true), p) => g.live.remove(&id).map(|l| (l, p)),
                 // over its deadline or cancelled meanwhile: the answer is dropped
                 (Some(false), _) => { g.live.remove(&id); None }
@@ -713,11 +744,13 @@ impl HostCtx {
         if let Some(d) = l.done { d(o); }
     }
 
-    /// A deferred result arrived with `post`.
+    /// A deferred result arrived with `post`. One posted while `handle` still runs (before it returned `deferred`)
+    /// is kept and ends the message when `handle` returns `deferred`; any other answer from `handle` wins over it.
     fn deferred_result(&self, id: u64, v: &Value) {
         let l = {
             let mut g = lock(&self.msgs);
-            match g.live.get(&id) {
+            match g.live.get_mut(&id) {
+                Some(l) if matches!(l.phase, Phase::Running(_)) => { if l.early.is_none() { l.early = Some(v.clone()); } return; }
                 Some(l) if matches!(l.phase, Phase::Deferred(_)) => g.live.remove(&id),
                 _ => return,
             }
@@ -2319,6 +2352,12 @@ pub(crate) mod hook_fake {
                 }
                 out(json!({"v": 2, "id": id, "deferred": true}))
             }
+            // the result is posted (and the host has it) before handle returns deferred
+            "earlypost" => {
+                post(&json!({"v": 2, "type": "result", "id": id, "ok": true, "result": p["result"].clone()}));
+                std::thread::sleep(Duration::from_millis(ms));
+                out(json!({"v": 2, "id": id, "deferred": true}))
+            }
             "call" => {
                 lock(&CALLS).push(host_call(&json!({"v": 2, "method": "app.getInfo", "in": id}).to_string()));
                 std::thread::sleep(Duration::from_millis(ms));
@@ -2467,6 +2506,46 @@ mod hook_tests {
         assert_eq!(rt.ctx.fails.load(Ordering::SeqCst), 1);
         rt.switch_off();
         assert_eq!(post(&json!({"v": 2, "type": "result", "id": id, "ok": true})), -3);
+    }
+
+    #[test]
+    fn a_result_posted_before_handle_returns_deferred_ends_the_message() {
+        let _g = lock(&LOCK);
+        let rt = run("hooks-early.dll", &["email:read"]);
+        assert_eq!(fire(&rt, "onEmailOpen", json!({"act": "earlypost", "ms": 30, "result": "first"}), Duration::from_secs(2)), Outcome::Answer(json!("first")));
+        assert_eq!(fails(&rt.ctx), 0);
+        rt.switch_off();
+    }
+
+    #[test]
+    fn a_full_queue_drops_the_oldest_observer_first() {
+        let _g = lock(&LOCK);
+        lock(&SEEN).clear();
+        let rt = run("hooks-queue.dll", &["email:read"]);
+        // one slow message holds the host thread; the queue fills behind it
+        let (slow, slow_rx) = outcome();
+        rt.ctx.fire("onEmailOpen", json!({"act": "sleep", "ms": 300}), Duration::from_secs(5), Some(slow));
+        assert!(until(|| lock(&SEEN).iter().any(|m| m["payload"]["act"] == "sleep")));
+        let (waited, waited_rx) = outcome();
+        rt.ctx.fire("onEmailOpen", json!({"n": "waited"}), Duration::from_secs(5), Some(waited));
+        for i in 0..MAX_QUEUED + 5 { rt.ctx.fire("onEmailOpen", json!({"n": i}), Duration::from_secs(5), None); }
+        assert_eq!(slow_rx.recv_timeout(Duration::from_secs(2)).unwrap(), Outcome::Answer(Value::Null));
+        // the message someone waits for was not dropped; the first observers were, and none counted as a failure
+        assert_eq!(waited_rx.recv_timeout(Duration::from_secs(2)).unwrap(), Outcome::Answer(Value::Null));
+        let last = json!(MAX_QUEUED + 4);
+        assert!(until(|| lock(&SEEN).iter().any(|m| m["payload"]["n"] == last)), "the newest observer is delivered");
+        assert!(!lock(&SEEN).iter().any(|m| m["payload"]["n"] == json!(0)), "the oldest observer was dropped");
+        assert_eq!(fails(&rt.ctx), 0);
+        // with only messages someone waits for in the queue, the new one is refused
+        let (hold, _hold_rx) = outcome();
+        rt.ctx.fire("onEmailOpen", json!({"act": "sleep", "ms": 300}), Duration::from_secs(5), Some(hold));
+        assert!(until(|| lock(&SEEN).iter().filter(|m| m["payload"]["act"] == "sleep").count() == 2));
+        let mut rxs = vec![];
+        for _ in 0..MAX_QUEUED { let (d, rx) = outcome(); rt.ctx.fire("onEmailOpen", json!({}), Duration::from_secs(5), Some(d)); rxs.push(rx); }
+        let (d, rx) = outcome();
+        rt.ctx.fire("onEmailOpen", json!({}), Duration::from_secs(5), Some(d));
+        assert!(matches!(rx.recv_timeout(Duration::from_millis(100)).unwrap(), Outcome::Dropped(w) if w.contains("too many")));
+        rt.switch_off();
     }
 
     #[test]

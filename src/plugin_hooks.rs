@@ -153,6 +153,9 @@ pub fn send_verdict(results: &[(String, Outcome)], acked: bool) -> Verdict {
                 let w = v["warning"].as_str().map(|w| shown(w, 300)).map(|w| w.trim().to_string()).filter(|w| !w.is_empty());
                 if let (Some(w), None, false) = (w, &warn, acked) { warn = Some(format!("{name}: {w}")); }
             }
+            Outcome::Tripped => return Verdict::Block(format!("Not sent: the plugin {name} checks outgoing mail, but it was switched off for \
+                this session after repeated failures. Switch {name} off in Settings > Add-ons to send without its check, or restart \
+                Barbican to try it again.")),
             other => {
                 let why = other.problem().unwrap_or_default();
                 return Verdict::Block(format!("Not sent: the plugin {name} could not check this message ({why}). Press Send to try again, \
@@ -181,9 +184,13 @@ fn recipient_list(field: &str) -> Vec<Value> {
 
 /// Bulwark's `OutgoingEmail` for `onBeforeEmailSend` and `onTransformOutgoingEmail` (`email:send` covers all of it:
 /// "read and change the recipients, subject, text and attachments of messages you write"). Attachments are names,
-/// types and sizes; their bytes and text excerpts are not handed over.
+/// types and sizes; their bytes and text excerpts are not handed over. A body over [`MAX_TEXT_BYTES`] is cut: the
+/// payload then says `truncated: true` and names the cut fields in `truncatedFields` (a transform may not replace
+/// those, [`check_outgoing`]; the send check is still asked, on the cut text).
 pub fn outgoing_payload(o: &Outgoing, cx: &SendContext) -> Value {
     let from = o.sub_address.clone().or_else(|| o.from_override.as_ref().map(|f| f.1.clone())).unwrap_or_else(|| o.from.clone());
+    let cut_fields: Vec<&str> = [("textBody", o.text.len()), ("htmlBody", o.html.as_deref().map_or(0, str::len))]
+        .into_iter().filter(|(_, n)| *n > MAX_TEXT_BYTES).map(|(k, _)| k).collect();
     let mut v = json!({
         "to": recipient_list(&o.to), "cc": recipient_list(&o.cc), "bcc": recipient_list(&o.bcc),
         "subject": o.subject, "htmlBody": cut(o.html.as_deref().unwrap_or(""), MAX_TEXT_BYTES), "textBody": cut(&o.text, MAX_TEXT_BYTES),
@@ -194,7 +201,13 @@ pub fn outgoing_payload(o: &Outgoing, cx: &SendContext) -> Value {
     });
     if let Some(r) = o.in_reply_to.first() { v["inReplyTo"] = json!(r); }
     if !cx.composer_id.is_empty() { v["composerId"] = json!(cx.composer_id); }
+    if !cut_fields.is_empty() { v["truncated"] = json!(true); v["truncatedFields"] = json!(cut_fields); }
     v
+}
+
+/// The fields of a payload that were cut ([`outgoing_payload`]).
+fn truncated_fields(v: &Value) -> Vec<String> {
+    v["truncatedFields"].as_array().into_iter().flatten().filter_map(|x| x.as_str().map(String::from)).collect()
 }
 
 /// The bare lowercase addresses of a payload's recipients, sorted.
@@ -209,6 +222,12 @@ fn address_set(v: &Value) -> Vec<String> {
 
 /// Did a transform change who the message goes to (Bulwark `recipientsChanged`)? Then the send checks run again.
 pub fn recipients_changed(before: &Value, after: &Value) -> bool { address_set(before) != address_set(after) }
+
+/// The bare addresses a transform added (sorted).
+pub fn added_recipients(before: &Value, after: &Value) -> Vec<String> {
+    let was = address_set(before);
+    address_set(after).into_iter().filter(|a| !was.contains(a)).collect()
+}
 
 fn recipients_field(v: &Value, key: &str) -> Result<Value, String> {
     let a = v.as_array().ok_or_else(|| format!("{key} must be a list of addresses"))?;
@@ -231,9 +250,10 @@ fn recipients_field(v: &Value, key: &str) -> Result<Value, String> {
 /// HTML only when the message has one) and, with `email:write`, the keywords for the Sent copy (RFC 8621 keywords,
 /// no system ones but `$flagged`). Everything else (sender, identity, attachments, threading, the composer id) stays
 /// as it was, whatever the answer says. An answer that is not an object, or a field of the wrong shape or size, is
-/// refused as a whole.
+/// refused as a whole; so is a new body for a field the plugin got cut (`truncatedFields`): it never saw all of it.
 pub fn check_outgoing(may_write: bool, before: &Value, answer: Value) -> Result<Value, String> {
     let Value::Object(a) = answer else { return Err("the answer must be the message (an object)".into()) };
+    let cut = truncated_fields(before);
     let mut next = before.clone();
     for key in ["to", "cc", "bcc"] {
         if let Some(v) = a.get(key) { next[key] = recipients_field(v, key)?; }
@@ -246,6 +266,11 @@ pub fn check_outgoing(may_write: bool, before: &Value, answer: Value) -> Result<
     for key in ["textBody", "htmlBody"] {
         if let Some(v) = a.get(key) {
             let s = v.as_str().ok_or_else(|| format!("{key} must be text"))?;
+            if cut.iter().any(|c| c == key) {
+                // the cut text handed back unchanged is no change
+                if s == before[key].as_str().unwrap_or("") { continue; }
+                return Err(format!("{key} was cut to 1 MiB for the plugin, so it cannot replace it"));
+            }
             if s.len() > MAX_TEXT_BYTES { return Err(format!("{key} is larger than 1 MiB")); }
             if key == "htmlBody" && before["htmlBody"].as_str().unwrap_or("").is_empty() && !s.is_empty() {
                 return Err("htmlBody cannot be added to a plain-text message".into());
@@ -268,15 +293,18 @@ pub fn check_outgoing(may_write: bool, before: &Value, answer: Value) -> Result<
     Ok(next)
 }
 
-/// Put a checked transform result back into the message: recipients, subject, bodies, keywords.
+/// Put a checked transform result back into the message: recipients, subject, bodies, keywords. A body that was
+/// cut for the plugins (`truncatedFields`) stays as the user wrote it.
 pub fn apply_outgoing(o: &mut Outgoing, v: &Value) {
+    let cut = truncated_fields(v);
+    let whole = |k: &str| !cut.iter().any(|c| c == k);
     let join = |k: &str| v[k].as_array().map(|a| a.iter().filter_map(|x| x.as_str()).collect::<Vec<_>>().join(", ")).unwrap_or_default();
     o.to = join("to");
     o.cc = join("cc");
     o.bcc = join("bcc");
     if let Some(s) = v["subject"].as_str() { o.subject = s.to_string(); }
-    if let Some(s) = v["textBody"].as_str() { o.text = s.to_string(); }
-    if o.html.is_some() { if let Some(s) = v["htmlBody"].as_str() { o.html = Some(s.to_string()); } }
+    if let (Some(s), true) = (v["textBody"].as_str(), whole("textBody")) { o.text = s.to_string(); }
+    if let (Some(s), true, true) = (v["htmlBody"].as_str(), o.html.is_some(), whole("htmlBody")) { o.html = Some(s.to_string()); }
     if let Some(k) = v["keywords"].as_array() { o.keywords = k.iter().filter_map(|x| x.as_str().map(String::from)).collect(); }
 }
 
@@ -497,13 +525,21 @@ pub fn email_sent(o: &Outgoing, account: &str, submission: Option<&str>, schedul
     observe(&t, "onAfterEmailSend", &|_| v.clone());
 }
 
-/// Does a plugin check or change outgoing mail? Then the send waits for them.
-pub fn send_hooked() -> bool { !targets("onBeforeEmailSend").is_empty() || !targets("onTransformOutgoingEmail").is_empty() }
+/// Does a plugin check or change outgoing mail? Then the send waits for them. A plugin with the send check that the
+/// failure limit switched off counts too: the send check fails closed, so it stops the send ([`check_send`]).
+pub fn send_hooked() -> bool {
+    !targets("onBeforeEmailSend").is_empty() || !targets("onTransformOutgoingEmail").is_empty() || !guards().is_empty()
+}
 
-/// Run the plugins' send check on `payload`; `done` runs on the UI thread with every answer.
+/// The plugins switched on with the send check that the failure limit switched off for the session (their names).
+fn guards() -> Vec<String> { crate::plugin_tripped_guards("onBeforeEmailSend") }
+
+/// Run the plugins' send check on `payload`; `done` runs on the UI thread with every answer. A plugin with the
+/// check that the failure limit switched off answers [`Outcome::Tripped`]: not sent until the user switches it off.
 pub fn check_send(payload: Value, done: impl FnOnce(Vec<(String, Outcome)>) + Send + 'static) -> Pending {
+    let tripped: Vec<(String, Outcome)> = guards().into_iter().map(|n| (n, Outcome::Tripped)).collect();
     ask_all(&targets("onBeforeEmailSend"), "onBeforeEmailSend", None, &|_| payload.clone(),
-        move |all| { let _ = slint::invoke_from_event_loop(move || done(all)); })
+        move |mut all| { all.extend(tripped); let _ = slint::invoke_from_event_loop(move || done(all)); })
 }
 
 /// Run the plugins' outgoing transforms on `payload`; `done` runs on the UI thread with the result (the payload
@@ -575,6 +611,18 @@ mod tests {
             json!({"to": vec!["a@example.test"; MAX_RECIPIENTS + 1]})] {
             assert!(check_outgoing(true, &p, bad.clone()).is_err(), "{}", shown(&bad.to_string(), 80));
         }
+        // a body over 1 MiB is cut for the plugins, said so, and cannot be replaced; the user's text is sent
+        let mut long = outgoing();
+        long.text = "y".repeat(MAX_TEXT_BYTES + 10);
+        let lp = outgoing_payload(&long, &SendContext::default());
+        assert_eq!((lp["truncated"].as_bool(), lp["truncatedFields"].clone()), (Some(true), json!(["textBody"])));
+        assert_eq!(lp["textBody"].as_str().map(str::len), Some(MAX_TEXT_BYTES));
+        assert!(check_outgoing(false, &lp, json!({"textBody": "short"})).is_err(), "a cut body cannot be replaced");
+        let same = check_outgoing(false, &lp, json!({"textBody": lp["textBody"].clone(), "subject": "S"})).unwrap();
+        let mut sent = long.clone();
+        apply_outgoing(&mut sent, &same);
+        assert_eq!((sent.text.len(), sent.subject.as_str()), (MAX_TEXT_BYTES + 10, "S"), "the whole text is kept");
+        assert!(p.get("truncated").is_none());
         let plain = json!({"htmlBody": ""});
         assert!(check_outgoing(false, &plain, json!({"htmlBody": "<b>x</b>"})).is_err(), "no HTML into a plain-text message");
         // applied back
@@ -615,8 +663,13 @@ mod tests {
         rt.switch_off();
         let all = rx.recv_timeout(Duration::from_secs(1)).unwrap();
         assert!(matches!(send_verdict(&all, true), Verdict::Block(m) if m.contains("switched off")), "{all:?}");
-        // and a plugin that is off before the send cannot be asked: refused at once, also not sent
+        // asked anyway once it is off (the app would not: it is no target then), it answers at once that it is off,
+        // and that blocks too
         assert!(matches!(send_verdict(&ask(&t, json!({}), s), false), Verdict::Block(_)));
+        // what the app does for a plugin with the check that the failure limit switched off: it blocks, and says how
+        // to send without it
+        let Verdict::Block(m) = send_verdict(&[("Guard".into(), Outcome::Tripped)], true) else { panic!("a tripped guard must block") };
+        assert!(m.contains("switched off for this session") && m.contains("Settings > Add-ons"), "{m}");
     }
 
     #[test]
