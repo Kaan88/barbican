@@ -94,6 +94,8 @@ const EXTRA: &[(&str, &str)] = &[
     ("birthdayCalendarColor", "text"),
     ("emailKeywords", "arr"), ("sharedCalendarColors", "obj"), ("folderIcons", "obj"), ("folderCountModes", "obj"),
     ("notificationMutes", "obj"), ("preferredIdentityIds", "obj"),
+    // Settings > Files (src/files_view.rs normalises what it reads)
+    ("filesSettings", "obj"),
 ];
 
 fn kind_of_default(d: &Value) -> Kind {

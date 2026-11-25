@@ -11,9 +11,9 @@ G-009,calendar,"Find a time depends on Principal/getAvailability, which Stalwart
 G-010,contacts,Contact print,contact-print.ts,missing,,G-010 (GAPS P1-2),6,S/M
 G-011,contacts,Contact activity and related people,contact-activity.tsx,missing,,G-011 (GAPS P1-2),6,S/M
 G-012,contacts,"Security review of contacts input: vCard parsing of untrusted files, photo data URI size, export paths",vcard.ts,done,src/vcard.rs; src/contacts_x.rs,G-012 (GAPS P1-2 (review)),1,S/M
-G-013,files,In-app preview (files open externally today),file-preview-modal.tsx; image-preview-modal.tsx; eml-preview.tsx,missing,,G-013 (GAPS P1-3),4,M
-G-014,files,Details panel,file-details-panel.tsx,missing,,G-014 (GAPS P1-3),4,M
-G-015,files,"Grid and list views, sort, search, thumbnails (Show files as, Default sort, thumbnails, hidden files)",file-views.tsx,missing,,G-015 (GAPS P1-3),4,M
+G-013,files,In-app preview (files open externally today),file-preview-modal.tsx; image-preview-modal.tsx; eml-preview.tsx,partial,"src/files_view.rs (plan, open_preview, preview_done), ui/files-views.slint FilePreview: images, text, HTML, .eml in the app; PDF, audio, video and SVG open outside (SVG needs a sandboxed process); no zoom, Markdown as text",G-013 (GAPS P1-3),4,M
+G-014,files,Details panel,file-details-panel.tsx,done,"src/files_view.rs (refresh_details, toggle_details), ui/files-views.slint FileDetails (file-details-panel.tsx:43-176; Share via More menu)",G-014 (GAPS P1-3),4,M
+G-015,files,"Grid and list views, sort, search, thumbnails (Show files as, Default sort, thumbnails, hidden files)",file-views.tsx,done,"src/files_view.rs (begin_render, arrange, decorate, want_thumb, thumb_worker), file-browser.tsx/file-views.tsx parity; no drag-and-drop in grid",G-015 (GAPS P1-3),4,M
 G-016,files,Upload conflict dialog,upload-conflict-dialog.tsx,done,"src/files_x.rs (conflicts, ask_next, run; replace via FileNode/set modified:null), ui/files-dialogs.slint UploadConflictDialog",G-016 (GAPS P1-3),4,M
 G-017,files,Zip download,lib/files-zip.ts,partial,"src/files_x.rs (plan_zip, save_zip, StreamZip); no multi-select in Files, ""Download all as zip"" stands in; no ZIP64",G-017 (GAPS P1-3),4,M
 G-018,files,New text file,new-file-dialog.tsx,done,"src/files_x.rs (name_problem, new_file_create), ui/files-dialogs.slint NewFileDialog",G-018 (GAPS P1-3),4,M
@@ -306,13 +306,13 @@ S-keyless-050,settings-calendar,Organize invitations as,settings-schema.json (pa
 S-keyless-051,settings-calendar,Working days,settings-schema.json (page calendar),done,"src/settings.rs:381-391 workday toggles -> calendarWorkingDays, read src/calendar.rs:168, src/cal_editor.rs:1353 (clearing the last day is allowed, Bulwark refuses)",S-keyless-051,6,S
 S-keyless-052,settings-contacts,Import contacts,settings-schema.json (page contacts),done,src/settings.rs:379 contacts.import -> src/contacts_x.rs start_import,S-keyless-052,6,S
 S-keyless-053,settings-contacts,Export contacts,settings-schema.json (page contacts),done,src/settings.rs:380 contacts.export -> src/contacts_x.rs export_all,S-keyless-053,6,S
-S-keyless-054,settings-files,Show files as,settings-schema.json (page files),unverified,,S-keyless-054,4,S
-S-keyless-055,settings-files,Default sort,settings-schema.json (page files),unverified,,S-keyless-055,4,S
-S-keyless-056,settings-files,Sort direction,settings-schema.json (page files),unverified,,S-keyless-056,4,S
-S-keyless-057,settings-files,Show file icons,settings-schema.json (page files),unverified,,S-keyless-057,4,S
-S-keyless-058,settings-files,Colored icons,settings-schema.json (page files),unverified,,S-keyless-058,4,S
-S-keyless-059,settings-files,Show thumbnails,settings-schema.json (page files),unverified,,S-keyless-059,4,S
-S-keyless-060,settings-files,Show hidden files,settings-schema.json (page files),unverified,,S-keyless-060,4,S
+S-keyless-054,settings-files,Show files as,settings-schema.json (page files),done,"src/files_view.rs (row_key, row_options, row_value, set_field), lib/files-settings.ts:4-45; synced as filesSettings",S-keyless-054,4,S
+S-keyless-055,settings-files,Default sort,settings-schema.json (page files),done,"src/files_view.rs (row_key, row_options, row_value, set_field), lib/files-settings.ts:4-45; synced as filesSettings",S-keyless-055,4,S
+S-keyless-056,settings-files,Sort direction,settings-schema.json (page files),done,"src/files_view.rs (row_key, row_options, row_value, set_field), lib/files-settings.ts:4-45; synced as filesSettings",S-keyless-056,4,S
+S-keyless-057,settings-files,Show file icons,settings-schema.json (page files),done,"src/files_view.rs (row_key, row_options, row_value, set_field), lib/files-settings.ts:4-45; synced as filesSettings",S-keyless-057,4,S
+S-keyless-058,settings-files,Colored icons,settings-schema.json (page files),done,"src/files_view.rs (row_key, row_options, row_value, set_field), lib/files-settings.ts:4-45; synced as filesSettings",S-keyless-058,4,S
+S-keyless-059,settings-files,Show thumbnails,settings-schema.json (page files),done,"src/files_view.rs (row_key, row_options, row_value, set_field), lib/files-settings.ts:4-45; synced as filesSettings",S-keyless-059,4,S
+S-keyless-060,settings-files,Show hidden files,settings-schema.json (page files),done,"src/files_view.rs (row_key, row_options, row_value, set_field), lib/files-settings.ts:4-45; synced as filesSettings",S-keyless-060,4,S
 S-keyless-061,settings-about,Export settings,settings-schema.json (page about),done,src/settings.rs:470 backup.export -> src/main.rs:1754 Settings::export,S-keyless-061,6,S
 S-keyless-062,settings-about,Import settings,settings-schema.json (page about),done,src/settings.rs:471 backup.import -> src/main.rs:1761 Settings::import,S-keyless-062,6,S
 S-keyless-063,settings-about,Refresh cached data,settings-schema.json (page about),missing,no clear-cached-data action (Bulwark about-data-settings clearCachedData),S-keyless-063,6,S

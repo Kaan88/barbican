@@ -1,0 +1,512 @@
+// Files views (src/files_view.rs): the row struct, list and grid items with type icons and
+// thumbnails (G-015, Bulwark components/files/file-views.tsx, file-item-parts.tsx), the details
+// panel (G-014, file-details-panel.tsx) and the in-app preview of images, text and .eml
+// (G-013, file-preview-modal.tsx, image-preview-modal.tsx, eml-preview.tsx).
+import { Theme, Icons, SIcon, Prefs, Motion, Ease } from "theme.slint";
+import { Pd } from "productivity.slint";
+import { ScrollView, ListView } from "std-widgets.slint";
+
+export struct FileRow {
+    id: string,
+    name: string,
+    folder: bool,
+    size: string,
+    modified: string,
+    renaming: bool,
+    starred: bool,
+    shared: bool,
+    cut: bool,
+    // an item listed in the Files trash
+    trashed: bool,
+    // the type icon (a 24 x 24 stroke path), its colour and whether it has a type of its own
+    icon: string,
+    tint: color,
+    typed: bool,
+    // an image file's thumbnail, and whether the row should ask for it once it is drawn
+    thumb: image,
+    has-thumb: bool,
+    want-thumb: bool,
+}
+
+export global FilesV {
+    // ---- Settings > Files (Bulwark filesSettings) and the order on screen
+    in-out property <bool> grid;
+    in-out property <bool> show-icons: true;
+    in-out property <bool> colored-icons: true;
+    // "name", "size", "modified"; "asc", "desc"
+    in-out property <string> sort-key: "name";
+    in-out property <string> sort-dir: "asc";
+    // the search of the folder on screen
+    in-out property <string> query;
+    // the listed folders come first: how many
+    in-out property <int> folder-count;
+    // items in the folder before the search and the hidden-file filter
+    in-out property <int> unfiltered;
+    callback sort(string);
+    callback search(string);
+    callback set-view(string);
+    callback want-thumb(string);
+    // ---- details panel: the selected item (d-id), or the folder on screen (d-id empty)
+    in-out property <bool> details-open;
+    callback toggle-details();
+    callback selected(string);
+    // "open", "preview", "download", "star"
+    callback d-action(string);
+    in-out property <string> d-id;
+    in-out property <string> d-name;
+    in-out property <bool> d-folder;
+    in-out property <string> d-icon;
+    in-out property <color> d-tint;
+    in-out property <bool> d-typed;
+    in-out property <image> d-thumb;
+    in-out property <bool> d-has-thumb;
+    in-out property <string> d-kind;
+    in-out property <string> d-type;
+    in-out property <string> d-size;
+    in-out property <string> d-modified;
+    in-out property <string> d-created;
+    in-out property <string> d-sharing;
+    in-out property <string> d-path;
+    in-out property <string> d-summary;
+    in-out property <bool> d-can-preview;
+    in-out property <bool> d-can-star;
+    in-out property <bool> d-starred;
+    // ---- preview: "loading", "image", "text", "doc", "none" (Open, Download), "error"
+    in-out property <bool> p-open;
+    in-out property <string> p-state;
+    in-out property <string> p-name;
+    in-out property <string> p-sub;
+    in-out property <string> p-message;
+    in-out property <image> p-image;
+    in-out property <string> p-text;
+    in-out property <string> p-note;
+    in-out property <image> p-doc;
+    in-out property <float> p-doc-height;
+    in-out property <bool> p-eml;
+    in-out property <string> p-from;
+    in-out property <string> p-to;
+    in-out property <string> p-cc;
+    in-out property <string> p-date;
+    in-out property <string> p-subject;
+    in-out property <string> p-atts;
+    in-out property <bool> p-has-prev;
+    in-out property <bool> p-has-next;
+    // the width a document was drawn for, in logical px (it is shown at that size, never
+    // stretched); the body area says when it changes size and Rust draws it again (debounced)
+    in-out property <float> p-doc-width: 760;
+    callback p-resized();
+    // a scrolling key (Up, Down, Page Up, Page Down, Home, End) for the text or document on show
+    in-out property <string> p-key;
+    in-out property <int> p-key-tick;
+    public pure function scrolled(y: length, visible: length, total: length) -> length {
+        if p-key == Key.Home { return 0px; }
+        if p-key == Key.End { return min(0px, visible - total); }
+        return max(min(0px, y + (p-key == Key.UpArrow ? 40px : p-key == Key.DownArrow ? -40px : p-key == Key.PageUp ? max(40px, visible - 40px) : p-key == Key.PageDown ? -max(40px, visible - 40px) : 0px)), min(0px, visible - total));
+    }
+    callback p-close();
+    callback p-go(int);
+    callback p-download();
+    callback p-external();
+}
+
+/// A type tile: the thumbnail when there is one, else the type icon (or nothing with icons off).
+/// It asks for its thumbnail once it is drawn: the list and the grid only make what is in view.
+export component FileGlyph inherits Rectangle {
+    in property <FileRow> f;
+    in property <length> glyph: 17px;
+    in property <bool> boxed: true;
+    property <string> fid: f.id;
+    property <bool> want: f.want-thumb;
+    init => { if f.want-thumb { FilesV.want-thumb(f.id); } }
+    changed fid => { if f.want-thumb { FilesV.want-thumb(f.id); } }
+    changed want => { if f.want-thumb { FilesV.want-thumb(f.id); } }
+    clip: true;
+    border-radius: Theme.round(min(self.width, self.height));
+    background: f.has-thumb ? Theme.tile2 : !boxed || !FilesV.show-icons ? transparent
+        : f.folder ? (FilesV.colored-icons ? Theme.amber-bg : Theme.tile2)
+        : !FilesV.colored-icons ? Theme.tile2 : f.typed ? f.tint.with-alpha(0.14) : Theme.sky-bg;
+    if root.f.has-thumb: Image { x: 0; y: 0; width: parent.width; height: parent.height; source: root.f.thumb; image-fit: cover; }
+    if !root.f.has-thumb && FilesV.show-icons: SIcon {
+        commands: root.f.icon;
+        size: root.glyph;
+        weight: 1.8;
+        tint: root.f.folder ? (FilesV.colored-icons ? Theme.amber-fg : Theme.dim) : !FilesV.colored-icons ? Theme.dim : root.f.typed ? root.f.tint : Theme.sky-fg;
+    }
+}
+
+component FvIcon inherits Rectangle {
+    in property <string> icon;
+    in property <string> label;
+    in property <bool> enabled: true;
+    in property <color> tint: Theme.dim;
+    callback clicked();
+    width: Prefs.large-targets ? 40px : 32px;
+    height: self.width;
+    border-radius: self.height / 2;
+    opacity: enabled ? 1 : 0.35;
+    background: ta.has-hover && enabled ? Theme.hover : transparent;
+    accessible-role: button;
+    accessible-label: label;
+    accessible-action-default => { if enabled { root.clicked(); } }
+    ta := TouchArea { enabled: root.enabled; clicked => { root.clicked(); } mouse-cursor: pointer; }
+    SIcon { commands: root.icon; size: 16px; weight: 1.9; tint: ta.has-hover && enabled ? Theme.text : root.tint; }
+}
+
+component FvButton inherits Rectangle {
+    in property <string> icon;
+    in property <string> text;
+    callback clicked();
+    height: Prefs.large-targets ? 40px : 32px;
+    width: lay.preferred-width + 22px;
+    border-radius: Theme.nordic ? self.height / 2 : 10px;
+    border-width: 1px;
+    border-color: Theme.line;
+    background: ta.pressed ? Theme.track : ta.has-hover ? Theme.hover : Theme.tile2;
+    accessible-role: button;
+    accessible-label: text;
+    accessible-action-default => { root.clicked(); }
+    ta := TouchArea { clicked => { root.clicked(); } mouse-cursor: pointer; }
+    lay := HorizontalLayout {
+        alignment: center;
+        spacing: 6px;
+        if root.icon != "": VerticalLayout { alignment: center; SIcon { commands: root.icon; size: 14px; weight: 1.9; tint: Theme.text; } }
+        Text { text: root.text; color: Theme.text; font-size: 12.5px * Prefs.fs; font-weight: 600; vertical-alignment: center; }
+    }
+}
+
+/// The grid view (Bulwark FileGridView): "Folders" as compact tiles, then "Files" as cards with
+/// a picture area. Rows of tiles in a ListView, so only what is in view is made.
+export component FilesGrid inherits Rectangle {
+    in property <[FileRow]> files;
+    callback activate(string);
+    callback context(string, length, length);
+    property <int> nf: min(FilesV.folder-count, files.length);
+    property <int> nc: files.length - nf;
+    property <length> pad: 16px;
+    property <length> inner: self.width - 2 * pad - 14px;
+    // Bulwark minmax(11rem) for folders, minmax(9.5rem) for files
+    property <int> fcols: max(1, floor((inner + 8px) / (176px + 8px)));
+    property <int> ccols: max(1, floor((inner + 12px) / (152px + 12px)));
+    property <int> frows: ceil(nf / fcols);
+    property <int> crows: ceil(nc / ccols);
+    property <bool> fhead: nf > 0;
+    property <bool> chead: nc > 0 && nf > 0;
+    property <int> total: (fhead ? 1 + frows : 0) + (chead ? 1 : 0) + crows;
+    property <length> fw: (inner - (fcols - 1) * 8px) / fcols;
+    property <length> cw: (inner - (ccols - 1) * 12px) / ccols;
+    ListView {
+        for r in root.total: band := Rectangle {
+            // which band of the grid this row is
+            property <bool> is-fhead: root.fhead && r == 0;
+            property <bool> is-frow: root.fhead && r >= 1 && r <= root.frows;
+            property <int> after: root.fhead ? 1 + root.frows : 0;
+            property <bool> is-chead: root.chead && r == self.after;
+            property <int> crow: r - self.after - (root.chead ? 1 : 0);
+            height: self.is-fhead || self.is-chead ? 34px : self.is-frow ? 52px : root.cw * 0.75 + 58px * Prefs.fs + 12px;
+            if band.is-fhead || band.is-chead: Text {
+                x: root.pad + 2px;
+                y: parent.height - self.height - 6px;
+                text: band.is-fhead ? "Folders" : "Files";
+                color: Theme.dim;
+                font-size: 11.5px * Prefs.fs;
+                font-weight: 700;
+            }
+            if band.is-frow: HorizontalLayout {
+                padding-left: root.pad;
+                padding-right: root.pad;
+                padding-top: 4px;
+                padding-bottom: 4px;
+                spacing: 8px;
+                alignment: start;
+                for j in root.fcols: ftile := Rectangle {
+                    property <int> idx: (r - 1) * root.fcols + j;
+                    property <FileRow> f: root.files[self.idx];
+                    width: root.fw;
+                    visible: self.idx < root.nf;
+                    border-radius: Theme.nordic ? self.height / 2 : 12px;
+                    border-width: 1px;
+                    border-color: Pd.file-sel == self.f.id ? Theme.accent.with-alpha(0.6) : Theme.line;
+                    background: Pd.file-sel == self.f.id ? Theme.sel : fta.has-hover ? Theme.tile2 : Theme.tile;
+                    opacity: self.f.cut ? 0.5 : 1;
+                    accessible-role: list-item;
+                    accessible-label: self.f.name;
+                    accessible-action-default => { root.activate(self.f.id); }
+                    fta := TouchArea {
+                        enabled: ftile.idx < root.nf;
+                        clicked => { Pd.file-sel = ftile.f.id; }
+                        double-clicked => { root.activate(ftile.f.id); }
+                        pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.context(ftile.f.id, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } }
+                    }
+                    HorizontalLayout {
+                        padding-left: 12px;
+                        padding-right: 10px;
+                        spacing: 10px;
+                        if FilesV.show-icons && ftile.idx < root.nf: VerticalLayout { alignment: center; FileGlyph { f: ftile.f; width: 20px; height: 20px; glyph: 18px; boxed: false; } }
+                        Text { text: ftile.f.name; color: Theme.text; font-size: 13px * Prefs.fs; font-weight: 600; vertical-alignment: center; overflow: elide; horizontal-stretch: 1; }
+                        if ftile.f.starred: VerticalLayout { alignment: center; SIcon { commands: Icons.star; size: 13px; weight: 1.8; tint: Theme.amber-fg; fill: Theme.amber-fg; } }
+                        if ftile.f.shared: VerticalLayout { alignment: center; SIcon { commands: Icons.users; size: 13px; weight: 1.9; tint: Theme.dim; } }
+                    }
+                }
+            }
+            if !band.is-fhead && !band.is-frow && !band.is-chead: HorizontalLayout {
+                padding-left: root.pad;
+                padding-right: root.pad;
+                padding-top: 6px;
+                padding-bottom: 6px;
+                spacing: 12px;
+                alignment: start;
+                for j in root.ccols: ctile := Rectangle {
+                    property <int> idx: root.nf + band.crow * root.ccols + j;
+                    property <FileRow> f: root.files[self.idx];
+                    width: root.cw;
+                    visible: self.idx < root.files.length;
+                    border-radius: Theme.nordic ? 18px : 14px;
+                    border-width: 1px;
+                    border-color: Pd.file-sel == self.f.id ? Theme.accent.with-alpha(0.6) : Theme.line;
+                    background: Pd.file-sel == self.f.id ? Theme.sel : cta.has-hover ? Theme.tile2 : Theme.tile;
+                    clip: true;
+                    opacity: self.f.cut ? 0.5 : 1;
+                    accessible-role: list-item;
+                    accessible-label: self.f.name;
+                    accessible-action-default => { root.activate(self.f.id); }
+                    cta := TouchArea {
+                        enabled: ctile.idx < root.files.length;
+                        clicked => { Pd.file-sel = ctile.f.id; }
+                        double-clicked => { root.activate(ctile.f.id); }
+                        pointer-event(ev) => { if ev.button == PointerEventButton.right && ev.kind == PointerEventKind.up { root.context(ctile.f.id, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y); } }
+                    }
+                    VerticalLayout {
+                        Rectangle {
+                            height: root.cw * 0.75;
+                            background: Theme.tile2;
+                            // only a tile that is listed draws (and fetches) its picture
+                            if ctile.idx < root.files.length: FileGlyph { f: ctile.f; width: parent.width; height: parent.height; glyph: 40px; boxed: false; border-radius: 0px; }
+                            Rectangle { y: parent.height - 1px; height: 1px; background: Theme.line; }
+                        }
+                        VerticalLayout {
+                            padding: 8px;
+                            padding-left: 10px;
+                            spacing: 2px;
+                            Text { text: ctile.f.name; color: Theme.text; font-size: 12.5px * Prefs.fs; font-weight: 600; overflow: elide; }
+                            HorizontalLayout {
+                                spacing: 4px;
+                                Text { text: ctile.f.trashed ? ctile.f.modified : ctile.f.size + (ctile.f.modified != "" ? " · " + ctile.f.modified : ""); color: Theme.dim; font-size: 11px * Prefs.fs; overflow: elide; horizontal-stretch: 1; }
+                                if ctile.f.shared: VerticalLayout { alignment: center; SIcon { commands: Icons.users; size: 11px; weight: 1.9; tint: Theme.dim; } }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+component DRow inherits VerticalLayout {
+    in property <string> label;
+    in property <string> value;
+    in property <bool> mono;
+    spacing: 2px;
+    Text { text: root.label; color: Theme.dim; font-size: 11px * Prefs.fs; }
+    Text { text: root.value; color: Theme.text; font-size: (mono ? 11.5px : 12.5px) * Prefs.fs; wrap: char-wrap; font-family: mono ? "Consolas" : ""; }
+}
+
+/// Details of the selected item, or of the folder on screen (Bulwark FileDetailsPanel).
+export component FileDetails inherits Rectangle {
+    callback more(length, length);
+    background: Theme.tile;
+    border-width: 1px;
+    border-color: Theme.line;
+    border-radius: Theme.r-pane;
+    clip: true;
+    accessible-role: groupbox;
+    accessible-label: "Details";
+    VerticalLayout {
+        HorizontalLayout {
+            height: 52px;
+            padding-left: 18px;
+            padding-right: 10px;
+            Text { text: "Details"; color: Theme.text; font-size: 14px * Prefs.fs; font-weight: 700; vertical-alignment: center; horizontal-stretch: 1; }
+            VerticalLayout { alignment: center; FvIcon { icon: Icons.close; label: "Close details"; clicked => { FilesV.toggle-details(); } } }
+        }
+        Rectangle { height: 1px; background: Theme.line; }
+        Flickable {
+            vertical-stretch: 1;
+            content-height: body.preferred-height;
+            body := VerticalLayout {
+                padding: 16px;
+                spacing: 14px;
+                alignment: start;
+                Rectangle {
+                    height: (root.width - 32px) * 0.75;
+                    border-radius: 12px;
+                    background: Theme.tile2;
+                    clip: true;
+                    if FilesV.d-id != "" && FilesV.d-has-thumb: Image { width: parent.width; height: parent.height; source: FilesV.d-thumb; image-fit: contain; }
+                    if !(FilesV.d-id != "" && FilesV.d-has-thumb): SIcon {
+                        commands: FilesV.d-id == "" ? Icons.folder : FilesV.d-icon;
+                        size: 52px;
+                        weight: 1.4;
+                        tint: FilesV.d-id == "" || FilesV.d-folder ? Theme.amber-fg : !FilesV.colored-icons ? Theme.dim : FilesV.d-typed ? FilesV.d-tint : Theme.sky-fg;
+                    }
+                }
+                VerticalLayout {
+                    spacing: 2px;
+                    Text { text: FilesV.d-name; color: Theme.text; font-size: 14px * Prefs.fs; font-weight: 600; wrap: char-wrap; }
+                    Text { text: FilesV.d-id == "" ? FilesV.d-summary : FilesV.d-kind; color: Theme.dim; font-size: 12px * Prefs.fs; wrap: word-wrap; }
+                }
+                if FilesV.d-id != "": HorizontalLayout {
+                    spacing: 6px;
+                    alignment: start;
+                    if FilesV.d-folder: FvButton { icon: Icons.folder; text: "Open"; clicked => { FilesV.d-action("open"); } }
+                    if !FilesV.d-folder && FilesV.d-can-preview: FvButton { icon: Icons.eye; text: "Preview"; clicked => { FilesV.d-action("preview"); } }
+                    if !FilesV.d-folder: FvButton { icon: Icons.download; text: "Download"; clicked => { FilesV.d-action("download"); } }
+                    if FilesV.d-can-star: FvButton { icon: Icons.star; text: FilesV.d-starred ? "Remove star" : "Star"; clicked => { FilesV.d-action("star"); } }
+                    FvIcon { icon: Icons.more; label: "More actions"; clicked => { root.more(self.absolute-position.x, self.absolute-position.y + self.height + 4px); } }
+                }
+                if FilesV.d-id != "": DRow { label: "Type"; value: FilesV.d-type; }
+                if FilesV.d-size != "": DRow { label: "Size"; value: FilesV.d-size; }
+                if FilesV.d-id != "" && FilesV.d-modified != "": DRow { label: "Modified"; value: FilesV.d-modified; }
+                if FilesV.d-id != "" && FilesV.d-created != "": DRow { label: "Created"; value: FilesV.d-created; }
+                if FilesV.d-id != "": DRow { label: "Sharing"; value: FilesV.d-sharing; }
+                DRow { label: "Path"; value: FilesV.d-path; mono: true; }
+                if FilesV.d-id == "": Text { text: "Select a file or folder to see its details."; color: Theme.dim; font-size: 11.5px * Prefs.fs; wrap: word-wrap; }
+            }
+        }
+    }
+}
+
+/// The in-app preview over the window: the name, previous / next, Open in another app,
+/// Download, Close; Escape closes and the arrow keys go through the folder's files (the
+/// window's key handler, ui/app.slint).
+export component FilePreview inherits Rectangle {
+    background: #000000e6;
+    TouchArea { clicked => { FilesV.p-close(); } }
+    VerticalLayout {
+        // header
+        Rectangle {
+            height: 56px;
+            background: #00000066;
+            TouchArea { }
+            HorizontalLayout {
+                padding-left: 18px;
+                padding-right: 12px;
+                spacing: 6px;
+                VerticalLayout {
+                    alignment: center;
+                    horizontal-stretch: 1;
+                    Text { text: FilesV.p-name; color: #ffffff; font-size: 14px * Prefs.fs; font-weight: 700; overflow: elide; }
+                    Text { text: FilesV.p-sub; color: #ffffffaa; font-size: 11.5px * Prefs.fs; overflow: elide; }
+                }
+                VerticalLayout { alignment: center; FvIcon { icon: "M15 18l-6-6 6-6"; label: "Previous file"; tint: #ffffffcc; enabled: FilesV.p-has-prev; clicked => { FilesV.p-go(-1); } } }
+                VerticalLayout { alignment: center; FvIcon { icon: Icons.chevron-right; label: "Next file"; tint: #ffffffcc; enabled: FilesV.p-has-next; clicked => { FilesV.p-go(1); } } }
+                VerticalLayout { alignment: center; FvIcon { icon: Icons.external; label: "Open in another app"; tint: #ffffffcc; clicked => { FilesV.p-external(); } } }
+                VerticalLayout { alignment: center; FvIcon { icon: Icons.download; label: "Download"; tint: #ffffffcc; clicked => { FilesV.p-download(); } } }
+                VerticalLayout { alignment: center; FvIcon { icon: Icons.close; label: "Close"; tint: #ffffffcc; clicked => { FilesV.p-close(); } } }
+            }
+        }
+        // body
+        area := Rectangle {
+            vertical-stretch: 1;
+            changed width => { FilesV.p-resized(); }
+            if FilesV.p-state == "loading": Text { text: "Loading…"; color: #ffffffcc; font-size: 13px * Prefs.fs; }
+            if FilesV.p-state == "error" || FilesV.p-state == "none": Rectangle {
+                width: min(420px, parent.width - 32px);
+                height: card.preferred-height;
+                border-radius: 18px;
+                background: Theme.popup;
+                TouchArea { }
+                card := VerticalLayout {
+                    padding: 22px;
+                    spacing: 14px;
+                    Text { text: FilesV.p-message; color: FilesV.p-state == "error" ? Theme.rose-fg : Theme.text; font-size: 13.5px * Prefs.fs; wrap: word-wrap; horizontal-alignment: center; }
+                    HorizontalLayout {
+                        alignment: center;
+                        spacing: 8px;
+                        FvButton { icon: Icons.external; text: "Open"; clicked => { FilesV.p-external(); } }
+                        FvButton { icon: Icons.download; text: "Download"; clicked => { FilesV.p-download(); } }
+                    }
+                }
+            }
+            if FilesV.p-state == "image": Image {
+                x: 16px;
+                y: 16px;
+                width: parent.width - 32px;
+                height: parent.height - 32px;
+                source: FilesV.p-image;
+                image-fit: contain;
+                accessible-role: image;
+                accessible-label: FilesV.p-name;
+            }
+            if FilesV.p-state == "text": Rectangle {
+                x: (parent.width - self.width) / 2;
+                y: 16px;
+                width: min(parent.width - 32px, 900px);
+                height: parent.height - 32px;
+                border-radius: 14px;
+                background: Theme.tile;
+                clip: true;
+                TouchArea { }
+                VerticalLayout {
+                    if FilesV.p-note != "": Rectangle {
+                        height: 34px;
+                        background: Theme.amber-bg;
+                        Text { x: 14px; text: FilesV.p-note; color: Theme.amber-fg; font-size: 12px * Prefs.fs; vertical-alignment: center; height: parent.height; overflow: elide; }
+                    }
+                    tsv := ScrollView {
+                        property <int> tick: FilesV.p-key-tick;
+                        changed tick => { self.content-y = FilesV.scrolled(self.content-y, self.visible-height, self.content-height); }
+                        vertical-stretch: 1;
+                        content-width: self.visible-width;
+                        content-height: tx.preferred-height + 32px;
+                        tx := Text {
+                            x: 16px;
+                            y: 16px;
+                            width: parent.width - 32px;
+                            text: FilesV.p-text;
+                            color: Theme.text;
+                            font-family: "Consolas";
+                            font-size: 12.5px * Prefs.fs;
+                            wrap: char-wrap;
+                        }
+                    }
+                }
+            }
+            if FilesV.p-state == "doc": Rectangle {
+                x: (parent.width - self.width) / 2;
+                y: 16px;
+                width: min(FilesV.p-doc-width * 1px, parent.width - 32px);
+                height: parent.height - 32px;
+                border-radius: 14px;
+                background: #ffffff;
+                clip: true;
+                TouchArea { }
+                VerticalLayout {
+                    // an .eml's header (Bulwark EmlPreview)
+                    if FilesV.p-eml: Rectangle {
+                        background: Theme.tile;
+                        height: eh.preferred-height;
+                        eh := VerticalLayout {
+                            padding: 16px;
+                            spacing: 3px;
+                            Text { text: FilesV.p-subject; color: Theme.text; font-size: 16px * Prefs.fs; font-weight: 700; wrap: word-wrap; }
+                            Text { text: "From: " + FilesV.p-from; color: Theme.text; font-size: 12.5px * Prefs.fs; overflow: elide; }
+                            if FilesV.p-to != "": Text { text: "To: " + FilesV.p-to; color: Theme.dim; font-size: 12px * Prefs.fs; overflow: elide; }
+                            if FilesV.p-cc != "": Text { text: "Cc: " + FilesV.p-cc; color: Theme.dim; font-size: 12px * Prefs.fs; overflow: elide; }
+                            if FilesV.p-date != "": Text { text: FilesV.p-date; color: Theme.dim; font-size: 12px * Prefs.fs; }
+                            if FilesV.p-atts != "": Text { text: "Attachments: " + FilesV.p-atts; color: Theme.dim; font-size: 12px * Prefs.fs; wrap: word-wrap; }
+                        }
+                    }
+                    ScrollView {
+                        property <int> tick: FilesV.p-key-tick;
+                        changed tick => { self.content-y = FilesV.scrolled(self.content-y, self.visible-height, self.content-height); }
+                        vertical-stretch: 1;
+                        // drawn at this width: a narrower window scrolls sideways instead of squeezing it
+                        content-width: max(self.visible-width, FilesV.p-doc-width * 1px);
+                        content-height: FilesV.p-doc-height * 1px;
+                        Image { x: 0; y: 0; width: FilesV.p-doc-width * 1px; height: FilesV.p-doc-height * 1px; source: FilesV.p-doc; image-fit: fill; }
+                    }
+                }
+            }
+        }
+    }
+}
