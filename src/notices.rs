@@ -160,6 +160,12 @@ fn who(n: &Value) -> String {
     b["name"].as_str().filter(|s| !s.is_empty()).or(b["email"].as_str().filter(|s| !s.is_empty())).unwrap_or("Someone").to_string()
 }
 
+/// A toast of one or more notifications (`ids`, destroyed once it was shown).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Toast { pub level: Level, pub text: String, pub body: String, pub ids: Vec<String> }
+
+fn id_of(n: &Value) -> String { n["id"].as_str().unwrap_or("").to_string() }
+
 /// What happened to the user's rights (share-notification-toaster.tsx:15-19).
 pub fn share_kind(n: &Value) -> &'static str {
     let empty = |v: &Value| v.as_object().is_none_or(|o| o.is_empty());
@@ -172,7 +178,7 @@ pub const SUMMARY_FROM: usize = 3;
 /// The toasts of a batch of share notifications: one each, unless one person changed
 /// [`SUMMARY_FROM`] or more at once or an object's name is unknown (Stalwart sends an empty name):
 /// then one per person with the count (share-notification-toaster.tsx:42-66).
-pub fn share_toasts(notes: &[Value], name_of: impl Fn(&Value) -> Option<String>) -> Vec<(Level, String)> {
+pub fn share_toasts(notes: &[Value], name_of: impl Fn(&Value) -> Option<String>) -> Vec<Toast> {
     let mut people: Vec<(String, Vec<&Value>)> = vec![];
     for n in notes {
         let b = &n["changedBy"];
@@ -192,14 +198,15 @@ pub fn share_toasts(notes: &[Value], name_of: impl Fn(&Value) -> Option<String>)
                     "revoked" => format!("{name} removed your access to the {what} \"{object}\""),
                     _ => format!("{name} changed your access to the {what} \"{object}\""),
                 };
-                out.push((if kind == "revoked" { Level::Warning } else { Level::Info }, text));
+                out.push(Toast { level: if kind == "revoked" { Level::Warning } else { Level::Info }, text, body: String::new(), ids: vec![id_of(n)] });
             }
             continue;
         }
         let count = group.len();
         let items = if count == 1 { "1 shared item".to_string() } else { format!("{count} shared items") };
         let revoked = group.iter().all(|n| share_kind(n) == "revoked");
-        out.push((if revoked { Level::Warning } else { Level::Info }, format!("{} changed your access to {items}", who(group[0]))));
+        out.push(Toast { level: if revoked { Level::Warning } else { Level::Info }, text: format!("{} changed your access to {items}", who(group[0])),
+            body: String::new(), ids: group.iter().map(|n| id_of(n)).collect() });
     }
     out
 }
@@ -207,23 +214,52 @@ pub fn share_toasts(notes: &[Value], name_of: impl Fn(&Value) -> Option<String>)
 /// More notifications at once than this come as one summary (MAX_SEPARATE_TOASTS).
 pub const MAX_SEPARATE: usize = 3;
 
-/// The toasts (level, text, comment) of event notifications: drafts are the user's own unsent
-/// changes and are not announced (calendar-event-notification-toaster.tsx:30-50).
-pub fn event_toasts(notes: &[Value]) -> Vec<(Level, String, String)> {
+/// The toasts of event notifications, and the drafts: the user's own unsent changes, never
+/// announced but acknowledged as Bulwark does (calendar-event-notification-toaster.tsx:30-50).
+pub fn event_toasts(notes: &[Value]) -> (Vec<Toast>, Vec<String>) {
+    let drafts: Vec<String> = notes.iter().filter(|n| n["isDraft"] == true).map(id_of).collect();
     let announced: Vec<&Value> = notes.iter().filter(|n| n["isDraft"] != true).collect();
     if announced.len() > MAX_SEPARATE {
-        return vec![(Level::Info, format!("Changes to events you take part in: {}", announced.len()), String::new())];
+        let t = Toast { level: Level::Info, text: format!("Changes to events you take part in: {}", announced.len()), body: String::new(), ids: announced.iter().map(|n| id_of(n)).collect() };
+        return (vec![t], drafts);
     }
-    announced.iter().map(|n| {
+    let toasts = announced.iter().map(|n| {
         let title = n["event"]["title"].as_str().filter(|s| !s.is_empty()).unwrap_or("Untitled event");
         let name = who(n);
-        let comment = n["comment"].as_str().unwrap_or("").to_string();
-        match n["type"].as_str() {
-            Some("created") => (Level::Info, format!("{name} invited you to \"{title}\""), comment),
-            Some("destroyed") => (Level::Warning, format!("{name} cancelled \"{title}\""), comment),
-            _ => (Level::Info, format!("{name} updated \"{title}\""), comment),
-        }
-    }).collect()
+        let body = n["comment"].as_str().unwrap_or("").to_string();
+        let (level, text) = match n["type"].as_str() {
+            Some("created") => (Level::Info, format!("{name} invited you to \"{title}\"")),
+            Some("destroyed") => (Level::Warning, format!("{name} cancelled \"{title}\"")),
+            _ => (Level::Info, format!("{name} updated \"{title}\"")),
+        };
+        Toast { level, text, body, ids: vec![id_of(n)] }
+    }).collect();
+    (toasts, drafts)
+}
+
+/// The lists a share's collection name is looked up in, with the accounts they were read from.
+pub struct Lists<'a> {
+    pub mailboxes: &'a [Value],
+    pub mail_account: &'a str,
+    pub calendars: &'a [Value],
+    pub books: &'a [Value],
+    pub book_account: &'a str,
+}
+
+/// The name of a shared collection as the loaded lists have it: same id, and the account the
+/// notification names, when it names one (share-notification-toaster.tsx:69-82).
+pub fn stored_name(n: &Value, l: &Lists) -> Option<String> {
+    let id = n["objectId"].as_str()?;
+    let acc = n["objectAccountId"].as_str().unwrap_or("");
+    let of = |a: &str| acc.is_empty() || acc == a;
+    let found = match n["objectType"].as_str()? {
+        "Mailbox" if of(l.mail_account) => l.mailboxes.iter().find(|m| m["id"] == id),
+        "AddressBook" if of(l.book_account) => l.books.iter().find(|b| b["id"] == id),
+        // calendars of several accounts: each knows its own (and its id on the server)
+        "Calendar" => l.calendars.iter().find(|x| x["_rid"].as_str().or(x["id"].as_str()) == Some(id) && x["_acc"].as_str().is_none_or(of)),
+        _ => None,
+    };
+    found.and_then(|x| x["name"].as_str().filter(|s| !s.is_empty()).map(String::from))
 }
 
 /// Ids already shown for a login: a fetch racing an acknowledge must not show them again
@@ -238,16 +274,68 @@ impl Seen {
     }
 }
 
+/// Pulls running per login: a push arriving while that login's pull runs asks for one more.
+#[derive(Default, Debug)]
+pub struct Flights { running: HashSet<String>, again: HashSet<String> }
+
+impl Flights {
+    pub fn begin(&mut self, owner: &str) -> bool {
+        if self.running.insert(owner.into()) { return true; }
+        self.again.insert(owner.into());
+        false
+    }
+    /// The pull ended; `true` when another was asked for.
+    pub fn end(&mut self, owner: &str) -> bool { self.running.remove(owner); self.again.remove(owner) }
+}
+
+/// A pull's result is used only for the session it was made for, and never while locked.
+pub fn accept(owner: &str, current: Option<&str>, locked: bool) -> bool { !locked && current == Some(owner) }
+
+/// A toast to show (`None`: only acknowledge, the drafts), and what to destroy once it was shown.
+#[derive(Clone, Debug, PartialEq)]
+pub struct QItem { pub owner: String, pub toast: Option<Toast>, pub ack: (&'static str, String, Vec<String>) }
+
+/// The notifications' own toast queue: other toasts cannot drop it, an item is shown only when
+/// the window can show it, and it is acknowledged only once it was shown.
+#[derive(Default, Debug)]
+pub struct Queue { items: std::collections::VecDeque<QItem> }
+
+#[derive(Debug, PartialEq)]
+pub enum Next { Idle, Wait, Show(QItem) }
+
+impl Queue {
+    pub fn push(&mut self, item: QItem) { self.items.push_back(item); }
+    pub fn clear(&mut self) { self.items.clear(); }
+    /// The next step: items of another login than `current` go (a switch or sign-out); a toast
+    /// waits until the window is `ready` (shown, not minimised, not locked, its toast line free),
+    /// an acknowledgement alone until it is not `locked`.
+    pub fn next(&mut self, current: Option<&str>, ready: bool, locked: bool) -> Next {
+        self.items.retain(|i| current == Some(i.owner.as_str()));
+        let Some(front) = self.items.front() else { return Next::Idle };
+        let can = if front.toast.is_some() { ready && !locked } else { !locked };
+        if !can { return Next::Wait; }
+        Next::Show(self.items.pop_front().expect("front"))
+    }
+}
+
 // ---------------- the app ----------------
 
 /// The app lock's hook: while it says locked, the bell shows no count and its panel no entries,
-/// and notifications stay on the server (fetched again once [`fetch`] runs after unlocking).
+/// and notifications are neither shown nor acknowledged (they stay on the server and are pulled
+/// again once [`fetch`] runs after unlocking).
 pub fn locked() -> bool { false }
 
 static CENTER: Mutex<Option<Center>> = Mutex::new(None);
 /// Shown ids of share and of event notifications.
 static SEEN: Mutex<Option<(Seen, Seen)>> = Mutex::new(None);
-static BUSY: Mutex<(bool, bool)> = Mutex::new((false, false));
+static FLIGHTS: Mutex<Option<Flights>> = Mutex::new(None);
+
+thread_local! {
+    static QUEUE: std::cell::RefCell<Queue> = std::cell::RefCell::new(Queue::default());
+    static PUMPING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static WAITING: std::cell::RefCell<Vec<Waiting>> = const { std::cell::RefCell::new(Vec::new()) };
+    static WAIT_ID: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
 
 fn path() -> std::path::PathBuf { crate::config_dir().join(FILE) }
 
@@ -262,7 +350,9 @@ fn center<T>(f: impl FnOnce(&mut Center) -> T, save: bool) -> T {
 }
 
 /// Add an entry to the centre (warnings and errors, as Bulwark's toasts do) and redraw the bell.
+/// Without a signed-in session nothing is kept: the list was wiped with the last account.
 pub fn record(u: &AppWindow, level: Level, title: &str, body: &str) {
+    if crate::livesync::current().is_none() { return; }
     center(|c| c.add(level, title, body, chrono::Utc::now().timestamp_millis()), true);
     render(u);
 }
@@ -271,6 +361,14 @@ pub fn record(u: &AppWindow, level: Level, title: &str, body: &str) {
 pub fn forget(u: &AppWindow) {
     *CENTER.lock().unwrap_or_else(|e| e.into_inner()) = Some(Center::default());
     render(u);
+}
+
+/// The session ended: nothing of it is still shown, acknowledged or waited for (UI thread).
+pub fn forget_session() {
+    *SEEN.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    *FLIGHTS.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    QUEUE.with(|q| q.borrow_mut().clear());
+    WAITING.with(|w| w.borrow_mut().clear());
 }
 
 pub fn render(u: &AppWindow) {
@@ -304,96 +402,221 @@ pub fn wire(ui: &AppWindow) {
     render(ui);
 }
 
-/// Toasts one after another in the one toast slot.
-fn toast_all(u: &AppWindow, texts: Vec<String>) {
-    let secs = crate::a11y::A11y::load().toast_secs.max(3);
-    for (i, t) in texts.into_iter().enumerate() {
-        if i == 0 { crate::mail::show_toast(u, &t, false); continue; }
-        let w = u.as_weak();
-        slint::Timer::single_shot(std::time::Duration::from_secs(secs * i as u64), move || if let Some(u) = w.upgrade() { crate::mail::show_toast(&u, &t, false) });
-    }
+fn enqueue(u: &AppWindow, items: Vec<QItem>) {
+    QUEUE.with(|q| { let mut q = q.borrow_mut(); for i in items { q.push(i); } });
+    if !PUMPING.with(|p| p.replace(true)) { pump(u); }
 }
 
-/// Pull both notification kinds, show what is new, refresh what it changed, acknowledge it.
-/// A push arriving while a pull runs joins it (one more pull after it).
+/// Show the queue's next item when the window can, then the one after it once its time is up.
+fn pump(u: &AppWindow) {
+    let win = u.window();
+    let ready = win.is_visible() && !win.is_minimized() && u.get_toast().is_empty();
+    let next = QUEUE.with(|q| q.borrow_mut().next(crate::livesync::current_key().as_deref(), ready, locked()));
+    let after = match next {
+        Next::Idle => { PUMPING.with(|p| p.set(false)); return; }
+        Next::Wait => std::time::Duration::from_secs(1),
+        Next::Show(item) => {
+            let shown = item.toast.is_some();
+            displayed(u, item);
+            if shown { std::time::Duration::from_secs(crate::a11y::A11y::load().toast_secs.max(3)) } else { std::time::Duration::ZERO }
+        }
+    };
+    let w = u.as_weak();
+    slint::Timer::single_shot(after, move || if let Some(u) = w.upgrade() { pump(&u) } else { PUMPING.with(|p| p.set(false)) });
+}
+
+/// An item's toast is on screen: keep a warning in the centre, then destroy what it showed.
+fn displayed(u: &AppWindow, item: QItem) {
+    if let Some(t) = &item.toast {
+        crate::mail::show_toast(u, &if t.body.is_empty() { t.text.clone() } else { format!("{}: {}", t.text, t.body) }, false);
+        if t.level != Level::Info { record(u, t.level, &t.text, &t.body); }
+    }
+    let Some(c) = crate::livesync::current().filter(|c| c.state_key() == item.owner) else { return };
+    let (ty, acc, ids) = item.ack;
+    if ids.is_empty() { return; }
+    std::thread::spawn(move || acknowledge(&c, ty, &acc, &ids));
+}
+
+/// Pull both notification kinds and show what is new; a push arriving while this login's pull
+/// runs joins it (one more pull after it, with the session current then).
 pub fn fetch(w: slint::Weak<AppWindow>, c: Arc<Client>) {
     if locked() { return; }
     let (shares_on, events_on) = (c.has(PRINCIPALS), c.has(crate::calendar::CAL));
     if !shares_on && !events_on { return; }
-    {
-        let mut b = BUSY.lock().unwrap_or_else(|e| e.into_inner());
-        if b.0 { b.1 = true; return; }
-        b.0 = true;
-    }
+    let owner = c.state_key();
+    if !FLIGHTS.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert_with(Flights::default).begin(&owner) { return; }
     std::thread::spawn(move || {
         let shares = if shares_on { list_shares(&c).unwrap_or_default() } else { vec![] };
         let events = if events_on { list_events(&c).unwrap_or_default() } else { vec![] };
-        let owner = c.state_key();
-        let (shares, events) = {
-            let mut g = SEEN.lock().unwrap_or_else(|e| e.into_inner());
-            let s = g.get_or_insert_with(Default::default);
-            (s.0.fresh(&owner, shares), s.1.fresh(&owner, events))
-        };
-        let (w2, c2) = (w.clone(), c.clone());
-        let _ = w.upgrade_in_event_loop(move |u| {
-            show(&u, &c2, &shares, &events);
-            let ids = |l: &[Value]| l.iter().filter_map(|n| n["id"].as_str().map(String::from)).collect::<Vec<_>>();
-            let (sid, eid) = (ids(&shares), ids(&events));
-            let c3 = c2.clone();
-            std::thread::spawn(move || {
-                if !sid.is_empty() { acknowledge(&c3, "ShareNotification", &c3.account, &sid); }
-                if !eid.is_empty() { acknowledge(&c3, "CalendarEventNotification", &c3.account_for(crate::calendar::CAL), &eid); }
-            });
-            let again = { let mut b = BUSY.lock().unwrap_or_else(|e| e.into_inner()); b.0 = false; std::mem::take(&mut b.1) };
-            if again { fetch(w2, c2); }
+        let _ = w.clone().upgrade_in_event_loop(move |u| {
+            let again = FLIGHTS.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert_with(Flights::default).end(&owner);
+            if accept(&owner, crate::livesync::current_key().as_deref(), locked()) {
+                let (shares, events) = {
+                    let mut g = SEEN.lock().unwrap_or_else(|e| e.into_inner());
+                    let s = g.get_or_insert_with(Default::default);
+                    (s.0.fresh(&owner, shares), s.1.fresh(&owner, events))
+                };
+                show(&u, &c, shares, events);
+            }
+            if again { if let Some(c) = crate::livesync::current() { fetch(w, c); } }
         });
     });
 }
 
-/// The name of a shared collection as the loaded lists have it (share-notification-toaster.tsx:69-82).
-fn stored_name(n: &Value) -> Option<String> {
-    let (id, acc) = (n["objectId"].as_str()?, n["objectAccountId"].as_str().unwrap_or(""));
-    let same = |x: &Value| x["_rid"].as_str().or(x["id"].as_str()) == Some(id) && (acc.is_empty() || x["_acc"].as_str().is_none_or(|a| a == acc));
-    let found = match n["objectType"].as_str()? {
-        "Mailbox" => crate::mail::mailboxes().into_iter().find(|m| m["id"] == id),
-        "Calendar" => crate::calendar::calendars().into_iter().find(same),
-        "AddressBook" => crate::contacts::books().into_iter().find(same),
-        _ => None,
-    };
-    found.and_then(|x| x["name"].as_str().filter(|s| !s.is_empty()).map(String::from))
+fn lists_now() -> (Vec<Value>, String, Vec<Value>, Vec<Value>, String) {
+    (crate::mail::mailboxes(), crate::mail::mailboxes_account(), crate::calendar::calendars(), crate::contacts::books(), crate::contacts::account().unwrap_or_default())
 }
 
-fn show(u: &AppWindow, c: &Arc<Client>, shares: &[Value], events: &[Value]) {
-    let mut texts = vec![];
-    if !shares.is_empty() {
-        // the list the change belongs to, so a new share appears without a reload
-        let touched: HashSet<&str> = shares.iter().filter_map(|n| n["objectType"].as_str()).collect();
-        let w = u.as_weak();
-        let key = c.state_key();
-        use crate::livesync::{owner, View};
-        if touched.contains("Mailbox") { crate::mail::load_mailboxes(w.clone(), c.clone(), false); }
-        if touched.contains("Calendar") && c.has(crate::calendar::CAL) { crate::calendar::load(w.clone(), c.clone()); }
-        if touched.contains("AddressBook") && owner(View::Contacts) == key { crate::contacts::load(w.clone(), c.clone()); }
-        if touched.contains("FileNode") && owner(View::Files) == key { crate::files::reload(u, c.clone()); }
-        for (level, text) in share_toasts(shares, stored_name) {
-            if level != Level::Info { record(u, level, &text, ""); }
-            texts.push(text);
-        }
-    }
+fn name_now(n: &Value) -> Option<String> {
+    let (m, ma, cals, books, ba) = lists_now();
+    stored_name(n, &Lists { mailboxes: &m, mail_account: &ma, calendars: &cals, books: &books, book_account: &ba })
+}
+
+/// Share notifications waiting for the lists they changed to load.
+struct Waiting { id: u64, owner: String, account: String, notes: Vec<Value>, before: std::collections::HashMap<String, String>, need: HashSet<&'static str> }
+
+/// How long share toasts wait for a list that does not load (the load failed).
+const LIST_WAIT: std::time::Duration = std::time::Duration::from_secs(15);
+
+fn show(u: &AppWindow, c: &Arc<Client>, shares: Vec<Value>, events: Vec<Value>) {
+    let owner = c.state_key();
     if !events.is_empty() {
-        for (level, text, comment) in event_toasts(events) {
-            if level != Level::Info { record(u, level, &text, &comment); }
-            texts.push(if comment.is_empty() { text } else { format!("{text}: {comment}") });
-        }
+        let (toasts, drafts) = event_toasts(&events);
+        let acc = c.account_for(crate::calendar::CAL);
+        let mut items: Vec<QItem> = toasts.into_iter().map(|t| QItem { owner: owner.clone(), ack: ("CalendarEventNotification", acc.clone(), t.ids.clone()), toast: Some(t) }).collect();
+        if !drafts.is_empty() { items.push(QItem { owner: owner.clone(), toast: None, ack: ("CalendarEventNotification", acc, drafts) }); }
+        enqueue(u, items);
         // the events in view show the change
         crate::livesync::calendar(u.as_weak(), c.clone());
     }
-    toast_all(u, texts);
+    if shares.is_empty() { return; }
+    // names the lists have now (a revoked share is gone after the refresh), the rest after it
+    let before = shares.iter().filter_map(|n| Some((id_of(n), n["name"].as_str().filter(|s| !s.is_empty()).map(String::from).or_else(|| name_now(n))?))).collect();
+    let touched: HashSet<&str> = shares.iter().filter_map(|n| n["objectType"].as_str()).collect();
+    let w = u.as_weak();
+    use crate::livesync::{owner as holder, View};
+    let mut need = HashSet::new();
+    // the list the change belongs to, so a new share appears without a reload
+    if touched.contains("Mailbox") { need.insert("Mailbox"); crate::mail::load_mailboxes(w.clone(), c.clone(), false); }
+    if touched.contains("Calendar") && c.has(crate::calendar::CAL) { need.insert("Calendar"); crate::calendar::load(w.clone(), c.clone()); }
+    if touched.contains("AddressBook") && holder(View::Contacts) == owner { need.insert("AddressBook"); crate::contacts::load(w.clone(), c.clone()); }
+    if touched.contains("FileNode") && holder(View::Files) == owner { need.insert("FileNode"); crate::files::reload(u, c.clone()); }
+    let id = WAIT_ID.with(|i| { i.set(i.get() + 1); i.get() });
+    WAITING.with(|ws| ws.borrow_mut().push(Waiting { id, owner, account: c.account.clone(), notes: shares, before, need }));
+    if WAITING.with(|ws| ws.borrow().iter().any(|x| x.id == id && x.need.is_empty())) { land(u, None); return; }
+    let w = u.as_weak();
+    slint::Timer::single_shot(LIST_WAIT, move || if let Some(u) = w.upgrade() {
+        let late = WAITING.with(|ws| { let mut ws = ws.borrow_mut(); ws.iter().position(|x| x.id == id).map(|p| ws.remove(p)) });
+        if let Some(x) = late { share_ready(&u, x); }
+    });
+}
+
+/// A list of a view loaded (livesync).
+pub fn landed(u: &AppWindow, view: crate::livesync::View) {
+    use crate::livesync::View;
+    let kind = match view { View::Calendar => "Calendar", View::Contacts => "AddressBook", View::Files => "FileNode", View::Identities => return };
+    land(u, Some(kind));
+}
+
+/// The folder list loaded.
+pub fn folders_landed(u: &AppWindow) { land(u, Some("Mailbox")); }
+
+fn land(u: &AppWindow, kind: Option<&str>) {
+    let ready: Vec<Waiting> = WAITING.with(|ws| {
+        let mut ws = ws.borrow_mut();
+        if let Some(k) = kind { for x in ws.iter_mut() { x.need.remove(k); } }
+        let (done, keep): (Vec<Waiting>, Vec<Waiting>) = std::mem::take(&mut *ws).into_iter().partition(|x| x.need.is_empty());
+        *ws = keep;
+        done
+    });
+    for x in ready { share_ready(u, x); }
+}
+
+/// The lists are in: the share toasts, named as the lists have them now (Bulwark looks the names
+/// up before and after the refresh, share-notification-toaster.tsx:109 and 117-119).
+fn share_ready(u: &AppWindow, x: Waiting) {
+    if !crate::livesync::is_current(&x.owner) { return; }
+    let toasts = share_toasts(&x.notes, |n| x.before.get(&id_of(n)).cloned().or_else(|| name_now(n)));
+    let items = toasts.into_iter().map(|t| QItem { owner: x.owner.clone(), ack: ("ShareNotification", x.account.clone(), t.ids.clone()), toast: Some(t) }).collect();
+    enqueue(u, items);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn lt(v: Vec<Toast>) -> Vec<(Level, String)> { v.into_iter().map(|t| (t.level, t.text)).collect() }
+    fn lte(v: Vec<Toast>) -> Vec<(Level, String, String)> { v.into_iter().map(|t| (t.level, t.text, t.body)).collect() }
+
+    #[test]
+    fn share_toasts_carry_the_ids_they_show() {
+        let r = json!({"mayRead": true});
+        let one = share("Bob", "Calendar", "Team", Value::Null, r.clone());
+        assert_eq!(share_toasts(std::slice::from_ref(&one), |_| None)[0].ids, vec![id_of(&one)]);
+        let many: Vec<Value> = (0..4).map(|i| share("Cy", "FileNode", &format!("f{i}"), Value::Null, r.clone())).collect();
+        let t = share_toasts(&many, |_| None);
+        assert_eq!(t.len(), 1);
+        assert_eq!(t[0].ids, many.iter().map(id_of).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn stored_names_match_the_id_and_the_account_the_list_came_from() {
+        let boxes = [json!({"id": "m1", "name": "Ops"})];
+        let cals = [json!({"id": "B/c1", "_rid": "c1", "_acc": "B", "name": "Team"}), json!({"id": "c1", "_rid": "c1", "_acc": "A", "name": "Mine"})];
+        let books = [json!({"id": "b1", "name": "Clients"})];
+        let l = Lists { mailboxes: &boxes, mail_account: "A", calendars: &cals, books: &books, book_account: "A" };
+        let n = |ty: &str, acc: &str, id: &str| json!({"objectType": ty, "objectAccountId": acc, "objectId": id});
+        assert_eq!(stored_name(&n("Mailbox", "A", "m1"), &l).as_deref(), Some("Ops"));
+        assert_eq!(stored_name(&n("Mailbox", "", "m1"), &l).as_deref(), Some("Ops"));
+        assert_eq!(stored_name(&n("Mailbox", "B", "m1"), &l), None, "another account's folder with the same id");
+        assert_eq!(stored_name(&n("AddressBook", "B", "b1"), &l), None);
+        assert_eq!(stored_name(&n("AddressBook", "A", "b1"), &l).as_deref(), Some("Clients"));
+        assert_eq!(stored_name(&n("Calendar", "B", "c1"), &l).as_deref(), Some("Team"));
+        assert_eq!(stored_name(&n("Calendar", "A", "c1"), &l).as_deref(), Some("Mine"));
+        assert_eq!(stored_name(&n("Calendar", "C", "c1"), &l), None);
+        assert_eq!(stored_name(&n("FileNode", "A", "x"), &l), None);
+    }
+
+    #[test]
+    fn a_pull_counts_only_for_its_own_session_and_never_while_locked() {
+        assert!(accept("ann", Some("ann"), false));
+        assert!(!accept("ann", Some("bob"), false), "switched while it ran");
+        assert!(!accept("ann", None, false), "signed out while it ran");
+        assert!(!accept("ann", Some("ann"), true));
+        let mut f = Flights::default();
+        assert!(f.begin("ann"));
+        assert!(!f.begin("ann"));
+        assert!(f.begin("bob"), "another login's pull is its own");
+        assert!(f.end("ann"));
+        assert!(!f.end("bob"));
+        assert!(f.begin("ann"));
+    }
+
+    fn item(owner: &str, text: Option<&str>, ids: &[&str]) -> QItem {
+        QItem { owner: owner.into(), toast: text.map(|t| Toast { level: Level::Info, text: t.into(), body: String::new(), ids: ids.iter().map(|s| s.to_string()).collect() }),
+            ack: ("ShareNotification", "A".into(), ids.iter().map(|s| s.to_string()).collect()) }
+    }
+
+    #[test]
+    fn the_queue_hands_out_acknowledgements_only_with_a_shown_toast() {
+        let mut q = Queue::default();
+        q.push(item("ann", Some("one"), &["n1"]));
+        q.push(item("ann", None, &["d1"]));
+        q.push(item("ann", Some("two"), &["n2"]));
+        // not shown (minimised, the toast line busy, locked): nothing is handed out, nothing lost
+        assert_eq!(q.next(Some("ann"), false, false), Next::Wait);
+        assert_eq!(q.next(Some("ann"), true, true), Next::Wait);
+        assert_eq!(q.next(Some("ann"), true, false), Next::Show(item("ann", Some("one"), &["n1"])));
+        // the drafts' acknowledgement needs no toast line, but never goes while locked
+        assert_eq!(q.next(Some("ann"), false, true), Next::Wait);
+        assert_eq!(q.next(Some("ann"), false, false), Next::Show(item("ann", None, &["d1"])));
+        // a switch: ann's rest goes unshown and unacknowledged (it comes back with ann's next pull)
+        q.push(item("bob", Some("b"), &["m1"]));
+        assert_eq!(q.next(Some("bob"), true, false), Next::Show(item("bob", Some("b"), &["m1"])));
+        assert_eq!(q.next(Some("bob"), true, false), Next::Idle);
+        q.push(item("bob", Some("c"), &["m2"]));
+        assert_eq!(q.next(None, true, false), Next::Idle, "signed out");
+    }
 
     #[test]
     fn the_center_keeps_fifty_newest_first_and_counts_unread() {
@@ -490,7 +713,7 @@ mod tests {
         assert_eq!(share_kind(&notes[0]), "shared");
         assert_eq!(share_kind(&notes[1]), "revoked");
         assert_eq!(share_kind(&share("D", "FileNode", "f", r.clone(), json!({"mayWrite": true}))), "changed");
-        assert_eq!(share_toasts(&notes, |_| None), vec![
+        assert_eq!(lt(share_toasts(&notes, |_| None)), vec![
             (Level::Info, "Bob shared the calendar \"Team\" with you".to_string()),
             (Level::Warning, "Cy removed your access to the folder \"Ops\"".to_string()),
         ]);
@@ -500,28 +723,31 @@ mod tests {
     fn many_by_one_person_or_unknown_names_are_summed() {
         let r = json!({"mayRead": true});
         let many: Vec<Value> = (0..3).map(|i| share("Bob", "AddressBook", &format!("b{i}"), r.clone(), Value::Null)).collect();
-        assert_eq!(share_toasts(&many, |_| None), vec![(Level::Warning, "Bob changed your access to 3 shared items".to_string())]);
+        assert_eq!(lt(share_toasts(&many, |_| None)), vec![(Level::Warning, "Bob changed your access to 3 shared items".to_string())]);
         // Stalwart's empty name: looked up, else summed
         let unnamed = [share("Ann", "Calendar", "", Value::Null, r.clone())];
-        assert_eq!(share_toasts(&unnamed, |_| Some("Work".into()))[0].1, "Ann shared the calendar \"Work\" with you");
-        assert_eq!(share_toasts(&unnamed, |_| None), vec![(Level::Info, "Ann changed your access to 1 shared item".to_string())]);
+        assert_eq!(share_toasts(&unnamed, |_| Some("Work".into()))[0].text, "Ann shared the calendar \"Work\" with you");
+        assert_eq!(lt(share_toasts(&unnamed, |_| None)), vec![(Level::Info, "Ann changed your access to 1 shared item".to_string())]);
         let mut anon = share("x", "FileNode", "Docs", Value::Null, r);
         anon["changedBy"] = json!({"name": "", "email": "", "principalId": null});
-        assert_eq!(share_toasts(&[anon], |_| None)[0].1, "Someone shared the file folder \"Docs\" with you");
+        assert_eq!(share_toasts(&[anon], |_| None)[0].text, "Someone shared the file folder \"Docs\" with you");
     }
 
     #[test]
     fn event_texts_skip_drafts_and_sum_past_three() {
         let ev = |t: &str, title: &str, draft: bool| json!({"id": t, "type": t, "isDraft": draft, "changedBy": {"name": "Bob", "email": "bob@example.test"}, "comment": if t == "destroyed" { "Sorry" } else { "" }, "event": {"title": title}});
-        let got = event_toasts(&[ev("created", "Sync", false), ev("updated", "", false), ev("destroyed", "Lunch", false), ev("created", "Mine", true)]);
+        let got = lte(event_toasts(&[ev("created", "Sync", false), ev("updated", "", false), ev("destroyed", "Lunch", false), ev("created", "Mine", true)]).0);
         assert_eq!(got, vec![
             (Level::Info, "Bob invited you to \"Sync\"".to_string(), String::new()),
             (Level::Info, "Bob updated \"Untitled event\"".to_string(), String::new()),
             (Level::Warning, "Bob cancelled \"Lunch\"".to_string(), "Sorry".to_string()),
         ]);
         let many: Vec<Value> = (0..4).map(|_| ev("updated", "x", false)).collect();
-        assert_eq!(event_toasts(&many), vec![(Level::Info, "Changes to events you take part in: 4".to_string(), String::new())]);
-        assert!(event_toasts(&[ev("created", "d", true)]).is_empty());
+        assert_eq!(lte(event_toasts(&many).0), vec![(Level::Info, "Changes to events you take part in: 4".to_string(), String::new())]);
+        let (none, drafts) = event_toasts(&[ev("created", "d", true)]);
+        assert!(none.is_empty());
+        assert_eq!(drafts, ["created"], "a draft is not announced but acknowledged");
+        assert_eq!(event_toasts(&many).0[0].ids.len(), 4, "the summary acknowledges every one it sums");
     }
 
     #[test]

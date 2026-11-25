@@ -10,24 +10,35 @@
 //!
 //! Each view's full load records the state of every (type, account) it read, captured before the
 //! read (a delta from it can only repeat, never miss, what the read saw), under the login it was
-//! loaded for ([`Ledger`]). A delta is applied only when the view still holds that login's data and
-//! its recorded state is still the one the delta started from: a reload or an account switch that
-//! happened meanwhile wins, and no account's changes reach another's view.
+//! loaded for ([`Ledger`]); an account whose read failed records nothing and is not followed. A
+//! delta runs for exactly the recorded accounts and is applied only while the session is still
+//! that login's and the view still holds the states it started from. Losing that race to a full
+//! load runs the delta again from the new states; a delta that asks for the full load keeps the
+//! view busy until the load lands, and pushes meanwhile run once after it.
 use crate::jmap::Client;
 use crate::AppWindow;
 use serde_json::{json, Value};
 use slint::ComponentHandle;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 /// A view that follows push with deltas.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum View { Calendar, Contacts, Files, Identities }
 
+/// (type, account, since) of one delta.
+pub type Step = (String, String, String);
+/// A delta's result: (type, account, since, what changed).
+pub type Applied = (String, String, String, Delta);
+
 /// What a view was loaded at: its login ([`Client::state_key`]) and the state of each
 /// (type, account) it read.
 #[derive(Default, Debug)]
 struct Book { owner: String, states: HashMap<(String, String), String> }
+
+/// A full load a delta asked for that has not landed after this long no longer holds the view.
+const LOAD_STALE: Duration = Duration::from_secs(90);
 
 /// The views' recorded states, and which deltas are running.
 #[derive(Default, Debug)]
@@ -35,19 +46,34 @@ pub struct Ledger {
     books: HashMap<View, Book>,
     running: HashSet<View>,
     again: HashSet<View>,
+    /// Views waiting for the full load a delta asked for (since when).
+    loading: HashMap<View, Instant>,
 }
+
+/// What to do once a delta's outcome is in (see [`Ledger::settle`]).
+#[derive(Debug, Default, PartialEq)]
+pub struct Settle { pub full: bool, pub apply: bool, pub rerun: bool }
 
 impl Ledger {
     /// A full load of `view` for `owner` finished: it now holds exactly these states.
-    pub fn loaded(&mut self, view: View, owner: &str, states: &[(String, String, String)]) {
+    pub fn loaded(&mut self, view: View, owner: &str, states: &[Step]) {
         let states = states.iter().map(|(t, a, s)| ((t.clone(), a.clone()), s.clone())).collect();
         self.books.insert(view, Book { owner: owner.to_string(), states });
     }
 
     /// The state `view` holds `ty` of `account` at, when it holds `owner`'s data.
+    #[cfg(test)]
     pub fn since(&self, view: View, owner: &str, ty: &str, account: &str) -> Option<String> {
         let b = self.books.get(&view).filter(|b| b.owner == owner)?;
         b.states.get(&(ty.to_string(), account.to_string())).cloned()
+    }
+
+    /// The deltas `view` needs: one per recorded (type, account), when it holds `owner`'s data.
+    pub fn steps(&self, view: View, owner: &str) -> Option<Vec<Step>> {
+        let b = self.books.get(&view).filter(|b| b.owner == owner && !b.states.is_empty())?;
+        let mut v: Vec<Step> = b.states.iter().map(|((t, a), s)| (t.clone(), a.clone(), s.clone())).collect();
+        v.sort();
+        Some(v)
     }
 
     /// Whose data `view` holds ("" none).
@@ -62,12 +88,18 @@ impl Ledger {
         true
     }
 
-    /// The view's data is gone (sign-out): no delta applies to it any more.
+    /// The view's data is gone: no delta applies to it any more.
+    #[cfg(test)]
     pub fn forget(&mut self, view: View) { self.books.remove(&view); }
 
-    /// A delta of `view` may start; `false` when one runs (it runs again once it ends, so a
-    /// push that came in meanwhile is not lost and two deltas never race from one state).
-    pub fn begin(&mut self, view: View) -> bool {
+    /// A delta of `view` may start; `false` when one runs or its full load has not landed (it
+    /// runs again once that ends, so a push that came in meanwhile is not lost and two deltas
+    /// never race from one state). A full load that never landed stops holding it after a while.
+    pub fn begin(&mut self, view: View, now: Instant) -> bool {
+        if self.loading.get(&view).is_some_and(|t| now.duration_since(*t) > LOAD_STALE) {
+            self.loading.remove(&view);
+            self.running.remove(&view);
+        }
         if self.running.insert(view) { return true; }
         self.again.insert(view);
         false
@@ -76,7 +108,28 @@ impl Ledger {
     /// The delta of `view` ended; `true` when another was asked for meanwhile.
     pub fn finish(&mut self, view: View) -> bool {
         self.running.remove(&view);
+        self.loading.remove(&view);
         self.again.remove(&view)
+    }
+
+    /// A delta's outcome is in. `current`: the session is still `owner`'s. Applies only while the
+    /// view holds `owner`'s data at the delta's starting states; losing to a full load that landed
+    /// meanwhile reruns it from the new states; asking for the full load keeps the view busy.
+    pub fn settle(&mut self, view: View, owner: &str, current: bool, outcome: &Outcome, now: Instant) -> Settle {
+        let holds = current && self.owner(view) == owner;
+        let mut s = Settle::default();
+        if holds {
+            match outcome {
+                Outcome::Full => { self.loading.insert(view, now); s.full = true; return s; }
+                Outcome::Nothing => {}
+                Outcome::Apply(ds) => {
+                    let moves: Vec<(String, String, String, String)> = ds.iter().map(|(t, a, f, d)| (t.clone(), a.clone(), f.clone(), d.state.clone())).collect();
+                    if self.advance(view, owner, &moves) { s.apply = true; } else { s.rerun = true; }
+                }
+            }
+        }
+        if self.finish(view) { s.rerun = true; }
+        s
     }
 }
 
@@ -87,11 +140,53 @@ fn with<T>(f: impl FnOnce(&mut Ledger) -> T) -> T {
     f(g.get_or_insert_with(Ledger::default))
 }
 
-/// Record a full load (see [`Ledger::loaded`]).
-pub fn loaded(view: View, owner: &str, states: &[(String, String, String)]) { with(|l| l.loaded(view, owner, states)); }
+// ---------------- the session ----------------
+
+/// The signed-in session; a delta, a pull or a toast of another login does nothing.
+static CURRENT: Mutex<Option<Arc<Client>>> = Mutex::new(None);
+
+/// A session starts (sign-in, account switch) or ends (`None`).
+pub fn set_current(c: Option<Arc<Client>>) { *CURRENT.lock().unwrap_or_else(|e| e.into_inner()) = c; }
+pub fn current() -> Option<Arc<Client>> { CURRENT.lock().unwrap_or_else(|e| e.into_inner()).clone() }
+/// The current session's [`Client::state_key`].
+pub fn current_key() -> Option<String> { current().map(|c| c.state_key()) }
+pub fn is_current(owner: &str) -> bool { current_key().as_deref() == Some(owner) }
+
+/// A full load of `view` for `owner` landed (UI thread): record its states, tell the
+/// notifications waiting for that list, and run a delta asked for while it loaded.
+pub fn loaded(u: &AppWindow, view: View, owner: &str, states: &[Step]) {
+    let again = with(|l| { l.loaded(view, owner, states); l.finish(view) });
+    crate::notices::landed(u, view);
+    if again { if let Some(c) = current() { follow(view, u.as_weak(), c); } }
+}
 
 /// Whose data `view` holds ("" none).
 pub fn owner(view: View) -> String { with(|l| l.owner(view)) }
+
+/// Data types the app follows over push (RFC 8620 §7.3 `types`).
+const PUSH_TYPES: [&str; 5] = ["Email", "Mailbox", "Thread", "EmailDelivery", "EmailSubmission"];
+
+/// The push types of a login: mail and identities, calendar and contacts objects where it has
+/// them. `more` adds files and the server's notifications; a stream that does not open with
+/// them is opened again without them (see [`retry_without_more`]).
+pub fn push_types(c: &Client, more: bool) -> Vec<&'static str> {
+    let mut v = PUSH_TYPES.to_vec();
+    if c.has("urn:ietf:params:jmap:submission") { v.push("Identity"); }
+    if c.has(crate::calendar::CAL) { v.extend(["CalendarEvent", "Calendar"]); }
+    if c.has("urn:ietf:params:jmap:contacts") { v.extend(["ContactCard", "AddressBook"]); }
+    if more {
+        if c.has("urn:ietf:params:jmap:filenode") { v.push("FileNode"); }
+        if c.has("urn:ietf:params:jmap:principals") { v.push("ShareNotification"); }
+        if c.has(crate::calendar::CAL) { v.push("CalendarEventNotification"); }
+    }
+    v
+}
+
+/// A stream asked with the newer types that failed before it opened, for any reason but a
+/// refused sign-in: a server that does not know a type may refuse the request or drop it.
+pub fn retry_without_more(more: bool, opened: bool, err: Option<&str>) -> bool {
+    more && !opened && err.is_some_and(|e| !crate::jmap::auth_rejected(e))
+}
 
 /// Types that live in the calendars, contacts and files accounts too (shared ones included), not
 /// only in the mail account a StateChange is otherwise read for.
@@ -110,8 +205,14 @@ pub fn pushed_types(change: &Value, account: &str) -> HashSet<String> {
     out
 }
 
-/// Every view forgets its data's states (sign-out).
-pub fn forget_all() { with(|l| for v in [View::Calendar, View::Contacts, View::Files, View::Identities] { l.forget(v) }); }
+/// Sign-out: every view forgets its states, deltas stop, the session and its identities and
+/// notifications go.
+pub fn forget_all() {
+    with(|l| *l = Ledger::default());
+    set_current(None);
+    *IDENTITIES.lock().unwrap_or_else(|e| e.into_inner()) = (String::new(), Vec::new());
+    crate::notices::forget_session();
+}
 
 /// The current state of `ty` in `account` (`X/get` with no ids), read before a full load.
 pub fn state_of(c: &Client, ty: &str, account: &str) -> Option<String> {
@@ -180,17 +281,12 @@ pub fn apply(have: &mut Vec<Value>, account: &str, d: &Delta, ident: impl Fn(&Va
     }
 }
 
-/// The deltas a view needs: `None` when any (type, account) has no recorded state for `owner`
-/// (the view holds another login's data, or none).
-pub fn plan(view: View, owner: &str, wanted: &[(String, String)]) -> Option<Vec<(String, String, String)>> {
-    with(|l| wanted.iter().map(|(t, a)| l.since(view, owner, t, a).map(|s| (t.clone(), a.clone(), s))).collect())
-}
-
 /// The outcome of a view's deltas.
-enum Outcome { Full, Nothing, Apply(Vec<(String, String, String, Delta)>) }
+#[derive(Debug)]
+pub enum Outcome { Full, Nothing, Apply(Vec<Applied>) }
 
 /// Run the deltas of `steps` (type, account, since) with each type's properties.
-fn run(c: &Client, steps: &[(String, String, String)], props: impl Fn(&str) -> Option<Value>) -> Outcome {
+fn run(c: &Client, steps: &[Step], props: impl Fn(&str) -> Option<Value>) -> Outcome {
     let mut out = vec![];
     for (ty, acc, since) in steps {
         match delta(c, ty, acc, since, props(ty).as_ref()) {
@@ -204,64 +300,95 @@ fn run(c: &Client, steps: &[(String, String, String)], props: impl Fn(&str) -> O
     Outcome::Apply(out)
 }
 
-/// One view's push: deltas on a thread, then `full` (the view's full load) or `apply` on the UI
-/// thread, only while the view still holds `owner`'s data at the states the deltas started from.
-fn follow(view: View, w: slint::Weak<AppWindow>, c: Arc<Client>, wanted: Vec<(String, String)>,
-          props: fn(&str) -> Option<Value>, full: fn(&AppWindow, Arc<Client>), apply_ui: fn(&AppWindow, &Client, &[(String, String, String, Delta)])) {
+/// How a view is followed: its properties per type, what its delta needs from the worker thread
+/// (`extra`, e.g. settings read off the UI thread), its full load and its delta's application.
+struct Spec {
+    props: fn(&str) -> Option<Value>,
+    extra: fn(&Client) -> Value,
+    full: fn(&AppWindow, Arc<Client>),
+    apply: fn(&AppWindow, &Arc<Client>, &[Applied], &Value),
+}
+
+fn spec(view: View) -> Spec {
+    match view {
+        View::Calendar => Spec {
+            props: |ty| Some(if ty == "Calendar" { json!(crate::calendar::CAL_PROPS.to_vec()) } else { json!(crate::calendar::EVENT_PROPS.to_vec()) }),
+            extra: |_| crate::settings::Settings::load().prefs.get("sharedCalendarColors").cloned().unwrap_or(json!({})),
+            full: |u, c| crate::calendar::load(u.as_weak(), c),
+            apply: |u, c, ds, colors| crate::calendar::apply_live(u, c, ds, colors),
+        },
+        View::Contacts => Spec {
+            props: |_| None, extra: |_| Value::Null,
+            full: |u, c| crate::contacts::load(u.as_weak(), c),
+            apply: |u, _, ds, _| crate::contacts::apply_live(u, ds),
+        },
+        View::Files => Spec {
+            props: |_| Some(json!(crate::files::PROPS.to_vec())), extra: |_| Value::Null,
+            full: |u, c| crate::files::reload(u, c),
+            apply: |u, _, ds, _| crate::files::apply_live(u, ds),
+        },
+        View::Identities => Spec {
+            props: |_| None, extra: |_| Value::Null,
+            full: |u, c| {
+                let w = u.as_weak();
+                std::thread::spawn(move || {
+                    let r = load_identities(&c);
+                    let _ = w.upgrade_in_event_loop(move |u| match r {
+                        Ok((list, state)) => identities_loaded(&u, &c, list, state),
+                        // nothing landed: the view is free for the next push
+                        Err(_) => { if with(|l| l.finish(View::Identities)) { if let Some(c) = current() { follow(View::Identities, u.as_weak(), c); } } }
+                    });
+                });
+            },
+            apply: |u, c, ds, _| {
+                let owner = c.state_key();
+                let list = {
+                    let mut g = IDENTITIES.lock().unwrap_or_else(|e| e.into_inner());
+                    if g.0 != owner { return; }
+                    for (_, acc, _, d) in ds { apply(&mut g.1, acc, d, |x| (acc.clone(), x["id"].as_str().unwrap_or("").to_string()), |v| v); }
+                    g.1.clone()
+                };
+                identities_changed(u, c, list);
+            },
+        },
+    }
+}
+
+/// One view's push: the deltas of its recorded (type, account) states on a thread, then on the UI
+/// thread the full load or the delta's application, as [`Ledger::settle`] decides. Reruns use the
+/// session current at that moment.
+fn follow(view: View, w: slint::Weak<AppWindow>, c: Arc<Client>) {
     let owner = c.state_key();
-    let Some(steps) = plan(view, &owner, &wanted) else { return };
-    if !with(|l| l.begin(view)) { return; }
+    if !is_current(&owner) { return; }
+    let Some(steps) = with(|l| l.steps(view, &owner)) else { return };
+    if !with(|l| l.begin(view, Instant::now())) { return; }
     std::thread::spawn(move || {
-        let outcome = run(&c, &steps, props);
-        let _ = w.clone().upgrade_in_event_loop(move |u| {
-            match outcome {
-                Outcome::Full => if with(|l| l.owner(view)) == owner { full(&u, c.clone()) },
-                Outcome::Nothing => {}
-                Outcome::Apply(ds) => {
-                    let moves: Vec<(String, String, String, String)> = ds.iter().map(|(t, a, s, d)| (t.clone(), a.clone(), s.clone(), d.state.clone())).collect();
-                    if with(|l| l.advance(view, &owner, &moves)) { apply_ui(&u, &c, &ds); }
-                }
-            }
-            if with(|l| l.finish(view)) { follow(view, u.as_weak(), c, wanted, props, full, apply_ui); }
+        let sp = spec(view);
+        let outcome = run(&c, &steps, sp.props);
+        let extra = if matches!(outcome, Outcome::Apply(_)) { (sp.extra)(&c) } else { Value::Null };
+        let _ = w.upgrade_in_event_loop(move |u| {
+            let s = with(|l| l.settle(view, &owner, is_current(&owner), &outcome, Instant::now()));
+            if s.full { (sp.full)(&u, c.clone()); }
+            if s.apply { if let Outcome::Apply(ds) = &outcome { (sp.apply)(&u, &c, ds, &extra); } }
+            if s.rerun { if let Some(c) = current() { follow(view, u.as_weak(), c); } }
         });
     });
 }
 
 // ---------------- the views ----------------
 
-/// Calendar and CalendarEvent of every calendar account.
-pub fn calendar(w: slint::Weak<AppWindow>, c: Arc<Client>) {
-    let accounts = crate::calendar::calendar_accounts(&c);
-    let wanted: Vec<(String, String)> = accounts.iter().flat_map(|(a, _, _)| [("Calendar".to_string(), a.clone()), ("CalendarEvent".to_string(), a.clone())]).collect();
-    // a view loaded before a new shared account appeared has no state for it: plan() says load in full
-    let owner = c.state_key();
-    if with(|l| l.owner(View::Calendar)) == owner && plan(View::Calendar, &owner, &wanted).is_none() {
-        crate::calendar::load(w, c);
-        return;
-    }
-    follow(View::Calendar, w, c, wanted,
-        |ty| Some(if ty == "Calendar" { json!(crate::calendar::CAL_PROPS.to_vec()) } else { json!(crate::calendar::EVENT_PROPS.to_vec()) }),
-        |u, c| crate::calendar::load(u.as_weak(), c),
-        |u, c, ds| crate::calendar::apply_live(u, c, ds));
-}
+/// Calendar and CalendarEvent of every calendar account the view read.
+pub fn calendar(w: slint::Weak<AppWindow>, c: Arc<Client>) { follow(View::Calendar, w, c); }
 
 /// AddressBook and ContactCard of the contacts account.
-pub fn contacts(w: slint::Weak<AppWindow>, c: Arc<Client>) {
-    let acc = c.account_for("urn:ietf:params:jmap:contacts");
-    follow(View::Contacts, w, c, vec![("AddressBook".into(), acc.clone()), ("ContactCard".into(), acc)],
-        |_| None,
-        |u, c| crate::contacts::load(u.as_weak(), c),
-        |u, _, ds| crate::contacts::apply_live(u, ds));
-}
+pub fn contacts(w: slint::Weak<AppWindow>, c: Arc<Client>) { follow(View::Contacts, w, c); }
 
-/// FileNode of every account with file storage.
-pub fn files(w: slint::Weak<AppWindow>, c: Arc<Client>) {
-    let wanted: Vec<(String, String)> = crate::files::accounts(&c).into_iter().map(|a| ("FileNode".to_string(), a)).collect();
-    follow(View::Files, w, c, wanted,
-        |_| Some(json!(crate::files::PROPS.to_vec())),
-        |u, c| crate::files::reload(u, c),
-        |u, _, ds| crate::files::apply_live(u, ds));
-}
+/// FileNode of every account with file storage the view read.
+pub fn files(w: slint::Weak<AppWindow>, c: Arc<Client>) { follow(View::Files, w, c); }
+
+/// Identity push: the delta is applied to the login's list, which then goes to the open
+/// settings page (when it shows this login) and to the own-address checks.
+pub fn identities(w: slint::Weak<AppWindow>, c: Arc<Client>) { follow(View::Identities, w, c); }
 
 // ---------------- identities ----------------
 
@@ -273,37 +400,23 @@ static SETTINGS: OnceLock<crate::server_settings::Shared> = OnceLock::new();
 /// The settings pages' cache, so an identity change reaches an open Identities page.
 pub fn set_settings_cache(srv: crate::server_settings::Shared) { let _ = SETTINGS.set(srv); }
 
-/// Identity/get of every identity, recording its state for later deltas.
-pub fn load_identities(c: &Client) -> Result<Vec<Value>, String> {
+/// Identity/get of every identity, and its state for later deltas.
+pub fn load_identities(c: &Client) -> Result<(Vec<Value>, Option<String>), String> {
     let acc = crate::identities::account(c);
     let r = c.call(json!([["Identity/get", {"accountId": acc, "ids": null}, "i"]]))?;
-    let list = r[0][1]["list"].as_array().cloned().unwrap_or_default();
-    let owner = c.state_key();
-    if let Some(s) = r[0][1]["state"].as_str() { loaded(View::Identities, &owner, &[("Identity".into(), acc, s.into())]); }
-    *IDENTITIES.lock().unwrap_or_else(|e| e.into_inner()) = (owner, list.clone());
-    Ok(list)
+    Ok((r[0][1]["list"].as_array().cloned().unwrap_or_default(), r[0][1]["state"].as_str().map(String::from)))
 }
 
-/// Identity push: the delta is applied to the login's list, which then goes to the open
-/// settings page (when it shows this login) and to the own-address checks.
-pub fn identities(w: slint::Weak<AppWindow>, c: Arc<Client>) {
-    let acc = crate::identities::account(&c);
-    follow(View::Identities, w, c, vec![("Identity".into(), acc)],
-        |_| None,
-        |u, c| {
-            let w = u.as_weak();
-            std::thread::spawn(move || if let Ok(list) = load_identities(&c) { let _ = w.upgrade_in_event_loop(move |u| identities_changed(&u, &c, list)); });
-        },
-        |u, c, ds| {
-            let owner = c.state_key();
-            let list = {
-                let mut g = IDENTITIES.lock().unwrap_or_else(|e| e.into_inner());
-                if g.0 != owner { return; }
-                for (_, acc, _, d) in ds { apply(&mut g.1, acc, d, |x| (acc.clone(), x["id"].as_str().unwrap_or("").to_string()), |v| v); }
-                g.1.clone()
-            };
-            identities_changed(u, c, list);
-        });
+/// Identities read for `c` landed (UI thread): kept, recorded and shown, unless the session is no
+/// longer `c`'s.
+pub fn identities_loaded(u: &AppWindow, c: &Arc<Client>, list: Vec<Value>, state: Option<String>) {
+    let owner = c.state_key();
+    if !is_current(&owner) { return; }
+    let acc = crate::identities::account(c);
+    *IDENTITIES.lock().unwrap_or_else(|e| e.into_inner()) = (owner.clone(), list.clone());
+    let states: Vec<Step> = state.into_iter().map(|s| ("Identity".to_string(), acc.clone(), s)).collect();
+    loaded(u, View::Identities, &owner, &states);
+    identities_changed(u, c, list);
 }
 
 fn identities_changed(u: &AppWindow, c: &Client, list: Vec<Value>) {
@@ -366,13 +479,111 @@ mod tests {
     #[test]
     fn a_push_during_a_delta_runs_it_again_once() {
         let mut l = Ledger::default();
-        assert!(l.begin(View::Contacts));
-        assert!(!l.begin(View::Contacts));
-        assert!(!l.begin(View::Contacts));
-        assert!(l.begin(View::Files), "views run independently");
+        let now = Instant::now();
+        assert!(l.begin(View::Contacts, now));
+        assert!(!l.begin(View::Contacts, now));
+        assert!(!l.begin(View::Contacts, now));
+        assert!(l.begin(View::Files, now), "views run independently");
         assert!(l.finish(View::Contacts), "asked again while running");
-        assert!(l.begin(View::Contacts));
+        assert!(l.begin(View::Contacts, now));
         assert!(!l.finish(View::Contacts));
+    }
+
+    fn applied(t: &str, a: &str, since: &str, new: &str) -> Applied {
+        (t.into(), a.into(), since.into(), Delta { state: new.into(), destroyed: vec!["x".into()], fetched: vec![] })
+    }
+
+    #[test]
+    fn settle_applies_only_for_the_current_login_holding_the_starting_state() {
+        let now = Instant::now();
+        let mut l = Ledger::default();
+        l.loaded(View::Files, "ann", &[st("FileNode", "A", "f1")]);
+        let ok = Outcome::Apply(vec![applied("FileNode", "A", "f1", "f2")]);
+        // the session switched to someone else meanwhile: dropped, no rerun, the view is free
+        assert!(l.begin(View::Files, now));
+        assert_eq!(l.settle(View::Files, "ann", false, &ok, now), Settle::default());
+        assert_eq!(l.since(View::Files, "ann", "FileNode", "A").as_deref(), Some("f1"));
+        // another login's full load landed: the view is not ann's any more
+        l.loaded(View::Files, "bob", &[st("FileNode", "A", "g1")]);
+        assert!(l.begin(View::Files, now));
+        assert_eq!(l.settle(View::Files, "ann", true, &ok, now), Settle::default());
+        // ann's again, current: applied and moved on
+        l.loaded(View::Files, "ann", &[st("FileNode", "A", "f1")]);
+        assert!(l.begin(View::Files, now));
+        assert_eq!(l.settle(View::Files, "ann", true, &ok, now), Settle { apply: true, ..Default::default() });
+        assert_eq!(l.since(View::Files, "ann", "FileNode", "A").as_deref(), Some("f2"));
+    }
+
+    #[test]
+    fn a_delta_that_lost_to_a_full_load_runs_again_from_the_new_state() {
+        let now = Instant::now();
+        let mut l = Ledger::default();
+        l.loaded(View::Contacts, "ann", &[st("ContactCard", "A", "k1")]);
+        assert!(l.begin(View::Contacts, now));
+        let steps = l.steps(View::Contacts, "ann").unwrap();
+        // a full load (opening the view) lands while the delta from k1 runs
+        l.loaded(View::Contacts, "ann", &[st("ContactCard", "A", "k5")]);
+        let out = Outcome::Apply(vec![applied("ContactCard", "A", &steps[0].2, "k2")]);
+        assert_eq!(l.settle(View::Contacts, "ann", true, &out, now), Settle { rerun: true, ..Default::default() });
+        assert_eq!(l.steps(View::Contacts, "ann").unwrap(), vec![st("ContactCard", "A", "k5")], "the rerun starts from the new state");
+    }
+
+    #[test]
+    fn a_full_load_asked_for_holds_the_view_until_it_lands() {
+        let now = Instant::now();
+        let mut l = Ledger::default();
+        l.loaded(View::Calendar, "ann", &[st("CalendarEvent", "A", "e1")]);
+        assert!(l.begin(View::Calendar, now));
+        assert_eq!(l.settle(View::Calendar, "ann", true, &Outcome::Full, now), Settle { full: true, ..Default::default() });
+        // pushes while it loads wait
+        assert!(!l.begin(View::Calendar, now));
+        assert!(!l.begin(View::Calendar, now + Duration::from_secs(5)));
+        // it lands (livesync::loaded): recorded, and the push that waited runs once
+        l.loaded(View::Calendar, "ann", &[st("CalendarEvent", "A", "e9")]);
+        assert!(l.finish(View::Calendar));
+        assert!(l.begin(View::Calendar, now));
+        assert!(!l.finish(View::Calendar));
+        // a load that never lands stops holding the view
+        assert!(l.begin(View::Calendar, now));
+        l.settle(View::Calendar, "ann", true, &Outcome::Full, now);
+        assert!(!l.begin(View::Calendar, now + Duration::from_secs(10)));
+        assert!(l.begin(View::Calendar, now + LOAD_STALE + Duration::from_secs(1)));
+    }
+
+    #[test]
+    fn deltas_cover_exactly_the_accounts_the_load_recorded() {
+        // a shared calendar account whose read failed (or that appeared later) has no state: the
+        // delta runs for the others and never turns into a full load on every push
+        let mut l = Ledger::default();
+        l.loaded(View::Calendar, "ann", &[st("Calendar", "A", "c1"), st("CalendarEvent", "A", "e1")]);
+        assert_eq!(l.steps(View::Calendar, "ann").unwrap(), vec![st("Calendar", "A", "c1"), st("CalendarEvent", "A", "e1")]);
+        assert_eq!(l.steps(View::Calendar, "bob"), None);
+        // a load that read nothing follows nothing
+        l.loaded(View::Files, "ann", &[]);
+        assert_eq!(l.steps(View::Files, "ann"), None);
+        let c = server(vec![json!({"oldState": "c1", "newState": "c1", "hasMoreChanges": false, "created": [], "updated": [], "destroyed": []}),
+            json!({"oldState": "e1", "newState": "e1", "hasMoreChanges": false, "created": [], "updated": [], "destroyed": []})], json!({}), Arc::new(Mutex::new(vec![])));
+        let steps = l.steps(View::Calendar, "ann").unwrap();
+        assert!(matches!(run(&c, &steps, |_| None), Outcome::Nothing));
+    }
+
+    #[test]
+    fn push_types_and_the_retry_without_the_newer_ones() {
+        let all = ["urn:ietf:params:jmap:mail", "urn:ietf:params:jmap:submission", "urn:ietf:params:jmap:calendars",
+            "urn:ietf:params:jmap:contacts", "urn:ietf:params:jmap:filenode", "urn:ietf:params:jmap:principals"];
+        let c = Client::fake("https://mail.example.test", "A", &all, |_| Ok(vec![]));
+        assert_eq!(push_types(&c, true), ["Email", "Mailbox", "Thread", "EmailDelivery", "EmailSubmission", "Identity", "CalendarEvent", "Calendar",
+            "ContactCard", "AddressBook", "FileNode", "ShareNotification", "CalendarEventNotification"]);
+        assert_eq!(push_types(&c, false), ["Email", "Mailbox", "Thread", "EmailDelivery", "EmailSubmission", "Identity", "CalendarEvent", "Calendar",
+            "ContactCard", "AddressBook"]);
+        let mail = Client::fake("https://mail.example.test", "A", &["urn:ietf:params:jmap:mail"], |_| Ok(vec![]));
+        assert_eq!(push_types(&mail, true), PUSH_TYPES.to_vec());
+        assert!(retry_without_more(true, false, Some("Push failed (400 Bad Request)")));
+        assert!(retry_without_more(true, false, Some("Push stream closed.")));
+        assert!(!retry_without_more(true, true, Some("Push stream closed.")), "it opened: the types were taken");
+        assert!(!retry_without_more(false, false, Some("Push failed (400 Bad Request)")), "already without them");
+        assert!(!retry_without_more(true, false, Some("Wrong username, password or 2FA code.")));
+        assert!(!retry_without_more(true, false, None));
     }
 
     fn page(created: &[&str], updated: &[&str], destroyed: &[&str]) -> Changes {

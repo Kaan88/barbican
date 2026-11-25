@@ -884,7 +884,7 @@ fn view_source(u: &AppWindow) {
                     crate::render_current(&u);
                     refresh(&u);
                 }
-                Err(e) => mail::show_toast(&u, &format!("Could not load the source: {e}"), false),
+                Err(e) => mail::show_error(&u, &format!("Could not load the source: {e}")),
             }
         });
     });
@@ -921,7 +921,7 @@ pub fn open_eml(u: &AppWindow, c: Arc<Client>, a: Value) {
             if u.get_toast().as_str() == "Opening the attached message…" { u.set_toast("".into()); }
             match res {
                 Ok(m) => show_parsed(&u, &m),
-                Err(e) => mail::show_toast(&u, &format!("Could not open the attached message: {e}"), false),
+                Err(e) => mail::show_error(&u, &format!("Could not open the attached message: {e}")),
             }
         });
     });

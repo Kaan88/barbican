@@ -207,14 +207,19 @@ pub fn reload(u: &AppWindow, c: Arc<Client>) {
     open(u, c, &cwd);
 }
 
-/// Live update (livesync): apply FileNode deltas of each account, then redraw.
-pub fn apply_live(u: &AppWindow, ds: &[(String, String, String, crate::livesync::Delta)]) {
+/// Apply FileNode deltas of each account to the nodes as the view holds them.
+fn apply_deltas(nodes: &mut Vec<Value>, primary: &str, ds: &[crate::livesync::Applied]) {
+    for (_, acc, _, d) in ds {
+        crate::livesync::apply(nodes, acc, d, |n| (acc_of(n), raw_id(n)), |n| prepare(n, acc, acc != primary));
+    }
+}
+
+/// Live update (livesync): apply the deltas, then redraw.
+pub fn apply_live(u: &AppWindow, ds: &[crate::livesync::Applied]) {
     ST.with(|s| {
         let mut s = s.borrow_mut();
         let primary = s.primary.clone();
-        for (_, acc, _, d) in ds {
-            crate::livesync::apply(&mut s.nodes, acc, d, |n| (acc_of(n), raw_id(n)), |n| prepare(n, acc, *acc != primary));
-        }
+        apply_deltas(&mut s.nodes, &primary, ds);
     });
     render(u);
 }
@@ -240,24 +245,26 @@ pub fn open(u: &AppWindow, c: Arc<Client>, folder: &str) {
         let res: Result<Vec<Value>, String> = (|| {
             let mut nodes = vec![];
             for (i, acc) in accounts.iter().enumerate() {
-                // live updates (livesync): the state the view is read at, taken before the read
-                if let Some(s) = crate::livesync::state_of(&c, "FileNode", acc) { states.push(("FileNode".into(), acc.clone(), s)); }
+                // live updates (livesync): the state the view is read at, taken before the read and
+                // kept once the account's read went through
+                let state = crate::livesync::state_of(&c, "FileNode", acc);
                 let ids = match c.query_all("FileNode/query", acc, json!({})) { Ok(q) => q, Err(e) if i == 0 => return Err(e), Err(_) => continue };
                 for chunk in ids.chunks(c.max_get()) {
                     let g = c.call(json!([["FileNode/get", {"accountId": acc, "ids": chunk, "properties": PROPS}, "g"]]))?;
                     for n in g[0][1]["list"].as_array().cloned().unwrap_or_default() { nodes.push(prepare(n, acc, i > 0)); }
                 }
+                if let Some(s) = state { states.push(("FileNode".into(), acc.clone(), s)); }
             }
             Ok(nodes)
         })();
         let _ = w.upgrade_in_event_loop(move |u| match res {
             Ok(nodes) => {
-                crate::livesync::loaded(crate::livesync::View::Files, &owner, &states);
                 let draft = draft_cap || nodes.iter().any(|n| n["@type"].is_string());
                 ST.with(|s| { let mut s = s.borrow_mut(); s.nodes = nodes; s.draft18 = draft; s.primary = primary; s.legacy = legacy; });
                 render(&u);
+                crate::livesync::loaded(&u, crate::livesync::View::Files, &owner, &states);
             }
-            Err(e) => crate::mail::show_toast(&u, &format!("Files: {e}"), false),
+            Err(e) => crate::mail::show_error(&u, &format!("Files: {e}")),
         });
     });
 }
@@ -449,7 +456,7 @@ pub fn new_folder(u: &AppWindow, c: Arc<Client>, name: &str) {
     std::thread::spawn(move || {
         let res = create_in(&c, draft, &acc, parent.as_deref(), &name, None);
         let _ = w.upgrade_in_event_loop(move |u| {
-            if let Err(e) = res { crate::mail::show_toast(&u, &e, false); }
+            if let Err(e) = res { crate::mail::show_error(&u, &e); }
             open(&u, c, &cwd);
         });
     });
@@ -475,7 +482,7 @@ fn node_set(u: &AppWindow, c: Arc<Client>, acc: String, args: Value, done: &'sta
             Ok(())
         });
         let _ = w.upgrade_in_event_loop(move |u| {
-            match res { Ok(()) => if !done.is_empty() { crate::mail::show_toast(&u, done, false) }, Err(e) => crate::mail::show_toast(&u, &e, false) }
+            match res { Ok(()) => if !done.is_empty() { crate::mail::show_toast(&u, done, false) }, Err(e) => crate::mail::show_error(&u, &e) }
             open(&u, c, &cwd);
         });
     });
@@ -518,7 +525,7 @@ pub fn delete(u: &AppWindow, c: Arc<Client>, id: &str) {
             Ok(())
         })();
         let _ = w.upgrade_in_event_loop(move |u| {
-            match res { Ok(()) => crate::mail::show_toast(&u, "Moved to the trash", false), Err(e) => crate::mail::show_toast(&u, &e, false) }
+            match res { Ok(()) => crate::mail::show_toast(&u, "Moved to the trash", false), Err(e) => crate::mail::show_error(&u, &e) }
             open(&u, c, &cwd);
         });
     });
@@ -807,6 +814,22 @@ pub fn principal_names(c: &Client, ids: &[String]) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn live_deltas_update_nodes_of_their_account_with_their_keys() {
+        use crate::livesync::Delta;
+        let mut nodes = vec![prepare(json!({"id": "n1", "name": "a"}), "P", false), prepare(json!({"id": "n1", "name": "shared a"}), "S", true),
+            prepare(json!({"id": "n2", "name": "b", "size": 3}), "P", false)];
+        let ds = vec![
+            ("FileNode".to_string(), "S".to_string(), "s".to_string(), Delta { destroyed: vec![], fetched: vec![json!({"id": "n9", "name": "new shared"})], state: "t".into() }),
+            ("FileNode".to_string(), "P".to_string(), "s".to_string(), Delta { destroyed: vec!["n1".into()], fetched: vec![json!({"id": "n2", "name": "b2"})], state: "t".into() }),
+        ];
+        apply_deltas(&mut nodes, "P", &ds);
+        let got: Vec<(String, String)> = nodes.iter().map(|n| (key(n), n["name"].as_str().unwrap().to_string())).collect();
+        assert_eq!(got, [("S|n1".to_string(), "shared a".to_string()), ("n2".to_string(), "b2".to_string()), ("S|n9".to_string(), "new shared".to_string())]);
+        assert!(nodes[1].get("size").is_none(), "replaced whole");
+        assert_eq!(nodes[2]["_shared"], true);
+    }
 
     #[test]
     fn trash_batch_names() {

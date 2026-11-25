@@ -860,25 +860,6 @@ fn sanitize_name(n: &str) -> String { attachments::safe_file_name(n) }
 
 static SESSION_GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
-/// Data types the app follows over push (RFC 8620 §7.3 `types`).
-const PUSH_TYPES: [&str; 5] = ["Email", "Mailbox", "Thread", "EmailDelivery", "EmailSubmission"];
-
-/// The push types of a login: mail, plus calendar objects where it has calendars. `more` adds
-/// identities, files and the server's notifications (livesync, notices); a server that refuses a
-/// type it does not know is asked again without them.
-fn push_types(c: &jmap::Client, more: bool) -> Vec<&'static str> {
-    let mut v = PUSH_TYPES.to_vec();
-    if c.has(calendar::CAL) { v.extend(["CalendarEvent", "Calendar"]); }
-    if c.has("urn:ietf:params:jmap:contacts") { v.extend(["ContactCard", "AddressBook"]); }
-    if more {
-        if c.has("urn:ietf:params:jmap:submission") { v.push("Identity"); }
-        if c.has("urn:ietf:params:jmap:filenode") { v.push("FileNode"); }
-        if c.has("urn:ietf:params:jmap:principals") { v.push("ShareNotification"); }
-        if c.has(calendar::CAL) { v.push("CalendarEventNotification"); }
-    }
-    v
-}
-
 /// Live updates: listen to the JMAP event stream and sync what a StateChange names.
 /// The stream is re-opened with exponential backoff (2 s .. 5 min, with jitter) after it drops
 /// or goes silent. Each time it opens everything is synced once (cheap: /changes deltas), since
@@ -892,9 +873,11 @@ fn start_push(w: slint::Weak<AppWindow>, c: Arc<jmap::Client>) {
         loop {
             if !live() { return; }
             let started = std::time::Instant::now();
-            let types_wanted = push_types(&c, more);
+            let types_wanted = livesync::push_types(&c, more);
+            let mut opened = false;
             let res = c.watch(&types_wanted, &mut |ev| {
                 if !live() { return false; }
+                if ev == jmap::PushEvent::Open { opened = true; }
                 let types: std::collections::HashSet<String> = match ev {
                     jmap::PushEvent::Open => types_wanted.iter().map(|t| t.to_string()).collect(),
                     jmap::PushEvent::State(v) => livesync::pushed_types(&v, &c.account),
@@ -913,7 +896,8 @@ fn start_push(w: slint::Weak<AppWindow>, c: Arc<jmap::Client>) {
                 let _ = w.upgrade_in_event_loop(|u| mail::show_toast(&u, "Your sign-in is no longer valid. Sign in again.", false));
                 return;
             }
-            if more && res.as_ref().err().is_some_and(|e| e.starts_with("Push failed (400")) { more = false; continue; }
+            // a server that does not know the newer types may refuse or drop the stream: again without them
+            if livesync::retry_without_more(more, opened, res.as_ref().err().map(|e| e.as_str())) { more = false; continue; }
             if started.elapsed() > std::time::Duration::from_secs(120) { backoff = 2; }
             let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.subsec_nanos() as u64).unwrap_or(0);
             let wait = backoff * 1000 + nanos % (backoff * 500);
@@ -2752,6 +2736,8 @@ fn finish_login(w: slint::Weak<AppWindow>, st: Shared, res: Result<jmap::Client,
             let c = Arc::new(c);
             *RESTORE_PENDING.lock().unwrap() = None;
             *st.lock().unwrap() = Some(c.clone());
+            // live updates and notifications are this session's from now on
+            livesync::set_current(Some(c.clone()));
             // the new session starts now: a "Trust sender" click from here on is this account's
             trustbook::begin(&c);
             // this account's synced settings (pulled in the background; nothing is pushed to it before)
@@ -2786,8 +2772,8 @@ fn finish_login(w: slint::Weak<AppWindow>, st: Shared, res: Result<jmap::Client,
             {
                 let (w3, c3) = (w2.clone(), c.clone());
                 std::thread::spawn(move || {
-                    let ids = livesync::load_identities(&c3).unwrap_or_default();
-                    let _ = w3.upgrade_in_event_loop(move |u| set_identities(&u, &c3, &ids));
+                    let (ids, state) = livesync::load_identities(&c3).unwrap_or_default();
+                    let _ = w3.upgrade_in_event_loop(move |u| livesync::identities_loaded(&u, &c3, ids, state));
                 });
             }
             // today's events and open tasks for the mail screen's summary tiles
@@ -2800,6 +2786,8 @@ fn finish_login(w: slint::Weak<AppWindow>, st: Shared, res: Result<jmap::Client,
             }
             // the trusted senders address book (reads it; files this computer's list into it)
             trustbook::refresh(w2.clone(), c.clone(), true);
+            // shares and event changes waiting on the server, also where push does not work
+            notices::fetch(w2.clone(), c.clone());
             start_push(w2, c);
         }
         Err(e) => {

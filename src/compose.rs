@@ -1077,7 +1077,7 @@ fn send_at(u: &AppWindow, c: Arc<Client>, prefs: &crate::settings::Settings, at:
                 let c3 = c2.clone();
                 let _ = w2.upgrade_in_event_loop(move |u| match res {
                     Ok(_) => { crate::mail::show_toast(&u, "Message sent", false); after_send(&u, c3); }
-                    Err(e) => crate::mail::show_toast(&u, &format!("Not sent: {e}"), false),
+                    Err(e) => crate::mail::show_error(&u, &format!("Not sent: {e}")),
                 });
                 crate::mail::load_mailboxes(w3, c2, false);
             });
@@ -1154,7 +1154,7 @@ pub fn undo_send(u: &AppWindow, c: Arc<Client>) {
                 u.set_composing(true);
                 crate::autosave::start(&u, ST.with(|s| s.borrow().draft_id.is_some()));
             }
-            Err(e) => crate::mail::show_toast(&u, &format!("Too late to undo: {e}"), false),
+            Err(e) => crate::mail::show_error(&u, &format!("Too late to undo: {e}")),
         });
     });
 }
@@ -1257,7 +1257,7 @@ fn finish_orphan(u: &AppWindow, gen: u64, saved: Option<String>, c: &Arc<Client>
                 let w2 = w.clone();
                 let _ = w.upgrade_in_event_loop(move |u| match res {
                     Ok(_) => crate::mail::show_toast(&u, "Draft saved", false),
-                    Err(e) => crate::mail::show_toast(&u, &format!("Draft not saved: {e}"), false),
+                    Err(e) => crate::mail::show_error(&u, &format!("Draft not saved: {e}")),
                 });
                 crate::mail::load_mailboxes(w2, c, false);
             });

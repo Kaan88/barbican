@@ -502,7 +502,7 @@ pub fn delete_queued(u: &AppWindow, c: std::sync::Arc<crate::jmap::Client>, id: 
     std::thread::spawn(move || {
         let res = Admin::new(&c).ok_or("No admin key".to_string()).and_then(|a| a.call("x:QueuedMessage/set", json!({"destroy": [id]})));
         let _ = w.upgrade_in_event_loop(move |u| {
-            if let Err(e) = res { crate::mail::show_toast(&u, &e, false); }
+            if let Err(e) = res { crate::mail::show_error(&u, &e); }
             load(&u, c, "queue");
         });
     });
