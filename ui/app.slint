@@ -26,8 +26,6 @@ import { FilterX, FCond, FAct, FilterRuleRow, FilterRuleEditor, FilterRetroDialo
 export { PimTheme, CtX, CtLine, CtField, CtDupe, FilterX, FCond, FAct }
 // mail extras (p2-mailextras): attachment cards, From override, reply under the message
 import { MxTok, AttCard, FromOverride, AttCards, ReplyDockBar, ReplyDockHandle } from "mailextras.slint";
-import { ShareX, ShareRow, SharePerson, ShareDialog } from "share.slint";
-export { ShareX, ShareRow, SharePerson }
 // Files: upload conflicts, zip progress, new text file (src/files_x.rs)
 import { FilesX, UploadConflictDialog, ZipProgressCard, NewFileDialog } from "files-dialogs.slint";
 export { FilesX }
@@ -2309,8 +2307,6 @@ export component AppWindow inherits Window {
     init => { self.focus(); }
     // the mail search box keeps its arrows for the suggestions under it (src/shortcuts.rs)
     capture-key-pressed(e) => {
-        // the share dialog holds the keyboard (ui/share.slint); a key that still lands here does nothing
-        if ShareX.open { if e.text == Key.Escape { ShareX.close(); } return accept; }
         // the Files dialogs hold the keyboard too (ui/files-dialogs.slint)
         if FilesX.conflict-open { if e.text == Key.Escape { FilesX.conflict-answer("", false); } return accept; }
         if FilesX.newfile-open { if e.text == Key.Escape { FilesX.newfile-open = false; } return accept; }
@@ -6357,8 +6353,6 @@ export component AppWindow inherits Window {
     if CompX.tpl-fill-open: TplFillDialog { x: 0; y: 0; width: root.width; height: root.height; }
     if CompX.tpl-save-open: TplSaveDialog { x: 0; y: 0; width: root.width; height: root.height; }
     if CompX.sub-open: SubAddrDialog { x: 0; y: 0; width: root.width; height: root.height; }
-    // share a folder, calendar or address book (src/share.rs)
-    if ShareX.open: ShareDialog { x: 0; y: 0; width: root.width; height: root.height; }
     // Files: zip progress, upload conflict, new text file (src/files_x.rs)
     if FilesX.zip-open: ZipProgressCard { x: root.width - self.width - 20px; y: root.height - self.height - 20px; }
     if FilesX.conflict-open: UploadConflictDialog { x: 0; y: 0; width: root.width; height: root.height; }

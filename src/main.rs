@@ -49,7 +49,6 @@ mod glance;
 mod identities;
 mod masked;
 mod subaddr;
-mod share;
 mod jmap;
 mod lite;
 mod mailview;
@@ -1387,7 +1386,6 @@ fn main() -> Result<(), slint::PlatformError> {
         // was this account's
         tplflow::reset(&u);
         subaddr::reset(&u);
-        share::reset(&u);
         TEMPLATES.with(|t| *t.borrow_mut() = (String::new(), Vec::new()));
         u.set_tpl_names(ModelRc::new(VecModel::from(vec![slint::SharedString::from("Insert template…")])));
         u.set_tpl_index(0);
@@ -1448,7 +1446,6 @@ fn main() -> Result<(), slint::PlatformError> {
         server_settings::reset(&srv_sw);
         let Some(v) = oauth::accounts().into_iter().find(|a| a["user"].as_str() == Some(user.as_str())) else { return };
         let u = w.unwrap();
-        share::close(&u);
         files_view::close_preview(&u);
         // the current session (and its push stream) stays until the new one is up: a failed
         // switch keeps it; start_push on success retires the old stream
@@ -1464,7 +1461,6 @@ fn main() -> Result<(), slint::PlatformError> {
     ui.on_add_account(move || {
         server_settings::reset(&srv_add);
         let u = w.unwrap();
-        share::close(&u);
         files_view::close_preview(&u);
         SESSION_GEN.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         *st.lock().unwrap() = None;
@@ -2446,7 +2442,6 @@ fn main() -> Result<(), slint::PlatformError> {
     });
     tplflow::wire(&ui, state.clone());
     subaddr::wire(&ui);
-    share::wire(&ui);
     files_x::wire(&ui);
     files_view::wire(&ui, state.clone());
 
