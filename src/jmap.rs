@@ -472,6 +472,16 @@ impl Client {
         if v.is_object() { v.clone() } else { s["capabilities"][cap].clone() }
     }
 
+    /// Whether one account lists `cap` among its own capabilities (Bulwark hasAccountCapability:
+    /// mail:share is granted per account, the session-wide list says nothing about it).
+    pub fn account_has(&self, cap: &str, account: &str) -> bool {
+        self.live.read().unwrap_or_else(|e| e.into_inner())["accounts"][account]["accountCapabilities"].get(cap).is_some()
+    }
+
+    /// Tests: the session resource as the server would have sent it.
+    #[cfg(test)]
+    pub fn set_live_session(&self, s: Value) { *self.live.write().unwrap_or_else(|e| e.into_inner()) = s; }
+
     fn limit(&self, name: &str, default: u64) -> usize {
         self.live.read().unwrap()["capabilities"]["urn:ietf:params:jmap:core"][name].as_u64().unwrap_or(default) as usize
     }

@@ -1,0 +1,271 @@
+// Share a mail folder, calendar or address book with other users (Bulwark
+// share-collection-dialog.tsx): who has access and how much, add a person or group from the
+// server's directory, remove access. Logic: src/share.rs.
+import { ComboBox, ListView, ScrollView } from "std-widgets.slint";
+import { CTheme } from "ctheme.slint";
+
+// One current share: the dropdown lists the presets, plus the stored grant when it is none of them.
+export struct ShareRow {
+    id: string,
+    initial: string,
+    name: string,
+    sub: string,
+    options: [string],
+    index: int,
+    saving: bool,
+}
+
+// One principal that can be added.
+export struct SharePerson {
+    id: string,
+    initial: string,
+    name: string,
+    email: string,
+    group: bool,
+    saving: bool,
+}
+
+export global ShareX {
+    in-out property <bool> open;
+    // the current shares are being read: a spinner instead of the dialog
+    in-out property <bool> loading;
+    in-out property <string> title;
+    in-out property <[ShareRow]> rows;
+    // bumped whenever `rows` is replaced
+    in-out property <int> rows-gen;
+    in-out property <bool> adding;
+    in-out property <string> search;
+    in-out property <[SharePerson]> people;
+    in-out property <bool> people-loading;
+    in-out property <string> dir-note;
+    in-out property <string> empty-note;
+    // more people match than are listed
+    in-out property <string> more-note;
+    // a change is being saved: every row waits for it
+    in-out property <bool> busy;
+    callback close();
+    callback set-preset(string, int);
+    callback remove(string);
+    callback add(string);
+    callback search-edited(string);
+}
+
+component ShBtn inherits Rectangle {
+    in property <string> text;
+    in property <string> icon;
+    in property <bool> primary;
+    callback clicked();
+    height: 34px;
+    min-width: lay.preferred-width + 28px;
+    border-radius: 12px;
+    background: primary ? (ta.has-hover ? CTheme.accent.darker(0.1) : CTheme.accent) : (ta.has-hover ? CTheme.hover : transparent);
+    border-width: primary ? 0px : 1px;
+    border-color: CTheme.line;
+    ta := TouchArea { clicked => { root.clicked(); } }
+    lay := HorizontalLayout {
+        alignment: center;
+        spacing: 8px;
+        if root.icon != "": Text { text: root.icon; font-family: CTheme.icons; font-size: 14px; color: primary ? CTheme.on-accent : CTheme.text; vertical-alignment: center; }
+        Text { text: root.text; color: primary ? CTheme.on-accent : CTheme.text; font-size: 13px; font-weight: 600; vertical-alignment: center; }
+    }
+}
+
+component Initial inherits Rectangle {
+    in property <string> text;
+    width: 30px;
+    height: 30px;
+    border-radius: 15px;
+    background: CTheme.sky-bg;
+    Text { text: root.text; color: CTheme.sky-fg; font-size: 13px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
+}
+
+export component ShareDialog inherits Rectangle {
+    background: CTheme.scrim;
+    // the keyboard stays in the dialog: nothing behind it acts on a key while it is open
+    property <bool> adding: ShareX.adding;
+    changed adding => { if !self.adding { fs.focus(); } }
+    init => { fs.focus(); }
+    property <int> rows-gen: ShareX.rows-gen;
+    changed rows-gen => { if !ShareX.adding { fs.focus(); } }
+    TouchArea { clicked => { ShareX.close(); } }
+    fs := FocusScope {
+        capture-key-pressed(e) => {
+            if e.text == Key.Escape { ShareX.close(); return accept; }
+            reject
+        }
+        // keys the search field does not take stop here
+        key-pressed(e) => { accept }
+        if ShareX.loading: Rectangle {
+            width: 160px;
+            height: 56px;
+            x: (root.width - self.width) / 2;
+            y: (root.height - self.height) / 2;
+            background: CTheme.popup;
+            border-radius: 16px;
+            border-width: 1px;
+            border-color: CTheme.line;
+            TouchArea { }
+            Text { text: "Loading users…"; color: CTheme.dim; font-size: 13px; horizontal-alignment: center; vertical-alignment: center; }
+        }
+        if !ShareX.loading: Rectangle {
+            width: min(520px, root.width - 32px);
+            height: min(lay.preferred-height, root.height - 48px);
+            x: (root.width - self.width) / 2;
+            y: (root.height - self.height) / 2;
+            background: CTheme.popup;
+            border-radius: 24px;
+            border-width: 1px;
+            border-color: CTheme.line;
+            drop-shadow-blur: 30px;
+            drop-shadow-color: CTheme.shadow;
+            drop-shadow-offset-y: 12px;
+            TouchArea { }
+            lay := VerticalLayout {
+                padding: 20px;
+                spacing: 12px;
+                HorizontalLayout {
+                    spacing: 10px;
+                    Text { text: "\u{E72D}"; font-family: CTheme.icons; font-size: 18px; color: CTheme.accent; vertical-alignment: center; }
+                    Text { text: ShareX.title; color: CTheme.text; font-size: 17px; font-weight: 700; overflow: elide; horizontal-stretch: 1; vertical-alignment: center; }
+                }
+                Text { text: "Grant access to other users or groups on this server. Changes take effect immediately."; color: CTheme.dim; font-size: 12.5px; wrap: word-wrap; }
+                if ShareX.rows.length == 0 && !ShareX.adding: Text {
+                    text: "Not shared with anyone yet.";
+                    color: CTheme.dim;
+                    font-size: 13px;
+                    font-italic: true;
+                    horizontal-alignment: center;
+                    height: 40px;
+                    vertical-alignment: center;
+                }
+                if ShareX.rows.length > 0: Rectangle {
+                    border-radius: 12px;
+                    border-width: 1px;
+                    border-color: CTheme.line;
+                    height: min(rl.preferred-height, 240px);
+                    ScrollView {
+                        rl := VerticalLayout {
+                            for r in ShareX.rows: Rectangle {
+                                height: 52px;
+                                HorizontalLayout {
+                                    padding-left: 12px;
+                                    padding-right: 8px;
+                                    spacing: 10px;
+                                    alignment: stretch;
+                                    VerticalLayout { alignment: center; Initial { text: r.initial; } }
+                                    VerticalLayout {
+                                        alignment: center;
+                                        horizontal-stretch: 1;
+                                        Text { text: r.name; color: CTheme.text; font-size: 13px; font-weight: 600; overflow: elide; }
+                                        if r.sub != "": Text { text: r.sub; color: CTheme.dim; font-size: 11.5px; overflow: elide; }
+                                    }
+                                    VerticalLayout {
+                                        alignment: center;
+                                        ComboBox {
+                                            width: 150px;
+                                            enabled: !ShareX.busy;
+                                            model: r.options;
+                                            current-index: r.index;
+                                            selected => { ShareX.set-preset(r.id, self.current-index); }
+                                        }
+                                    }
+                                    VerticalLayout {
+                                        alignment: center;
+                                        Rectangle {
+                                            width: 32px;
+                                            height: 32px;
+                                            border-radius: 8px;
+                                            background: dt.has-hover && !ShareX.busy ? CTheme.rose-bg : transparent;
+                                            dt := TouchArea { enabled: !ShareX.busy; clicked => { ShareX.remove(r.id); } }
+                                            Text {
+                                                text: r.saving ? "\u{E895}" : "\u{E74D}";
+                                                font-family: CTheme.icons;
+                                                font-size: 14px;
+                                                color: dt.has-hover ? CTheme.rose-fg : CTheme.dim;
+                                                horizontal-alignment: center;
+                                                vertical-alignment: center;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                if !ShareX.adding: ShBtn { icon: "\u{E8FA}"; text: "Add person or group"; clicked => { ShareX.adding = true; } }
+                if ShareX.adding: Rectangle {
+                    border-radius: 12px;
+                    border-width: 1px;
+                    border-color: CTheme.line;
+                    height: al.preferred-height;
+                    al := VerticalLayout {
+                        padding: 12px;
+                        spacing: 8px;
+                        Rectangle {
+                            height: 36px;
+                            border-radius: 12px;
+                            background: CTheme.raised;
+                            border-width: si.has-focus ? 1.5px : 1px;
+                            border-color: si.has-focus ? CTheme.ring : CTheme.line;
+                            if ShareX.search == "": Text { x: 12px; text: "Search by name or email…"; color: CTheme.dim; vertical-alignment: center; height: parent.height; }
+                            si := TextInput {
+                                x: 12px;
+                                width: parent.width - 24px;
+                                text: ShareX.search;
+                                color: CTheme.text;
+                                single-line: true;
+                                vertical-alignment: center;
+                                edited => { ShareX.search-edited(self.text); }
+                                init => { self.focus(); }
+                            }
+                        }
+                        if !ShareX.people-loading && ShareX.dir-note != "": Text { text: ShareX.dir-note; color: CTheme.dim; font-size: 12px; wrap: word-wrap; }
+                        if ShareX.people-loading: Text { text: "Loading users…"; color: CTheme.dim; font-size: 12.5px; horizontal-alignment: center; height: 36px; vertical-alignment: center; }
+                        if ShareX.empty-note != "": Text { text: ShareX.empty-note; color: CTheme.dim; font-size: 12px; horizontal-alignment: center; height: 32px; vertical-alignment: center; }
+                        if ShareX.people.length > 0: ListView {
+                            height: min(ShareX.people.length * 46px, 192px);
+                            for p in ShareX.people: Rectangle {
+                                height: 46px;
+                                border-radius: 8px;
+                                background: pt.has-hover && !ShareX.busy ? CTheme.hover : transparent;
+                                opacity: p.saving ? 0.5 : 1;
+                                pt := TouchArea { enabled: !ShareX.busy; clicked => { ShareX.add(p.id); } }
+                                HorizontalLayout {
+                                    padding-left: 8px;
+                                    padding-right: 8px;
+                                    spacing: 8px;
+                                    VerticalLayout { alignment: center; Initial { text: p.initial; } }
+                                    VerticalLayout {
+                                        alignment: center;
+                                        horizontal-stretch: 1;
+                                        HorizontalLayout {
+                                            spacing: 6px;
+                                            Text { text: p.name; color: CTheme.text; font-size: 13px; font-weight: 600; overflow: elide; }
+                                            if p.group: Rectangle {
+                                                width: gl.preferred-width + 8px;
+                                                border-radius: 4px;
+                                                background: CTheme.chip;
+                                                gl := Text { text: "Group"; color: CTheme.dim; font-size: 11px; horizontal-alignment: center; vertical-alignment: center; }
+                                            }
+                                            Rectangle { horizontal-stretch: 1; }
+                                        }
+                                        if p.email != "": Text { text: p.email; color: CTheme.dim; font-size: 11.5px; overflow: elide; }
+                                    }
+                                }
+                            }
+                        }
+                        if ShareX.more-note != "": Text { text: ShareX.more-note; color: CTheme.dim; font-size: 12px; wrap: word-wrap; }
+                        HorizontalLayout {
+                            alignment: end;
+                            ShBtn { text: "Cancel"; clicked => { ShareX.adding = false; ShareX.search-edited(""); } }
+                        }
+                    }
+                }
+                HorizontalLayout {
+                    alignment: end;
+                    ShBtn { text: "Close"; primary: true; clicked => { ShareX.close(); } }
+                }
+            }
+        }
+    }
+}
