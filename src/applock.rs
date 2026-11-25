@@ -248,10 +248,14 @@ pub fn turn_off_in(b: &dyn Backend, profile: &str, now: i64) -> bool {
 /// The lock at start, checked against the markers the remembered sign-ins carry: a marker with no
 /// lock entry, or one whose fingerprint differs, means the entry was removed or replaced, and the
 /// lock stays on with nobody's PIN (Unreadable: only "Forgot your PIN?" gets out).
-pub fn checked(stored: Stored, markers: &[String]) -> Stored {
+pub fn checked(stored: Stored, markers: &[String]) -> Stored { checked_with(stored, markers, !markers.is_empty()) }
+
+/// [`checked`] with what decides that a lock is on (`exists`: any sign-in carries a marker) apart
+/// from which fingerprints vouch for the entry (`accepted`, see `oauth::lock_markers_in`).
+pub fn checked_with(stored: Stored, accepted: &[String], exists: bool) -> Stored {
     match stored {
-        Stored::Some(r) if !markers.is_empty() && !markers.contains(&r.fingerprint()) => Stored::Unreadable,
-        Stored::Missing | Stored::Off if !markers.is_empty() => Stored::Unreadable,
+        Stored::Some(r) if exists && !accepted.contains(&r.fingerprint()) => Stored::Unreadable,
+        Stored::Missing | Stored::Off if exists => Stored::Unreadable,
         s => s,
     }
 }
@@ -607,7 +611,8 @@ fn blocked_until(now: i64) -> i64 {
 
 /// The lock as the store and the sign-ins' markers say (see [`checked`]).
 fn read_checked() -> Stored {
-    checked(load_in(store(), crate::profile::current()), &crate::oauth::lock_markers())
+    let m = crate::oauth::lock_markers();
+    checked_with(load_in(store(), crate::profile::current()), &m.accepted, m.exists)
 }
 
 /// What the process knows after reading `s`: a PIN set (or an entry nobody can open) locks.
@@ -696,18 +701,27 @@ pub fn resynced(mut l: Live, s: &Stored, now: i64) -> (Live, Resync) {
 
 /// The PIN and the lock are gone (sign-out of the last account, a forgotten PIN, turned off),
 /// with the sign-ins' markers.
-pub fn forget() {
+/// False when the tombstone could not be written: the lock then stays as it is (deleting the
+/// entry instead would read as removed from outside, which an open window writes back), and the
+/// caller says so; the next try turns it off.
+#[must_use]
+pub fn forget() -> bool {
     // the markers first: an entry left without them still opens with its PIN, markers left
     // without an entry would lock with nobody's
     crate::oauth::set_lock_marker(None);
-    {
-        let _l = RecordLock::acquire();
-        if !turn_off_in(store(), crate::profile::current(), now_ms()) { forget_in(store(), crate::profile::current()); }
+    let ok = { let _l = RecordLock::acquire(); turn_off_in(store(), crate::profile::current(), now_ms()) };
+    if ok {
+        *held() = None;
+        *live() = Live::OFF;
+    } else {
+        eprintln!("app lock: the PIN could not be removed; it stays on");
     }
-    *held() = None;
-    *live() = Live::OFF;
     gui::refresh();
+    ok
 }
+
+/// What to say when [`forget`] could not take the PIN away.
+pub const NOT_FORGOTTEN: &str = "Signed out, but the app lock's PIN could not be removed. It stays on: turn it off in Settings, Security.";
 
 // ---------------- the window ----------------
 
@@ -968,11 +982,13 @@ mod gui {
         u.invoke_sign_out();
         // whatever the sign-out could not take, the lock goes now: signing in again asks the password
         if crate::oauth::remembered().is_some() { crate::secrets::delete("session"); }
-        super::forget();
+        let forgotten = super::forget();
         let g = u.global::<AppLock>();
         g.set_busy(false);
         g.set_mode("pin".into());
         apply(u);
+        // still locked: "Forgot your PIN?" again takes it
+        if !forgotten { g.set_message("Everyone is signed out, but the PIN could not be removed. Choose \"Forgot your PIN?\" to try again.".into()); }
     }
 
     // ---------------- settings ----------------

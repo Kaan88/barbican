@@ -631,16 +631,41 @@ pub fn forget_account(names: &[&str], server: &str) -> bool {
 /// replacing the lock's own entry does not open the app.
 pub const LOCK_MARKER: &str = "appLock";
 
-/// The markers of the remembered session, or of the account list when there is no session.
-pub fn lock_markers_in(b: &dyn crate::secrets::Backend, profile: &str) -> Vec<String> {
-    // a session entry speaks for itself: a marker added to the accounts list alone vouches for nothing
-    let from = match remembered_in(b, profile) { Some(s) => vec![s], None => accounts_in(b, profile) };
-    let mut out: Vec<String> = from.into_iter()
-        .filter_map(|a| a[LOCK_MARKER].as_str().map(String::from))
+/// What the remembered sign-ins say about an app lock.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct LockMarkers {
+    /// Some entry, the session or an account, carries a marker: a lock is on.
+    pub exists: bool,
+    /// The fingerprints that vouch for the stored lock: the session's, or the accounts' when the
+    /// session has none (or is not a session).
+    pub accepted: Vec<String>,
+}
+
+/// A remembered session as Barbican writes it. Anything else in the entry (a value typed into the
+/// Credential Manager window reads as other text, U+7D7B as `{}`) is no session.
+fn is_session(v: &Value) -> bool {
+    v["kind"].is_string() && v["server"].is_string() && v["user"].is_string()
+}
+
+fn markers_of<'a>(entries: impl IntoIterator<Item = &'a Value>) -> Vec<String> {
+    let mut out: Vec<String> = entries.into_iter()
+        .filter_map(|a| a[LOCK_MARKER].as_str())
         .flat_map(|m| m.split_whitespace().map(String::from).collect::<Vec<_>>()).collect();
     out.sort();
     out.dedup();
     out
+}
+
+/// The markers of the session and the account list. Any marker means a lock is on, so a session
+/// entry emptied or replaced from outside does not hide the accounts' markers.
+pub fn lock_markers_in(b: &dyn crate::secrets::Backend, profile: &str) -> LockMarkers {
+    let session = remembered_in(b, profile).filter(is_session);
+    let from_session = markers_of(session.iter());
+    let from_accounts = markers_of(accounts_in(b, profile).iter());
+    LockMarkers {
+        exists: !from_session.is_empty() || !from_accounts.is_empty(),
+        accepted: if from_session.is_empty() { from_accounts } else { from_session },
+    }
 }
 
 /// Set (`Some`) or remove (`None`) the marker on the remembered session and every account. False
@@ -665,14 +690,14 @@ pub fn set_lock_marker_in(b: &dyn crate::secrets::Backend, profile: &str, marker
 /// A sign-in written while a lock is on keeps the markers the others carry, or, when none does
 /// yet, the stored lock's own fingerprint.
 fn carry_lock_marker(b: &dyn crate::secrets::Backend, profile: &str, v: &mut Value) {
-    let mut m = lock_markers_in(b, profile).join(" ");
+    let mut m = lock_markers_in(b, profile).accepted.join(" ");
     if m.is_empty() { m = crate::applock::fingerprint_in(b, profile).unwrap_or_default(); }
     if m.is_empty() { return; }
     if let Some(o) = v.as_object_mut() { o.insert(LOCK_MARKER.into(), json!(m)); }
 }
 
 /// [`lock_markers_in`] on the real store.
-pub fn lock_markers() -> Vec<String> { lock_markers_in(crate::secrets::store(), crate::profile::current()) }
+pub fn lock_markers() -> LockMarkers { lock_markers_in(crate::secrets::store(), crate::profile::current()) }
 
 /// [`set_lock_marker_in`] on the real store, under the refresh lock.
 pub fn set_lock_marker(marker: Option<&str>) -> bool {
@@ -1271,9 +1296,9 @@ mod tests {
         let b = Fake::default();
         let ann = json!({"kind": "password", "server": HOST, "user": "ann@example.test", "pass": "pw"});
         remember_in(&b, P, &ann, &Origin::SignIn);
-        assert!(lock_markers_in(&b, P).is_empty());
+        assert!(lock_markers_in(&b, P).accepted.is_empty());
         assert!(set_lock_marker_in(&b, P, Some("f1")));
-        assert_eq!(lock_markers_in(&b, P), vec!["f1".to_string()]);
+        assert_eq!(lock_markers_in(&b, P).accepted, vec!["f1".to_string()]);
         assert_eq!(remembered_in(&b, P).unwrap()[LOCK_MARKER], "f1");
         // a sign-in written later (a restore, another account) keeps it
         remember_in(&b, P, &ann, &Origin::Restore { read: None });
@@ -1282,28 +1307,55 @@ mod tests {
         assert!(accounts_in(&b, P).iter().all(|a| a[LOCK_MARKER] == "f1"));
         update_account_in(&b, P, &json!({"kind": "password", "server": HOST, "user": "ann@example.test", "pass": "pw2"}));
         assert!(accounts_in(&b, P).iter().all(|a| a[LOCK_MARKER] == "f1"));
-        assert_eq!(lock_markers_in(&b, P), vec!["f1".to_string()]);
+        assert_eq!(lock_markers_in(&b, P).accepted, vec!["f1".to_string()]);
         // a new PIN replaces it everywhere, turning the PIN off removes it
         assert!(set_lock_marker_in(&b, P, Some("f2")));
-        assert_eq!(lock_markers_in(&b, P), vec!["f2".to_string()]);
+        assert_eq!(lock_markers_in(&b, P).accepted, vec!["f2".to_string()]);
         assert!(set_lock_marker_in(&b, P, None));
-        assert!(lock_markers_in(&b, P).is_empty());
+        assert!(lock_markers_in(&b, P).accepted.is_empty());
         remember_in(&b, P, &ann, &Origin::SignIn);
-        assert!(lock_markers_in(&b, P).is_empty());
+        assert!(lock_markers_in(&b, P).accepted.is_empty());
         // a PIN being changed: both are read
         assert!(set_lock_marker_in(&b, P, Some("f1 f2")));
-        assert_eq!(lock_markers_in(&b, P), vec!["f1".to_string(), "f2".to_string()]);
+        assert_eq!(lock_markers_in(&b, P).accepted, vec!["f1".to_string(), "f2".to_string()]);
         assert!(set_lock_marker_in(&b, P, None));
         // a lock on with no marker yet: a sign-in written now gets the lock's own fingerprint
         let r = crate::applock::Record::new("k7#mpz", 1_000).unwrap();
         assert!(crate::applock::save_in(&b, P, &r));
         remember_in(&b, P, &ann, &Origin::SignIn);
-        assert_eq!(lock_markers_in(&b, P), vec![r.fingerprint()]);
+        assert_eq!(lock_markers_in(&b, P).accepted, vec![r.fingerprint()]);
         assert!(set_lock_marker_in(&b, P, None));
         crate::applock::forget_in(&b, P);
         // an entry that could not be written says so
         assert!(set_lock_marker_in(&b, P, Some("f3")));
+        assert!(lock_markers_in(&b, P).exists);
         b.fail_writes.set(true);
         assert!(!set_lock_marker_in(&b, P, None));
+    }
+
+    #[test]
+    fn a_session_entry_typed_over_does_not_hide_the_accounts_markers() {
+        let b = Fake::default();
+        let ann = json!({"kind": "password", "server": HOST, "user": "ann@example.test", "pass": "pw"});
+        remember_in(&b, P, &ann, &Origin::SignIn);
+        assert!(set_lock_marker_in(&b, P, Some("f1")));
+        // U+7D7B typed into the session entry is stored UTF-16LE as the bytes 7B 7D: "{}" in UTF-8
+        let typed = String::from_utf8(vec![0x7B, 0x7D]).unwrap();
+        assert_eq!(typed, "{}");
+        b.new.borrow_mut().insert(format!("Barbican/{P}/session"), typed);
+        assert_eq!(remembered_in(&b, P), Some(json!({})));
+        let m = lock_markers_in(&b, P);
+        assert!(m.exists);
+        assert_eq!(m.accepted, vec!["f1".to_string()]);
+        // and with the lock's own entry gone too, the app stays locked
+        assert_eq!(crate::applock::checked_with(crate::applock::Stored::Missing, &m.accepted, m.exists), crate::applock::Stored::Unreadable);
+        // a real session's own marker is the one that vouches
+        let mut s = ann.clone();
+        s[LOCK_MARKER] = json!("f2");
+        b.new.borrow_mut().insert(format!("Barbican/{P}/session"), s.to_string());
+        assert_eq!(lock_markers_in(&b, P), LockMarkers { exists: true, accepted: vec!["f2".to_string()] });
+        // a real session without one: the accounts' markers
+        b.new.borrow_mut().insert(format!("Barbican/{P}/session"), ann.to_string());
+        assert_eq!(lock_markers_in(&b, P), LockMarkers { exists: true, accepted: vec!["f1".to_string()] });
     }
 }

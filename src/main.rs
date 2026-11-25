@@ -1257,7 +1257,8 @@ fn main() -> Result<(), slint::PlatformError> {
         let forgot = if keep { signout::Forgot { last: false, cleared: true } } else { signout::forget_keyring(&[login.as_str(), account.as_str()], &server) };
         let last = forgot.last;
         // nobody is left to lock for: the app lock's PIN goes with the last account
-        if last { applock::forget(); }
+        // the sign-out goes on either way; only the lock's removal is reported
+        if last && !applock::forget() { mail::show_toast(&u, applock::NOT_FORGOTTEN, false); }
         if last { avatars::cancel_pending(); }
         // a chat answer still coming must not write the account's file again
         CHAT_USER.lock().unwrap().clear();
