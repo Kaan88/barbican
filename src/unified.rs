@@ -211,7 +211,7 @@ pub fn other_logins_unread() -> i64 {
 /// Re-read the other logins' inbox counts in the background (at most once a minute unless
 /// `force`), then redraw the badge. Read-only: one Mailbox/get per login.
 pub fn refresh_other_logins(w: slint::Weak<crate::AppWindow>, force: bool) {
-    if !several_accounts() || !crate::settings::Settings::load().bool("unreadBadgeAllAccounts", true) { return; }
+    if !several_accounts() || !crate::settings::bool_pref("unreadBadgeAllAccounts", true) { return; }
     {
         let mut at = OTHER_AT.lock().unwrap();
         if !force && at.is_some_and(|t| t.elapsed() < OTHER_EVERY) { return; }
@@ -250,13 +250,13 @@ pub fn clear() {
 }
 
 /// Whether the "All inboxes" folder is shown (Settings > Appearance > Unified mailbox).
-pub fn enabled() -> bool { crate::settings::Settings::load().bool("enableUnifiedMailbox", false) }
+pub fn enabled() -> bool { crate::settings::bool_pref("enableUnifiedMailbox", false) }
 
 /// Bulwark unifiedCrossAccount (default off): merge every login, not only the active one.
-pub fn cross_account() -> bool { crate::settings::Settings::load().bool("unifiedCrossAccount", false) }
+pub fn cross_account() -> bool { crate::settings::bool_pref("unifiedCrossAccount", false) }
 
 /// Bulwark includeGroupInUnified (default on): add shared/group mail accounts.
-pub fn include_group() -> bool { crate::settings::Settings::load().bool("includeGroupInUnified", true) }
+pub fn include_group() -> bool { crate::settings::bool_pref("includeGroupInUnified", true) }
 
 /// Stable colour for an account (Bulwark's account dot): by sorted position, so it does
 /// not change when the most recently used account moves to the front.

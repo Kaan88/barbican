@@ -511,7 +511,7 @@ pub fn load(c: &Client, file_local: bool, gen: u64, single: bool) -> Result<(), 
     let key = c.state_key();
     let tag = account_tag(&key);
     let eligible = if file_local {
-        let prefs = crate::settings::Settings::load().prefs;
+        let prefs = crate::settings::snapshot();
         let tags = prefs.get(TAGS_KEY).and_then(|v| v.as_object().cloned()).unwrap_or_default();
         eligible_local(&trusted_list(&prefs), &tags, &tag, single)
     } else { vec![] };
@@ -655,7 +655,7 @@ impl Drop for Running { fn drop(&mut self) { LOADING.store(false, Ordering::SeqC
 /// (a forced one then runs once more afterwards) and, unless `force`, when this account's book
 /// was read in the last ten seconds.
 pub fn refresh(w: slint::Weak<AppWindow>, c: Arc<Client>, force: bool) {
-    if !setting_on(&crate::settings::Settings::load().prefs) || !current(&c) { return; }
+    if !setting_on(&crate::settings::snapshot()) || !current(&c) { return; }
     if force { failed().clear(); }
     {
         let k = cache();
@@ -747,7 +747,7 @@ pub fn apply_pending(w: slint::Weak<AppWindow>, c: Option<Arc<Client>>) {
             return;
         }
     };
-    let prefs = crate::settings::Settings::load().prefs;
+    let prefs = crate::settings::snapshot();
     let on = in_book(&prefs);
     let loaded = c.as_ref().is_some_and(|c| !key.is_empty() && key == c.state_key());
     let (add_l, rem_l) = text_changes(&snapshot, &text);

@@ -423,7 +423,7 @@ pub fn valid_delimiter(d: &str) -> bool {
 
 /// The delimiter setting (`subAddressDelimiter`), "+" when unset or not valid.
 pub fn delimiter() -> String {
-    let d = crate::settings::Settings::load().str("subAddressDelimiter", DEFAULT_DELIMITER);
+    let d = crate::settings::str_pref("subAddressDelimiter", DEFAULT_DELIMITER);
     if valid_delimiter(&d) { d } else { DEFAULT_DELIMITER.into() }
 }
 

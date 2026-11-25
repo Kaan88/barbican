@@ -155,7 +155,7 @@ pub struct IdForm {
 
 const ACCOUNT_CHANGED: &str = "The account changed; nothing was saved.";
 
-fn plain_only() -> bool { crate::settings::Settings::load().bool("plainTextMode", false) }
+fn plain_only() -> bool { crate::settings::bool_pref("plainTextMode", false) }
 
 /// Whether the open form holds input that is not saved.
 fn form_dirty(k: &Cache) -> bool {

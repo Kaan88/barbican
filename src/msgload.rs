@@ -238,7 +238,7 @@ fn present(u: &AppWindow, c: &Arc<jmap::Client>, id: &str, m: Arc<Value>, thread
     let mut to = names("to");
     let cc = names("cc");
     if !cc.is_empty() { to = format!("{to}  ·  Cc: {cc}"); }
-    let hide_inline = settings::Settings::load().bool("hideInlineImageAttachments", true);
+    let hide_inline = settings::bool_pref("hideInlineImageAttachments", true);
     let atts: Vec<Value> = m["attachments"].as_array().cloned().unwrap_or_default().into_iter()
         .filter(|a| !(hide_inline && mail::is_inline_image(a)))
         .collect();

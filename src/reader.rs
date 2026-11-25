@@ -970,7 +970,7 @@ fn show_parsed(u: &AppWindow, m: &Value) {
     u.set_plugin_rows(ModelRc::default());
     u.set_spam_verdict("".into());
     u.set_spam_detail("".into());
-    let hide_inline = crate::settings::Settings::load().bool("hideInlineImageAttachments", true);
+    let hide_inline = crate::settings::bool_pref("hideInlineImageAttachments", true);
     let atts: Vec<Value> = m["attachments"].as_array().cloned().unwrap_or_default().into_iter().filter(|a| !(hide_inline && mail::is_inline_image(a))).collect();
     let rows: Vec<crate::Att> = atts.iter().enumerate().map(|(i, a)| crate::Att {
         name: a["name"].as_str().unwrap_or("attachment").into(), size: crate::human_size(a["size"].as_u64().unwrap_or(0)).into(), index: i as i32,

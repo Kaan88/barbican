@@ -291,10 +291,10 @@ pub fn updates_dir() -> PathBuf {
 }
 
 pub fn channel() -> &'static str {
-    if crate::settings::Settings::load().int("desktop.updateChannel", 0) == 1 { "beta" } else { "stable" }
+    if crate::settings::int_pref("desktop.updateChannel", 0) == 1 { "beta" } else { "stable" }
 }
 
-pub fn auto_check() -> bool { crate::settings::Settings::load().bool("desktop.autoUpdate", true) }
+pub fn auto_check() -> bool { crate::settings::bool_pref("desktop.autoUpdate", true) }
 
 pub fn feed_url(feed: &str, channel: &str) -> String {
     if feed.contains("{channel}") { feed.replace("{channel}", channel) } else { format!("{}/{channel}.json", feed.trim_end_matches('/')) }

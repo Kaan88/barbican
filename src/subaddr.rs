@@ -21,7 +21,7 @@ fn preview(u: &AppWindow, tag: &str) -> String {
 
 fn open(u: &AppWindow) {
     let x = u.global::<CompX>();
-    let recent = ids::recent_tags(crate::settings::Settings::load().prefs.get(ids::KEY_SUB_TAGS));
+    let recent = ids::recent_tags(crate::settings::snapshot().get(ids::KEY_SUB_TAGS));
     x.set_sub_input("".into());
     x.set_sub_error("".into());
     x.set_sub_preview(preview(u, "").into());

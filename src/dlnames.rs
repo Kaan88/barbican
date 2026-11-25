@@ -204,7 +204,7 @@ pub fn post_export() -> Option<&'static str> {
     #[cfg(test)]
     return None;
     #[cfg(not(test))]
-    post_export_action(&crate::settings::Settings::load().str("postExportAction", "keep"))
+    post_export_action(&crate::settings::str_pref("postExportAction", "keep"))
 }
 
 #[cfg(test)]

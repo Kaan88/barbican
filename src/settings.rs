@@ -8,11 +8,314 @@ use slint::{ModelRc, SharedString, VecModel};
 
 const SCHEMA: &str = include_str!("../ui/settings-schema.json");
 
-static LATEST: std::sync::Mutex<Option<Map<String, Value>>> = std::sync::Mutex::new(None);
-#[cfg(not(test))]
-static SAVE_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-#[cfg(not(test))]
+/// The parsed prefs, shared by every [`Settings::load`]; each save makes a new one.
+pub(crate) type Snapshot = std::sync::Arc<Map<String, Value>>;
+
+/// The prefs as last saved, or as read from the file the first time they were needed: `load`
+/// serves from here and never goes back to the disk. Every write of prefs.json goes through
+/// [`Settings::save`] (and [`Settings::flush`]), which puts the new values here first, so the
+/// cache is never older than the file.
+struct Cache {
+    /// The file these values belong to (fixed for a process: the profile is read once).
+    path: std::path::PathBuf,
+    prefs: Snapshot,
+    /// Number of the newest save; a write of an older one is superseded.
+    seq: u64,
+    /// The newest save has not landed in the file yet ([`Settings::flush`] writes it at exit).
+    pending: bool,
+    /// The file could not be read when the session started: the values are the defaults, not
+    /// the user's, so this session never writes the file (saves change the memory only).
+    untrusted: bool,
+}
+
+type CacheCell = std::sync::Mutex<Option<Cache>>;
+
+fn lock(cell: &CacheCell) -> std::sync::MutexGuard<'_, Option<Cache>> {
+    cell.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// Held around every write of the file (the background writes and the flush at exit).
 static WRITE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// The program's one cache.
+#[cfg(not(test))]
+fn cache() -> std::sync::Arc<CacheCell> {
+    static CACHE: std::sync::OnceLock<std::sync::Arc<CacheCell>> = std::sync::OnceLock::new();
+    CACHE.get_or_init(|| std::sync::Arc::new(std::sync::Mutex::new(None))).clone()
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Tests: this thread's cache while a [`CacheScope`] is alive; without one every load reads
+    /// the file (into a throwaway cache), as tests in parallel share the process's prefs.json.
+    static TEST_CACHE: std::cell::RefCell<Option<std::sync::Arc<CacheCell>>> = const { std::cell::RefCell::new(None) };
+    /// Tests: how often this thread read prefs.json.
+    pub static DISK_READS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+    /// Tests: the prefs file of this thread's [`CacheScope`] (its own, so it races no other test).
+    static TEST_PATH: std::cell::RefCell<Option<std::path::PathBuf>> = const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+fn cache() -> std::sync::Arc<CacheCell> {
+    TEST_CACHE.with(|t| t.borrow().clone()).unwrap_or_else(|| std::sync::Arc::new(std::sync::Mutex::new(None)))
+}
+
+/// Tests that write the test process's shared settings files (settings.json, prefs.json) or
+/// register the live settings hold this, so they never run into each other.
+#[cfg(test)]
+pub(crate) static TEST_FILES: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Tests: the settings cache is on for this thread, over a prefs file of its own, until the scope
+/// is dropped; then the thread's previous cache and file are back (scopes nest), so no test sees
+/// another's cached values.
+#[cfg(test)]
+pub(crate) struct CacheScope {
+    file: std::path::PathBuf,
+    prev: Option<(Option<std::path::PathBuf>, Option<std::sync::Arc<CacheCell>>)>,
+}
+
+#[cfg(test)]
+impl CacheScope {
+    pub(crate) fn new() -> CacheScope {
+        static N: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+        let n = N.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let _ = std::fs::create_dir_all(crate::config_dir());
+        let file = crate::config_dir().join(format!("prefs-scope-{n}.json"));
+        let _ = std::fs::remove_file(&file);
+        for b in bad_copies(&file) { let _ = std::fs::remove_file(b); }
+        let path = TEST_PATH.with(|t| t.replace(Some(file.clone())));
+        let cell = TEST_CACHE.with(|t| t.replace(Some(std::sync::Arc::new(std::sync::Mutex::new(None)))));
+        CacheScope { file, prev: Some((path, cell)) }
+    }
+
+    /// The scope's prefs file.
+    pub(crate) fn file(&self) -> &std::path::Path { &self.file }
+}
+
+#[cfg(test)]
+impl Drop for CacheScope {
+    fn drop(&mut self) {
+        debug_assert!(TEST_PATH.with(|t| t.borrow().as_deref() == Some(self.file.as_path())), "scopes end in the order they began");
+        if let Some((path, cell)) = self.prev.take() {
+            TEST_CACHE.with(|t| *t.borrow_mut() = cell);
+            TEST_PATH.with(|t| *t.borrow_mut() = path);
+        }
+        let _ = std::fs::remove_file(&self.file);
+        for b in bad_copies(&self.file) { let _ = std::fs::remove_file(b); }
+    }
+}
+
+/// The copies [`back_up`] made of `p` (`prefs.json.<time>.bad`), oldest first.
+#[cfg(test)]
+fn bad_copies(p: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let (Some(dir), Some(name)) = (p.parent(), p.file_name()) else { return vec![] };
+    let pre = format!("{}.", name.to_string_lossy());
+    let mut v: Vec<std::path::PathBuf> = std::fs::read_dir(dir).map(|rd| rd.flatten()
+        .filter(|e| { let n = e.file_name().to_string_lossy().to_string(); n.starts_with(&pre) && n.ends_with(".bad") })
+        .map(|e| e.path()).collect()).unwrap_or_default();
+    v.sort_by_key(|p| std::fs::metadata(p).and_then(|m| m.modified()).ok());
+    v
+}
+
+/// Keep `bytes`, a damaged prefs file, beside it before anything can save over it: each one
+/// under a name of its own (`prefs.json.<unix time>.bad`, `-2`, `-3`... in the same second), so
+/// an older copy never makes a newer one go. Whether these bytes are on disk now.
+fn back_up(p: &std::path::Path, bytes: &[u8]) -> bool {
+    use std::io::Write;
+    let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    let mut name = p.as_os_str().to_owned();
+    name.push(format!(".{secs}"));
+    for i in 1..100 {
+        let mut b = name.clone();
+        if i > 1 { b.push(format!("-{i}")); }
+        b.push(".bad");
+        match std::fs::OpenOptions::new().write(true).create_new(true).open(std::path::PathBuf::from(b)) {
+            Ok(mut f) => return f.write_all(bytes).and_then(|_| f.sync_all()).is_ok(),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(_) => return false,
+        }
+    }
+    false
+}
+
+/// What reading the prefs file gave.
+enum Read {
+    /// The prefs, or none yet (no file).
+    Prefs(Map<String, Value>),
+    /// Not a settings object; a copy was kept (see [`back_up`]): reading again gives the same.
+    Damaged,
+    /// Could not be read (locked by another program, access denied), or a damaged file that no
+    /// copy could be made of: nothing may be written over it.
+    Unusable,
+}
+
+fn read_file(p: &std::path::Path) -> Read {
+    #[cfg(test)]
+    DISK_READS.with(|n| n.set(n.get() + 1));
+    let bytes = match std::fs::read(p) {
+        Ok(b) => b,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Read::Prefs(Map::new()),
+        Err(_) => return Read::Unusable,
+    };
+    match serde_json::from_slice::<Value>(&bytes) {
+        Ok(Value::Object(m)) => Read::Prefs(m),
+        _ if back_up(p, &bytes) => Read::Damaged,
+        _ => Read::Unusable,
+    }
+}
+
+/// Tries of a prefs file that cannot be read when the session starts, and the pause between.
+const READ_TRIES: u32 = 3;
+const READ_PAUSE: std::time::Duration = std::time::Duration::from_millis(50);
+
+/// The prefs in `cell` for the file `p`, read from it once, when the cache has nothing for it yet
+/// (under the cache's lock, so a save meanwhile is never replaced by the older file). That one
+/// read decides the session: every copy of the settings comes from it.
+/// - A damaged file: the defaults, the file kept as a `.bad` copy (the next save replaces it).
+/// - A file that cannot be read, tried [`READ_TRIES`] times (a virus scanner or a sync tool may
+///   hold it a moment): the defaults, and the session is untrusted, so nothing ever writes the
+///   file: saving the defaults would replace the user's real settings. [`unsaved_session`] says so.
+fn fill(cell: &CacheCell, p: &std::path::Path) -> Snapshot {
+    let mut c = lock(cell);
+    if let Some(c) = c.as_ref().filter(|c| c.path == p) { return c.prefs.clone(); }
+    remove_stale_temp(p);
+    let mut read = read_file(p);
+    for _ in 1..READ_TRIES {
+        if !matches!(read, Read::Unusable) { break; }
+        std::thread::sleep(READ_PAUSE);
+        read = read_file(p);
+    }
+    let (m, untrusted) = match read { Read::Prefs(m) => (m, false), Read::Damaged => (Map::new(), false), Read::Unusable => (Map::new(), true) };
+    let prefs: Snapshot = std::sync::Arc::new(m);
+    *c = Some(Cache { path: p.to_path_buf(), prefs: prefs.clone(), seq: 0, pending: false, untrusted });
+    prefs
+}
+
+/// The settings file could not be read when this session started: changes are kept until the
+/// program quits but never saved (the app says so once).
+pub(crate) fn unsaved_session() -> bool {
+    let p = path();
+    let cell = cache();
+    let _ = fill(&cell, &p);
+    let c = lock(&cell);
+    c.as_ref().is_some_and(|c| c.path == p && c.untrusted)
+}
+
+/// Remove the temporary files an earlier run left when it stopped mid-write
+/// (`prefs.json.<pid>-<n>.tmp` of another process, untouched for a minute; this one's may be in use).
+fn remove_stale_temp(p: &std::path::Path) {
+    const STALE_AFTER: std::time::Duration = std::time::Duration::from_secs(60);
+    let (Some(dir), Some(name)) = (p.parent(), p.file_name()) else { return };
+    let pre = format!("{}.", name.to_string_lossy());
+    let Ok(rd) = std::fs::read_dir(dir) else { return };
+    for e in rd.flatten() {
+        let n = e.file_name().to_string_lossy().to_string();
+        let Some(mid) = n.strip_prefix(&pre).and_then(|r| r.strip_suffix(".tmp")) else { continue };
+        let Some((pid, seq)) = mid.split_once('-') else { continue };
+        if pid.parse::<u32>().is_err() || seq.parse::<u64>().is_err() { continue; }
+        // a write of another instance may be under way: only files untouched for a minute go
+        let old = e.metadata().and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok()).is_some_and(|age| age >= STALE_AFTER);
+        if !old { continue; }
+        if pid != std::process::id().to_string() { let _ = std::fs::remove_file(e.path()); }
+    }
+}
+
+/// The prefs as last saved.
+fn current() -> Snapshot { fill(&cache(), &path()) }
+
+/// The prefs as last saved, without copying them (read-only; a later save makes a new snapshot).
+pub(crate) fn snapshot() -> Snapshot { current() }
+
+/// Writes a prefs file (the real one: [`write_file`]; tests pass their own).
+type Writer<'a> = &'a dyn Fn(&std::path::Path, &Map<String, Value>) -> std::io::Result<()>;
+
+/// Start a save: from now on every load gets `prefs`; the file is still to be written. The save's
+/// number, for [`write_save`], and whether the session is untrusted (the file is never written).
+/// The caller has filled the cache for `path` first ([`fill`]), so the session's one read
+/// decided that.
+fn begin_save(cell: &CacheCell, path: std::path::PathBuf, prefs: Snapshot) -> (u64, bool) {
+    let mut c = lock(cell);
+    let seq = c.as_ref().map_or(0, |c| c.seq) + 1;
+    let untrusted = c.as_ref().is_some_and(|c| c.path == path && c.untrusted);
+    *c = Some(Cache { path, prefs, seq, pending: true, untrusted });
+    (seq, untrusted)
+}
+
+/// Write save `seq` to its file (the caller holds [`WRITE`]): nothing when a newer save
+/// superseded it (that one's own write follows), it has landed already (a flush) or the session
+/// is untrusted. A write that fails stays pending, for the flush at exit. Whether it wrote.
+fn write_save(cell: &CacheCell, seq: u64, write: Writer) -> bool {
+    let job = lock(cell).as_ref().filter(|c| c.seq == seq && c.pending && !c.untrusted).map(|c| (c.path.clone(), c.prefs.clone()));
+    let Some((p, prefs)) = job else { return false };
+    if write(&p, &prefs).is_err() { return false; }
+    if let Some(c) = lock(cell).as_mut().filter(|c| c.seq == seq) { c.pending = false; }
+    true
+}
+
+/// Write the newest save if it has not landed yet (the caller holds [`WRITE`]). Whether it wrote.
+fn flush_save(cell: &CacheCell, write: Writer) -> bool {
+    let seq = lock(cell).as_ref().filter(|c| c.pending).map(|c| c.seq);
+    seq.is_some_and(|s| write_save(cell, s, write))
+}
+
+pub(crate) fn get_bool(p: &Map<String, Value>, key: &str, default: bool) -> bool {
+    p.get(key).and_then(|v| v.as_bool()).unwrap_or(default)
+}
+
+pub(crate) fn get_str(p: &Map<String, Value>, key: &str, default: &str) -> String {
+    p.get(key).and_then(|v| v.as_str()).unwrap_or(default).to_string()
+}
+
+fn get_int(p: &Map<String, Value>, key: &str, default: i64) -> i64 {
+    match p.get(key) {
+        Some(Value::Number(n)) => n.as_i64().or_else(|| n.as_f64().map(|f| f as i64)).unwrap_or(default),
+        Some(Value::String(s)) => s.trim().parse().unwrap_or(default),
+        _ => default,
+    }
+}
+
+/// [`Settings::bool`] on the prefs as last saved, without copying them (one value, read once).
+pub(crate) fn bool_pref(key: &str, default: bool) -> bool { get_bool(&current(), key, default) }
+
+/// [`Settings::str`] on the prefs as last saved, without copying them.
+pub(crate) fn str_pref(key: &str, default: &str) -> String { get_str(&current(), key, default) }
+
+/// [`Settings::int`] on the prefs as last saved, without copying them.
+#[allow(dead_code)]
+pub(crate) fn int_pref(key: &str, default: i64) -> i64 { get_int(&current(), key, default) }
+
+/// Write the prefs file whole or not at all: a temporary file in the same folder, renamed over it
+/// (a crash or a full disk mid-write leaves the old file, never half of one).
+fn write_file(p: &std::path::Path, prefs: &Map<String, Value>) -> std::io::Result<()> {
+    use std::io::Write;
+    static N: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let dir = p.parent().ok_or_else(|| std::io::Error::other("no folder"))?;
+    std::fs::create_dir_all(dir)?;
+    let text = serde_json::to_string(prefs).map_err(std::io::Error::other)?;
+    let name = p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "prefs.json".into());
+    // a name of its own per write: tests write the shared file from several threads
+    let tmp = dir.join(format!("{name}.{}-{}.tmp", std::process::id(), N.fetch_add(1, std::sync::atomic::Ordering::SeqCst)));
+    let res = std::fs::File::create(&tmp).and_then(|mut f| { f.write_all(text.as_bytes())?; f.sync_all() })
+        .and_then(|_| rename_over(&tmp, p));
+    if res.is_err() { let _ = std::fs::remove_file(&tmp); }
+    res
+}
+
+/// Rename `from` over `to`, again after a moment while another program (a virus scanner, the
+/// search indexer) has `to` open, which Windows reports as access denied.
+fn rename_over(from: &std::path::Path, to: &std::path::Path) -> std::io::Result<()> {
+    let mut tries = 0;
+    loop {
+        match std::fs::rename(from, to) {
+            // access denied, or ERROR_SHARING_VIOLATION (32) from a program that opened it without sharing
+            Err(e) if (e.kind() == std::io::ErrorKind::PermissionDenied || e.raw_os_error() == Some(32)) && tries + 1 < READ_TRIES => {
+                tries += 1;
+                std::thread::sleep(READ_PAUSE);
+            }
+            r => return r,
+        }
+    }
+}
 
 pub struct Account {
     pub email: String,
@@ -32,6 +335,8 @@ fn schema() -> std::sync::Arc<Value> {
 }
 
 fn path() -> std::path::PathBuf {
+    #[cfg(test)]
+    if let Some(p) = TEST_PATH.with(|p| p.borrow().clone()) { return p; }
     crate::config_dir().join("prefs.json")
 }
 
@@ -158,14 +463,9 @@ pub fn forget_package(prefs: &mut serde_json::Map<String, Value>, id: &str, pack
 }
 
 impl Settings {
+    /// The prefs as last saved, served from memory (the file is read once per process).
     pub fn load() -> Settings {
-        // a save that is still being written in the background is newer than the file
-        let pending = LATEST.lock().ok().and_then(|l| l.clone());
-        let prefs = pending.unwrap_or_else(|| std::fs::read_to_string(path()).ok()
-            .and_then(|t| serde_json::from_str::<Value>(&t).ok())
-            .and_then(|v| v.as_object().cloned())
-            .unwrap_or_default());
-        Settings { schema: schema(), prefs }
+        Settings { schema: schema(), prefs: (*current()).clone() }
     }
 
     /// Settings over the given values (no file), for tests and previews.
@@ -176,15 +476,8 @@ impl Settings {
 
     /// Blocks until a pending background save has landed (call before the process exits).
     pub fn flush() {
-        #[cfg(not(test))]
-        {
-            let _w = WRITE.lock();
-            let pending = LATEST.lock().ok().and_then(|mut l| l.take());
-            if let Some(p) = pending {
-                let _ = std::fs::create_dir_all(crate::config_dir());
-                let _ = std::fs::write(path(), Value::Object(p).to_string());
-            }
-        }
+        let _w = WRITE.lock();
+        flush_save(&cache(), &write_file);
     }
 
     /// Store one pref value and save.
@@ -193,29 +486,28 @@ impl Settings {
         self.save();
     }
 
-    /// Writes the settings file off the UI thread. `LATEST` serves `load` until the write lands
-    /// and the newest save always wins. Tests write synchronously.
+    /// Saves the settings: the cache serves every later `load` at once, and the file is written
+    /// off the UI thread, the newest save always winning. Tests write synchronously.
     pub(crate) fn save(&self) {
+        let (cell, p) = (cache(), path());
+        // the session's one read of the file comes first: it decides whether the file may be written
+        let _ = fill(&cell, &p);
+        let (seq, untrusted) = begin_save(&cell, p, std::sync::Arc::new(self.prefs.clone()));
         #[cfg(test)]
         {
-            let _ = std::fs::create_dir_all(crate::config_dir());
-            let _ = std::fs::write(path(), Value::Object(self.prefs.clone()).to_string());
+            let _ = untrusted;
+            let _w = WRITE.lock();
+            write_save(&cell, seq, &write_file);
         }
         #[cfg(not(test))]
         {
-            // a change to a synced setting goes to the account (debounced)
-            crate::settings_sync::local_saved(&self.prefs);
-            let seq = SAVE_SEQ.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
-            if let Ok(mut l) = LATEST.lock() { *l = Some(self.prefs.clone()); }
-            let prefs = self.prefs.clone();
+            // a change to a synced setting goes to the account (debounced); after the cache has
+            // it, so whatever that reads back is the new values. Not in an untrusted session:
+            // its values started from the defaults, not from the user's settings.
+            if !untrusted { crate::settings_sync::local_saved(&self.prefs); }
             std::thread::spawn(move || {
                 let _w = WRITE.lock();
-                if SAVE_SEQ.load(std::sync::atomic::Ordering::SeqCst) != seq { return; } // superseded
-                let _ = std::fs::create_dir_all(crate::config_dir());
-                let _ = std::fs::write(path(), Value::Object(prefs).to_string());
-                if SAVE_SEQ.load(std::sync::atomic::Ordering::SeqCst) == seq {
-                    if let Ok(mut l) = LATEST.lock() { *l = None; }
-                }
+                write_save(&cell, seq, &write_file);
             });
         }
     }
@@ -270,22 +562,12 @@ impl Settings {
         });
     }
 
-    pub fn bool(&self, key: &str, default: bool) -> bool {
-        self.prefs.get(key).and_then(|v| v.as_bool()).unwrap_or(default)
-    }
+    pub fn bool(&self, key: &str, default: bool) -> bool { get_bool(&self.prefs, key, default) }
 
-    pub fn str(&self, key: &str, default: &str) -> String {
-        self.prefs.get(key).and_then(|v| v.as_str()).unwrap_or(default).to_string()
-    }
+    pub fn str(&self, key: &str, default: &str) -> String { get_str(&self.prefs, key, default) }
 
     /// Numeric pref; tolerates numbers stored as strings.
-    pub fn int(&self, key: &str, default: i64) -> i64 {
-        match self.prefs.get(key) {
-            Some(Value::Number(n)) => n.as_i64().or_else(|| n.as_f64().map(|f| f as i64)).unwrap_or(default),
-            Some(Value::String(s)) => s.trim().parse().unwrap_or(default),
-            _ => default,
-        }
-    }
+    pub fn int(&self, key: &str, default: i64) -> i64 { get_int(&self.prefs, key, default) }
 
     fn tab_list(&self) -> Vec<(String, String, String, String, i32)> {
         // id, label, group, icon, indent
@@ -888,6 +1170,7 @@ mod tests {
 
     #[test]
     fn import_export_reset_roundtrip() {
+        let _files = TEST_FILES.lock().unwrap_or_else(|e| e.into_inner());
         let dir = std::env::temp_dir().join(format!("barbican-settings-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         #[allow(unused_unsafe)]
@@ -987,14 +1270,10 @@ mod tests {
     }
 }
 
-/// Bulwark's timeFormat pref ("12h" | "24h"), read straight from prefs.json so hot paths
-/// (admin tables, dashboard tooltips) need not parse the schema.
+/// Bulwark's timeFormat pref ("12h" | "24h"), read from the cached prefs without copying them, for
+/// hot paths (admin tables, dashboard tooltips).
 pub fn h12() -> bool {
-    if let Some(p) = LATEST.lock().ok().and_then(|l| l.clone()) { return p.get("timeFormat").and_then(|v| v.as_str()) == Some("12h"); }
-    std::fs::read_to_string(path()).ok()
-        .and_then(|t| serde_json::from_str::<Value>(&t).ok())
-        .map(|v| v["timeFormat"].as_str() == Some("12h"))
-        .unwrap_or(false)
+    current().get("timeFormat").and_then(|v| v.as_str()) == Some("12h")
 }
 
 /// The running program's settings (the one object every settings change goes through), so a change
@@ -1144,5 +1423,374 @@ mod forget_package_tests {
         prefs["pluginGrants"]["other"] = json!({"id": "other", "path": "", "sha256": "h"});
         super::forget_package(&mut prefs, "other", std::path::Path::new(""));
         assert!(prefs["pluginGrants"].get("other").is_some());
+    }
+}
+
+#[cfg(test)]
+mod cache_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn reads() -> u32 { DISK_READS.with(|n| n.get()) }
+
+    /// What the scope's prefs file holds now.
+    fn on_disk(scope: &CacheScope) -> Map<String, Value> { file_prefs(scope.file()) }
+
+    #[test]
+    fn a_load_after_a_save_comes_from_memory() {
+        let scope = CacheScope::new();
+        let mut s = Settings::load(); // fills the cache from the (missing) file: one read
+        assert!(s.prefs.is_empty());
+        let before = reads();
+        s.remember("density", json!("compact"));
+        s.remember("timeFormat", json!("12h"));
+        assert_eq!(Settings::load().str("density", ""), "compact");
+        assert_eq!(str_pref("density", ""), "compact");
+        assert!(h12());
+        assert!(std::sync::Arc::ptr_eq(&snapshot(), &snapshot()), "a load shares the cached values instead of parsing them again");
+        assert_eq!(reads(), before, "no load went back to the file");
+        // and the file has the same values
+        assert_eq!(on_disk(&scope)["density"], "compact");
+        // a value changed on the file behind the program's back is not read again
+        std::fs::write(scope.file(), r#"{"density":"comfortable"}"#).unwrap();
+        assert_eq!(Settings::load().str("density", ""), "compact");
+        assert_eq!(reads(), before + 1, "only the check above read the file");
+    }
+
+    #[test]
+    fn every_writer_is_seen_by_the_next_load() {
+        let _files = TEST_FILES.lock().unwrap_or_else(|e| e.into_inner());
+        let scope = CacheScope::new();
+        let _ = Settings::load();
+        let before = reads();
+        let seen = |key: &str, want: Value| {
+            assert_eq!(Settings::load().prefs.get(key).cloned().unwrap_or(Value::Null), want, "load after writing {key}");
+            assert_eq!(snapshot().get(key).cloned().unwrap_or(Value::Null), want, "snapshot after writing {key}");
+        };
+
+        // save and remember on a loaded copy
+        let mut s = Settings::load();
+        s.prefs.insert("a".into(), json!(1));
+        s.save();
+        seen("a", json!(1));
+        Settings::load().remember("b", json!(2));
+        seen("b", json!(2));
+        // a settings row
+        Settings::load().set("density", json!("compact"), &mut crate::ai::Config::default());
+        seen("density", json!("compact"));
+        // import (Bulwark's flat file) replaces the values
+        let mut s = Settings::load();
+        s.import(&json!({"theme": "light"})).unwrap();
+        seen("theme", json!("light"));
+        seen("a", Value::Null);
+        // the helpers outside the settings page (fresh load: no live settings registered)
+        Settings::put("emailKeywords", Some(json!([{"id": "work", "label": "Work"}])));
+        seen("emailKeywords", json!([{"id": "work", "label": "Work"}]));
+        assert_eq!(crate::tags::defs().len(), 1);
+        Settings::put("emailKeywords", None);
+        seen("emailKeywords", Value::Null);
+        set_pref("sharedCalendarColors", json!({"c1": "#ff0000"}));
+        seen("sharedCalendarColors", json!({"c1": "#ff0000"}));
+        update_pref("counter", |v| json!(v.and_then(|v| v.as_i64()).unwrap_or(0) + 1));
+        update_pref("counter", |v| json!(v.and_then(|v| v.as_i64()).unwrap_or(0) + 1));
+        seen("counter", json!(2));
+        // settings sync writes what it pulled through with_live
+        with_live(|s| { s.prefs.insert("pulled".into(), json!(true)); s.save(); });
+        seen("pulled", json!(true));
+        assert!(bool_pref("pulled", false));
+        // the trusted list, and the sign-out that forgets it
+        trusted_local_update(|l| l.push("Someone@Example.test".into()));
+        seen("trustedSenders", crate::trust::trusted_json(&["someone@example.test".to_string()]));
+        trusted_state_update(|l, _| l.clear());
+        trusted_local_update(|l| l.push("other@example.test".into()));
+        forget_trusted_senders();
+        seen("trustedSenders", Value::Null);
+        // the live settings: a change made on them is what the next load sees
+        let live = std::sync::Arc::new(std::sync::Mutex::new(Settings::load()));
+        register_live(live.clone());
+        live.lock().unwrap().remember("liveKey", json!("x"));
+        seen("liveKey", json!("x"));
+        set_pref("viaLive", json!(3));
+        seen("viaLive", json!(3));
+        trusted_local_update(|l| l.push("live@example.test".into()));
+        forget_trusted_senders();
+        seen("trustedSenders", Value::Null);
+        if let Ok(mut l) = LIVE.lock() { *l = None; }
+        // flush (a no-op in tests: their saves are written at once) keeps the values
+        Settings::flush();
+        seen("viaLive", json!(3));
+        // reset empties them
+        Settings::load().reset();
+        assert!(Settings::load().prefs.is_empty());
+        assert!(snapshot().is_empty());
+
+        assert_eq!(reads(), before, "every load came from memory");
+        assert!(on_disk(&scope).is_empty(), "and the file has what was last saved");
+    }
+
+    #[test]
+    fn a11y_follows_each_save() {
+        let _scope = CacheScope::new();
+        let mut s = Settings::load();
+        assert!(crate::a11y::A11y::load().single_keys);
+        s.remember("singleKeyShortcuts", json!(false));
+        assert!(!crate::a11y::A11y::load().single_keys);
+        assert!(!crate::a11y::A11y::load().single_keys);
+        s.remember("singleKeyShortcuts", json!(true));
+        assert!(crate::a11y::A11y::load().single_keys);
+        assert_eq!(crate::a11y::System::detect(), crate::a11y::System::detect());
+    }
+
+    #[test]
+    fn the_cache_does_not_outlive_its_scope_or_cross_threads() {
+        {
+            let _scope = CacheScope::new();
+            Settings::load().remember("leak", json!("yes"));
+            assert_eq!(str_pref("leak", ""), "yes");
+            // another thread has no cache: it reads its own file (the process's test prefs.json)
+            std::thread::spawn(|| {
+                let before = reads();
+                let _ = Settings::load();
+                let _ = Settings::load();
+                assert_eq!(reads(), before + 2, "without a scope every load reads the file");
+            }).join().unwrap();
+        }
+        let scope = CacheScope::new();
+        let before = reads();
+        assert_eq!(str_pref("leak", ""), "", "a new scope starts from its own file");
+        assert_eq!(reads(), before + 1);
+        assert!(!scope.file().exists());
+    }
+}
+
+/// The save state machine the program runs (begin, background write, flush), with writers that
+/// record what they were given instead of touching a file.
+#[cfg(test)]
+mod save_order_tests {
+    use super::*;
+    use serde_json::json;
+    use std::cell::RefCell;
+
+    fn prefs(v: Value) -> Snapshot { std::sync::Arc::new(v.as_object().unwrap().clone()) }
+    fn cell() -> CacheCell { std::sync::Mutex::new(None) }
+    fn begin(c: &CacheCell, p: std::path::PathBuf, s: Snapshot) -> u64 { begin_save(c, p, s).0 }
+    fn file() -> std::path::PathBuf { std::path::PathBuf::from("prefs.json") }
+    fn pending(c: &CacheCell) -> bool { lock(c).as_ref().is_some_and(|c| c.pending) }
+    fn cached(c: &CacheCell) -> Value { Value::Object((*lock(c).as_ref().unwrap().prefs).clone()) }
+
+    #[test]
+    fn two_saves_written_out_of_order_keep_the_newest() {
+        let written = RefCell::new(vec![]);
+        let w = |_: &std::path::Path, m: &Map<String, Value>| { written.borrow_mut().push(Value::Object(m.clone())); Ok(()) };
+        let c = cell();
+        let first = begin(&c, file(), prefs(json!({"v": 1})));
+        let second = begin(&c, file(), prefs(json!({"v": 2})));
+        assert_eq!(cached(&c), json!({"v": 2}), "a load sees the newest save at once");
+        // the second save's thread runs first, then the first one's
+        assert!(write_save(&c, second, &w));
+        assert!(!write_save(&c, first, &w), "the older save is superseded");
+        assert_eq!(*written.borrow(), vec![json!({"v": 2})]);
+        assert!(!pending(&c));
+
+        // in order: the older write finds itself superseded, the newer one writes
+        let c = cell();
+        written.borrow_mut().clear();
+        let first = begin(&c, file(), prefs(json!({"v": 1})));
+        let second = begin(&c, file(), prefs(json!({"v": 2})));
+        assert!(!write_save(&c, first, &w));
+        assert!(pending(&c), "the newest save has not landed yet");
+        assert!(write_save(&c, second, &w));
+        assert_eq!(*written.borrow(), vec![json!({"v": 2})]);
+    }
+
+    #[test]
+    fn flush_while_a_write_is_pending_writes_it_once() {
+        let written = RefCell::new(vec![]);
+        let w = |_: &std::path::Path, m: &Map<String, Value>| { written.borrow_mut().push(Value::Object(m.clone())); Ok(()) };
+        let c = cell();
+        let seq = begin(&c, file(), prefs(json!({"v": 1})));
+        assert!(flush_save(&c, &w));
+        assert!(!pending(&c));
+        // the background write comes after the flush: nothing left to write
+        assert!(!write_save(&c, seq, &w));
+        assert_eq!(*written.borrow(), vec![json!({"v": 1})]);
+        assert_eq!(cached(&c), json!({"v": 1}));
+    }
+
+    #[test]
+    fn flush_after_the_write_landed_writes_nothing() {
+        let written = RefCell::new(0);
+        let w = |_: &std::path::Path, _: &Map<String, Value>| { *written.borrow_mut() += 1; Ok(()) };
+        let c = cell();
+        assert!(!flush_save(&c, &w), "nothing saved, nothing to flush");
+        let seq = begin(&c, file(), prefs(json!({"v": 1})));
+        assert!(write_save(&c, seq, &w));
+        assert!(!flush_save(&c, &w));
+        assert_eq!(*written.borrow(), 1);
+    }
+
+    #[test]
+    fn a_failed_write_stays_pending_for_the_flush() {
+        let c = cell();
+        let seq = begin(&c, file(), prefs(json!({"v": 1})));
+        let fail = |_: &std::path::Path, _: &Map<String, Value>| Err(std::io::Error::other("disk full"));
+        assert!(!write_save(&c, seq, &fail));
+        assert!(pending(&c));
+        assert_eq!(cached(&c), json!({"v": 1}), "loads keep the saved values");
+        let written = RefCell::new(vec![]);
+        let w = |_: &std::path::Path, m: &Map<String, Value>| { written.borrow_mut().push(Value::Object(m.clone())); Ok(()) };
+        assert!(flush_save(&c, &w));
+        assert_eq!(*written.borrow(), vec![json!({"v": 1})]);
+        assert!(!pending(&c));
+    }
+
+    #[test]
+    fn the_newest_save_is_what_lands_on_disk() {
+        // the real writer, through Settings::save and flush
+        let scope = CacheScope::new();
+        for i in 0..5 { Settings::load().remember("n", json!(i)); }
+        Settings::flush();
+        assert_eq!(file_prefs(scope.file())["n"], 4);
+    }
+}
+
+/// What a readable prefs file holds (tests).
+#[cfg(test)]
+fn file_prefs(p: &std::path::Path) -> Map<String, Value> {
+    match read_file(p) { Read::Prefs(m) => m, _ => panic!("{} is not a readable prefs file", p.display()) }
+}
+
+/// A prefs file that cannot be read is never replaced by the defaults.
+#[cfg(test)]
+mod bad_file_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn reads() -> u32 { DISK_READS.with(|n| n.get()) }
+
+    #[test]
+    fn a_missing_file_is_no_prefs_and_leaves_no_copy() {
+        let scope = CacheScope::new();
+        assert!(Settings::load().prefs.is_empty());
+        let before = reads();
+        let _ = Settings::load();
+        assert_eq!(reads(), before, "an empty start is kept");
+        assert!(bad_copies(scope.file()).is_empty());
+        assert!(!unsaved_session());
+    }
+
+    #[test]
+    fn each_damaged_file_is_kept_before_a_save_replaces_it() {
+        let scope = CacheScope::new();
+        std::fs::write(scope.file(), "{\"theme\": \"dark\"").unwrap();
+        assert!(Settings::load().prefs.is_empty(), "the session starts from the defaults");
+        let copies = bad_copies(scope.file());
+        assert_eq!(copies.len(), 1);
+        assert_eq!(std::fs::read_to_string(&copies[0]).unwrap(), "{\"theme\": \"dark\"");
+        let before = reads();
+        let _ = Settings::load();
+        assert_eq!(reads(), before, "and keeps them: reading the same file again gives the same");
+        assert!(!unsaved_session(), "a damaged file that was kept may be saved over");
+        Settings::load().remember("density", json!("compact"));
+        assert_eq!(file_prefs(scope.file())["density"], "compact");
+        assert_eq!(std::fs::read_to_string(&copies[0]).unwrap(), "{\"theme\": \"dark\"", "the copy is untouched");
+        // a later damaged file gets a copy of its own (also within the same second)
+        std::fs::write(scope.file(), "[1, 2]").unwrap();
+        assert!(matches!(read_file(scope.file()), Read::Damaged));
+        let copies = bad_copies(scope.file());
+        assert_eq!(copies.len(), 2);
+        let texts: Vec<String> = copies.iter().map(|c| std::fs::read_to_string(c).unwrap()).collect();
+        assert!(texts.contains(&"{\"theme\": \"dark\"".to_string()) && texts.contains(&"[1, 2]".to_string()), "{texts:?}");
+    }
+
+    #[test]
+    fn an_unreadable_file_at_the_start_is_never_written() {
+        let scope = CacheScope::new();
+        // a folder where the file should be: reading it fails with something other than NotFound
+        std::fs::create_dir_all(scope.file()).unwrap();
+        let before = reads();
+        assert!(Settings::load().prefs.is_empty());
+        assert_eq!(reads(), before + READ_TRIES, "tried a few times at the start");
+        assert!(unsaved_session());
+        // the session goes on from the defaults, in memory only, and never reads again
+        Settings::load().remember("theme", json!("light"));
+        assert_eq!(str_pref("theme", ""), "light");
+        assert_eq!(reads(), before + READ_TRIES);
+        std::fs::remove_dir(scope.file()).unwrap();
+        Settings::load().remember("theme", json!("dark"));
+        Settings::flush();
+        assert!(!scope.file().exists(), "neither a save nor the flush wrote the file");
+        assert!(bad_copies(scope.file()).is_empty());
+    }
+
+    /// The real case: another program holds the file open (no sharing) while the session starts.
+    #[cfg(windows)]
+    #[test]
+    fn a_file_locked_at_the_start_keeps_its_content() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let scope = CacheScope::new();
+        let original = r#"{"theme":"dark","density":"compact"}"#;
+        std::fs::write(scope.file(), original).unwrap();
+        let held = std::fs::OpenOptions::new().read(true).share_mode(0).open(scope.file()).unwrap();
+        assert!(Settings::load().prefs.is_empty());
+        assert!(unsaved_session());
+        Settings::load().remember("theme", json!("light"));
+        drop(held); // the other program lets go: the file is readable again
+        Settings::load().remember("density", json!("regular"));
+        Settings::flush();
+        assert_eq!(std::fs::read_to_string(scope.file()).unwrap(), original, "the real settings are still there");
+        assert_eq!(str_pref("theme", ""), "light", "the session keeps its changes in memory");
+        assert!(bad_copies(scope.file()).is_empty());
+    }
+
+    #[test]
+    fn writes_leave_no_temporary_file() {
+        let scope = CacheScope::new();
+        let mut m = Map::new();
+        m.insert("a".into(), json!(1));
+        write_file(scope.file(), &m).unwrap();
+        m.insert("a".into(), json!(2));
+        write_file(scope.file(), &m).unwrap();
+        assert_eq!(file_prefs(scope.file())["a"], 2);
+        let name = scope.file().file_name().unwrap().to_string_lossy().to_string();
+        let left: Vec<String> = std::fs::read_dir(scope.file().parent().unwrap()).unwrap().flatten()
+            .map(|e| e.file_name().to_string_lossy().to_string())
+            .filter(|n| n.starts_with(&name) && n.ends_with(".tmp")).collect();
+        assert!(left.is_empty(), "{left:?}");
+    }
+
+    #[test]
+    fn the_first_read_removes_temporary_files_of_earlier_runs() {
+        let scope = CacheScope::new();
+        let dir = scope.file().parent().unwrap().to_path_buf();
+        let name = scope.file().file_name().unwrap().to_string_lossy().to_string();
+        let other = dir.join(format!("{name}.{}-7.tmp", std::process::id().wrapping_add(1)));
+        let fresh = dir.join(format!("{name}.{}-8.tmp", std::process::id().wrapping_add(1)));
+        let mine = dir.join(format!("{name}.{}-7.tmp", std::process::id()));
+        let unrelated = dir.join(format!("{name}.notes.tmp"));
+        for f in [&other, &fresh, &mine, &unrelated] { std::fs::write(f, "{}").unwrap(); }
+        // the leftover is two minutes old; `fresh` may be another instance's write under way
+        let past = std::time::SystemTime::now() - std::time::Duration::from_secs(120);
+        std::fs::OpenOptions::new().write(true).open(&other).unwrap().set_modified(past).unwrap();
+        let _ = Settings::load();
+        assert!(!other.exists(), "another run's leftover goes");
+        assert!(fresh.exists(), "a file written in the last minute stays");
+        assert!(mine.exists(), "this run's may be in use");
+        assert!(unrelated.exists(), "a name that is not ours stays");
+        for f in [&fresh, &mine, &unrelated] { let _ = std::fs::remove_file(f); }
+    }
+
+    #[test]
+    fn scopes_nest() {
+        let outer = CacheScope::new();
+        Settings::load().remember("where", json!("outer"));
+        {
+            let inner = CacheScope::new();
+            assert_ne!(inner.file(), outer.file());
+            assert_eq!(str_pref("where", ""), "", "the inner scope has its own file and cache");
+            Settings::load().remember("where", json!("inner"));
+        }
+        assert_eq!(str_pref("where", ""), "outer", "the outer scope's cache is back");
+        assert_eq!(path(), outer.file(), "and its file");
     }
 }

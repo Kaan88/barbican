@@ -188,7 +188,7 @@ pub fn thumbnail(bytes: &[u8]) -> Option<SharedPixelBuffer<Rgba8Pixel>> {
 /// Fill the reader's attachment cards for message `id` (the open one), then fetch the image
 /// thumbnails it lacks. `atts` are the listed attachments in Att index order.
 pub fn show(u: &AppWindow, c: Arc<Client>, id: &str, atts: &[Value]) {
-    let enabled = crate::settings::Settings::load().bool("attachmentImagePreviewsEnabled", true);
+    let enabled = crate::settings::bool_pref("attachmentImagePreviewsEnabled", true);
     if !wanted(atts, enabled) {
         u.set_att_cards(ModelRc::default());
         return;

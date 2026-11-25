@@ -622,6 +622,7 @@ static ON_APPLIED: std::sync::OnceLock<Applied> = std::sync::OnceLock::new();
 
 const UNSUPPORTED: &str = "Not available: this server keeps no account metadata (Stalwart 1.0 or later does), so your settings stay on this computer.";
 const BLOCKED: &str = "Paused: this account's settings could not be read while another account's were here. Barbican shows the default settings and tries again at the next sign-in.";
+const FROZEN: &str = "Paused: Barbican could not read your settings file when it started, so nothing is synced until you restart it.";
 const ABOUT: &str = "Your other computers signed in to this account get the same Barbican settings, kept in your account on the server (anyone you share your Inbox with can read them). Plugins, sign-ins, trusted senders, remote content, warnings and this computer's desktop settings stay here.";
 
 /// The row's text: what the sync does (or why it cannot), and the last push's error.
@@ -632,6 +633,7 @@ fn describe(note: Option<&str>, err: Option<&str>) -> String {
 
 /// The Settings > About row's description.
 pub fn row_desc() -> String {
+    if frozen() { return FROZEN.to_string(); }
     let note = *NOTE.lock().unwrap_or_else(|e| e.into_inner());
     let err = LAST_ERROR.lock().unwrap_or_else(|e| e.into_inner()).clone();
     describe(note, err.as_deref())
@@ -641,6 +643,10 @@ fn state_path() -> std::path::PathBuf { crate::config_dir().join("settings-sync.
 
 /// Write the state file whole or not at all (a temporary file renamed over it).
 fn write_state(v: &Value) {
+    // the settings it describes are not the user's this session (see `frozen`): the file stays
+    if frozen() { return; }
+    #[cfg(test)]
+    STATE_WRITES.with(|n| n.set(n.get() + 1));
     #[cfg(not(test))]
     {
         let _ = std::fs::create_dir_all(crate::config_dir());
@@ -673,7 +679,20 @@ fn with_state<T>(f: impl FnOnce(&mut DeviceState) -> T) -> T {
 
 fn now_ms() -> i64 { chrono::Utc::now().timestamp_millis() }
 
-fn disabled() -> bool { crate::settings::Settings::load().bool(DISABLED_KEY, false) }
+/// The settings file could not be read when this session started, so the settings here are the
+/// defaults, not the user's ([`crate::settings::unsaved_session`]): the sync neither pulls (a pull
+/// would be saved over nothing), pushes (it would send the defaults, and changes left marked from
+/// the last session, at their default values) nor writes settings-sync.json (it would name an
+/// owner for settings that are still another's on disk). Every entry point checks it.
+fn frozen() -> bool { crate::settings::unsaved_session() }
+
+#[cfg(test)]
+thread_local! {
+    /// Tests: how often this thread wrote (or would have written) settings-sync.json.
+    static STATE_WRITES: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+
+fn disabled() -> bool { frozen() || crate::settings::bool_pref(DISABLED_KEY, false) }
 
 /// Whether an account's settings are pulled: the server keeps metadata and the switch is on.
 fn may_pull(supported: bool, disabled: bool) -> bool { supported && !disabled }
@@ -684,6 +703,7 @@ fn may_push(settled: bool, blocked: bool, supported: bool, disabled: bool) -> bo
 
 /// At start, with the settings as loaded; and what redraws the window after a pull changed them.
 pub fn init(prefs: &Map<String, Value>, on_applied: Applied) {
+    if frozen() { return; }
     with_state(|st| st.start(prefs));
     let _ = ON_APPLIED.set(on_applied);
 }
@@ -694,6 +714,7 @@ fn applied() { if let Some(f) = ON_APPLIED.get() { f(); } }
 /// pushed a few seconds later; switching the sync back on pulls.
 #[cfg_attr(test, allow(dead_code))]
 pub fn local_saved(prefs: &Map<String, Value>) {
+    if frozen() { return; }
     let s = with_state(|st| {
         let s = st.saved(prefs, now_ms());
         if s.dirty || s.holder { persist(st); }
@@ -709,6 +730,7 @@ fn keep_cross() -> bool { crate::oauth::accounts().len() > 1 }
 /// A sign-in, a restored session or an account switch: pull for `c` in the background. Nothing
 /// is pushed for it until this pull has settled.
 pub fn begin(c: std::sync::Arc<Client>) {
+    if frozen() { return; }
     let gen = GEN.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
     let ok = supported(&c);
     *NOTE.lock().unwrap_or_else(|e| e.into_inner()) = if ok { None } else { Some(UNSUPPORTED) };
@@ -756,6 +778,7 @@ fn pending_push() -> Option<Active> {
 /// Before an account switch (Bulwark flushSync): the changes still waiting for the debounce go
 /// to the account being left now, on a worker thread; the next account's pull waits for it.
 pub fn flush() {
+    if frozen() { return; }
     if let Some(a) = pending_push() { counted(move || push_as(&a, false)); }
 }
 
@@ -763,6 +786,7 @@ pub fn flush() {
 /// more goes to it. `last`: the last account signed out, whose synced settings then go back to
 /// defaults (Bulwark forgetSyncedSettings), after the flush.
 pub fn leave(last: bool) {
+    if frozen() { return; }
     let a = ACTIVE.lock().unwrap_or_else(|e| e.into_inner()).clone();
     let pending = pending_push();
     end();
@@ -774,6 +798,7 @@ pub fn leave(last: bool) {
 }
 
 fn forget(owner: &str) {
+    if frozen() { return; }
     let mut done = false;
     crate::settings::with_live(|s| {
         let off = s.prefs.get(DISABLED_KEY) == Some(&json!(true));
@@ -794,11 +819,13 @@ fn forget(owner: &str) {
 
 /// The sync was switched back on: pull again for the account signed in.
 fn restart() {
+    if frozen() { return; }
     let a = ACTIVE.lock().unwrap_or_else(|e| e.into_inner()).clone();
     if let Some(a) = a { begin(a.client); }
 }
 
 fn pull(a: Active) {
+    if frozen() { return; }
     // a restored session can sign in before the window set up the live settings
     for _ in 0..600 {
         if ON_APPLIED.get().is_some() { break; }
@@ -847,6 +874,7 @@ fn schedule_push() {
 /// The debounced push to the account signed in, if its pull settled.
 #[cfg_attr(test, allow(dead_code))]
 fn push_now() {
+    if frozen() { return; }
     let Some(a) = ACTIVE.lock().unwrap_or_else(|e| e.into_inner()).clone() else { return };
     if !may_push(a.settled, a.blocked, supported(&a.client), disabled()) { return; }
     push_as(&a, true);
@@ -855,6 +883,7 @@ fn push_now() {
 /// Push to `a` (one push at a time). `check_gen`: only while `a` is still the account signed in
 /// (a flush of the account being left goes regardless; the owner check still holds).
 fn push_as(a: &Active, check_gen: bool) {
+    if frozen() { return; }
     let _one = PUSHING.lock().unwrap_or_else(|e| e.into_inner());
     if check_gen && !current(a.gen) { return; }
     let keep = keep_cross();
@@ -1511,5 +1540,52 @@ mod tests {
         let t = std::time::Instant::now();
         wait_flushes(std::time::Duration::from_secs(5));
         assert!(t.elapsed() < std::time::Duration::from_secs(1));
+    }
+
+    #[test]
+    fn an_untrusted_session_neither_pulls_pushes_nor_writes_its_state() {
+        let _files = crate::settings::TEST_FILES.lock().unwrap_or_else(|e| e.into_inner());
+        // prefs.json cannot be read when the session starts (a folder in its place)
+        let scope = crate::settings::CacheScope::new();
+        std::fs::create_dir_all(scope.file()).unwrap();
+        assert!(crate::settings::Settings::load().prefs.is_empty());
+        assert!(crate::settings::unsaved_session() && frozen() && disabled());
+        assert!(row_desc().starts_with("Paused"), "{}", row_desc());
+
+        // the server has nothing stored (a pull would push), and the last session left a change marked
+        let log: Log = Default::default();
+        let (c, _srv) = fake(CAPS, Srv::default(), &log);
+        let c = Arc::new(c);
+        let owner = c.state_key();
+        let left = DeviceState { owner: Some(owner.clone()), base: Some("2026-11-20T00:00:00.000Z".into()), dirty: obj(json!({"theme": 1})), ..Default::default() };
+        let before_state = STATE.lock().unwrap_or_else(|e| e.into_inner()).replace(left.clone());
+        let before_active = ACTIVE.lock().unwrap_or_else(|e| e.into_inner()).take();
+        let _ = ON_APPLIED.set(Box::new(|| {}));
+        let writes = STATE_WRITES.with(|n| n.get());
+
+        init(&Map::new(), Box::new(|| {}));
+        begin(c.clone());
+        assert!(ACTIVE.lock().unwrap().is_none(), "begin did not take the account in");
+        local_saved(&obj(json!({"theme": "light"})));
+        // the account as a settled pull would have left it: still nothing goes out
+        let a = Active { client: c.clone(), owner: owner.clone(), acct: "a@mail.example.test".into(), gen: GEN.load(std::sync::atomic::Ordering::SeqCst), settled: true, blocked: false };
+        *ACTIVE.lock().unwrap() = Some(a.clone());
+        pull(a.clone());
+        push_now();
+        push_as(&a, false);
+        flush();
+        restart();
+        forget(&owner);
+        leave(true);
+        wait_flushes(std::time::Duration::from_secs(2));
+
+        assert!(log.lock().unwrap().is_empty(), "nothing was read from or sent to the server: {:?}", log.lock().unwrap());
+        assert_eq!(STATE_WRITES.with(|n| n.get()), writes, "settings-sync.json was not written");
+        assert_eq!(STATE.lock().unwrap().as_ref(), Some(&left), "the state left from the last session is as it was");
+        assert!(!scope.file().is_file(), "and prefs.json was not written either");
+
+        *STATE.lock().unwrap_or_else(|e| e.into_inner()) = before_state;
+        *ACTIVE.lock().unwrap_or_else(|e| e.into_inner()) = before_active;
+        std::fs::remove_dir(scope.file()).unwrap();
     }
 }

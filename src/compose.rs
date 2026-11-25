@@ -172,7 +172,7 @@ fn refresh_attachments(u: &AppWindow) {
 /// addressed to (exact address first, then the address without its sub-address tag, using
 /// Bulwark's subAddressDelimiter), as Bulwark's findReplyIdentityId.
 fn reply_identity(ids: &[Value], received: &[String]) -> Option<usize> {
-    let delim = crate::settings::Settings::load().str("subAddressDelimiter", "+");
+    let delim = crate::settings::str_pref("subAddressDelimiter", "+");
     let base = |e: &str| -> String {
         let e = e.trim().to_lowercase();
         match e.split_once('@') {
@@ -443,7 +443,7 @@ fn reset(u: &AppWindow) {
     u.set_c_show_bcc(false);
     u.set_c_read_receipt(false);
     // Bulwark plainTextMode: every message starts (and stays) plain text
-    u.set_c_plain(crate::settings::Settings::load().bool("plainTextMode", false));
+    u.set_c_plain(crate::settings::bool_pref("plainTextMode", false));
     { use slint::Model; set_tag_on(u, vec![false; u.get_tags().row_count()]); }
     u.set_c_subject("".into());
     rte::set_doc(u, Doc::default());
@@ -465,7 +465,7 @@ pub fn should_dock(setting: bool, is_new: bool, message_open: bool, is_draft: bo
 pub fn open(u: &AppWindow, c: Arc<Client>, kind: ComposeKind, m: Option<&Value>) {
     reset(u);
     let dock = should_dock(
-        crate::settings::Settings::load().bool("replyUnderMessage", true),
+        crate::settings::bool_pref("replyUnderMessage", true),
         matches!(kind, ComposeKind::New),
         m.is_some() && !u.get_current_mail().is_empty(),
         m.is_some_and(|m| m["keywords"]["$draft"].as_bool() == Some(true)),
@@ -1291,7 +1291,7 @@ fn transformed(u: &AppWindow, mut job: SendJob, before: Value, after: Value) {
     crate::plugin_hooks::apply_outgoing(&mut job.o, &after);
     job.added_key = added_key(&before, &after);
     job.t_acked = TRANSFORM_ACK.with(|h| h.get()).filter(|(f, a, k, _)| (*f, *a, *k) == (job.fp, job.intent, job.added_key)).map(|x| x.3);
-    let confirm = crate::settings::Settings::load().bool(crate::trust::RECIPIENT_CONFIRM_KEY, false);
+    let confirm = crate::settings::bool_pref(crate::trust::RECIPIENT_CONFIRM_KEY, false);
     let internal = crate::trust::own_domains(&crate::own_addresses());
     let api1 = |o: &Outgoing| { let w = crate::plugin_compose_check(&api1_draft(o)); crate::plugin_notices(u); w };
     match after_transform(&old, &job.o, changed, job.t_acked, confirm, &internal, &api1) {
@@ -1372,7 +1372,7 @@ fn submit(u: &AppWindow, c: Arc<Client>, mut o: Outgoing, at: Option<i64>, delay
                         crate::plugin_hooks::composer_sent();
                         u.set_composing(false);
                         let when = chrono::DateTime::from_timestamp_millis(t).map(|d| d.with_timezone(&chrono::Local))
-                            .map(|d| crate::schedule::label(d, crate::settings::Settings::load().str("timeFormat", "24h") == "12h", chrono::Local::now()))
+                            .map(|d| crate::schedule::label(d, crate::settings::str_pref("timeFormat", "24h") == "12h", chrono::Local::now()))
                             .unwrap_or_default();
                         crate::mail::show_toast(&u, &format!("Scheduled to send at {when}"), false);
                     }
