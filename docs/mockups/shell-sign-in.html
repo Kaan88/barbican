@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shell: sign-in</title>
+<!--
+  Barbican mockup: Shell: sign-in
+  First start: email (the server is found from the domain), password with show, remember me, Sign in, single sign-on and the token and authenticator-code options (Bulwark's login strings).
+
+  Toolkit widgets (mdshared-ui modules) this screen needs:
+    - chrome: title row, caption buttons, tabs
+    - textfield: single-line text field
+    - check: tick box
+    - link: text button that looks like a link
+    - glyph: stroke icons on a 16 grid
+    - focus: focus ring and tab order
+  NEW (the toolkit has no such widget yet), with the K item of docs/UI-TOOLKIT-EVAL.md that would provide it:
+    - NEW Button: push, subtle and icon buttons outside a dialog (purge gap) [K4]
+    - NEW Card: bordered card with dividers [K4]
+  All people, addresses and data are made up (example.com / example.org).
+-->
+<link rel="stylesheet" href="tokens.css"><link rel="stylesheet" href="icons.css"><link rel="stylesheet" href="kit.css">
+</head>
+<body>
+<div class="mk"><a href="index.html">&larr; All mockups</a><span class="mk-t">Shell: sign-in</span><span class="mk-n">First start: email (the server is found from the domain), password with show, remember me, Sign in, single sign-on and the token and authenticator-code options (Bulwark&#x27;s login strings).</span><button id="mk-theme" aria-pressed="false">Dark</button></div>
+<div class="stage"><div class="win " id="win" style="">
+<header class="titlebar"><span class="appmark"><i class="ic ic-mail"></i>Barbican</span><span class="grow"></span><span class="capbtns"><span class="capbtn"><i class="ic ic-win-min s10"></i></span><span class="capbtn"><i class="ic ic-win-max s10"></i></span><span class="capbtn close"><i class="ic ic-win-close s10"></i></span></span></header><div style="position:absolute;inset:40px 0 0 0;display:grid;place-items:center;background:var(--mica)"><div class="signin"><span class="appmark" style="font-size:15px;gap:10px;padding:0"><i class="ic ic-mail s20"></i>Barbican</span><h1 style="margin:4px 0 0;font-size:var(--text-hero);font-weight:600">Sign in</h1><span class="muted" style="margin-top:-8px">Use your mail account. Barbican talks to it over JMAP.</span><div><span class="flabel">Email</span><span class="field "><span>robin@example.com</span></span></div><div class="hstack gap8 small muted" style="margin-top:-8px"><i class="ic ic-check-circle s12"></i><span>Server: <span class="link">mail.example.com</span>, found from your email domain</span></div><div><span class="flabel">Password</span><span class="field focus"><span>&#9679;&#9679;&#9679;&#9679;&#9679;&#9679;&#9679;&#9679;&#9679;<span class="caret"></span></span><span class="end"><span class="btn subtle xs icon" title="Show password"><i class="ic ic-eye s14"></i></span></span></span></div><div class="choice"><span class="tick on "></span><span>Remember me</span></div><span style="width:100%;height:36px" class="btn accent"><span>Sign in</span></span><div class="or">or</div><span style="width:100%" class="btn std"><i class="ic ic-building"></i><span>Sign in with single sign-on</span></span><div class="vstack small" style="gap:6px;align-items:center"><span class="link">I have a code from my authenticator app</span><span class="link">Sign in with an access token</span></div></div></div>
+</div></div>
+<script>
+(function(){var h=document.documentElement,q=location.hash;
+function rd(k){try{return localStorage.getItem(k)}catch(e){return null}}function wr(k,v){try{localStorage.setItem(k,v)}catch(e){}}
+var t=/dark/.test(q)?'dark':(/light/.test(q)?'light':(rd('bb-theme')||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light')));
+h.dataset.theme=t;var tb=document.getElementById('mk-theme');tb.setAttribute('aria-pressed',t==='dark');
+tb.onclick=function(){t=h.dataset.theme==='dark'?'light':'dark';h.dataset.theme=t;wr('bb-theme',t);tb.setAttribute('aria-pressed',t==='dark')};
+})();
+</script>
+</body>
+</html>

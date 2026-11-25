@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shell: error state</title>
+<!--
+  Barbican mockup: Shell: error state
+  The server cannot be reached: a warning bar says so, the pane explains the failure in plain words with Try again, and the details sit in an expander. No Work offline (offline mode is cut).
+
+  Toolkit widgets (mdshared-ui modules) this screen needs:
+    - chrome: title row, caption buttons, tabs
+    - pane: side pane head, head switches, row fill, splitter line
+    - notice: bar across the top of the page
+    - expander: header with chevron over a folding body
+    - glyph: stroke icons on a 16 grid
+    - focus: focus ring and tab order
+  NEW (the toolkit has no such widget yet), with the K item of docs/UI-TOOLKIT-EVAL.md that would provide it:
+    - NEW NavRail: the app rail with icons, badges and the selected pill [no K item]
+    - NEW Button: push, subtle and icon buttons outside a dialog (purge gap) [K4]
+    - NEW SearchField: text field with a leading icon and a clear button [K4]
+    - NEW EmptyState: icon, line and action, centred [no K item]
+  All people, addresses and data are made up (example.com / example.org).
+-->
+<link rel="stylesheet" href="tokens.css"><link rel="stylesheet" href="icons.css"><link rel="stylesheet" href="kit.css">
+</head>
+<body>
+<div class="mk"><a href="index.html">&larr; All mockups</a><span class="mk-t">Shell: error state</span><span class="mk-n">The server cannot be reached: a warning bar says so, the pane explains the failure in plain words with Try again, and the details sit in an expander. No Work offline (offline mode is cut).</span><button id="mk-theme" aria-pressed="false">Dark</button></div>
+<div class="stage"><div class="win " id="win" style="">
+<header class="titlebar"><span class="appmark"><i class="ic ic-mail"></i>Barbican</span><span class="field search "><i class="ic ic-search"></i><span class="ph">Search mail</span><span class="end"><span class="kbd">/</span></span></span><span class="capbtns"><span class="capbtn"><i class="ic ic-win-min s10"></i></span><span class="capbtn"><i class="ic ic-win-max s10"></i></span><span class="capbtn close"><i class="ic ic-win-close s10"></i></span></span></header><div class="winbody"><nav class="rail"><span class="rail-btn on" title="Mail"><i class="ic ic-mail s20"></i><span class="badge">12</span></span><span class="rail-btn" title="Calendar"><i class="ic ic-calendar s20"></i></span><span class="rail-btn" title="Contacts"><i class="ic ic-contacts s20"></i></span><span class="rail-btn" title="Files"><i class="ic ic-folder s20"></i></span><span class="spacer"></span><span class="rail-btn" title="Notifications"><i class="ic ic-bell s20"></i><span class="dot"></span></span><span class="rail-btn" title="Settings"><i class="ic ic-gear s20"></i></span><span class="rail-btn" title="Robin Ashgrove"><span class="av t8 s28 ">RA</span></span></nav><aside class="sidebar"><div class="hstack" style="gap:6px;padding:4px 0 6px 2px"><span class="btn accent grow" style="justify-content:flex-start;padding:0 14px" title="Compose (c)"><i class="ic ic-edit"></i><span>Compose</span></span></div><div class="scroll"><div class="row on"><i class="ic ic-inbox"></i><span class="ell">Inbox</span><span class="count strong">12</span></div><div class="row"><i class="ic ic-star"></i><span class="ell">Starred</span></div><div class="row"><i class="ic ic-draft"></i><span class="ell">Drafts</span><span class="count">2</span></div><div class="row"><i class="ic ic-send"></i><span class="ell">Sent</span></div><div class="row"><i class="ic ic-clock"></i><span class="ell">Scheduled</span><span class="count">1</span></div><div class="row"><i class="ic ic-archive"></i><span class="ell">Archive</span></div><div class="row"><i class="ic ic-spam"></i><span class="ell">Spam</span><span class="count">3</span></div><div class="row"><i class="ic ic-delete"></i><span class="ell">Trash</span></div><div class="exp-head" style="margin-top:6px"><i class="ic ic-down s12"></i><span>Folders</span><span class="act"><span class="btn subtle xs icon"><i class="ic ic-plus s12"></i></span></span></div><div class="row"><i class="ic ic-down s12"></i><i class="ic ic-folder fc-folder"></i><span>Projects</span><span class="count">4</span></div><div class="row indent2"><i class="ic ic-folder fc-folder"></i><span>Q3 report</span></div><div class="row indent2"><i class="ic ic-folder fc-folder"></i><span>Offsite</span><span class="count">1</span></div><div class="row" style="padding-left:32px"><i class="ic ic-folder fc-folder"></i><span>Receipts</span></div><div class="row" style="padding-left:32px"><i class="ic ic-folder fc-folder"></i><span>Travel</span></div><div class="exp-head" style="margin-top:6px"><i class="ic ic-down s12"></i><span>Tags</span></div><div class="row"><span class="tagdot" style="background:var(--tag-blue);margin:0 4px"></span><span>Work</span></div><div class="row"><span class="tagdot" style="background:var(--tag-red);margin:0 4px"></span><span>Urgent</span></div><div class="row"><span class="tagdot" style="background:var(--tag-green);margin:0 4px"></span><span>Receipts</span></div><div class="row"><span class="tagdot" style="background:var(--tag-purple);margin:0 4px"></span><span>Travel</span></div><div class="row"><span class="tagdot" style="background:var(--tag-teal);margin:0 4px"></span><span>News</span></div><div class="sbar"><i style="top:4%;height:46%"></i></div></div><div style="padding:10px 10px 0;display:flex;flex-direction:column;gap:6px"><div class="hstack" style="justify-content:space-between;font-size:var(--text-caption);color:var(--muted)"><span>Storage</span><span>2.1 GB of 10 GB</span></div><div class="progress"><i style="width:21%"></i></div></div></aside><main class="content"><div class="pane fill"><div class="noticebar" style="background:var(--warning-fill);border-color:var(--warning-line);color:var(--warning-ink)"><i class="ic ic-wifi-off"></i><span class="grow">Not connected. Barbican needs the server to show your mail.</span><span class="btn std sm"><span>Retry now</span></span></div><div class="empty"><span class="glyph" style="color:var(--error-ink)"><i class="ic ic-error s28"></i></span><h3>Can&rsquo;t reach mail.example.com</h3><p>Unable to reach the server. Check your internet connection and try again. Barbican tries again in 30 seconds.</p><span class="hstack gap8"><span class="btn accent sm"><i class="ic ic-reload"></i><span>Try again</span></span></span><div class="exp-box" style="width:440px;text-align:left;margin-top:10px"><div class="exp-head"><i class="ic ic-down s12"></i><span>Details</span></div><div style="padding:8px 12px;font-family:var(--font-mono);font-size:12px;color:var(--muted)">GET https://mail.example.com/.well-known/jmap<br>connect timed out after 15 s (attempt 4)<br>last success: today 08:41</div></div></div></div></main></div>
+</div></div>
+<script>
+(function(){var h=document.documentElement,q=location.hash;
+function rd(k){try{return localStorage.getItem(k)}catch(e){return null}}function wr(k,v){try{localStorage.setItem(k,v)}catch(e){}}
+var t=/dark/.test(q)?'dark':(/light/.test(q)?'light':(rd('bb-theme')||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light')));
+h.dataset.theme=t;var tb=document.getElementById('mk-theme');tb.setAttribute('aria-pressed',t==='dark');
+tb.onclick=function(){t=h.dataset.theme==='dark'?'light':'dark';h.dataset.theme=t;wr('bb-theme',t);tb.setAttribute('aria-pressed',t==='dark')};
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Settings: notifications</title>
+<!--
+  Barbican mockup: Settings: notifications
+  New-mail notifications with child options, the tone (Bulwark's tone names) with a test button and volume, calendar reminders, quiet hours and the per-PC switch. No push device list (web push and the push relay are cut).
+
+  Toolkit widgets (mdshared-ui modules) this screen needs:
+    - chrome: title row, caption buttons, tabs
+    - pane: side pane head, head switches, row fill, splitter line
+    - settings: settings form and pages: rows of toggles, choices, text, actions; a number row as a stepper, or as a slider (L10)
+    - sections: grouped list with sticky headings (model)
+    - select: selection model: click, Ctrl, Shift, rubber band
+    - scroll: overlay scrollbar
+    - glyph: stroke icons on a 16 grid
+    - focus: focus ring and tab order
+    - toggle: toggle switch
+    - dropdown: drop-down list
+    - segments: segmented switch and selector bar
+    - link: text button that looks like a link
+    - slider: slider, progress bar, spinner
+    - textfield: single-line text field
+  NEW (the toolkit has no such widget yet), with the K item of docs/UI-TOOLKIT-EVAL.md that would provide it:
+    - NEW NavRail: the app rail with icons, badges and the selected pill [no K item]
+    - NEW Button: push, subtle and icon buttons outside a dialog (purge gap) [K4]
+    - NEW SearchField: text field with a leading icon and a clear button [K4]
+    - NEW Card: bordered card with dividers [K4]
+  All people, addresses and data are made up (example.com / example.org).
+-->
+<link rel="stylesheet" href="tokens.css"><link rel="stylesheet" href="icons.css"><link rel="stylesheet" href="kit.css">
+</head>
+<body>
+<div class="mk"><a href="index.html">&larr; All mockups</a><span class="mk-t">Settings: notifications</span><span class="mk-n">New-mail notifications with child options, the tone (Bulwark&#x27;s tone names) with a test button and volume, calendar reminders, quiet hours and the per-PC switch. No push device list (web push and the push relay are cut).</span><button id="mk-theme" aria-pressed="false">Dark</button></div>
+<div class="stage"><div class="win " id="win" style="">
+<header class="titlebar"><span class="appmark"><i class="ic ic-mail"></i>Barbican</span><span class="field search "><i class="ic ic-search"></i><span class="ph">Search mail</span><span class="end"><span class="kbd">/</span></span></span><span class="capbtns"><span class="capbtn"><i class="ic ic-win-min s10"></i></span><span class="capbtn"><i class="ic ic-win-max s10"></i></span><span class="capbtn close"><i class="ic ic-win-close s10"></i></span></span></header><div class="winbody"><nav class="rail"><span class="rail-btn" title="Mail"><i class="ic ic-mail s20"></i><span class="badge">12</span></span><span class="rail-btn" title="Calendar"><i class="ic ic-calendar s20"></i></span><span class="rail-btn" title="Contacts"><i class="ic ic-contacts s20"></i></span><span class="rail-btn" title="Files"><i class="ic ic-folder s20"></i></span><span class="spacer"></span><span class="rail-btn" title="Notifications"><i class="ic ic-bell s20"></i><span class="dot"></span></span><span class="rail-btn on" title="Settings"><i class="ic ic-gear s20"></i></span><span class="rail-btn" title="Robin Ashgrove"><span class="av t8 s28 ">RA</span></span></nav><aside class="sidebar" style="gap:2px"><div style="padding:4px 2px 8px"><span class="field search "><i class="ic ic-search"></i><span class="ph">Search settings</span></span></div><div class="scroll"><div class="set-item"><i class="ic ic-user"></i><span>Account</span></div><div class="set-item"><i class="ic ic-shield"></i><span>Security</span></div><div class="set-item"><i class="ic ic-eye-off"></i><span>Privacy</span></div><div class="set-item on"><i class="ic ic-bell"></i><span>Notifications</span></div><div class="set-item"><i class="ic ic-gear"></i><span>General</span></div><div class="set-item"><i class="ic ic-palette"></i><span>Appearance</span></div><div class="set-item"><i class="ic ic-eye"></i><span>Accessibility</span></div><div class="pane-label" style="padding:12px 12px 4px">Mail</div><div class="set-item"><i class="ic ic-list"></i><span>Message list</span></div><div class="set-item"><i class="ic ic-mail"></i><span>Reading</span></div><div class="set-item"><i class="ic ic-edit"></i><span>Composing</span></div><div class="set-item"><i class="ic ic-folder"></i><span>Folders & tags</span></div><div class="set-item"><i class="ic ic-filter"></i><span>Filters</span></div><div class="set-item"><i class="ic ic-clock"></i><span>Out of office</span></div><div class="set-item"><i class="ic ic-reload"></i><span>Recover deleted</span></div><div class="pane-label" style="padding:12px 12px 4px">Apps</div><div class="set-item"><i class="ic ic-calendar"></i><span>Calendar</span></div><div class="set-item"><i class="ic ic-contacts"></i><span>Contacts</span></div><div class="set-item"><i class="ic ic-folder-open"></i><span>Files</span></div><div class="sbar"><i style="top:0%;height:70%"></i></div></div><div class="set-item" style="margin-top:6px"><i class="ic ic-archive"></i><span>Backup &amp; reset</span></div></aside><main class="content"><div class="set-page" style="overflow:hidden"><div class="vstack" style="gap:4px;max-width:820px"><h1 class="set-h1">Notifications</h1><span class="muted">New mail, reminders and the sound they make.</span></div><div class="vstack" style="gap:20px;max-width:820px"><section><h2 class="set-h2">New mail</h2><div class="set-card"><div class="set-row "><span class="lbl"><span>Show a notification for new mail</span></span><span class="ctl"><span class="toggle on "></span></span></div><div class="set-row child"><span class="lbl"><span>Only for</span></span><span class="ctl"><span class="dropdown ">Inbox and VIP senders</span></span></div><div class="set-row child"><span class="lbl"><span>Show the sender and subject</span><span class="help">Off shows only &lsquo;New mail&rsquo;.</span></span><span class="ctl"><span class="toggle on "></span></span></div><div class="set-row "><span class="lbl"><span>Unread count on the taskbar icon</span><span class="help">So you see new mail while you work in another app.</span></span><span class="ctl"><span class="toggle on "></span></span></div></div></section><section><h2 class="set-h2">Sound</h2><div class="set-card"><div class="set-row "><span class="lbl"><span>Play a sound</span></span><span class="ctl"><span class="toggle on "></span></span></div><div class="set-row child"><span class="lbl"><span>Tone</span></span><span class="ctl"><span class="dropdown ">Cheerful</span><span class="btn std sm icon" title="Test notification sound"><i class="ic ic-play"></i></span></span></div><div class="set-row child"><span class="lbl"><span>Volume</span></span><span class="ctl"><span class="hstack gap8" style="width:260px"><span class="slider"><i style="width:70%"></i><b style="left:70%"></b></span><span class="muted small" style="width:40px;text-align:right">70%</span></span></span></div></div></section><section><h2 class="set-h2">Calendar</h2><div class="set-card"><div class="set-row "><span class="lbl"><span>Event reminders</span></span><span class="ctl"><span class="toggle on "></span></span></div><div class="set-row "><span class="lbl"><span>Default reminder</span></span><span class="ctl"><span class="dropdown ">10 minutes before</span></span></div><div class="set-row "><span class="lbl"><span>Invitations and replies</span></span><span class="ctl"><span class="toggle on "></span></span></div></div></section><section><h2 class="set-h2">Quiet hours</h2><div class="set-card"><div class="set-row "><span class="lbl"><span>Do not disturb</span><span class="help">Notifications wait in the notification centre.</span></span><span class="ctl"><span class="toggle "></span></span></div><div class="set-row child"><span class="lbl"><span>Every day</span></span><span class="ctl"><span class="field" style="width:84px"><span>22:00</span></span><span class="muted">to</span><span class="field" style="width:84px"><span>07:30</span></span></span></div></div></section><section><h2 class="set-h2">This PC</h2><div class="set-card"><div class="set-row "><span class="lbl"><span>Turn on for this device</span><span class="help">Shows system notifications on this PC. Each device keeps its own setting.</span></span><span class="ctl"><span class="toggle on "></span></span></div></div></section></div><div class="sbar"><i style="top:0%;height:40%"></i></div></div></main></div>
+</div></div>
+<script>
+(function(){var h=document.documentElement,q=location.hash;
+function rd(k){try{return localStorage.getItem(k)}catch(e){return null}}function wr(k,v){try{localStorage.setItem(k,v)}catch(e){}}
+var t=/dark/.test(q)?'dark':(/light/.test(q)?'light':(rd('bb-theme')||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light')));
+h.dataset.theme=t;var tb=document.getElementById('mk-theme');tb.setAttribute('aria-pressed',t==='dark');
+tb.onclick=function(){t=h.dataset.theme==='dark'?'light':'dark';h.dataset.theme=t;wr('bb-theme',t);tb.setAttribute('aria-pressed',t==='dark')};
+})();
+</script>
+</body>
+</html>

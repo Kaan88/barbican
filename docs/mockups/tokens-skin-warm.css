@@ -1,0 +1,275 @@
+/* Barbican mockups, skin "Warm": a full token set with the same names as tokens.css.
+ *
+ * The toolkit's WARM scheme (appearance.rs): paper pages, brown-black text, LIGHT's accent. The toolkit has no dark Warm, so the dark half is invented in the same spirit, with an amber accent.
+ *
+ * Built from tokens.css; every value this skin changes carries a "skin:" comment naming its
+ * source. Everything else is tokens.css as it is (see that file for the sources).
+ */
+
+:root {
+  color-scheme: light;
+
+  /* ---- palette, light: theme.rs LIGHT ---------------------------------------------------- */
+  --page: #fbf8f3; /* skin: appearance.rs WARM */
+  --title: #f1ebe2; /* skin: appearance.rs WARM */
+  --bar: #f1ebe2; /* skin: appearance.rs WARM */
+  --pane: #f1ebe2; /* skin: appearance.rs WARM */
+  --text: #2a241f; /* skin: appearance.rs WARM */
+  --muted: #6f6459; /* skin: appearance.rs WARM */
+  --faint: #aca193; /* skin: appearance.rs WARM */
+  --hover: #e6dfd6; /* skin: appearance.rs WARM */
+  --press: #dfd7cd; /* skin: appearance.rs WARM */
+  --on: #cad5db; /* skin: appearance.rs WARM */
+  --line: #e5ddd0; /* skin: appearance.rs WARM */
+  --accent: #005fb8;      /* Windows 11's default blue */
+  --on-accent: #ffffff;
+  --field: #fffdf9; /* skin: appearance.rs WARM */
+  --popup: #fdfbf7; /* skin: appearance.rs WARM */
+  --popup-line: #e0d6c7; /* skin: appearance.rs WARM */
+  --folder: #c8901a;
+  --thumb: #8a8a8a;       /* scrollbar thumb */
+  --find-mark: #ffd400;
+  --find-current: #ff8a1f;
+  --selection: #3f85c7; /* skin: appearance.rs WARM */
+  --danger: #c42b1c;      /* close button hover; destructive */
+  --warn: #9d5d00;
+  --warn-bg: #fff4ce;
+
+  /* severity colours: infobar.rs severity_colors_in (light) */
+  --info-ink: var(--accent);
+  --info-fill: #eef5fc;
+  --success-ink: #0f7b0f;
+  --success-fill: #effaef;
+  --warning-ink: var(--warn);
+  --warning-fill: #fff7e6;
+  --error-ink: var(--danger);
+  --error-fill: #fdf1f0;
+
+  /* dialog footer: overlay.rs draw_dialog_card_with, mix(popup, bar, 0.7) on light */
+  --dialog-footer-fill: color-mix(in srgb, var(--bar) 70%, var(--popup));
+  /* backdrop behind a dialog: overlay.rs draw_backdrop, black at 0.28 on light */
+  --backdrop: rgba(0, 0, 0, .28);
+  /* shadow strength on a light palette: gfx/soft.rs LIGHT_SHADOW */
+  --shadow-k: .45;
+  /* Painter::shadow_with (gfx.rs:557): ten boxes of alpha 0.010, 1.4 px apart, 3 px down.
+     A CSS approximation of that stepped shadow; not pixel-exact. */
+  --shadow-popup: 0 3px 3px rgba(0,0,0,.035), 0 3px 9px rgba(0,0,0,.045), 0 4px 16px rgba(0,0,0,.04);
+  --shadow-dialog: var(--shadow-popup);
+  /* gfx/soft.rs Shade::POPUP: 0 8px 24px 55%, 0 2px 6px 35%, times LIGHT_SHADOW (opt-in) */
+  --shadow-soft: 0 8px 24px rgba(0,0,0,calc(.55 * var(--shadow-k))), 0 2px 6px rgba(0,0,0,calc(.35 * var(--shadow-k)));
+  /* gfx/soft.rs Shade::TAB: the control a joined menu hangs from */
+  --shadow-tab: 0 2px 10px rgba(0,0,0,calc(.45 * var(--shadow-k)));
+  /* the window's own drop shadow: shadow.rs SIGMA 12, DROP 6, PEAK_ACTIVE 0.35 */
+  --shadow-window: 0 6px 24px rgba(0,0,0,.35);
+
+  /* avatar / tile colours: examples/purge_mockup.rs TILES (an example, not the library) */
+  --tile-1: #0f6cbd; --tile-2: #8764b8; --tile-3: #c239b3; --tile-4: #ca5010; --tile-5: #498205;
+  --tile-6: #038387; --tile-7: #986f0b; --tile-8: #4f6bed; --tile-9: #3b3b3b; --tile-10: #c4314b;
+
+  /* tag colours: invented (picked near the tile hues so they sit with the palette) */
+  --tag-red: #c4314b; --tag-orange: #ca5010; --tag-yellow: #b38600; --tag-green: #498205;
+  --tag-teal: #038387; --tag-blue: #0f6cbd; --tag-purple: #8764b8; --tag-pink: #c239b3;
+
+  /* calendar colours: invented, the tile set */
+  --cal-1: var(--tile-1); --cal-2: var(--tile-5); --cal-3: var(--tile-4); --cal-4: var(--tile-2);
+  --cal-5: var(--tile-6);
+  /* today's mark in a calendar: invented, the accent */
+  --today: var(--accent);
+
+  /* ---- derived colours (mix), shared by both palettes ------------------------------------ */
+  --on-hover: color-mix(in srgb, var(--text) 6%, var(--on));            /* chrome.rs button_fill */
+  --accent-hover: color-mix(in srgb, var(--popup) 10%, var(--accent));  /* overlay.rs dialog button */
+  --accent-press: color-mix(in srgb, var(--popup) 20%, var(--accent));
+  --button-fill: color-mix(in srgb, var(--text) 4%, var(--popup));      /* overlay.rs, quiet button */
+  --edge-strong: color-mix(in srgb, var(--text) 30%, var(--line));      /* check.rs, off box edge */
+  --edge-hot: color-mix(in srgb, var(--text) 18%, var(--line));         /* dropdown.rs / pages.rs, hovered field */
+  --field-hot: color-mix(in srgb, var(--text) 5%, var(--field));        /* dropdown.rs, hovered field fill */
+  --toggle-off-edge: color-mix(in srgb, var(--popup) 35%, var(--muted)); /* toggle.rs off_colours */
+  --toggle-off-edge-hot: color-mix(in srgb, var(--popup) 20%, var(--muted));
+  --track: color-mix(in srgb, var(--text) 18%, var(--line));            /* slider.rs draw_progress track */
+  --keycap-fill: color-mix(in srgb, var(--text) 7%, var(--popup));      /* overlay.rs draw_keycaps */
+  --keycap-edge: color-mix(in srgb, var(--text) 8%, var(--popup-line));
+  --keycap-under: color-mix(in srgb, var(--text) 12%, var(--popup-line));
+  --header-hot: color-mix(in srgb, var(--text) 8%, var(--bar));         /* table.rs header cell hover */
+  --notice-close-hot: color-mix(in srgb, var(--text) 10%, var(--bar));  /* notice.rs */
+  --danger-press: color-mix(in srgb, #000 15%, var(--danger));          /* chrome.rs close pressed */
+  --info-line: color-mix(in srgb, var(--info-ink) 45%, var(--info-fill));       /* infobar.rs line */
+  --success-line: color-mix(in srgb, var(--success-ink) 45%, var(--success-fill));
+  --warning-line: color-mix(in srgb, var(--warning-ink) 45%, var(--warning-fill));
+  --error-line: color-mix(in srgb, var(--error-ink) 45%, var(--error-fill));
+  --card-fill: var(--field);              /* purge_mockup.rs card(): field on light, bar on dark */
+  --scroll-track: color-mix(in srgb, var(--thumb) 10%, transparent);    /* scroll.rs, active track */
+  --scroll-thumb: color-mix(in srgb, var(--thumb) 55%, transparent);    /* scroll.rs, thumb at rest */
+  --scroll-thumb-hot: color-mix(in srgb, var(--thumb) 85%, transparent);
+  --skeleton: color-mix(in srgb, var(--text) 7%, var(--page));          /* invented */
+  --skeleton-hi: color-mix(in srgb, var(--text) 3%, var(--page));       /* invented */
+  --unread-dot: var(--accent);            /* invented: the toolkit has no unread mark */
+  --mica: linear-gradient(135deg, color-mix(in srgb, var(--accent) 4%, var(--title)), var(--title) 60%); /* invented: a flat stand-in for frost.rs Mica */
+
+  /* ---- type: gfx.rs UI_FAMILY / MONO_FAMILY, Face::{Ui, Semibold, Mono} ------------------- */
+  --font-ui: "Segoe UI Variable Text", "Segoe UI", Inter, "Noto Sans", Cantarell, "DejaVu Sans", sans-serif;
+  --font-mono: "Cascadia Mono", Consolas, "Courier New", monospace;
+  --weight-regular: 400;
+  --weight-semibold: 600;   /* gfx.rs: Face::Semibold is weight 600 */
+
+  /* the type scale, in logical px */
+  --sizes-text: 13px;           /* tokens.rs Sizes.text: list rows, fields, buttons */
+  --sizes-text-small: 12px;     /* tokens.rs Sizes.text_small: hints, captions, tooltips */
+  --sizes-text-menu: 13.5px;    /* tokens.rs Sizes.text_menu = menu.rs TEXT; settings labels */
+  --sizes-text-heading: 14px;   /* tokens.rs Sizes.text_heading; purge rail labels */
+  --text-label: 11px;           /* pane.rs draw_head: semibold 11 muted */
+  --text-caption: 11.5px;       /* settings/pages.rs HELP_SIZE; purge chip */
+  --text-tab: 12.5px;           /* chrome.rs tab label; table.rs TITLE_TEXT; expander TITLE */
+  --text-palette: 15px;         /* palette.rs field text */
+  --text-title: 17px;           /* settings/pages.rs header title (semibold) */
+  --text-display: 28px;         /* purge_mockup.rs heading() */
+  --text-hero: 22px;            /* invented: a reader subject line */
+
+  /* ---- sizes: tokens.rs Sizes::DEFAULT and the widgets' constants ------------------------- */
+  --sizes-radius: 5px;          /* a button's, a field's or a card's corners */
+  --sizes-radius-popup: 8px;    /* a popup's, a menu's corners (menu.rs Look::ROUNDED) */
+  --radius-control: 6px;        /* dropdown.rs RADIUS, segments frame, settings fields */
+  --radius-dialog: 10px;        /* overlay.rs draw_dialog_card; settings Style::CLASSIC */
+  --radius-card: 8px;           /* purge_mockup.rs card() */
+  --radius-chip: 10px;          /* purge_mockup.rs chip() */
+  --radius-infobar: 6px;        /* infobar.rs RADIUS */
+  --radius-tip: 5px;            /* overlay.rs Bubble tip */
+  --radius-toast: 8px;          /* overlay.rs Bubble toast */
+  --radius-window: 8px;         /* corners.rs: the window's outer corners */
+  --radius-check: 4px;          /* check.rs RADIUS */
+  --radius-link: 3px;           /* link.rs RADIUS (its focus ring) */
+  --radius-avatar: 23%;         /* purge_mockup.rs tile(): r = w * 0.23 */
+
+  --sizes-row: 28px;            /* pane.rs ROW_H */
+  --sizes-row-pitch: 30px;      /* pane.rs ROW */
+  --sizes-header: 30px;         /* table.rs HEADER_H */
+  --sizes-cell-pad: 10px;       /* table.rs CELL_PAD */
+  --sizes-thumb: 18px;          /* slider.rs THUMB */
+  --sizes-track: 4px;           /* slider.rs TRACK */
+  --sizes-tick: 16px;           /* check.rs TICK */
+  --sizes-icon: 16px;           /* glyph.rs GRID */
+  --sizes-grip: 6px;            /* splitter.rs GRIP */
+  --icon-stroke: 1.25;          /* glyph.rs STROKE, round caps and joins */
+
+  --chrome-title-h: 40px;       /* chrome.rs TITLE_H */
+  --chrome-bar-h: 44px;         /* chrome.rs BAR_H */
+  --chrome-win-btn-w: 46px;     /* chrome.rs WIN_BTN_W */
+  --chrome-win-btn-h: 32px;     /* purge_mockup.rs caption buttons */
+  --chrome-tab-radius: 8px;     /* chrome.rs draw_tab */
+  --pane-head: 40px;            /* pane.rs HEAD */
+  --pane-switch-h: 28px;        /* pane.rs SWITCH_H */
+  --pane-mark-w: 3px;           /* pane.rs draw_row_fill: the accent pill of a selected row */
+  --pane-mark-inset: 7px;
+  --menu-row: 32px;             /* menu.rs ROW */
+  --menu-pad: 5px;              /* menu.rs PAD */
+  --menu-inset: 5px;            /* menu.rs Look.inset */
+  --menu-hover-radius: 5px;     /* menu.rs Look.hover_radius */
+  --menu-sep: 9px;              /* menu.rs SEP */
+  --menu-lead: 30px;            /* menu.rs ONE_LEAD */
+  --menu-arrow: 28px;           /* menu.rs ARROW */
+  --menu-shadow: var(--shadow-popup);
+  --control-h: 28px;            /* settings/pages.rs CONTROL_H; dropdown.rs DROPDOWN_H */
+  --button-h: 32px;             /* overlay.rs dialog buttons are 32 high */
+  --button-pad: 20px;           /* overlay.rs dialog_button_w: label + 40 */
+  --segment-h: 28px;            /* segments.rs SEGMENT_H */
+  --segment-pad: 14px;          /* segments.rs SEGMENT_PAD */
+  --toggle-w: 40px;             /* toggle.rs TOGGLE_W */
+  --toggle-h: 20px;             /* toggle.rs TOGGLE_H */
+  --toggle-knob: 12px;          /* toggle.rs knob_size: 12, 13 hovered, 14 pressed */
+  --dialog-pad: 24px;           /* overlay.rs DIALOG_PAD */
+  --dialog-footer: 72px;        /* overlay.rs DIALOG_FOOTER */
+  --flyout-pad: 16px;           /* flyout.rs PADDING */
+  --flyout-gap: 4px;            /* flyout.rs GAP */
+  --infobar-pad: 12px;          /* infobar.rs PAD */
+  --infobar-action-h: 24px;     /* infobar.rs ACTION_H */
+  --tip-h: 26px;                /* overlay.rs Bubble::tip */
+  --toast-h: 36px;              /* overlay.rs Bubble::toast */
+  --palette-w: 640px;           /* palette.rs CARD_W */
+  --palette-field-h: 50px;      /* palette.rs FIELD_H */
+  --palette-row: 34px;          /* palette.rs ROW */
+  --palette-header: 30px;       /* palette.rs HEADER */
+  --palette-footer: 28px;       /* palette.rs FOOTER_H */
+  --settings-nav-w: 168px;      /* settings/pages.rs NAV_W */
+  --settings-nav-item: 34px;    /* settings/pages.rs NAV_ITEM */
+  --settings-row: 34px;         /* settings/pages.rs ROW_H; BESIDE_H 40 with help */
+  --settings-row-help: 40px;
+  --settings-col: 240px;        /* settings/pages.rs COL_W */
+  --settings-pad: 24px;         /* settings/pages.rs PAD */
+  --expander-h: 32px;           /* expander.rs HEADER_H */
+  --link-h: 22px;               /* link.rs LINK_H */
+  --chip-h: 20px;               /* purge_mockup.rs chip() */
+  --badge: 18px;                /* purge_mockup.rs rail badge */
+  --rail-w: 52px;               /* invented: purge's rail is 232 with labels; an icon rail */
+  --sidebar-w: 232px;           /* purge_mockup.rs RAIL */
+  --list-w: 380px;              /* invented */
+
+  /* focus: focus.rs RING 2, GAP 1 + RING/2 (the ring's middle 2 px out, so 1 px of gap) */
+  --focus-ring: 2px;
+  --focus-gap: 1px;
+
+  /* scrollbar: scroll.rs draw_scrollbar, 3 thin / 8 wide, 3 px from the edge, thumb 28 at least */
+  --scroll-thin: 3px;
+  --scroll-wide: 8px;
+  --scroll-inset: 3px;
+  --scroll-min: 28px;
+
+  /* ---- motion: anim.rs fluent and document --------------------------------------------- */
+  --motion-faster: 83ms;        /* fluent::FASTER, a fade (HOVER) */
+  --motion-fast: 167ms;         /* fluent::FAST, ENTER / EXIT / MOVE */
+  --motion-normal: 250ms;       /* fluent::NORMAL, ENTER_LARGE / PAGE / MOVE_LARGE */
+  --motion-slow: 333ms;         /* fluent::SLOW */
+  --ease-decelerate: cubic-bezier(0, 0, 0, 1);       /* fluent::DECELERATE, what enters */
+  --ease-accelerate: cubic-bezier(1, 0, 1, 1);       /* fluent::ACCELERATE, what leaves */
+  --ease-point: cubic-bezier(.55, .55, 0, 1);        /* fluent::POINT_TO_POINT, what moves */
+  --tip-delay: 500ms;           /* document::TIP_DELAY */
+  --menu-drop: 6px;             /* menu.rs MENU_DROP */
+  --toast-rise: 8px;            /* overlay.rs TOAST_RISE */
+  --dialog-rise: 10px;          /* overlay.rs DIALOG_RISE */
+}
+
+/* ---- palette, dark: theme.rs DARK --------------------------------------------------------- */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #221f1b; /* skin: invented (the toolkit has no dark warm) */
+  --title: #2f2a25; /* skin: invented (the toolkit has no dark warm) */
+  --bar: #2a2622; /* skin: invented (the toolkit has no dark warm) */
+  --pane: #27231f; /* skin: invented (the toolkit has no dark warm) */
+  --text: #ece5dc; /* skin: invented (the toolkit has no dark warm) */
+  --muted: #aca193; /* skin: invented (the toolkit has no dark warm) */
+  --faint: #7a7064; /* skin: invented (the toolkit has no dark warm) */
+  --hover: #3b352f; /* skin: invented (the toolkit has no dark warm) */
+  --press: #463f38; /* skin: invented (the toolkit has no dark warm) */
+  --on: color-mix(in srgb, var(--accent) 28%, var(--pane)); /* skin: tokens.rs accented(): on = mix(pane, accent, .16 light / .28 dark), selection = mix(page, accent, .75 / .55) */
+  --line: #3a342e; /* skin: invented (the toolkit has no dark warm) */
+  --accent: #f2b36b; /* skin: invented (the toolkit has no dark warm) */
+  --on-accent: #2a1a08; /* skin: invented (the toolkit has no dark warm) */
+  --field: #1e1b18; /* skin: invented (the toolkit has no dark warm) */
+  --popup: #2e2924; /* skin: invented (the toolkit has no dark warm) */
+  --popup-line: #463f37; /* skin: invented (the toolkit has no dark warm) */
+  --folder: #dcab3f;
+  --thumb: #9a9a9a;
+  --find-mark: #c9a400;
+  --find-current: #ff8c1a;
+  --selection: color-mix(in srgb, var(--accent) 55%, var(--page)); /* skin: tokens.rs accented(): on = mix(pane, accent, .16 light / .28 dark), selection = mix(page, accent, .75 / .55) */
+  --danger: #c42b1c;
+  --warn: #fcb54a;
+  --warn-bg: #3a3020;
+
+  /* infobar.rs severity_colors_in (dark); error ink is DARK_ERROR_INK */
+  --info-fill: #2e2820; /* skin: invented (the toolkit has no dark warm) */
+  --success-ink: #6ccb5f;
+  --success-fill: #1d2b1d;
+  --warning-fill: #332a1c;
+  --error-ink: #ff99a4;
+  --error-fill: #34201e;
+
+  --dialog-footer-fill: color-mix(in srgb, #000 22%, var(--popup)); /* overlay.rs, dark */
+  --backdrop: rgba(0, 0, 0, .45);
+  --shadow-k: 1;
+  /* Painter::shadow_with on dark: base alpha 0.024 (2.4 times light); a dialog draws it twice */
+  --shadow-popup: 0 3px 3px rgba(0,0,0,.09), 0 3px 9px rgba(0,0,0,.11), 0 4px 16px rgba(0,0,0,.10);
+  --shadow-dialog: 0 3px 3px rgba(0,0,0,.17), 0 3px 9px rgba(0,0,0,.21), 0 4px 18px rgba(0,0,0,.2);
+  --card-fill: var(--bar);      /* purge_mockup.rs card(): bar on dark */
+
+  --tag-yellow: #d9a400;        /* invented: reads on the dark page */
+}
