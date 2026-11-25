@@ -5,7 +5,8 @@
 //! The body has `model`, `stream: true`, `messages` and `tools` (only when there are any and the
 //! model is not known to reject them). Nothing else: no temperature, max_tokens, tool_choice,
 //! stream_options or parallel_tool_calls.
-use super::error::{truthy, ProviderError};
+use super::error::{js_string, truthy, ProviderError};
+pub use super::history::ChatOutcome;
 use super::history::{AssistantTurn, Entry, Raw, ToolCall, ToolDef};
 use super::http;
 use super::sse::{read_sse, too_large, Cancel, IDLE, MAX_EVENT};
@@ -52,13 +53,6 @@ impl std::fmt::Debug for OpenAi {
             .field("idle", &self.idle)
             .finish()
     }
-}
-
-/// One model turn and why it ended (`finish_reason`).
-#[derive(Clone, Debug, PartialEq)]
-pub struct ChatOutcome {
-    pub turn: AssistantTurn,
-    pub stop_reason: Option<String>,
 }
 
 /// `toOpenAIMessages(system, history)`.
@@ -175,16 +169,6 @@ struct Partial {
     id: String,
     name: String,
     args: String,
-}
-
-/// `String(x)` for the error of an `error` event.
-fn js_string(v: &Value) -> String {
-    match v {
-        Value::String(s) => s.clone(),
-        Value::Object(_) => "[object Object]".into(),
-        Value::Array(a) => a.iter().map(|x| if x.is_null() { String::new() } else { js_string(x) }).collect::<Vec<_>>().join(","),
-        other => other.to_string(),
-    }
 }
 
 /// Assembles a turn from the stream's events (`openaiRequest` after the response is OK).
@@ -324,7 +308,7 @@ impl OpenAi {
         http::check_url(&url)?;
         let key = self.api_key.trim();
         if !key.is_empty() {
-            http::check_header_value(&format!("Bearer {key}"))?;
+            http::check_key(key)?;
         }
         let client = http::client()?;
         // the fallback without tools happens at most once per call
@@ -800,9 +784,13 @@ mod tests {
     }
 
     #[test]
-    fn only_the_first_64_kib_of_an_error_body_is_read() {
-        // whole, this JSON would give "short"; cut at 64 KiB it is no JSON and the text is used
-        let body = format!("{{\"error\":{{\"message\":\"short\"}},\"pad\":\"{}\"}}", "x".repeat(100 * 1024));
+    fn only_the_first_mib_of_an_error_body_is_read() {
+        // a large validation error still parses
+        let body = format!("{{\"error\":{{\"message\":\"short\"}},\"pad\":\"{}\"}}", "x".repeat(200 * 1024));
+        let server = FakeServer::start(vec![Reply::json(422, &body)]);
+        assert_eq!(run(&OpenAi::new(&server.base, "m", ""), &[], &Cancel::new()).0.unwrap_err().message, "422: short");
+        // whole, this JSON would give "short"; cut at 1 MiB it is no JSON and the text is used
+        let body = format!("{{\"error\":{{\"message\":\"short\"}},\"pad\":\"{}\"}}", "x".repeat(1536 * 1024));
         let server = FakeServer::start(vec![Reply::json(500, &body)]);
         let e = run(&OpenAi::new(&server.base, "m", ""), &[], &Cancel::new()).0.unwrap_err();
         assert!(e.message.starts_with("500: {\"error\":{\"message\":\"short\"},\"pad\":\"xxx"), "{}", &e.message[..60]);
@@ -824,8 +812,10 @@ mod tests {
     #[test]
     fn a_key_that_cannot_be_sent_and_a_bad_address() {
         let server = FakeServer::start(vec![ok_stream()]);
-        let e = run(&OpenAi::new(&server.base, "m", "sk-a\nb"), &[], &Cancel::new()).0.unwrap_err();
-        assert_eq!(e.message, crate::assistant::http::KEY_CHARS);
+        for key in ["sk-a\nb", "sk-\u{e4}", "sk a", "sk-\u{7f}"] {
+            let e = run(&OpenAi::new(&server.base, "m", key), &[], &Cancel::new()).0.unwrap_err();
+            assert_eq!(e.message, crate::assistant::http::KEY_CHARS, "{key:?}");
+        }
         assert!(server.requests().is_empty());
         let e = run(&OpenAi::new("not a url", "m", ""), &[], &Cancel::new()).0.unwrap_err();
         assert_eq!(e.message, "not a url/chat/completions is not a valid URL.");

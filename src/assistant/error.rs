@@ -80,6 +80,16 @@ pub(crate) fn truthy(v: &Value) -> bool {
     }
 }
 
+/// `String(x)` for the error of an `error` event.
+pub(crate) fn js_string(v: &Value) -> String {
+    match v {
+        Value::String(s) => s.clone(),
+        Value::Object(_) => "[object Object]".into(),
+        Value::Array(a) => a.iter().map(|x| if x.is_null() { String::new() } else { js_string(x) }).collect::<Vec<_>>().join(","),
+        other => other.to_string(),
+    }
+}
+
 /// `errorFrom(response)`: the error for a non-OK answer. If the body is JSON the message is
 /// `error.message`, else `message`, else `error`, else the body text; a non-string is
 /// JSON-stringified; cut to 500 characters; falling back to the status text or

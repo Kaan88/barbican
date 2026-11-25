@@ -7,12 +7,14 @@
 //! * [`sse`]: the server-sent events reader, the 180 s idle timeout, cancellation (3.1).
 //! * [`error`]: [`ProviderError`], the error text built from an HTTP answer and the friendly
 //!   wording the panel shows (3.1, 3.4).
+//! * [`anthropic`]: the Anthropic Messages API client, model names and the Models API (3.2).
 //! * `http`: the client, redirect rules and error answers shared by the providers.
 //! * [`openai`]: the OpenAI-compatible Chat Completions client (3.3).
 //!
 //! Not wired into the app yet (milestone M12 swaps it in for `ai.rs` / `agent.rs`).
 #![allow(dead_code)]
 
+pub mod anthropic;
 pub mod error;
 pub mod history;
 pub(crate) mod http;
@@ -26,16 +28,20 @@ pub(crate) mod fake;
 #[allow(unused_imports)]
 pub use error::{friendly_error, ErrorKind, ProviderError};
 #[allow(unused_imports)]
-pub use history::{AssistantTurn, Entry, Raw, ToolCall, ToolDef, ToolResult};
+pub use history::{AssistantTurn, ChatOutcome, Entry, Raw, ToolCall, ToolDef, ToolResult};
 #[allow(unused_imports)]
 pub use sse::{Cancel, IDLE};
 
-/// The error for a call made from inside an async runtime.
-pub const IN_RUNTIME: &str = "The assistant's requests can't be made from inside an async task; run them on a worker thread.";
+/// The error for a call made on a thread that belongs to a tokio runtime.
+pub const IN_RUNTIME: &str = "The assistant's requests can't be made from a thread of an async runtime; run them on a plain worker thread.";
 
 /// Runs a future to completion on a fresh single-threaded runtime on the calling thread. The
-/// public calls of this module block: make them from a plain worker thread. From inside an async
-/// runtime they fail with [`IN_RUNTIME`] (tokio would panic). Their callbacks (`on_text`) run on
+/// public calls of this module block: make them from a plain `std::thread`. On any thread of a
+/// tokio runtime they fail with [`IN_RUNTIME`]: inside an async task tokio would panic, and a
+/// `spawn_blocking` thread is refused too, because tokio offers no public way to tell the two
+/// apart (both have a current handle). Running the request on a helper thread instead would need
+/// the future, and so the caller's `on_text`, to be `Send`; the UI's workers are std threads, so
+/// the simple rule is kept. Their callbacks (`on_text`) run on
 /// that runtime, so they must not block on async code or use `reqwest::blocking`; hand the chunk
 /// to the UI (a channel, a queued closure) and return.
 ///
@@ -94,6 +100,9 @@ mod tests {
     fn block_on_inside_a_runtime_is_an_error_not_a_panic() {
         let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
         let r = rt.block_on(async { super::block_on(async { 1 }) });
+        assert_eq!(r.unwrap_err().message, super::IN_RUNTIME);
+        // a spawn_blocking thread counts as one of the runtime's threads
+        let r = rt.block_on(async { tokio::task::spawn_blocking(|| super::block_on(async { 1 })).await.unwrap() });
         assert_eq!(r.unwrap_err().message, super::IN_RUNTIME);
     }
 }

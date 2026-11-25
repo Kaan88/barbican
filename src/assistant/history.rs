@@ -57,6 +57,13 @@ pub struct ToolResult {
     pub is_error: bool,
 }
 
+/// One model turn and why it ended (`finish_reason` or `stop_reason`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct ChatOutcome {
+    pub turn: AssistantTurn,
+    pub stop_reason: Option<String>,
+}
+
 /// A tool offered to the model: `{ name, description, parameters }` with a JSON Schema.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ToolDef {
