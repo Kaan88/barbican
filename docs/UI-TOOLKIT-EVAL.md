@@ -27,6 +27,22 @@ make that work.
 > - The toolkit was re-read at `02a52be`. Only X3's turning disclosure for the tree landed since
 >   (PR #13). It changes no K item.
 
+> **Revised again 2026-11-25 after the second cut session** (`docs/FEATURE-CUT.md`, "Second
+> session"). The owner weighed the features behind the costly K items. Nothing was cut for good
+> apart from loading skeletons; several items moved to **after the switch**:
+> - **K12** (screen readers) and **K2** (owned popup surfaces) are future items, out of the switch
+>   path. The capture workaround stays for menus over the mail body. T5 and U7 move after U12; the
+>   screens build no accessibility tree; U11 shrinks to S.
+> - **K8 and K13 are unchanged**: all four in-app drags stay, and so do drops from Explorer.
+> - **K9 is still open** (toolkit K9, or Barbican's RTE in a plain mode). The raw Sieve editor, the
+>   composer's HTML source view, signature HTML source and the admin raw message fields are not
+>   ported before the switch, but K9 in some form is still needed by U6.
+> - **L9** (pasting images) moves after the switch; **L8** stays optional.
+> - App drawing deferred: the pop-up date picker, the typed time field, hover actions on rows and
+>   colour swatches. Skeletons are cut. Chip fields outside the composer reuse the composer's.
+> - Rough total of toolkit work before the switch: about 1 L, 5 M and 4 S, 6,500-10,500 lines
+>   (8,000-13,000 before). Length: about **3.5 to 4.5 months** (4 to 5 before).
+
 **What was read.** The toolkit at `main` `48eb3ce`, re-read at `02a52be` (2026-11-25), cloned
 read-only. Its docs, its `crates/mdshared-ui` sources, its open PRs and branches. Barbican at `main`
 `3774fd5`, recounted at `b00812d`: `ui/*.slint`, `src/`, `docs/JANK-AUDIT.md`, `ROADMAP.md`,
@@ -59,7 +75,8 @@ lines, **M** 300-1,000, **L** 1,000-3,000, **XL** more. Barbican work uses Barbi
   menus inside the one window); a layout helper (Barbican's Slint leans on Slint layouts); and the
   everyday controls (buttons, framed fields, multi-line text, check boxes with labels, radio
   groups, chips). After the cut, the first gap **no longer needs several windows**: the app is
-  single-window, so owned popup surfaces are enough (K2).
+  single-window, so owned popup surfaces are enough (K2). After the second cut session K2 is a
+  future item: the capture trick covers popups over the mail body until after the switch.
 - The WebView2 child now has **two homes and no fallback**: the mail body and, after R3, the Files
   previews of .eml and HTML. Blitz is cut (5.3).
 - A **complete skin** is **partly possible today**: colours and some widget looks are runtime data.
@@ -147,13 +164,13 @@ a file manager and a terminal. Barbican is not in it yet.
 | Id | What | Size | Status | After the cut | Evidence |
 |---|---|---|---|---|---|
 | W1b | The rest of the host: several windows, tabs, regions with their own damage, key releases, Linux shadow and backdrop | L, high risk | open | **Only the damage regions** (in K1). Several windows: pop-outs cut. Linux: Later | `docs/ROADMAP.md:67` |
-| W8 rest | AT-SPI and macOS adapters; Narrator never tried | XL | open beyond Purge's scope | Narrator only (in K12). AT-SPI: Linux Later | `docs/ROADMAP.md:74` |
+| W8 rest | AT-SPI and macOS adapters; Narrator never tried | XL | open beyond Purge's scope | **After the switch** (K12, a future item). AT-SPI: Linux Later | `docs/ROADMAP.md:74` |
 | W9 | Translations of the toolkit's own texts, plural forms, locale number formats | L | open | **Not needed**: English only | `docs/ROADMAP.md:75` |
 | L4 | Table columns hidden and reordered | M | open | **Not needed**: list columns cut; Files keeps its sort headers | `docs/ROADMAP.md:84` |
 | L5 | Rename in place (a field over a row) | S | open | Needed (folders, files) | `docs/ROADMAP.md:85` |
 | L7 | Drag and drop inside a window, files dropped from the system | M | open | Needed (= K8) | `docs/ROADMAP.md:87` |
-| L8 | Dragging files out to other applications | L, high | open | Optional, as before | `docs/ROADMAP.md:88` |
-| L9 | Files and images on the clipboard | M, high | open | Needed (a screenshot pasted into the composer) | `docs/ROADMAP.md:89` |
+| L8 | Dragging files out to other applications | L, high | open | Optional, after the switch (second cut session) | `docs/ROADMAP.md:88` |
+| L9 | Files and images on the clipboard | M, high | open | **After the switch** (second cut session): until then a screenshot is saved and attached, or dropped in from Explorer | `docs/ROADMAP.md:89` |
 | X6 | Chord sequences and keymaps per context | M | open | **Not needed**: Barbican's `g` sequences are its own state machine (`src/shortcuts.rs:154-163, 551`) | `docs/ROADMAP.md:214` |
 | P8b | The single-instance hand-over reaching a winit window | S | open | Needed (mailto and webcal links into the running app) | `docs/ROADMAP.md:165` |
 
@@ -185,15 +202,15 @@ in this repository to use it (Barbican sizes). Item ids K1-K14 are the proposals
 | Virtualised long lists | Slint `ListView` (14 uses), rebuilt in full on many events (JANK #8) | **Present.** `rows::Rows` (one height), `sections::Sections` (heights that differ, sticky date headers, collapsible groups), `select::Selection` (Ctrl, Shift, rubber band, type-ahead), `scroll::SmoothScroll`, an a11y list that keys rows by item (`docs/CATALOGUE.md:71, 93-95, 109`) | none | M per list (mail, contacts, files, search) | Needed. Mail list stays two-line rows, newest first: no column mode |
 | Rich text editor with spell squiggles | Own engine: `src/rte/{model,editor,html,layout,spell}.rs`, 3,349 lines with no Slint, laid out with parley 0.11.1; Slint draws boxes and texts from models (`src/rte/mod.rs:244-328`) | **Partial.** The painter draws parley layouts, but `Painter::draw_layout` is private (`gfx.rs:670`). No wavy underline. parley versions differ (`=0.12.0` there, `=0.11.1` here) | K7, S | M: `rte/mod.rs` glue (832 lines) redone as painter calls; parley bump | Needed. RTL editing cut, so no bidi editing work |
 | HTML mail body and Files previews | WebView2 child through wry (`src/mailview.rs`), one view for both: the reader's body and, since R3, the Files preview of .eml and HTML (`mailview::show_file`, placed over the preview's document area); plain text. Blitz is removed (R3) | **Missing** as a feature. Not blocked: `Cx::window()` gives wry the parent handle (`host/cx.rs:165`). Nothing keeps a child's bounds in step with layout | K3, M | M: mailview glue; sanitizer, shell JS and IPC unchanged. S: the Files preview placed the same way | **More needed.** Blitz cut: WebView2 in two places, no CPU fallback (5.3) |
-| Menus and popups above the WebView | Slint draws popups inside the main surface (JANK-AUDIT.md:6); a capture of the body stands in while the WebView hides (`src/mailview.rs:7-9`, `src/capture.rs`) | **Missing.** Menus are "drawn inside the window" (`menu.rs:1`); one window only (`host.rs:90`) | K2, L, high risk (no longer K1 + K2) | S to keep the capture trick at first; S per popup kind to move to K2 | Needed, but smaller: owned popup surfaces only, not several windows. Not needed for the switch |
-| Drag and drop in the app | Slint pointer tracking and named drop targets (`src/dnd.rs:1-12`): mail to folders, folder reorder, events in the grid, files to folders | **Missing.** L7 open (`docs/ROADMAP.md:87`) | K8 (= L7), M | M | Needed |
-| Drag and drop from the OS | winit `DroppedFile` in a Slint window filter (`src/rte/mod.rs:814-832`) | **Partial.** The host passes raw winit events through `App::raw` (`host.rs:291-296`); no reduced event, no hover feedback | part of K8, S | S | Needed |
-| Drag out to Explorer (attachments) | Not done | **Missing.** L8 open, high risk (`docs/ROADMAP.md:88`) | L8, L | optional | Optional |
+| Menus and popups above the WebView | Slint draws popups inside the main surface (JANK-AUDIT.md:6); a capture of the body stands in while the WebView hides (`src/mailview.rs:7-9`, `src/capture.rs`) | **Missing.** Menus are "drawn inside the window" (`menu.rs:1`); one window only (`host.rs:90`) | K2, L, high risk (no longer K1 + K2) | S to keep the capture trick; S per popup kind to move to K2 later | **After the switch** (second cut session): the capture trick is the plan; K2 is a future item |
+| Drag and drop in the app | Slint pointer tracking and named drop targets (`src/dnd.rs:1-12`): mail to folders, folder reorder, events in the grid, files to folders | **Missing.** L7 open (`docs/ROADMAP.md:87`) | K8 (= L7), M | M | Needed: all four drags kept (second cut session) |
+| Drag and drop from the OS | winit `DroppedFile` in a Slint window filter (`src/rte/mod.rs:814-832`) | **Partial.** The host passes raw winit events through `App::raw` (`host.rs:291-296`); no reduced event, no hover feedback | part of K8, S | S | Needed: kept (second cut session) |
+| Drag out to Explorer (attachments) | Not done | **Missing.** L8 open, high risk (`docs/ROADMAP.md:88`) | L8, L | optional | Optional, after the switch |
 | Resizable split panes | Own `ResizeHandle`, widths in `Pd.list-w` (`src/dnd.rs`) | **Present.** `splitter`: min sizes, snaps, collapse, reset, saved position (`docs/CATALOGUE.md:84`) | none | S | Needed, and now also for the kept reading pane position (right or off; bottom is cut) |
 | Calendar grid | `ui/calendar_ext.slint` (1,338 lines) and parts of `ui/app.slint`; day, week, month, agenda; drag to move and resize | **Missing.** `grid` is uniform cells only; the painter is enough to draw it | optional K13, M | L | Needed. Find a time is cut, which never used the grid |
 | Keyboard focus and shortcuts | `src/shortcuts.rs` (848 lines) via a Slint key hook; Tab does not reach controls, no focus ring (JANK #23) | **Present.** `focus` (Tab order, rings, scopes), `keys`, `commands` (user keys, conflicts). Missing: chords (X6) | none (X6 not needed) | M: route keys through `commands`; declare focus each frame | Needed. Print shortcut goes in R2 |
 | IME | Slint's `TextInput` does it | **Partial.** Events and preedit exist; IME off on Windows, untried; no candidate window placement (`window.rs:82-90`) | K10, S | S per text surface (fields, recipients, RTE) | Lower: English only. Still S |
-| Accessibility | Slint's AccessKit plus 115 `accessible-*` properties in `ui/*.slint` | **Partial.** UIA on Windows at Purge's scope; no text ranges, no live regions (`a11y.rs:64-71`) | K12, L | L: the app builds the tree each frame | Needed. No lock screen or share dialog to cover |
+| Accessibility | Slint's AccessKit plus 115 `accessible-*` properties in `ui/*.slint` | **Partial.** UIA on Windows at Purge's scope; no text ranges, no live regions (`a11y.rs:64-71`) | K12, L | ~~L: the app builds the tree each frame~~ none before the switch | **After the switch** (second cut session): keyboard and focus kept, screen readers a future item. Goes backwards from Slint's free tree until then |
 | System tray | `tray-icon` crate (`src/desktop.rs`) | **Present.** `tray`, Windows done, Linux unverified (`docs/CATALOGUE.md:52`) | none | S, or keep `tray-icon` | Needed (close to tray kept) |
 | Notifications | Own WinRT toasts (`src/notify.rs`, no Slint) | **Present.** `notify` with actions (`docs/CATALOGUE.md:53`) | none | none: keep `src/notify.rs` | Needed |
 | Theme tokens | `Theme` global (`ui/theme.slint`, 353 lines), two styles (Bento, Nordic), switchable in memory | **Partial.** Runtime palette, accent, high contrast, schemes; sizes and fonts not themeable (`tokens.rs:24-25`) | K6, M-L: **optional, Later** | S: one look; M if a second style or themes come back | One look now; themes Later (section 6) |
@@ -208,7 +225,7 @@ in this repository to use it (Barbican sizes). Item ids K1-K14 are the proposals
 | Light renderer (Blitz) | `src/lite.rs`, shown as a Slint image (`ui/app.slint:3191-3205`) | Would have needed only `Painter::image` | none | ~~S~~ | **Not needed**: cut, removed in R3 |
 | Layout of forms and panes | Slint `HorizontalLayout`, `VerticalLayout`, `GridLayout` across about 12,000 lines | **Missing** | K5, M | built into every screen | Needed |
 | Buttons, framed fields, check boxes with labels, radios, chips, cards | Slint std-widgets (`LineEdit` 52 uses, `TextEdit` 10, `Button`, `CheckBox`, `ComboBox`) and own components | **Partial.** Dialog buttons, tick box, toggle, drop-down, segments, link (`docs/PURGE-MOCKUP.md:44-69`) | K4, L | built into every screen | Needed. No PIN fields (app lock cut) |
-| Multi-line plain text | Slint `TextEdit` (sieve script, signature source, notes, descriptions, the AI chat) | **Missing** | K9, M-L | S per use | Needed. The rich signature editor is Later, so the HTML source field stays |
+| Multi-line plain text | Slint `TextEdit` (sieve script, signature source, notes, descriptions, the AI chat) | **Missing** | K9, M-L | S per use | Needed, form open (toolkit K9 or the RTE in plain mode). The raw Sieve editor, composer HTML source, signature HTML source and admin raw message are after the switch |
 | Scrolling a page of controls | Slint `ScrollView` (28 uses), `Flickable` (15) | **Partial.** `viewport`, scrollbars and `SmoothScroll` exist; no "scroll area" that ties them to a clip and to focus | K11, S | S per page | Needed |
 | Settings page | Rows built from a schema in `src/settings.rs` | **Present.** `settings::Form` from rows (`docs/CATALOGUE.md:80`) | none (L10 in review) | M | Needed, smaller: no plugin, app lock or share pages |
 | Command palette, tooltips, toasts, dialogs | Own Slint components | **Present.** `palette`, `tooltip`, `overlay::Bubble`, `anim::Stack`, dialog card (body does not scroll, `docs/PURGE-MOCKUP.md:91`) | dialog scroll in K11 | M across them | Needed. No lock screen, PIN, share or plugin consent dialogs |
@@ -231,13 +248,13 @@ the rank and the number no longer match.
 | 4 | **K11** | **A scroll area**: one helper that ties `viewport`, both scrollbars, the clip, wheel and keys, and "reveal the focused control"; a dialog whose body scrolls | S | low | `viewport`, `scroll`, `focus`, `overlay` | was 11; unchanged |
 | 5 | **K1** | **Host additions for one window** (shrunk). Several named timers folded into one wake-up; the main window hidden but alive (close to tray is kept); regions with their own damage, so a caret blink and a list scroll do not repaint one union rectangle. **Dropped:** opening and closing top-level windows at run time, tabs, an animator and a11y adapter per window, events tagged by window | M (was L) | medium (was high) | `host`, the damage part of W1b | was 1; pop-outs are cut, so only the single-window parts remain. The popup surface moves to K2 |
 | 6 | **K7** | **Rich text through the painter.** A public way to draw a caller's parley layout (with per-run brushes), a wavy underline as one path (spell squiggles, JANK #18), and mixed families per run. Barbican moves its RTE to parley 0.12 at the same time | S | low | `gfx.rs:670` `draw_layout` | was 7; unchanged |
-| 7 | **K8** | **Drag and drop** (= L7): a threshold, a drag image, drop targets that light up, insert position between rows, auto-scroll; files hovered and dropped from the system reduced to host events | M | medium | `rows`, `sections`, `select`, `anim`, `host` | was 8; unchanged |
-| 8 | **K9** | **Multi-line plain text area**: wrapping, scrolling, selection, undo, IME, find. mdedit has an editor of its own (`crates/mdedit-core/src/lines.rs`, `edit.rs` in markdown-editor-rs) that could be a source | M-L | medium | `textfield`, `viewport`, `seltext` | was 9; unchanged |
+| 7 | **K8** | **Drag and drop** (= L7): a threshold, a drag image, drop targets that light up, insert position between rows, auto-scroll; files hovered and dropped from the system reduced to host events | M | medium | `rows`, `sections`, `select`, `anim`, `host` | was 8; unchanged. Second cut session: all four drags and Explorer drops kept |
+| 8 | **K9** | **Multi-line plain text area**: wrapping, scrolling, selection, undo, IME, find. mdedit has an editor of its own (`crates/mdedit-core/src/lines.rs`, `edit.rs` in markdown-editor-rs) that could be a source | M-L | medium | `textfield`, `viewport`, `seltext` | was 9. Second cut session: the form is open (this item, a smaller M without find, or Barbican's RTE in plain mode with no K9). Four source editors are after the switch, but notes, descriptions, the AI chat and the vacation, template and signature bodies still need multi-line text by U6 |
 | 9 | **K14** | **Pictures kept at their drawn size**: an image prepared once at device size and blitted after (`Painter::image` scales on every draw), plus a decoder slot an app can fill (Barbican's GIF, WebP, ICO, SVG) | S | low | `mdshared_text::image`, `thumbs` | was 14; ranked up, avatars and BIMI badges are on most screens |
-| 10 | **K2** | **Popups in owned surfaces.** The host gains one kind of extra window only: borderless, owned by the main window, never activated, no taskbar entry, its own bitmap and present, its events routed to the popup's model. Menus, cascades, flyouts, drop-down lists, tooltips and toasts drawn into it, placed in screen coordinates, kept on the monitor's work area, with the DWM corners and shadow on Windows 11 (or per-pixel alpha), closed when the owner moves, loses activation or is minimised. Same models and `draw_*` functions, only the target changes. This is what puts a menu above the WebView2 child | L | high | `host` (not K1), `menu`, `submenu`, `flyout`, `dropdown`, `overlay`, `anim::presence` | was 2; now carries its own small window piece instead of waiting on all of K1. Ranked down: the capture trick covers the switch, so K2 can land after it |
-| 11 | **K12** | **Accessibility past Purge's scope**: text ranges for the editor and fields, tree items (folders), a grid (calendar), menus in their own surfaces (with K2), live regions for toasts and the notification centre; tried with Narrator | L | high | `a11y`, K2 | was 12; unchanged. None of it served a cut feature |
+| 10 | **K2** | **Popups in owned surfaces.** The host gains one kind of extra window only: borderless, owned by the main window, never activated, no taskbar entry, its own bitmap and present, its events routed to the popup's model. Menus, cascades, flyouts, drop-down lists, tooltips and toasts drawn into it, placed in screen coordinates, kept on the monitor's work area, with the DWM corners and shadow on Windows 11 (or per-pixel alpha), closed when the owner moves, loses activation or is minimised. Same models and `draw_*` functions, only the target changes. This is what puts a menu above the WebView2 child | L | high | `host` (not K1), `menu`, `submenu`, `flyout`, `dropdown`, `overlay`, `anim::presence` | was 2; now carries its own small window piece instead of waiting on all of K1. Ranked down: the capture trick covers the switch, so K2 can land after it. **Second cut session: a future item, after the switch.** The capture is the plan |
+| 11 | **K12** | **Accessibility past Purge's scope**: text ranges for the editor and fields, tree items (folders), a grid (calendar), menus in their own surfaces (with K2), live regions for toasts and the notification centre; tried with Narrator | L | high | `a11y`, K2 | was 12. **Second cut session: a future item, after the switch.** Keyboard navigation and focus stay in the port; the screens build no tree until K12 |
 | 12 | **K10** | **IME on Windows**: allowed while a text surface has focus, the candidate window placed at the caret (`set_ime_cursor_area`), preedit drawn in fields and in a caller's rich text | S | medium | `textfield::Preedit`, `host` | was 10; ranked down. The UI is English only and nothing on the plan asks for CJK input. The emoji panel (Win+.) and dead keys must still type; whether that needs IME on is not known without building |
-| 13 | **K13** | **A time-grid model** (optional; better kept in Barbican, since no other toolkit app needs it): day and week columns, 15-minute snapping, packing overlapping events into lanes, move and resize by drag, an all-day strip with "show more", month cells | M | low | `grid`, K8 | was 13; unchanged. Find a time is cut but never used the grid |
+| 13 | **K13** | **A time-grid model** (optional; better kept in Barbican, since no other toolkit app needs it): day and week columns, 15-minute snapping, packing overlapping events into lanes, move and resize by drag, an all-day strip with "show more", month cells | M | low | `grid`, K8 | was 13; unchanged. Find a time is cut but never used the grid. Second cut session: event move and resize kept, so the drag part stays |
 | 14 | **K6** | **A whole skin as data** (**optional, Later**, with themes). Faces and families as run-time values (today `const UI_FAMILY`, `gfx.rs:108-127`); every widget reading its sizes from `tokens::Sizes` (today they keep constants, `tokens.rs:24-25`); a `Look` for every widget that lacks one; the icon set as a replaceable table; one `Skin` value passed to `_with(skin)` variants of the `draw_*` functions. Opt-in, as the compatibility rule asks. Section 6 | M-L | medium | `tokens`, `appearance`, every `draw_*` | was 6; themes are Later, and one look needs none of it (6.4) |
 
 **What the cut dropped or shrank, item by item:**
@@ -256,8 +273,21 @@ the rank and the number no longer match.
 - **K4, K5, K7, K8, K9, K11, K14, unchanged.** The cut removes a few uses (PIN fields, the share
   dialog), none of the widgets.
 
-Also wanted, already on the toolkit's roadmap: L9 (images on the clipboard, for pasting a
-screenshot into the composer), L5 (rename in place), P8b (link hand-over to the running app).
+**What the second cut session changed, item by item** (`docs/FEATURE-CUT.md`, "Second session"):
+- **K2 and K12, after the switch.** Neither is cut: both are future items, outside the switch path.
+  Together they were about 2,000-6,000 lines and most of the risk. The port keeps keyboard
+  navigation and focus (W2) and the capture trick (5.3).
+- **K9, open.** Its form is decided before U6. The raw Sieve editor, composer HTML source,
+  signature HTML source and admin raw message fields wait for after the switch.
+- **K8 and K13, unchanged.** Every drag was kept.
+- **App drawing, not K items:** the pop-up date picker, the typed time field, hover actions and
+  colour swatches wait for after the switch (typed date field, 15-minute drop-down, the Actions
+  button, a drop-down of named colours until then). Loading skeletons are cut (the spinner
+  instead). Chip fields outside the composer reuse the composer's.
+
+Also wanted, already on the toolkit's roadmap: L5 (rename in place), P8b (link hand-over to the
+running app). L9 (images on the clipboard, for pasting a screenshot into the composer) is after
+the switch since the second cut session.
 
 **No longer wanted:** W9 (translations; English only), X6 (Barbican keeps its own `g` sequences),
 L4 (list columns cut), W1b beyond its damage regions (pop-outs cut; Linux is Later).
@@ -265,9 +295,11 @@ L4 (list columns cut), W1b beyond its damage regions (pop-outs cut; Linux is Lat
 Not proposed: printing (cut); notifications and the tray (the toolkit has them, and Barbican's own
 work); spell checking (Barbican's `src/rte/spell.rs` over ISpellChecker stays).
 
-**Rough total:** K1-K11 without K6 now come to about 2 L, 5 M and 3 S on the toolkit's scale,
-roughly 8,000 to 13,000 lines with tests (10,000-16,000 before). K2 and K12 carry most of the
-risk, and neither blocks the first usable mail screens.
+**Rough total before the switch** (second cut session): K1, K3, K4, K5, K7, K8, K9, K10, K11 and
+K14 come to about 1 L, 5 M and 4 S on the toolkit's scale, roughly **6,500 to 10,500 lines** with
+tests (8,000-13,000 after the first cut, for K1-K11 without K6; 10,000-16,000 before any cut).
+K13 is optional and may stay in Barbican. K2 and K12, which carried most of the risk, come after
+the switch; K9's size depends on the decision still open.
 
 ---
 
@@ -393,7 +425,8 @@ Still to fix in Barbican: capture only when an overlay opens, and only the body'
 the present, in the same frame (JANK #9; no 50 ms timer, `src/main.rs:2634`). The Files preview
 gets the same placement for free.
 
-**With K2.** Menus, submenus, drop-downs, flyouts, tooltips and toasts open in owned surfaces above
+**With K2 (after the switch, second cut session).** Until then the capture trick above is the
+plan, not a stopgap. Menus, submenus, drop-downs, flyouts, tooltips and toasts open in owned surfaces above
 the WebView child, so the WebView stays shown and live under a menu. This no longer waits on a
 multi-window host (section 4). Modal dialogs keep the capture: a modal covers the whole window with
 a scrim and blocks the body anyway, so a still picture under it costs nothing in use. The Files
@@ -466,12 +499,12 @@ COMPLIANCE.md before touching it (CLAUDE.md, "Hub").
 | Risk | Why | What to do |
 |---|---|---|
 | CPU rendering speed | Every pixel is drawn on the CPU. A full repaint of a 4K window at 150 % touches about 33 MB per frame, and the host joins all damage into one rectangle (`host.rs:24-30`). Barbican has busy screens and many animations | Unknown without building. Spike first (S1): a 10,000-row list scrolled, and a menu fade, on a 4K monitor; set a frame budget as Purge did (C1, `docs/ROADMAP.md:171`). The damage regions stay in the shrunk K1 for this reason |
-| Popup surfaces on Windows | Owned, non-activating popups with DWM shadows, across monitors with different DPI, and WebView2's own focus habits | Build K2 behind a spike, beside the port. Keep the capture trick as the fallback; the switch does not wait for K2 |
+| Popup surfaces on Windows | Owned, non-activating popups with DWM shadows, across monitors with different DPI, and WebView2's own focus habits | Out of the switch path (second cut session): K2 is a future item and the capture trick is the plan. Spike K2 when it is taken up |
 | WebView2 is the only HTML view | Blitz is cut. The mail body and the Files previews both need WebView2, and untrusted HTML files now reach it from Files too | R3 puts the previews through the mail sanitizer and CSP, with tests. Plain text when the runtime is missing. K3 handles two places |
 | A young toolkit with other priorities | Its order of work is Purge, mdplay, mdmix, a file manager, a terminal (`docs/ROADMAP.md:50-60`); Barbican is not on it | The owner adds the K items to the toolkit's roadmap and orders them. The list is shorter now (K1 smaller, K6 optional, W9, X6, L4 gone). Barbican pins a commit |
 | Logic hidden in Slint bindings | Hundreds of bound properties; some hold real rules (overlay flags, widths) | Step 2 of 5.2 moves them to Rust while still on Slint, with tests. Fewer after R2 (no lock terms) |
 | Removal and port prep in the same files | R1-R3 run in parallel and rewrite `main.rs`, `compose.rs`, `settings.rs` and `ui/app.slint`; U1-U3 touch the same files everywhere | Start U1 once R1 has merged, and U2 once R1-R3 have merged. The generator then never sees cut declarations |
-| Accessibility regresses | Slint builds an AccessKit tree for its own widgets; with the toolkit the app builds every node itself, and text ranges are missing (`a11y.rs:69`) | Build the tree as each screen is ported (it is part of "done"); K12 before the switch |
+| Accessibility regresses | Slint builds an AccessKit tree for its own widgets; with the toolkit the app builds every node itself, and text ranges are missing (`a11y.rs:69`) | **Accepted** (second cut session): screen readers are a future item, so the new UI ships with keyboard navigation and focus but little for a screen reader. When K12 is taken up, every screen gets its tree in one pass. Keep the screens' state in models so that pass stays mechanical |
 | IME untried on Windows | `window.rs:82-90` | Lower than before: English only. K10 in the composer milestone; check the emoji panel and dead keys there. A CJK test only if the owner asks |
 | Two parley versions | Toolkit `=0.12.0`, RTE `=0.11.1` | Move the RTE to 0.12 in the composer milestone (K7) |
 | Doing UI twice | Months of two front ends | Stop Slint UI features at the start; the stand-in keeps logic shared; kept-but-unbuilt features go on the new UI only |
@@ -501,27 +534,35 @@ Sizes are Barbican's for R, U and S, and the toolkit's for T.
 | T4 | toolkit | K3 native children in the layout (more than one) | T3 | M | two child windows placed by layout in the example; a capture under a scrim; DPI across two monitors |
 | U4 | Barbican | New shell: host window, title row, rail, sidebar that folds to icons, folder tree, account switcher, mail list, search field, **reading pane position (right or off; bottom is cut) and toolbar position**; usable read-only | S1, T2 | L | browse folders and messages in the new UI, in each pane position |
 | U5 | Barbican | Reader: header, actions, banners, attachments, the WebView child placed by K3, capture under in-window popups, context menus | U4, T4 | L | read, move, tag, reply buttons work; the automation channel's reader probes pass |
-| U6 | Barbican | Composer: RTE drawn by the painter on parley 0.12, squiggles, recipients and chips, composer popups, files dropped from the system, IME on (K10), the AI assistant panel | U5, T1, K10, K9 | L | write and send with an inline image and a misspelling; the emoji panel types into the body |
-| U8 | Barbican | Settings (from `src/settings.rs`'s schema on `settings::Form`, without the plugin, app lock and share pages), notices and the notification centre, update banner, command palette, shortcuts sheet, dialogs | U4 | L | every settings page opens and saves |
-| U9 | Barbican | Calendar: day, week, month, agenda grid, tasks, drag to move and resize, event editor without Suggest times (with K13 or app code) | U8, K8 | L | the calendar rows of `spec/parity.csv` still pass |
+| U6 | Barbican | Composer: RTE drawn by the painter on parley 0.12, squiggles, recipients and chips, composer popups, files dropped from the system, IME on (K10), the AI assistant panel. Not here (after the switch): the HTML source view, pasting images (L9), the pop-up date picker in schedule send | U5, T1, K10, K9 (or the RTE in plain mode: decide first) | L | write and send with an inline image from a file and a misspelling; the emoji panel types into the body |
+| U8 | Barbican | Settings (from `src/settings.rs`'s schema on `settings::Form`, without the plugin, app lock and share pages, and without the raw Sieve editor, signature HTML source and admin raw message fields until after the switch), notices and the notification centre, update banner, command palette, shortcuts sheet, dialogs | U4 | L | every settings page opens and saves |
+| U9 | Barbican | Calendar: day, week, month, agenda grid, tasks, drag to move and resize, event editor without Suggest times (with K13 or app code); typed date fields and a 15-minute time drop-down (the pickers come after the switch) | U8, K8 | L | the calendar rows of `spec/parity.csv` still pass |
 | U10 | Barbican | Contacts, Files (with the WebView2 preview from R3, placed by K3, and the share flyout), dashboard and admin read-only views, filters | U8, T4 | L | their parity rows still pass |
-| U11 | Barbican | Accessibility tree for every screen, with K12; automation channel on the new UI; jank re-audit | U10, K12 | M | UIA script over the main flows; the audit has no high item |
+| U11 | Barbican | Automation channel on the new UI; jank re-audit. The accessibility tree and K12 are after the switch (second cut session) | U10 | S (was M) | the automation probes pass on the new UI; Tab reaches every control; the audit has no high item |
 | U12 | Barbican | Switch-over: new UI by default, Slint and `slint_build` removed, `build.rs` keeps the version resource, exe size and first frame measured, release | U11 | M | installer run on a VM by the owner; Hub offers the update |
-| T5 | toolkit | K2 popups in owned surfaces | T3 | L | a menu over a child window in the example; DPI across two monitors; no focus taken from the owner |
-| U7 | Barbican | Popups moved to K2 surfaces; the WebView stays live under menus; the 50 ms sync timer gone | U5, T5 | M | JANK #2, #3, #9 gone, checked by a `burst` capture. Before U12 if T5 is ready, else just after it |
+| T5 | toolkit | K2 popups in owned surfaces. **After the switch** (second cut session) | T3 | L | a menu over a child window in the example; DPI across two monitors; no focus taken from the owner |
+| U7 | Barbican | Popups moved to K2 surfaces; the WebView stays live under menus. **After the switch**; before it, U5 fixes JANK #3 (capture on open, only the body), and K3 (T4) removes the 50 ms sync timer (JANK #9) | U5, T5 | M | JANK #2 gone, checked by a `burst` capture |
 | ~~U13~~ | | ~~Pop-out reader and composer windows (G-055) on K1~~ | | | **Dropped**: pop-outs cut |
 
 Kept features not yet built (@mentions, priority and classification, proofreading, pinned messages
 and the hover tag picker, the missing account security rows) go on the new UI after the screen
 they belong to is ported. They are not in the length below.
 
-**Rough length.** R1-R3 are about 2 to 3 weeks, already under way, beside U0 and T1. The U path
-after them is about **3.5 to 4.5 months** of agent work with one worker and one reviewer: 3 M of
-prep, 6 L screens (U4-U6, U8-U10) and 3 M (U7, U11, U12). The T path is about **6 to 8 weeks**
-(2 months before) and runs beside it. In all, about **4 to 5 months** from now (4 to 6 before).
-The saving comes from U13 and half of K1 gone, smaller settings and dialog screens, one look
-instead of two, and the removal work done before the port instead of inside it. These are guesses
-from the counts, not measurements.
+**Rough length** (second cut session). R1-R3 are about 2 to 3 weeks, already under way, beside U0
+and T1. The U path after them is about **3 to 4 months** of agent work with one worker and one
+reviewer: 3 M of prep, 6 L screens (U4-U6, U8-U10, each a little lighter: no accessibility tree,
+no source editors, pickers or hover actions), U11 at S and U12 at M. The T path is about **4 to 6
+weeks** without T5 and runs beside it. In all, about **3.5 to 4.5 months** from now (4 to 5 after
+the first cut, 4 to 6 before it). The saving comes from U13 and half of K1 gone, smaller settings
+and dialog screens, one look instead of two, the removal work done before the port, and now K2,
+T5, U7, K12 and most of U11 moved after the switch. These are guesses from the counts, not
+measurements.
+
+**After the switch** (future items from the second cut session, in no order and not in the length
+above): T5 and U7 (K2 popups, L + M); K12 and the accessibility tree for every screen (L + M);
+L9, image paste (M); the raw Sieve editor, composer and signature HTML source and admin raw
+message fields (with K9); the pop-up date picker, the typed time field, hover actions and colour
+swatches (S each); L8, dragging out (optional).
 
 ---
 
