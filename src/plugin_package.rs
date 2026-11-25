@@ -298,8 +298,21 @@ pub fn install_files(files: Vec<PackageFile>, plugins_dir: &Path) -> Result<Inst
     commit(prepare_files(files)?, plugins_dir)
 }
 
+/// Held around every change to the plugins folder ([`commit`], [`uninstall`], [`sweep_leftovers`]): a sweep must never
+/// run while another install has its staging folder or its `.old-*` backup in the folder.
+static FOLDER_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn folder_lock() -> std::sync::MutexGuard<'static, ()> {
+    FOLDER_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 /// Remove staging and backup folders a crashed or interrupted install left in the plugins folder.
 pub fn sweep_leftovers(plugins_dir: &Path) {
+    let _held = folder_lock();
+    sweep_locked(plugins_dir);
+}
+
+fn sweep_locked(plugins_dir: &Path) {
     let Ok(rd) = std::fs::read_dir(plugins_dir) else { return };
     for e in rd.flatten() {
         let name = e.file_name().to_string_lossy().to_string();
@@ -315,8 +328,10 @@ pub fn sweep_leftovers(plugins_dir: &Path) {
 /// of that name (a dropped-in file, a link, another plugin's folder) is left alone and the install is refused.
 pub fn commit(pkg: Prepared, plugins_dir: &Path) -> Result<Installed, String> {
     let Prepared { files, id, name, version, .. } = pkg;
+    let _held = folder_lock();
     std::fs::create_dir_all(plugins_dir).map_err(|e| format!("cannot create the plugins folder: {e}"))?;
-    sweep_leftovers(plugins_dir);
+    // nothing else can be installing now (the lock), so what is left over is from a crash
+    sweep_locked(plugins_dir);
     let target = plugins_dir.join(&id);
     let updated = std::fs::symlink_metadata(&target).is_ok();
     if updated && !plugins::installed_identity(&target).is_some_and(|(old, _, _)| old == id) {
@@ -364,6 +379,7 @@ pub fn commit(pkg: Prepared, plugins_dir: &Path) -> Result<Installed, String> {
 /// Remove an installed package and everything it stored: `plugins_dir\<id>\` and `data_dir\<id>\`.
 pub fn uninstall(id: &str, plugins_dir: &Path, data_dir: &Path) -> Result<(), String> {
     if !plugins::valid_id(id) { return Err(format!("{id} is not an installed package")); }
+    let _held = folder_lock();
     let target = plugins_dir.join(id);
     if plugins::loaded_under(&target) { return Err("this plugin is loaded: switch it off, restart Barbican, then uninstall it".into()); }
     for dir in [target, data_dir.join(id)] {
@@ -653,7 +669,7 @@ mod tests {
         let at = "2026-01-01T00:00:00Z";
         let g = list[0].grant(vec![], at);
         use sha2::{Digest, Sha256};
-        assert_eq!(g.sha256, plugins::package_fingerprint(&plugins_dir.join("dev.example.rec")).unwrap());
+        assert_eq!(g.sha256, plugins::package_fingerprint(&plugins_dir.join("dev.example.rec"), false).unwrap());
         assert_ne!(g.sha256, Sha256::digest(b"library bytes").iter().map(|b| format!("{b:02x}")).collect::<String>(), "the pin covers the whole package, not only the library");
         assert!(g.path.contains("dev.example.rec"), "{}", g.path);
         assert!(g.granted.contains(&"email:read".to_string()));
@@ -743,6 +759,24 @@ mod tests {
         let mut names: Vec<String> = std::fs::read_dir(&plugins_dir).unwrap().flatten().map(|e| e.file_name().to_string_lossy().to_string()).collect();
         names.sort();
         assert_eq!(names, ["dev.example.demo", "keepme"]);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_sweep_waits_for_a_running_install() {
+        let root = temp("sweep-wait");
+        let plugins_dir = root.join("plugins");
+        let staging = plugins_dir.join(".install-dev.example.demo-1");
+        std::fs::create_dir_all(&staging).unwrap();
+        // the lock as a running commit or uninstall holds it, with its staging folder in place
+        let held = folder_lock();
+        let pd = plugins_dir.clone();
+        let sweeper = std::thread::spawn(move || sweep_leftovers(&pd));
+        std::thread::sleep(std::time::Duration::from_millis(150));
+        assert!(staging.is_dir(), "the staging folder of a running install is not swept");
+        drop(held);
+        sweeper.join().unwrap();
+        assert!(!staging.exists(), "swept once the install ended");
         let _ = std::fs::remove_dir_all(&root);
     }
 

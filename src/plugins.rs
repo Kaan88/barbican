@@ -953,6 +953,12 @@ pub fn discover_in(folder: &std::path::Path) -> (Vec<Plugin>, Vec<String>) {
     dirs.sort();
     for d in dirs {
         let dir_name = d.file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_default();
+        // `is_dir` follows links: a package folder that is a symbolic link or junction is refused, as the installer and
+        // `installed_identity` refuse it (it could point anywhere, and uninstall would not remove what it points to)
+        if std::fs::symlink_metadata(d).map_or(true, |md| md.file_type().is_symlink() || !md.is_dir()) {
+            if d.join("manifest.json").is_file() { errors.push(format!("{dir_name}: a plugin folder may not be a link or junction")); }
+            continue;
+        }
         let mf = d.join("manifest.json");
         if !mf.is_file() { continue; }
         let m = match std::fs::metadata(&mf).map_err(|e| e.to_string())
@@ -968,7 +974,7 @@ pub fn discover_in(folder: &std::path::Path) -> (Vec<Plugin>, Vec<String>) {
         let lib = d.join(lib);
         let hash = match std::fs::symlink_metadata(&lib) {
             // a package is pinned as a whole (every file), not only its library
-            Ok(md) if md.is_file() => package_fingerprint(d),
+            Ok(md) if md.is_file() => package_fingerprint(d, true),
             _ => Err(format!("its library {} is missing", lib.display())),
         };
         let hash = match hash { Ok(h) => h, Err(e) => { errors.push(format!("{dir_name}: {e}")); continue; } };
@@ -1025,12 +1031,15 @@ fn hash_cache() -> &'static Mutex<std::collections::HashMap<std::path::PathBuf, 
 }
 
 /// SHA-256 of the library file. A file that cannot be read is an error (the plugin is unusable, never bindable).
-/// The hash is reused while the file's size and modification time are unchanged, because Settings rebuilds the
-/// Add-ons rows on every keystroke and must not re-read and re-hash every library.
-fn fingerprint(p: &std::path::Path) -> Result<String, String> {
+/// For discovery the hash is reused while the file's size and modification time are unchanged, because Settings
+/// rebuilds the Add-ons rows on every keystroke and must not re-read and re-hash every library; a load hashes again
+/// without the cache ([`fresh_fingerprint`]).
+fn fingerprint(p: &std::path::Path) -> Result<String, String> { fingerprint_with(p, true) }
+
+fn fingerprint_with(p: &std::path::Path, use_cache: bool) -> Result<String, String> {
     let meta = std::fs::metadata(p).map_err(|e| format!("cannot read the file: {e}"))?;
     let stamp = meta.modified().ok().map(|t| (meta.len(), t));
-    if let Some(stamp) = stamp {
+    if let (Some(stamp), true) = (stamp, use_cache) {
         let hit = hash_cache().lock().unwrap_or_else(|e| e.into_inner())
             .get(p).filter(|(s, _)| *s == stamp).map(|(_, h)| h.clone());
         if let Some(h) = hit { return Ok(h); }
@@ -1044,17 +1053,25 @@ fn fingerprint(p: &std::path::Path) -> Result<String, String> {
 }
 
 /// SHA-256 over a whole package folder: every file's relative path, length and bytes, in path order. Links are not
-/// followed (a link or an unreadable file is an error). The result is reused while no file's size or time changed.
-pub fn package_fingerprint(dir: &std::path::Path) -> Result<String, String> {
+/// followed: a link, an entry that cannot be listed or read, or one that is neither a file nor a folder is an error
+/// (the package is then not listed, so it can never be switched on). With `use_cache` the result is reused while no
+/// file's size or time changed (discovery and the Add-ons rows); a load hashes again without it.
+///
+/// Every file in the folder counts, so anything else that writes there (Explorer's desktop.ini, a plugin writing next
+/// to its own library) changes the hash and switches the plugin off until it is accepted again: plugins must keep
+/// their data in `plugin-data\<id>\` (PLUGINS.md).
+pub fn package_fingerprint(dir: &std::path::Path, use_cache: bool) -> Result<String, String> {
     fn walk(dir: &std::path::Path, rel: &str, depth: usize, out: &mut Vec<(String, std::path::PathBuf, u64, Option<std::time::SystemTime>)>) -> Result<(), String> {
         if depth > 16 || out.len() > 1000 { return Err("the package folder is too large or too deep".into()); }
-        for e in std::fs::read_dir(dir).map_err(|e| format!("cannot read {}: {e}", dir.display()))?.flatten() {
+        for e in std::fs::read_dir(dir).map_err(|e| format!("cannot read {}: {e}", dir.display()))? {
+            let e = e.map_err(|e| format!("cannot list {}: {e}", dir.display()))?;
             let name = e.file_name().to_string_lossy().to_string();
             let r = if rel.is_empty() { name } else { format!("{rel}/{name}") };
             let md = std::fs::symlink_metadata(e.path()).map_err(|e| format!("{r}: {e}"))?;
             if md.file_type().is_symlink() { return Err(format!("{r}: a link inside a package")); }
             if md.is_dir() { walk(&e.path(), &r, depth + 1, out)?; }
             else if md.is_file() { out.push((r, e.path(), md.len(), md.modified().ok())); }
+            else { return Err(format!("{r}: neither a file nor a folder")); }
         }
         Ok(())
     }
@@ -1062,7 +1079,7 @@ pub fn package_fingerprint(dir: &std::path::Path) -> Result<String, String> {
     walk(dir, "", 0, &mut files)?;
     files.sort_by(|a, b| a.0.cmp(&b.0));
     let stamp = format!("{:?}", files.iter().map(|f| (&f.0, f.2, f.3)).collect::<Vec<_>>());
-    if !files.iter().any(|f| f.3.is_none()) {
+    if use_cache && !files.iter().any(|f| f.3.is_none()) {
         let hit = hash_cache().lock().unwrap_or_else(|e| e.into_inner()).get(dir).filter(|(_, h)| h.starts_with(&stamp)).map(|(_, h)| h[stamp.len()..].to_string());
         if let Some(h) = hit { return Ok(h); }
     }
@@ -1121,10 +1138,36 @@ pub const LOAD_BUDGET_MS: u64 = 3000;
 /// Returns load errors (each reported once).
 pub fn sync(plugins: &mut [Plugin], enabled: &[String]) -> Vec<String> {
     let loader: Loader = Arc::new(|p: &std::path::Path| unsafe { load(p) });
-    sync_with(plugins, enabled, &loader, Duration::from_millis(LOAD_BUDGET_MS))
+    sync_hashed(plugins, enabled, &loader, Duration::from_millis(LOAD_BUDGET_MS), &fresh_fingerprint)
 }
 
+/// The plugin's hash read again from disk, without the size-and-time cache: what is about to be loaded.
+fn fresh_fingerprint(p: &Plugin) -> Result<String, String> {
+    match &p.decl.package {
+        Some(dir) => package_fingerprint(dir, false),
+        None => fingerprint_with(std::path::Path::new(&p.path), false),
+    }
+}
+
+/// Are the plugin's files on disk still the ones discovery hashed (read again, without the cache)? Checked before the
+/// consent dialog, so the user never accepts a hash that no longer describes the files.
+pub fn unchanged_on_disk(p: &Plugin) -> bool {
+    fresh_fingerprint(p).is_ok_and(|h| h == p.fingerprint)
+}
+
+/// Drop every cached hash, so the next discovery reads every file again.
+pub fn forget_cached_hashes() {
+    hash_cache().lock().unwrap_or_else(|e| e.into_inner()).clear();
+}
+
+/// [`sync`] with a stub loader, the discovered hash standing in for the fresh one (tests).
+#[cfg(test)]
 fn sync_with(plugins: &mut [Plugin], enabled: &[String], loader: &Loader, budget: Duration) -> Vec<String> {
+    sync_hashed(plugins, enabled, loader, budget, &|p: &Plugin| Ok(p.fingerprint.clone()))
+}
+
+fn sync_hashed(plugins: &mut [Plugin], enabled: &[String], loader: &Loader, budget: Duration,
+    rehash: &dyn Fn(&Plugin) -> Result<String, String>) -> Vec<String> {
     let mut errors = vec![];
     for i in 0..plugins.len() {
         if !enabled.contains(&plugins[i].key) {
@@ -1142,7 +1185,17 @@ fn sync_with(plugins: &mut [Plugin], enabled: &[String], loader: &Loader, budget
         // comes with B3/B4: until then nothing of theirs is loaded.
         if plugins[i].decl.api >= 2 { continue; }
         let path = plugins[i].path.clone();
-        let hash = plugins[i].fingerprint.clone();
+        // the grant was checked against the hash from the last discovery, which may come from the cache: hash the
+        // files again right before loading, and load only while they are still the ones the user accepted
+        let hash = match rehash(&plugins[i]) {
+            Ok(h) if h == plugins[i].fingerprint => h,
+            Ok(_) => {
+                plugins[i].load_failed = true;
+                errors.push(format!("{path}: this plugin changed since the plugins folder was read; open Settings > Add-ons and switch it on again"));
+                continue;
+            }
+            Err(e) => { plugins[i].load_failed = true; errors.push(format!("{path}: {e}")); continue; }
+        };
         if let Err(e) = load_allowed(&path, &hash) {
             plugins[i].load_failed = true;
             errors.push(e);
@@ -2004,5 +2057,77 @@ mod tests {
         assert!(sync_with(&mut same, &en, &l, MS).is_empty());
         assert_eq!(loads.load(Ordering::SeqCst), 2);
         assert!(same[0].active(&en));
+    }
+
+    #[test]
+    fn a_load_hashes_the_file_again_without_the_cache() {
+        let d = temp_folder("fresh-load");
+        let f = d.join(lib_name("cached"));
+        std::fs::write(&f, b"one").unwrap();
+        fingerprint(&f).unwrap();
+        // the cache says something else for the file's current size and time (as after an edit that kept both)
+        let meta = std::fs::metadata(&f).unwrap();
+        hash_cache().lock().unwrap().insert(f.clone(), ((meta.len(), meta.modified().unwrap()), "from-cache".into()));
+        assert_eq!(fingerprint(&f).unwrap(), "from-cache");
+        let p = bare("cached", &f.display().to_string(), "from-cache");
+        assert!(!unchanged_on_disk(&p), "the switch-on check reads the file itself");
+        let loads = Arc::new(AtomicUsize::new(0));
+        let n = loads.clone();
+        let l = stub_loader(move |_| { n.fetch_add(1, Ordering::SeqCst); Ok((stub_meta("cached"), Arc::new(Recorder(Mutex::new(vec![]))) as Arc<dyn PluginBackend>)) });
+        let mut list = vec![p];
+        let errs = sync_hashed(&mut list, &strings(&["cached"]), &l, MS, &fresh_fingerprint);
+        assert!(errs.len() == 1 && errs[0].contains("changed since"), "{errs:?}");
+        assert_eq!(loads.load(Ordering::SeqCst), 0, "a file that is not the accepted one is never loaded");
+        // the real hash loads
+        let real = fingerprint_with(&f, false).unwrap();
+        let mut list = vec![bare("cached", &f.display().to_string(), &real)];
+        assert!(unchanged_on_disk(&list[0]));
+        assert!(sync_hashed(&mut list, &strings(&["cached"]), &l, MS, &fresh_fingerprint).is_empty());
+        assert_eq!(loads.load(Ordering::SeqCst), 1);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn a_package_hash_without_the_cache_reads_every_file() {
+        let d = temp_folder("fresh-package");
+        let pkg = d.join("dev.example.p");
+        std::fs::create_dir_all(&pkg).unwrap();
+        std::fs::write(pkg.join("a.bin"), b"a").unwrap();
+        let real = package_fingerprint(&pkg, true).unwrap();
+        let stamp = hash_cache().lock().unwrap().get(&pkg).map(|(_, h)| h[..h.len() - real.len()].to_string()).unwrap();
+        hash_cache().lock().unwrap().insert(pkg.clone(), ((0, std::time::UNIX_EPOCH), format!("{stamp}from-cache")));
+        assert_eq!(package_fingerprint(&pkg, true).unwrap(), "from-cache");
+        assert_eq!(package_fingerprint(&pkg, false).unwrap(), real);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn a_linked_package_folder_is_not_listed() {
+        let d = temp_folder("linked-package");
+        let real = d.join("elsewhere");
+        let plugins = d.join("plugins");
+        std::fs::create_dir_all(&real).unwrap();
+        std::fs::create_dir_all(&plugins).unwrap();
+        let lib = lib_name("demo");
+        let mf = json!({"api": 2, "id": "dev.example.linked", "name": "Linked", "version": "1.0.0", "library": {platform_key(): lib},
+            "permissions": ["email:read"], "hooks": ["onEmailOpen"]});
+        std::fs::write(real.join("manifest.json"), mf.to_string()).unwrap();
+        std::fs::write(real.join(&lib), b"x").unwrap();
+        let link = plugins.join("dev.example.linked");
+        #[cfg(windows)]
+        let made = std::os::windows::fs::symlink_dir(&real, &link).is_ok()
+            || std::process::Command::new("cmd").args(["/C", "mklink", "/J"]).arg(&link).arg(&real)
+                .stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).status().is_ok_and(|s| s.success());
+        #[cfg(unix)]
+        let made = std::os::unix::fs::symlink(&real, &link).is_ok();
+        if !made { eprintln!("skipped: cannot make a link here"); let _ = std::fs::remove_dir_all(&d); return; }
+        assert!(link.is_dir(), "the link resolves");
+        let (list, errors) = discover_in(&plugins);
+        assert!(list.is_empty(), "{:?}", list.iter().map(|p| &p.key).collect::<Vec<_>>());
+        assert!(errors.iter().any(|e| e.contains("link or junction")), "{errors:?}");
+        // removing the link leaves its target alone
+        let _ = std::fs::remove_dir(&link).or_else(|_| std::fs::remove_file(&link));
+        assert!(real.join("manifest.json").is_file());
+        let _ = std::fs::remove_dir_all(&d);
     }
 }

@@ -419,7 +419,10 @@ finish.
   Accepting records `{ id, path, sha256, granted, origins, at }` in a `pluginGrants` pref, which replaces API 1's
   `pluginBindings`. For an installed package `sha256` covers the whole package (every file's path, size and bytes, in
   path order), not only its library. **A package with another hash is always off until the user says yes again**; only
-  the permission set carries over. An install never replaces anything but a package with the same id, asks first when
+  the permission set carries over. Any file that appears in the package folder later (a plugin writing next to its
+  library, Explorer's `desktop.ini`) changes the hash too, so a plugin writes only to `plugin-data\<id>\`. The hash is
+  read again without any cache before the consent dialog and before the library is loaded; a package folder that is a
+  link or junction, or holds an entry that is neither a file nor a folder, is not listed. An install never replaces anything but a package with the same id, asks first when
   the new package's author differs from the installed one, and ids that end in `.dll`, `.so`, `.dylib` or `.json` are
   refused. The dialog for an update then says "Updated to version X, no new permissions", or lists just the
   permissions and origins it adds.
