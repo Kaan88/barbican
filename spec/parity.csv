@@ -19,8 +19,8 @@ G-017,files,Zip download,lib/files-zip.ts,missing,,G-017 (GAPS P1-3),4,M
 G-018,files,New text file,new-file-dialog.tsx,missing,,G-018 (GAPS P1-3),4,M
 G-019,files,"Filename download rules (filenameSpaceReplacement and siblings, postExportAction)",files-settings.ts,missing,,G-019 (GAPS P1-3),4,M
 G-020,sieve,Filters: 'reject' offered even when the server does not list the reject extension,filter-rule-modal.tsx,done,src/sieve.rs action_offered; src/filters_x.rs,G-020 (GAPS P1-4),1,S
-G-021,sieve,"Vacation UI: reply-to audience, forward while away, keep in inbox, HTML body, templates",vacation-settings.tsx; vacation-template-picker.tsx; lib/vacation-audience.ts; vacation-forward.ts,missing,,G-021 (GAPS P1-5),3,S/M
-G-022,sieve,Vacation: calendar out-of-office block (vacationBlockCalendar),vacation-calendar-block.tsx,missing,,G-022 (GAPS P1-5),3,S/M
+G-021,sieve,"Vacation UI: reply-to audience, forward while away, keep in inbox, HTML body, templates",vacation-settings.tsx; vacation-template-picker.tsx; lib/vacation-audience.ts; vacation-forward.ts,partial,"src/vacation.rs, src/server_settings.rs (audience, forwarding, keep in Inbox, HTML body, start/end times; no template picker)",G-021 (GAPS P1-5),3,S/M
+G-022,sieve,Vacation: calendar out-of-office block (vacationBlockCalendar),vacation-calendar-block.tsx,done,"src/vacation.rs (sync_block: busy event for the dates, vacationBlockCalendar)",G-022 (GAPS P1-5),3,S/M
 G-023,identities,Identities: create and delete; Bcc,identity-manager-modal.tsx; identity-form.tsx,done,"src/identities.rs (create, edit, delete, Bcc in the envelope only)",G-023 (GAPS P1-6),3,M
 G-024,identities,Signatures: HTML or rich editing (signatureDetails),signature-editor.tsx; signature-details-section.tsx,partial,"src/identities.rs (HTML source editor, sanitised, 2047-byte limit; no WYSIWYG, no signatureDetails)",G-024 (GAPS P1-6),3,M
 G-025,identities,Identity order (preferredIdentityIds),identity-manager-modal.tsx,done,"src/identities.rs (preferredIdentityIds, Bulwark key and format)",G-025 (GAPS P1-6),3,M
