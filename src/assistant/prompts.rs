@@ -568,8 +568,9 @@ When you write an email or a reply for the user, put only the email text (no sub
         assert_eq!(clean_result("```\n<text> Hi </text>\n```"), "Hi");
         assert_eq!(clean_result("<text>Hi"), "Hi");
         assert_eq!(clean_result("a <text> b </text> c"), "a <text> b </text> c");
-        // the neutralised closing tags the model copied back come out plain
-        assert_eq!(clean_result("He wrote <\\/text> and <\\/email> and <\\/ passage>"), "He wrote </text> and </email> and </passage>");
+        // the neutralised closing tags the model copied back come out plain, whitespace and case
+        // kept as they were
+        assert_eq!(clean_result("He wrote <\\/text> and <\\/email> and <\\/ passage>"), "He wrote </text> and </email> and </ passage>");
         assert_eq!(clean_result("<text>\nsee <\\/text>\n<\\/text>"), "see </text>");
         assert_eq!(clean_result("```\n<\\/email>\n```"), "</email>");
     }

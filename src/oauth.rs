@@ -494,10 +494,14 @@ fn merge_account(mut all: Vec<Value>, v: &Value, origin: &Origin, session: Optio
 /// [`remember`] against one secret store; the caller holds the [`RefreshLock`].
 fn remember_in(b: &dyn crate::secrets::Backend, profile: &str, v: &Value, origin: &Origin) {
     let session = remembered_in(b, profile);
-    let (all, v) = merge_account(accounts_in(b, profile), v, origin, session.as_ref(), &[]);
+    let before = accounts_in(b, profile);
+    let (mut all, v) = merge_account(before.clone(), v, origin, session.as_ref(), &[]);
     put_in(b, profile, "session", &v.to_string());
-    // keep every signed-in account for the account switcher
-    if v["user"].as_str().is_some_and(|u| !u.is_empty()) { put_in(b, profile, "accounts", &Value::Array(all).to_string()); }
+    // keep every signed-in account for the account switcher, with the login's assistant id
+    if v["user"].as_str().is_some_and(|u| !u.is_empty()) {
+        carry_login_ids(&before, &mut all);
+        put_in(b, profile, "accounts", &Value::Array(all).to_string());
+    }
 }
 
 /// kind: "oauth" (secret = refresh token, plus endpoint/client) or "password". The
@@ -515,10 +519,12 @@ pub fn remember(v: &Value, origin: Origin) {
 fn update_account_in(b: &dyn crate::secrets::Backend, profile: &str, v: &Value) {
     let user = v["user"].as_str().unwrap_or("");
     let server = v["server"].as_str().unwrap_or("");
-    let mut all = accounts_in(b, profile);
-    let Some(slot) = all.iter_mut().find(|a| is_account(a, &[user], server)) else { return };
-    *slot = v.clone();
-    let v = &slot.clone();
+    let before = accounts_in(b, profile);
+    let mut all = before.clone();
+    let Some(idx) = all.iter().position(|a| is_account(a, &[user], server)) else { return };
+    all[idx] = v.clone();
+    let v = all[idx].clone();
+    carry_login_ids(&before, &mut all);
     put_in(b, profile, "accounts", &Value::Array(all).to_string());
     if remembered_in(b, profile).is_some_and(|s| is_account(&s, &[user], server)) { put_in(b, profile, "session", &v.to_string()); }
 }
@@ -532,11 +538,13 @@ fn repair_account_in(b: &dyn crate::secrets::Backend, profile: &str, v: &Value) 
     let user = v["user"].as_str().unwrap_or("");
     let server = v["server"].as_str().unwrap_or("");
     let cleared = |a: &Value| a["kind"] == "password" && a["pass"].as_str().unwrap_or("").is_empty() && is_account(a, &[user], server);
-    let mut all = accounts_in(b, profile);
-    let Some(slot) = all.iter_mut().find(|a| is_account(a, &[user], server)) else { return false };
-    if !cleared(slot) { return false; }
-    *slot = v.clone();
-    let v = &slot.clone();
+    let before = accounts_in(b, profile);
+    let mut all = before.clone();
+    let Some(idx) = all.iter().position(|a| is_account(a, &[user], server)) else { return false };
+    if !cleared(&all[idx]) { return false; }
+    all[idx] = v.clone();
+    let v = all[idx].clone();
+    carry_login_ids(&before, &mut all);
     put_in(b, profile, "accounts", &Value::Array(all).to_string());
     if remembered_in(b, profile).is_some_and(|s| cleared(&s)) { put_in(b, profile, "session", &v.to_string()); }
     true
@@ -554,10 +562,21 @@ pub fn update_account(v: &Value) {
     update_account_in(crate::secrets::store(), crate::profile::current(), v);
 }
 
-/// All remembered accounts (most recently used first).
+/// All remembered accounts (most recently used first), each with the assistant's id for that login
+/// ([`AI_LOGIN`]): an account saved by an older version gets one when it is first read, and the
+/// list is written back so it keeps it. A list that cannot be written is given ids again on the
+/// next read (the ids are random, so a lost write only means a new id, never a wrong one).
 pub fn accounts() -> Vec<Value> {
-    crate::secrets::get("accounts").and_then(|s| serde_json::from_str::<Value>(&s).ok())
-        .and_then(|v| v.as_array().cloned()).unwrap_or_default()
+    accounts_backfilled(crate::secrets::store(), crate::profile::current())
+}
+
+/// [`accounts`] against one store: the list, with an id made for every login that has none.
+fn accounts_backfilled(b: &dyn crate::secrets::Backend, profile: &str) -> Vec<Value> {
+    let mut all = accounts_in(b, profile);
+    if ensure_login_ids(&mut all) {
+        put_in(b, profile, "accounts", &Value::Array(all.clone()).to_string());
+    }
+    all
 }
 
 /// The list without the account that signed in as any of `names` on `server` (names compared
@@ -585,6 +604,61 @@ fn accounts_in(b: &dyn crate::secrets::Backend, profile: &str) -> Vec<Value> {
 
 fn remembered_in(b: &dyn crate::secrets::Backend, profile: &str) -> Option<Value> {
     crate::secrets::load(b, profile, "session").and_then(|s| serde_json::from_str(&s).ok())
+}
+
+// ---- the assistant's id for a login ----------------------------------------------------------
+
+/// The key the assistant's id of a login is kept under in the saved-account list. The assistant
+/// names a login by it instead of by its address, so no address reaches the provider; it is
+/// random, so a guessed address cannot be checked against it, and two installs never share one.
+pub const AI_LOGIN: &str = "aiLogin";
+
+fn is_login_id(s: &str) -> bool {
+    !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+}
+
+/// The stored id of an account record, when it has a usable one.
+pub fn login_id(a: &Value) -> Option<&str> {
+    a[AI_LOGIN].as_str().filter(|s| is_login_id(s))
+}
+
+/// A new id for a login: 128 random bits in hex, so `[A-Za-z0-9_-]` and nothing else.
+pub fn new_login_id() -> String {
+    let mut b = [0u8; 16];
+    getrandom::getrandom(&mut b).expect("rng");
+    b.iter().map(|x| format!("{x:02x}")).collect()
+}
+
+/// Give every record without a usable id one; true when any changed. A record whose stored id is
+/// not `[A-Za-z0-9_-]` (a hand-edited file, an address someone pasted in) gets a fresh one too.
+fn ensure_login_ids(all: &mut [Value]) -> bool {
+    let mut changed = false;
+    for a in all.iter_mut() {
+        if login_id(a).is_some() {
+            continue;
+        }
+        if let Value::Object(o) = a {
+            o.insert(AI_LOGIN.into(), json!(new_login_id()));
+            changed = true;
+        }
+    }
+    changed
+}
+
+/// Keep the id a record already had: `before` is the list as stored and `after` the one about to
+/// be written, so signing in again (which replaces the whole record) does not make a new id.
+fn carry_login_ids(before: &[Value], after: &mut [Value]) {
+    for a in after.iter_mut() {
+        if login_id(a).is_some() {
+            continue;
+        }
+        let user = a["user"].as_str().unwrap_or("");
+        let server = a["server"].as_str().unwrap_or("");
+        let kept = before.iter().find(|o| is_account(o, &[user], server)).and_then(login_id).map(String::from);
+        if let Value::Object(o) = a {
+            o.insert(AI_LOGIN.into(), json!(kept.unwrap_or_else(new_login_id)));
+        }
+    }
 }
 
 /// Sign-out of an account, against one secret store: its entry leaves the switcher's list
@@ -875,6 +949,19 @@ mod tests {
 
     use crate::secrets::testkit::Fake;
 
+    /// A stored list without the assistant's random ids, for the tests that compare whole records.
+    fn no_ids(v: &[Value]) -> Vec<Value> {
+        v.iter()
+            .map(|a| {
+                let mut a = a.clone();
+                if let Value::Object(o) = &mut a {
+                    o.remove(AI_LOGIN);
+                }
+                a
+            })
+            .collect()
+    }
+
     fn signed_in(b: &Fake, session_user: &str) {
         let (ann, bob) = (acct("ann@example.test", "https://e.example.test/t", "r1"), acct("bob@example.test", "https://e.example.test/t", "r2"));
         let mut ann = ann; ann["server"] = json!("https://mail.example.test");
@@ -886,6 +973,78 @@ mod tests {
 
     const ANN: &[&str] = &["ann@example.test"];
     const SERVER: &str = "https://mail.example.test";
+
+    #[test]
+    fn a_login_id_is_made_once_and_kept() {
+        let b = Fake::default();
+        // an account remembered by an older version: no aiLogin
+        let old = json!({"user": "ann@example.test", "server": SERVER, "kind": "password", "pass": "s3cret"});
+        assert!(crate::secrets::save(&b, "p", "accounts", &json!([old]).to_string()));
+        let first = accounts_backfilled(&b, "p");
+        let id = login_id(&first[0]).expect("the backfill gives it one").to_string();
+        // 128 random bits in hex, and nothing of the address in it
+        assert_eq!(id.len(), 32);
+        assert!(id.chars().all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c)), "{id}");
+        assert!(!id.contains('@') && !id.contains("ann") && !id.contains("example"));
+        // written back: the next read keeps it
+        let again = accounts_backfilled(&b, "p");
+        assert_eq!(login_id(&again[0]), Some(id.as_str()));
+        // signing in again replaces the whole record but keeps the id
+        remember_in(&b, "p", &json!({"user": "ann@example.test", "server": SERVER, "kind": "password", "pass": ""}), &Origin::SignIn);
+        let after = accounts_backfilled(&b, "p");
+        assert_eq!(login_id(&after[0]), Some(id.as_str()));
+        // so does a password put back in place after a two-step sign-in
+        let typed = json!({"user": "ann@example.test", "server": SERVER, "kind": "password", "pass": "s3cret"});
+        assert!(repair_account_in(&b, "p", &typed));
+        assert_eq!(login_id(&accounts_backfilled(&b, "p")[0]), Some(id.as_str()));
+    }
+
+    #[test]
+    fn a_stored_id_that_is_not_an_id_is_replaced() {
+        let b = Fake::default();
+        // a hand-edited entry holding the address: that is exactly what must not be used
+        let bad = json!({"user": "ann@example.test", "server": SERVER, "kind": "password", "pass": "x", AI_LOGIN: "ann@example.test"});
+        assert!(crate::secrets::save(&b, "p", "accounts", &json!([bad]).to_string()));
+        let all = accounts_backfilled(&b, "p");
+        let id = login_id(&all[0]).expect("a new id");
+        assert_ne!(id, "ann@example.test");
+        assert_eq!(id.len(), 32);
+        assert!(!id.contains('@'));
+        // an empty one too
+        let empty = json!({"user": "bob@example.test", "server": SERVER, "kind": "password", "pass": "x", AI_LOGIN: ""});
+        assert!(crate::secrets::save(&b, "p", "accounts", &json!([empty]).to_string()));
+        assert!(login_id(&accounts_backfilled(&b, "p")[0]).is_some());
+    }
+
+    #[test]
+    fn two_logins_get_different_ids() {
+        // the same person on two servers, and two people on one: four records, four ids
+        let (ann1, ann2) = (
+            json!({"user": "ann@example.test", "server": "https://one.example.test", "kind": "password", "pass": "x"}),
+            json!({"user": "ann@example.test", "server": "https://two.example.test", "kind": "password", "pass": "x"}),
+        );
+        let (bob1, bob2) = (
+            json!({"user": "bob@example.test", "server": "https://one.example.test", "kind": "password", "pass": "x"}),
+            json!({"user": "bob@example.test", "server": "https://two.example.test", "kind": "password", "pass": "x"}),
+        );
+        let b = Fake::default();
+        assert!(crate::secrets::save(&b, "p", "accounts", &json!([ann1, ann2, bob1, bob2]).to_string()));
+        let all = accounts_backfilled(&b, "p");
+        let ids: Vec<String> = all.iter().map(|a| login_id(a).unwrap().to_string()).collect();
+        assert_eq!(ids.len(), 4);
+        for i in 0..ids.len() {
+            for j in i + 1..ids.len() {
+                assert_ne!(ids[i], ids[j], "two logins share an id");
+            }
+        }
+        // random, not derived: the same four records on another install get other ids
+        let other = Fake::default();
+        assert!(crate::secrets::save(&other, "p", "accounts", &json!([
+            {"user": "ann@example.test", "server": "https://one.example.test", "kind": "password", "pass": "x"}
+        ]).to_string()));
+        let one = accounts_backfilled(&other, "p");
+        assert!(!ids.contains(&login_id(&one[0]).unwrap().to_string()));
+    }
 
     #[test]
     fn signing_out_takes_the_session_of_that_account_and_keeps_the_others() {
@@ -1142,7 +1301,7 @@ mod tests {
         b.old.borrow_mut().insert("accounts".into(), json!([bob, ann]).to_string());
         let cleared = json!({"kind": "password", "server": HOST, "user": "ann@example.test", "pass": ""});
         update_account_in(&b, P, &cleared);
-        assert_eq!(accounts_in(&b, P), vec![bob.clone(), cleared.clone()]);
+        assert_eq!(no_ids(&accounts_in(&b, P)), vec![bob.clone(), cleared.clone()]);
         assert_eq!(remembered_in(&b, P).unwrap(), bob, "another account's startup session is not replaced");
         // when the session is this account it follows
         put_in(&b, P, "session", &ann.to_string());
@@ -1162,17 +1321,17 @@ mod tests {
         b.old.borrow_mut().insert("session".into(), cleared.to_string());
         b.old.borrow_mut().insert("accounts".into(), json!([bob, cleared]).to_string());
         assert!(repair_account_in(&b, P, &fixed));
-        assert_eq!(accounts_in(&b, P), vec![bob.clone(), fixed.clone()]);
+        assert_eq!(no_ids(&accounts_in(&b, P)), vec![bob.clone(), fixed.clone()]);
         assert_eq!(remembered_in(&b, P).unwrap(), fixed);
         // not cleared any more: a second repair writes nothing
         assert!(!repair_account_in(&b, P, &json!({"kind": "password", "server": HOST, "user": "ann@example.test", "pass": "other"})));
-        assert_eq!(accounts_in(&b, P)[1], fixed);
+        assert_eq!(no_ids(&accounts_in(&b, P))[1], fixed);
         // signed in again with SSO meanwhile: the oauth entry and session stay
         let sso = json!({"kind": "oauth", "server": HOST, "user": "ann@example.test", "refresh": "r", "endpoint": "e", "client": "c"});
         put_in(&b, P, "accounts", &json!([bob, sso]).to_string());
         put_in(&b, P, "session", &sso.to_string());
         assert!(!repair_account_in(&b, P, &fixed));
-        assert_eq!(accounts_in(&b, P), vec![bob.clone(), sso.clone()]);
+        assert_eq!(no_ids(&accounts_in(&b, P)), vec![bob.clone(), sso.clone()]);
         assert_eq!(remembered_in(&b, P).unwrap(), sso);
         // another account's startup session is not replaced
         put_in(&b, P, "accounts", &json!([bob, cleared]).to_string());
@@ -1197,7 +1356,7 @@ mod tests {
         assert_eq!(all, vec![pw.clone()]);
         remember_in(&b, P, &v, &Origin::Restore { read: None });
         assert_eq!(remembered_in(&b, P).unwrap(), pw);
-        assert_eq!(accounts_in(&b, P), vec![pw]);
+        assert_eq!(no_ids(&accounts_in(&b, P)), vec![pw]);
     }
 
     #[test]
