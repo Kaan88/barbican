@@ -59,9 +59,11 @@ The merged main has not had a full test run: the low-memory guard stopped it twi
   - `ai-logins.json` is never pruned;
   - two instances making an id at the same instant may differ until a restart.
 
-Paused 2026-11-26 by the owner, who also stopped DeepSeek delegation. M6 (v08-ai-m6) and U1 (v09-u1)
-were cancelled right after they started; their worktrees hold only whatever edits were uncommitted at
-that point. Ask the owner who implements next (the cc-* workers or this session) before resuming.
+Paused 2026-11-26 by the owner, who also stopped DeepSeek delegation. M6 and U1 were cancelled about 22 minutes in.
+- U1 (v09-u1) had committed 37c4b12 (src/ui_types.rs and the call sites moved). It was cancelled during
+  its final checks, so it is unreviewed and its test result was never reported.
+- M6 (v08-ai-m6) has uncommitted, partial work: src/assistant/agent.rs, src/assistant/tools/ (mod,
+  mail, fake), and context.rs and mod.rs edits. Its tests were not finished. Ask the owner who implements next (the cc-* workers or this session) before resuming.
 
 ## Next
 
