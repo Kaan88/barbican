@@ -147,7 +147,7 @@ pub fn switch_to(u: &AppWindow, c: Arc<Client>) {
     if !crate::livesync::cache_current(crate::livesync::View::Contacts, &c) { load(u.as_weak(), c); }
 }
 
-pub fn load(w: slint::Weak<AppWindow>, c: Arc<Client>) {
+pub fn load(w: crate::ui_types::Weak<AppWindow>, c: Arc<Client>) {
     if !c.has("urn:ietf:params:jmap:contacts") { return; }
     crate::contacts_x::set_has_principals(c.has("urn:ietf:params:jmap:principals"));
     // the view's client is the login it is loading for; a load that lands for another login (a

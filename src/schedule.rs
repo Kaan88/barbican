@@ -166,7 +166,7 @@ fn submission_of(id: &str) -> Option<(String, Option<DateTime<Local>>)> {
     Some((sub, at))
 }
 
-fn refresh(w: slint::Weak<AppWindow>, c: Arc<Client>) {
+fn refresh(w: crate::ui_types::Weak<AppWindow>, c: Arc<Client>) {
     let w2 = w.clone();
     let _ = w.upgrade_in_event_loop(move |u| {
         if u.get_current_folder() == "__scheduled" { u.set_current_mail("".into()); }

@@ -28,18 +28,18 @@ thread_local! {
     static ON_READY: RefCell<Option<(u64, Box<dyn FnOnce() -> bool>)>> = const { RefCell::new(None) };
     /// The pending document is slow (large mail): the loading bar is on until it is ready.
     static SLOW: Cell<bool> = const { Cell::new(false) };
-    static READY_TIMER: slint::Timer = slint::Timer::default();
+    static READY_TIMER: crate::ui_types::Timer = crate::ui_types::Timer::default();
     /// Whether the WebView child window is shown.
     static SHOWN: Cell<bool> = const { Cell::new(false) };
     /// Debounce for refreshing the body capture that sits under the shown view.
-    static SNAP_TIMER: slint::Timer = slint::Timer::default();
+    static SNAP_TIMER: crate::ui_types::Timer = crate::ui_types::Timer::default();
     /// The capture under the view matches what the view shows: an overlay can hide the view in
     /// the very event that opens it, with the capture already in place (no frame with the
     /// overlay cut off by the child window).
     static FRESH: Cell<bool> = const { Cell::new(false) };
     /// A hide waiting for the frame that shows the capture in its place.
     static HIDE_PENDING: Cell<bool> = const { Cell::new(false) };
-    static UI: RefCell<Option<slint::Weak<AppWindow>>> = const { RefCell::new(None) };
+    static UI: RefCell<Option<crate::ui_types::Weak<AppWindow>>> = const { RefCell::new(None) };
     /// The host window's current background, and the page colour of each pending document.
     static HOST_BG: RefCell<String> = const { RefCell::new(String::new()) };
     static NEXT_BG: RefCell<String> = const { RefCell::new(String::new()) };
@@ -49,7 +49,7 @@ thread_local! {
     /// view: the view stays hidden, with the reader's capture in its place, until the shell
     /// says the page is on screen (`revealed:N`), or the watchdog gives up waiting.
     static HELD: Cell<bool> = const { Cell::new(false) };
-    static HOLD_TIMER: slint::Timer = slint::Timer::default();
+    static HOLD_TIMER: crate::ui_types::Timer = crate::ui_types::Timer::default();
     /// The reader's page in the shell is out of date (it was loading when the preview took the
     /// view, or the reader drew it again meanwhile): drawn again once the reader is back.
     static STALE: Cell<bool> = const { Cell::new(false) };
@@ -139,9 +139,9 @@ fn parse_hex(c: &str) -> (u8, u8, u8) {
     (p(0), p(2), p(4))
 }
 
-pub fn color(c: &str) -> slint::Color {
+pub fn color(c: &str) -> crate::ui_types::Color {
     let (r, g, b) = parse_hex(c);
-    slint::Color::from_rgb_u8(r, g, b)
+    crate::ui_types::Color::from_rgb_u8(r, g, b)
 }
 
 /// Paint the WebView's host window (wry's container HWND) in `c`. A host window has no
@@ -329,7 +329,7 @@ fn load(doc: &str, bg: &str, script: bool, on_ready: Option<Box<dyn FnOnce() -> 
     NEXT_BG.with(|b| *b.borrow_mut() = bg.to_string());
     crate::automation::mark(&format!("doc {seq}"));
     run_js(js);
-    READY_TIMER.with(|t| t.start(slint::TimerMode::SingleShot, Duration::from_millis(600), move || slow(seq)));
+    READY_TIMER.with(|t| t.start(crate::ui_types::TimerMode::SingleShot, Duration::from_millis(600), move || slow(seq)));
     seq
 }
 
@@ -343,7 +343,7 @@ fn slow(seq: u64) {
     SLOW.with(|s| s.set(true));
     // the reader's loading bar (a file shows "Loading…" in the preview until it is ready)
     if !FILES.with(|f| f.get()) { if let Some(u) = ui() { u.set_r_loading(true); } }
-    READY_TIMER.with(|t| t.start(slint::TimerMode::SingleShot, Duration::from_millis(8000), move || ready(seq, false)));
+    READY_TIMER.with(|t| t.start(crate::ui_types::TimerMode::SingleShot, Duration::from_millis(8000), move || ready(seq, false)));
 }
 
 pub(crate) fn ui() -> Option<AppWindow> { UI.with(|u| u.borrow().as_ref().and_then(|w| w.upgrade())) }
@@ -476,7 +476,7 @@ pub fn files_active() -> bool { FILES.with(|f| f.get()) }
 fn hold() {
     HELD.with(|h| h.set(true));
     // a page that never says so is shown anyway, rather than a reader with no body
-    HOLD_TIMER.with(|t| t.start(slint::TimerMode::SingleShot, Duration::from_millis(1500), || unhold(true)));
+    HOLD_TIMER.with(|t| t.start(crate::ui_types::TimerMode::SingleShot, Duration::from_millis(1500), || unhold(true)));
 }
 
 /// The held page is on screen (or the wait is over): the view may show again.
@@ -1094,7 +1094,7 @@ fn target(ui: &AppWindow) -> Target {
 }
 
 /// The capture shown in the view's place (the reader's body or the Files preview); None hides it.
-fn set_snap(ui: &AppWindow, files: bool, img: Option<slint::Image>) {
+fn set_snap(ui: &AppWindow, files: bool, img: Option<crate::ui_types::Image>) {
     let on = img.is_some();
     if files {
         let x = ui.global::<FilesV>();
@@ -1145,7 +1145,7 @@ fn build_in(ui: &AppWindow, ctx: &mut wry::WebContext) -> Option<wry::WebView> {
         .with_devtools(false)
         .with_ipc_handler(|req| {
             let m = req.body().clone();
-            slint::Timer::single_shot(Duration::ZERO, move || on_ipc(&m));
+            crate::ui_types::Timer::single_shot(Duration::ZERO, move || on_ipc(&m));
         })
         .with_navigation_handler(|url| {
             // A navigation here is not a click on a mail link (those are retargeted to a new
@@ -1186,7 +1186,7 @@ fn has_message(ui: &AppWindow) -> bool {
 /// of date until it is taken again, shortly after the change stops.
 pub fn mark_dirty() {
     FRESH.with(|f| f.set(false));
-    SNAP_TIMER.with(|t| t.start(slint::TimerMode::SingleShot, Duration::from_millis(140), || {
+    SNAP_TIMER.with(|t| t.start(crate::ui_types::TimerMode::SingleShot, Duration::from_millis(140), || {
         let Some(ui) = ui() else { return };
         let t = target(&ui);
         if SHOWN.with(|x| x.get()) && t.want && t.content && SHELL_READY.with(|r| r.get()) && freeze(&ui, &t) {
@@ -1201,8 +1201,8 @@ fn freeze(ui: &AppWindow, t: &Target) -> bool {
     let (x, y, w, h) = t.rect;
     let crop = ((x * s).round() as i32, (y * s).round() as i32, (w * s).round() as i32, (h * s).round() as i32);
     let Some(f) = crate::capture::grab(crate::capture::hwnd_of(ui.window()), Some(crop), 1) else { return false };
-    let px = slint::SharedPixelBuffer::<slint::Rgba8Pixel>::clone_from_slice(&f.rgba, f.w, f.h);
-    set_snap(ui, t.files, Some(slint::Image::from_rgba8(px)));
+    let px = crate::ui_types::SharedPixelBuffer::<crate::ui_types::Rgba8Pixel>::clone_from_slice(&f.rgba, f.w, f.h);
+    set_snap(ui, t.files, Some(crate::ui_types::Image::from_rgba8(px)));
     true
 }
 
@@ -1217,7 +1217,7 @@ fn set_shown(ui: &AppWindow, v: &wry::WebView, show: bool) {
 fn after_render() {
     if !HIDE_PENDING.with(|h| h.get()) { return; }
     // after this frame is presented
-    slint::Timer::single_shot(Duration::ZERO, || {
+    crate::ui_types::Timer::single_shot(Duration::ZERO, || {
         if !HIDE_PENDING.with(|h| h.replace(false)) { return; }
         let ui = UI.with(|u| u.borrow().as_ref().and_then(|w| w.upgrade()));
         let Some(ui) = ui.filter(|u| !target(u).want) else { return };
@@ -1285,7 +1285,7 @@ pub fn sync(ui: &AppWindow) {
                 HIDE_PENDING.with(|h| h.set(true));
                 ui.window().request_redraw();
                 // should no frame come (nothing to draw), hide anyway: a body over the overlay is worse
-                slint::Timer::single_shot(Duration::from_millis(120), || { after_render(); });
+                crate::ui_types::Timer::single_shot(Duration::from_millis(120), || { after_render(); });
             } else {
                 if !frozen { set_snap(ui, t.files, None); }
                 set_shown(ui, v, false);

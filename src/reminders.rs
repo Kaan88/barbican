@@ -482,8 +482,8 @@ struct Run {
 
 thread_local! {
     static RUN: RefCell<Run> = RefCell::new(Run::default());
-    static TIMER: slint::Timer = slint::Timer::default();
-    static FETCH_TIMER: slint::Timer = slint::Timer::default();
+    static TIMER: crate::ui_types::Timer = crate::ui_types::Timer::default();
+    static FETCH_TIMER: crate::ui_types::Timer = crate::ui_types::Timer::default();
 }
 
 fn now_ms() -> i64 { chrono::Utc::now().timestamp_millis() }
@@ -496,7 +496,7 @@ pub fn start(u: &AppWindow, c: Arc<Client>) {
     u.global::<crate::CalX>().set_reminders(ModelRc::new(VecModel::from(Vec::<crate::CxReminder>::new())));
     fetch(u.as_weak(), c.clone());
     let (w, c2) = (u.as_weak(), c);
-    FETCH_TIMER.with(|t| t.start(slint::TimerMode::Repeated, std::time::Duration::from_secs(REFETCH_SECS), move || {
+    FETCH_TIMER.with(|t| t.start(crate::ui_types::TimerMode::Repeated, std::time::Duration::from_secs(REFETCH_SECS), move || {
         // signed out or switched to another login: this runner is done
         if !crate::cal_extra::client().is_some_and(|x| Arc::ptr_eq(&x, &c2)) { stop(); return; }
         fetch(w.clone(), c2.clone());
@@ -513,9 +513,9 @@ pub fn stop() {
 /// Read the events whose reminders can come due soon (or came due since the last check), and,
 /// every half hour or after a calendar change, the far ones whose own alert reaches back
 /// before the window (the far scan).
-pub fn fetch(w: slint::Weak<AppWindow>, c: Arc<Client>) { fetch_with(w, c, false) }
+pub fn fetch(w: crate::ui_types::Weak<AppWindow>, c: Arc<Client>) { fetch_with(w, c, false) }
 
-fn fetch_with(w: slint::Weak<AppWindow>, c: Arc<Client>, force_far: bool) {
+fn fetch_with(w: crate::ui_types::Weak<AppWindow>, c: Arc<Client>, force_far: bool) {
     let now = now_ms();
     let (owner, gen, far_due) = RUN.with(|r| {
         let mut r = r.borrow_mut();
@@ -642,7 +642,7 @@ pub fn check(u: &AppWindow) {
     let snooze_next = RUN.with(|r| r.borrow().snoozed.values().min().copied());
     let wake = [next, snooze_next].into_iter().flatten().min().map(|t| (t - now).clamp(500, 60_000)).unwrap_or(60_000);
     let w = u.as_weak();
-    TIMER.with(|t| t.start(slint::TimerMode::SingleShot, std::time::Duration::from_millis(wake as u64), move || {
+    TIMER.with(|t| t.start(crate::ui_types::TimerMode::SingleShot, std::time::Duration::from_millis(wake as u64), move || {
         if let Some(u) = w.upgrade() { check(&u); }
     }));
 }
@@ -653,7 +653,7 @@ fn show(u: &AppWindow, d: &Due, sound: bool, tone: crate::notify::Tone, now: i64
     let title = if d.title.is_empty() { "(no title)".to_string() } else { d.title.clone() };
     let when = when_label(d, now);
     let color = RUN.with(|r| r.borrow().events.iter().find(|e| e["id"] == calendar::base_id(&d.event)).map(calendar::first_calendar))
-        .map(|cid| calendar::calendar_color_of(&cid)).unwrap_or(slint::Color::from_rgb_u8(0xf0, 0x57, 0x7a));
+        .map(|cid| calendar::calendar_color_of(&cid)).unwrap_or(crate::ui_types::Color::from_rgb_u8(0xf0, 0x57, 0x7a));
     let item = crate::CxReminder { key: d.key.clone().into(), title: title.clone().into(), when: when.clone().into(), calendar: d.calendar.clone().into(), color };
     let mut list: Vec<crate::CxReminder> = x.get_reminders().iter().filter(|r| r.key != d.key.as_str()).collect();
     list.insert(0, item);
@@ -670,8 +670,8 @@ fn show(u: &AppWindow, d: &Due, sound: bool, tone: crate::notify::Tone, now: i64
     }
     // Settings > Accessibility > Visual alerts: flash the taskbar button
     if crate::a11y::A11y::load().visual_alerts {
-        use slint::winit_030::{winit::window::UserAttentionType, WinitWindowAccessor};
-        u.window().with_winit_window(|ww| ww.request_user_attention(Some(UserAttentionType::Informational)));
+        use crate::ui_types::winit::window::UserAttentionType;
+        crate::ui_types::with_winit_window(u.window(), |ww| ww.request_user_attention(Some(UserAttentionType::Informational)));
     }
 }
 
@@ -710,7 +710,7 @@ pub fn missed_done(u: &AppWindow, open: bool) {
 }
 
 /// Events changed (push, a save): read them again soon.
-pub fn changed(w: slint::Weak<AppWindow>, c: Arc<Client>) {
+pub fn changed(w: crate::ui_types::Weak<AppWindow>, c: Arc<Client>) {
     if RUN.with(|r| r.borrow().owner.is_empty()) { return; }
     // the far events may have changed too (a new event with an early alert)
     fetch_with(w, c, true);

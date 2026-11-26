@@ -4,7 +4,8 @@ use crate::jmap::Client;
 use crate::{AppWindow, Folder, Mail, Tag};
 use chrono::{DateTime, Datelike, Local};
 use serde_json::{json, Value};
-use slint::{Color, ComponentHandle, Model, ModelRc, VecModel};
+use slint::{ComponentHandle, Model, ModelRc, VecModel};
+use crate::ui_types::Color;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -317,7 +318,7 @@ pub fn mailbox_role(id: &str) -> String {
 
 /// Load the folder tree. Called on the UI thread with a known Mailbox state, it asks only for
 /// what changed (Mailbox/changes) instead of re-reading every folder.
-pub fn load_mailboxes(w: slint::Weak<AppWindow>, c: Arc<Client>, select_inbox: bool) {
+pub fn load_mailboxes(w: crate::ui_types::Weak<AppWindow>, c: Arc<Client>, select_inbox: bool) {
     let since = if select_inbox { None } else {
         BOXES.with(|b| { let b = b.borrow(); b.state.clone().filter(|(a, _)| *a == c.state_key()).map(|(_, s)| (s, b.list.clone())) })
     };
@@ -492,10 +493,10 @@ fn filter_in_junk(filter: &Value) -> bool {
 }
 
 /// A row's sender picture: (image, 0 initials / 1 photo / 2 logo).
-fn row_avatar(m: &Value, ap: &crate::avatars::Prefs, junk: bool) -> (slint::Image, i32) {
+fn row_avatar(m: &Value, ap: &crate::avatars::Prefs, junk: bool) -> (crate::ui_types::Image, i32) {
     match m["from"][0]["email"].as_str().and_then(|e| crate::avatars::get(e, None, ap, junk)) {
         Some(p) => (p.image, if p.logo { 2 } else { 1 }),
-        None => (slint::Image::default(), 0),
+        None => (crate::ui_types::Image::default(), 0),
     }
 }
 
@@ -541,7 +542,7 @@ fn brand_badge(u: &AppWindow, brand: Option<String>, prefs: &crate::avatars::Pre
 
 fn reader_avatar(u: &AppWindow, ap: &crate::avatars::Prefs) {
     let pic = READER_SENDER.with(|r| r.borrow().as_ref().and_then(|(e, b, junk)| crate::avatars::get(e, b.as_deref(), ap, *junk)));
-    let (img, kind) = match pic { Some(p) => (p.image, if p.logo { 2 } else { 1 }), None => (slint::Image::default(), 0) };
+    let (img, kind) = match pic { Some(p) => (p.image, if p.logo { 2 } else { 1 }), None => (crate::ui_types::Image::default(), 0) };
     u.set_r_avatar(img);
     u.set_r_avatar_kind(kind);
 }
@@ -647,9 +648,9 @@ fn mail_row(st: &ListState, m: &Value, t: Option<DateTime<Local>>, header: &str,
     let code = if ctx.lp.codes && fresh {
         crate::otp::find(m["subject"].as_str().unwrap_or(""), m["preview"].as_str().unwrap_or("")).unwrap_or_default()
     } else { String::new() };
-    let files: Vec<slint::SharedString> = if ctx.lp.attachment_chips {
+    let files: Vec<crate::ui_types::SharedString> = if ctx.lp.attachment_chips {
         let names: Vec<String> = attachment_names(m, ctx.lp.hide_inline_images);
-        let mut v: Vec<slint::SharedString> = names.iter().take(2).map(|n| n.as_str().into()).collect();
+        let mut v: Vec<crate::ui_types::SharedString> = names.iter().take(2).map(|n| n.as_str().into()).collect();
         if names.len() > 2 { v.push(format!("+{}", names.len() - 2).into()); }
         v
     } else { vec![] };
@@ -729,8 +730,8 @@ fn row_at(st: &ListState, i: usize, ctx: &RowCtx) -> Mail {
 /// Two sender pictures are the same. Slint 1.18's `Image` equality reports two empty pictures as
 /// unequal (`ImageInner::None` has no arm in its `eq`), so "no picture" is compared by size; two
 /// real pictures compare by value (the cache hands out clones of one decode).
-fn same_avatar(a: &slint::Image, b: &slint::Image) -> bool {
-    let empty = |i: &slint::Image| { let s = i.size(); s.width == 0 && s.height == 0 };
+fn same_avatar(a: &crate::ui_types::Image, b: &crate::ui_types::Image) -> bool {
+    let empty = |i: &crate::ui_types::Image| { let s = i.size(); s.width == 0 && s.height == 0 };
     match (empty(a), empty(b)) {
         (true, true) => true,
         (false, false) => a == b,
@@ -1024,7 +1025,7 @@ pub fn on_unified_push(u: &AppWindow) {
 }
 
 /// Load the first page of a list (folder, tag or search filter).
-pub fn load_list(w: slint::Weak<AppWindow>, c: Arc<Client>, filter: Value) {
+pub fn load_list(w: crate::ui_types::Weak<AppWindow>, c: Arc<Client>, filter: Value) {
     let gen = LIST.with(|l| {
         let mut l = l.borrow_mut();
         l.generation += 1;
@@ -1065,7 +1066,7 @@ pub fn load_list(w: slint::Weak<AppWindow>, c: Arc<Client>, filter: Value) {
     });
 }
 
-pub fn load_more(w: slint::Weak<AppWindow>, c: Arc<Client>) {
+pub fn load_more(w: crate::ui_types::Weak<AppWindow>, c: Arc<Client>) {
     let Some((filter, pos, anchor, gen, unified)) = LIST.with(|l| {
         let mut l = l.borrow_mut();
         if l.loading || l.emails.len() >= l.total { return None; }
@@ -1128,7 +1129,7 @@ pub fn load_more(w: slint::Weak<AppWindow>, c: Arc<Client>) {
 /// Bring the loaded list up to date (after push or an action): only what changed
 /// (Email/queryChanges, Email/changes, Thread/changes) when the states allow it, else a reload.
 /// Must run on the UI thread.
-pub fn sync(w: slint::Weak<AppWindow>, c: Arc<Client>) {
+pub fn sync(w: crate::ui_types::Weak<AppWindow>, c: Arc<Client>) {
     enum Start { Skip, Full, Delta(Value, SyncStates, u64) }
     let start = LIST.with(|l| {
         let mut l = l.borrow_mut();
@@ -1172,7 +1173,7 @@ pub fn sync(w: slint::Weak<AppWindow>, c: Arc<Client>) {
 }
 
 /// Re-fetch what is loaded, keeping the scroll depth.
-pub fn reload(w: slint::Weak<AppWindow>, c: Arc<Client>) {
+pub fn reload(w: crate::ui_types::Weak<AppWindow>, c: Arc<Client>) {
     let (filter, n, gen, loaded, unread_first) = LIST.with(|l| {
         let l = l.borrow();
         let loaded = if l.filter["unified"] == true { l.emails.clone() } else { vec![] };
@@ -1360,7 +1361,7 @@ pub fn confirm_action(u: &AppWindow, n: usize, action: &str) -> bool {
         let what = if n > 1 { format!("{n} messages") } else { "this message".into() };
         let (verb, key) = if action == "archive" { ("Archive", "Archive") } else { ("Delete", "Delete") };
         show_toast(u, &format!("{verb} {what}? Press {key} again to confirm."), false);
-        slint::Timer::single_shot(std::time::Duration::from_secs(6), move || CONFIRM_BULK.with(|x| x.set(false)));
+        crate::ui_types::Timer::single_shot(std::time::Duration::from_secs(6), move || CONFIRM_BULK.with(|x| x.set(false)));
         return false;
     }
     CONFIRM_BULK.with(|x| x.set(false));
@@ -1528,7 +1529,7 @@ pub fn show_toast(u: &AppWindow, text: &str, undo: bool) {
     // Settings > Accessibility > Notification duration (0 keeps it until closed)
     let secs = crate::a11y::A11y::load().toast_secs;
     if secs == 0 { return; }
-    slint::Timer::single_shot(std::time::Duration::from_secs(secs), move || {
+    crate::ui_types::Timer::single_shot(std::time::Duration::from_secs(secs), move || {
         if let Some(u) = w.upgrade() { if u.get_toast().as_str() == t { u.set_toast("".into()); } }
     });
 }
@@ -1634,10 +1635,10 @@ mod tests {
         })
     }
 
-    fn one_pixel() -> slint::Image {
-        let mut buf = slint::SharedPixelBuffer::<slint::Rgba8Pixel>::new(1, 1);
+    fn one_pixel() -> crate::ui_types::Image {
+        let mut buf = crate::ui_types::SharedPixelBuffer::<crate::ui_types::Rgba8Pixel>::new(1, 1);
         buf.make_mut_bytes()[..4].copy_from_slice(&[255, 0, 0, 255]);
-        slint::Image::from_rgba8(buf)
+        crate::ui_types::Image::from_rgba8(buf)
     }
 
     fn list_state(emails: Vec<serde_json::Value>) -> ListState {
@@ -1866,7 +1867,7 @@ mod tests {
         assert_eq!(model.row_data(1).unwrap().avatar_kind, 0);
         // a photo is ready for alice only; bob is known to have none (so nothing is fetched)
         crate::avatars::seed_ready(&format!("grav:{}", crate::avatars::gravatar_hash("alice@example.test")),
-            crate::avatars::Pic { image: slint::Image::default(), logo: false });
+            crate::avatars::Pic { image: crate::ui_types::Image::default(), logo: false });
         crate::avatars::seed_missing(&format!("grav:{}", crate::avatars::gravatar_hash("bob@example.test")));
         let ap = crate::avatars::Prefs { favicons: false, gravatar: true, in_junk: false };
         assert_eq!(refresh_avatar_rows(&model, &st, &ap), 1); // alice's row only
@@ -1919,7 +1920,7 @@ mod tests {
         vary!("hl-subject", hl_subject, styled());
         vary!("hl-preview", hl_preview, styled());
         vary!("tags", tags, ModelRc::new(VecModel::from(vec![Color::from_argb_u8(255, 1, 1, 1)])));
-        vary!("files", files, ModelRc::new(VecModel::from(vec![slint::SharedString::from("x.pdf")])));
+        vary!("files", files, ModelRc::new(VecModel::from(vec![crate::ui_types::SharedString::from("x.pdf")])));
         vary!("avatar-kind", avatar_kind, 1);
         vary!("avatar", avatar, one_pixel());
         for (name, changed) in variants {

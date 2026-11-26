@@ -20,7 +20,7 @@ pub enum Queued { Send, Schedule(i64), Save(bool), Discard }
 struct S {
     /// composer generation: a save that finishes after the composer was reopened is ignored
     gen: u64,
-    timer: Option<slint::Timer>,
+    timer: Option<crate::ui_types::Timer>,
     /// content when the composer opened (or the system last changed it, e.g. the signature)
     baseline: Option<u64>,
     /// content of the draft on the server
@@ -103,9 +103,9 @@ fn current_key(u: &AppWindow) -> u64 {
 pub fn start(u: &AppWindow, saved: bool) {
     let key = crate::compose::content_key(u);
     let cheap = crate::compose::cheap_key(u);
-    let timer = slint::Timer::default();
+    let timer = crate::ui_types::Timer::default();
     let w = u.as_weak();
-    timer.start(slint::TimerMode::Repeated, TICK, move || { if let Some(u) = w.upgrade() { tick(&u); } });
+    timer.start(crate::ui_types::TimerMode::Repeated, TICK, move || { if let Some(u) = w.upgrade() { tick(&u); } });
     ST.with(|s| {
         let mut s = s.borrow_mut();
         s.baseline = Some(key);

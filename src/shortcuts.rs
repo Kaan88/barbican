@@ -10,7 +10,8 @@
 //! `handle` runs it. Keys this does not claim fall through to the older mail handler in main.rs.
 
 use crate::{AppWindow, KeyRow, Pd};
-use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
+use slint::{ComponentHandle, Model, ModelRc, VecModel};
+use crate::ui_types::SharedString;
 use std::cell::{Cell, RefCell};
 use std::time::{Duration, Instant};
 

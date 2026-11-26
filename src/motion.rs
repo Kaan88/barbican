@@ -11,7 +11,7 @@ thread_local! {
     /// the reduceMotion setting as stored: "on" | "off" | "system"
     static PREF: RefCell<String> = RefCell::new("system".into());
     static LAST_STEP: Cell<Option<Instant>> = const { Cell::new(None) };
-    static CALM: slint::Timer = slint::Timer::default();
+    static CALM: crate::ui_types::Timer = crate::ui_types::Timer::default();
 }
 
 /// Steps closer together than this are a key repeat (or a very fast hand): list feedback snaps.
@@ -36,7 +36,7 @@ pub fn watch_system(ui: &AppWindow) {
     install_filter(ui);
     // the winit window only exists once the event loop runs: install again then
     let w = ui.as_weak();
-    slint::Timer::single_shot(Duration::ZERO, move || { if let Some(u) = w.upgrade() { install_filter(&u); } });
+    crate::ui_types::Timer::single_shot(Duration::ZERO, move || { if let Some(u) = w.upgrade() { install_filter(&u); } });
 }
 
 /// The window's winit event filter (a window has exactly one): activation re-reads Windows'
@@ -71,7 +71,7 @@ pub fn step(ui: &AppWindow) {
     let m = ui.global::<Motion>();
     if !m.get_rapid() { m.set_rapid(true); }
     let w = ui.as_weak();
-    CALM.with(|t| t.start(slint::TimerMode::SingleShot, CALM_AFTER, move || {
+    CALM.with(|t| t.start(crate::ui_types::TimerMode::SingleShot, CALM_AFTER, move || {
         if let Some(u) = w.upgrade() { u.global::<Motion>().set_rapid(false); }
     }));
 }

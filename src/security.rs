@@ -13,7 +13,8 @@ use crate::jmap::Client;
 use crate::server_settings::Shared;
 use crate::SRow;
 use serde_json::{json, Map, Value};
-use slint::{ModelRc, SharedString, VecModel};
+use slint::{ModelRc, VecModel};
+use crate::ui_types::SharedString;
 
 /// Account capabilities that carry the management objects, in Bulwark's order.
 pub const CAPABILITIES: [&str; 2] = ["urn:stalwart:jmap", "urn:inbuxa:jmap:registry"];

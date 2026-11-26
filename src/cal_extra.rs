@@ -223,7 +223,7 @@ pub fn render_agenda(u: &AppWindow, visible: &[Occ], from: NaiveDate, to: NaiveD
             }
             for o in day {
                 let color = if o.calendar == BIRTHDAY_CAL { calendar::calendar_color_of(BIRTHDAY_CAL) } else {
-                    cals.iter().position(|c| c["id"] == o.calendar.as_str()).map(|_| calendar::calendar_color_of(&o.calendar)).unwrap_or(slint::Color::from_rgb_u8(0x3b, 0x82, 0xf6))
+                    cals.iter().position(|c| c["id"] == o.calendar.as_str()).map(|_| calendar::calendar_color_of(&o.calendar)).unwrap_or(crate::ui_types::Color::from_rgb_u8(0x3b, 0x82, 0xf6))
                 };
                 rows.push(CxAgendaRow {
                     header: if first { header.clone().into() } else { "".into() }, today: d == today,
@@ -377,7 +377,7 @@ pub fn open_task(u: &AppWindow, id: &str) {
     let cals = calendar::calendars();
     let lists: Vec<&Value> = cals.iter().filter(|c| c["_shared"] != true && !is_subscription(c["id"].as_str().unwrap_or(""))).collect();
     TASK_LISTS.with(|l| *l.borrow_mut() = lists.iter().map(|c| c["id"].as_str().unwrap_or("").to_string()).collect());
-    x.set_te_lists(ModelRc::new(VecModel::from(lists.iter().map(|c| slint::SharedString::from(c["name"].as_str().unwrap_or("Calendar"))).collect::<Vec<_>>())));
+    x.set_te_lists(ModelRc::new(VecModel::from(lists.iter().map(|c| crate::ui_types::SharedString::from(c["name"].as_str().unwrap_or("Calendar"))).collect::<Vec<_>>())));
     let t = if id.is_empty() { None } else { calendar::raw_event(id) };
     let def = calendar::default_task_list();
     let list_of = |cid: &str| lists.iter().position(|c| c["id"] == cid).unwrap_or(0) as i32;
@@ -594,7 +594,7 @@ pub fn import_begin(u: &AppWindow) {
     let x = u.global::<crate::CalX>();
     let cals = calendar::calendars();
     let targets: Vec<&Value> = cals.iter().filter(|c| c["_shared"] != true && !is_subscription(c["id"].as_str().unwrap_or(""))).collect();
-    x.set_imp_calendars(ModelRc::new(VecModel::from(targets.iter().map(|c| slint::SharedString::from(c["name"].as_str().unwrap_or("Calendar"))).collect::<Vec<_>>())));
+    x.set_imp_calendars(ModelRc::new(VecModel::from(targets.iter().map(|c| crate::ui_types::SharedString::from(c["name"].as_str().unwrap_or("Calendar"))).collect::<Vec<_>>())));
     x.set_imp_calendar(targets.iter().position(|c| c["isDefault"] == true).unwrap_or(0) as i32);
     IMPORT_TARGETS.with(|l| *l.borrow_mut() = targets.iter().map(|c| c["id"].as_str().unwrap_or("").to_string()).collect());
     IMPORT.with(|i| *i.borrow_mut() = None);
@@ -742,13 +742,13 @@ fn render_subs(u: &AppWindow, c: &Client) {
     SUB_CALS.with(|s| *s.borrow_mut() = subs.iter().filter_map(|x| x["calendarId"].as_str().map(String::from)).collect());
     let rows: Vec<CxSub> = subs.iter().map(|s| CxSub {
         id: s["id"].as_str().unwrap_or("").into(), name: s["name"].as_str().unwrap_or("").into(),
-        color: calendar::hex_color(s["color"].as_str().unwrap_or("")).unwrap_or(slint::Color::from_rgb_u8(0x3b, 0x82, 0xf6)),
+        color: calendar::hex_color(s["color"].as_str().unwrap_or("")).unwrap_or(crate::ui_types::Color::from_rgb_u8(0x3b, 0x82, 0xf6)),
         info: s["lastRefreshed"].as_i64().map(|t| format!("Updated {}", chrono::DateTime::from_timestamp_millis(t).map(|d| d.with_timezone(&Local).format("%b %-d %H:%M").to_string()).unwrap_or_default())).unwrap_or_default().into(),
     }).collect();
     u.global::<crate::CalX>().set_subs(ModelRc::new(VecModel::from(rows)));
 }
 
-fn color_hex(c: slint::Color) -> String { format!("#{:02x}{:02x}{:02x}", c.red(), c.green(), c.blue()) }
+fn color_hex(c: crate::ui_types::Color) -> String { format!("#{:02x}{:02x}{:02x}", c.red(), c.green(), c.blue()) }
 
 pub fn sub_begin(u: &AppWindow, id: &str) {
     let x = u.global::<crate::CalX>();
@@ -1011,7 +1011,7 @@ fn sub_due(u: &AppWindow, c: Arc<Client>) {
 }
 
 /// After the calendars loaded: the subscription list, and the subscriptions due a refresh.
-pub fn after_load(u: &AppWindow, _w: slint::Weak<AppWindow>, c: Arc<Client>) {
+pub fn after_load(u: &AppWindow, _w: crate::ui_types::Weak<AppWindow>, c: Arc<Client>) {
     render_subs(u, &c);
     // drop subscriptions whose calendar is gone (deleted elsewhere)
     let cals = calendar::calendars();

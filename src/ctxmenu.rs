@@ -113,7 +113,7 @@ fn show(u: &AppWindow, items: Vec<CtxItem>) {
 fn reopen(u: &AppWindow, items: Vec<CtxItem>) {
     show(u, items);
     let w = u.as_weak();
-    slint::Timer::single_shot(std::time::Duration::from_millis(1), move || { if let Some(u) = w.upgrade() { u.invoke_ctx_show(); } });
+    crate::ui_types::Timer::single_shot(std::time::Duration::from_millis(1), move || { if let Some(u) = w.upgrade() { u.invoke_ctx_show(); } });
 }
 
 fn client(st: &Shared) -> Option<Arc<jmap::Client>> { st.lock().unwrap().clone() }
@@ -614,7 +614,7 @@ pub fn prefetch_copy_targets(u: &AppWindow, ids: &[String]) {
 
 /// Load `login`'s folders unless that is running or done. When the account's folders changed
 /// while it ran, its answer is dropped and a new load starts at once.
-fn start_load(w: slint::Weak<AppWindow>, login: String) {
+fn start_load(w: crate::ui_types::Weak<AppWindow>, login: String) {
     let Some(gen) = with_cache(|c| c.begin(&login)) else { return };
     std::thread::spawn(move || {
         let res = crate::unified::cached(&login).ok_or_else(|| "The account is not connected.".to_string())
@@ -957,7 +957,7 @@ fn submenu(u: &AppWindow, t: &Target, which: &str) -> Vec<CtxItem> {
             let cur = crate::tags::defs().into_iter().find(|d| d.id == t.id).map(|d| d.color);
             for name in crate::tags::PALETTE {
                 let mut i = it("", &format!("{}{}", name[..1].to_uppercase(), &name[1..]), "", &format!("color:{name}"));
-                i.color = slint::Color::from_argb_encoded(0xff000000 | crate::tags::color_rgb(name));
+                i.color = crate::ui_types::Color::from_argb_encoded(0xff000000 | crate::tags::color_rgb(name));
                 i.checked = cur.as_deref() == Some(name);
                 v.push(i);
             }
@@ -983,9 +983,9 @@ fn submenu(u: &AppWindow, t: &Target, which: &str) -> Vec<CtxItem> {
     v
 }
 
-pub fn hex_color(h: &str) -> slint::Color {
+pub fn hex_color(h: &str) -> crate::ui_types::Color {
     let n = u32::from_str_radix(h.trim_start_matches('#'), 16).unwrap_or(0x3b82f6);
-    slint::Color::from_rgb_u8((n >> 16) as u8, (n >> 8) as u8, n as u8)
+    crate::ui_types::Color::from_rgb_u8((n >> 16) as u8, (n >> 8) as u8, n as u8)
 }
 
 /// The calendar's colour as the page's colour select shows it.
@@ -1011,9 +1011,9 @@ fn on_open_mail(u: &AppWindow, id: &str, act: &str) {
     if act.is_empty() { return; }
     let (w, id, act) = (u.as_weak(), id.to_string(), act.to_string());
     let tries = std::rc::Rc::new(std::cell::Cell::new(0));
-    let timer = std::rc::Rc::new(slint::Timer::default());
+    let timer = std::rc::Rc::new(crate::ui_types::Timer::default());
     let t2 = timer.clone();
-    timer.start(slint::TimerMode::Repeated, std::time::Duration::from_millis(100), move || {
+    timer.start(crate::ui_types::TimerMode::Repeated, std::time::Duration::from_millis(100), move || {
         tries.set(tries.get() + 1);
         let Some(u) = w.upgrade() else { t2.stop(); return };
         if loaded(&id) { t2.stop(); if u.get_current_mail().as_str() == id { u.invoke_act(act.clone().into()); } }

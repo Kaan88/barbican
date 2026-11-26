@@ -4,7 +4,8 @@
 use crate::ai::Config;
 use crate::{SRow, STab};
 use serde_json::{json, Map, Value};
-use slint::{ModelRc, SharedString, VecModel};
+use slint::{ModelRc, VecModel};
+use crate::ui_types::SharedString;
 
 const SCHEMA: &str = include_str!("../ui/settings-schema.json");
 

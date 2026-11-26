@@ -174,7 +174,7 @@ pub fn cached(user: &str) -> Option<Arc<Client>> {
 
 /// Connect every remembered account in background threads; with a window, also watch
 /// each one's push stream so the unified list and its count follow every account.
-pub fn warm_up(w: Option<slint::Weak<crate::AppWindow>>) {
+pub fn warm_up(w: Option<crate::ui_types::Weak<crate::AppWindow>>) {
     for v in crate::oauth::accounts() {
         let Some(user) = v["user"].as_str().map(String::from) else { continue };
         let w = w.clone();
@@ -210,7 +210,7 @@ pub fn other_logins_unread() -> i64 {
 
 /// Re-read the other logins' inbox counts in the background (at most once a minute unless
 /// `force`), then redraw the badge. Read-only: one Mailbox/get per login.
-pub fn refresh_other_logins(w: slint::Weak<crate::AppWindow>, force: bool) {
+pub fn refresh_other_logins(w: crate::ui_types::Weak<crate::AppWindow>, force: bool) {
     if !several_accounts() || !crate::settings::bool_pref("unreadBadgeAllAccounts", true) { return; }
     {
         let mut at = OTHER_AT.lock().unwrap();
@@ -473,7 +473,7 @@ pub fn unread_total(active_inbox_unread: i64) -> i64 {
 
 /// Watch a pooled login's push stream (not the active one: main's start_push has it) and
 /// refresh the unified list and its count on changes.
-pub fn watch(user: &str, w: slint::Weak<crate::AppWindow>) {
+pub fn watch(user: &str, w: crate::ui_types::Weak<crate::AppWindow>) {
     if user == active_user() { return; }
     let token = WATCH_TOKEN.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
     {

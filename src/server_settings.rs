@@ -9,7 +9,8 @@
 use crate::jmap::Client;
 use crate::SRow;
 use serde_json::{json, Value};
-use slint::{ModelRc, SharedString, VecModel};
+use slint::{ModelRc, VecModel};
+use crate::ui_types::SharedString;
 use std::sync::{Arc, Mutex};
 
 #[derive(Default)]

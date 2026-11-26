@@ -89,7 +89,7 @@ pub fn parse(raw: &str) -> Option<Mailto> {
 type Handler = Box<dyn Fn(&AppWindow, &Mailto) -> bool>;
 
 thread_local! {
-    static WINDOW: RefCell<Option<slint::Weak<AppWindow>>> = const { RefCell::new(None) };
+    static WINDOW: RefCell<Option<crate::ui_types::Weak<AppWindow>>> = const { RefCell::new(None) };
     /// opens the composer for a link; false while nobody is signed in
     static HANDLER: RefCell<Option<Handler>> = const { RefCell::new(None) };
     static PENDING: RefCell<Vec<Mailto>> = const { RefCell::new(vec![]) };
@@ -142,7 +142,7 @@ fn try_open(u: &AppWindow, m: &Mailto) -> bool {
 }
 
 fn retry() {
-    slint::Timer::single_shot(std::time::Duration::from_secs(1), move || {
+    crate::ui_types::Timer::single_shot(std::time::Duration::from_secs(1), move || {
         let u = WINDOW.with(|w| w.borrow().as_ref().and_then(|w| w.upgrade()));
         let m = PENDING.with(|p| p.borrow().first().cloned());
         let (Some(u), Some(m)) = (u, m) else { RETRYING.with(|r| r.set(false)); return };
@@ -166,8 +166,7 @@ pub fn fill(u: &AppWindow, m: &Mailto) {
     // bring the window forward for a link that came from another program
     if !crate::automation::enabled() {
         u.window().show().ok();
-        use slint::winit_030::WinitWindowAccessor;
-        u.window().with_winit_window(|w| { w.set_minimized(false); w.focus_window(); });
+        crate::ui_types::with_winit_window(u.window(), |w| { w.set_minimized(false); w.focus_window(); });
     }
 }
 

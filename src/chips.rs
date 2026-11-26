@@ -247,7 +247,7 @@ pub fn blur_commits(input: &str, suggestions_open: bool) -> bool {
 pub fn blurred(u: &AppWindow, f: i32) {
     let mark = ST.with(|s| s.borrow().picked);
     let w = u.as_weak();
-    slint::Timer::single_shot(std::time::Duration::from_millis(180), move || {
+    crate::ui_types::Timer::single_shot(std::time::Duration::from_millis(180), move || {
         let Some(u) = w.upgrade() else { return };
         if ST.with(|s| s.borrow().picked) != mark { return; }
         let open = ST.with(|s| s.borrow().field == f && !s.borrow().results.is_empty());

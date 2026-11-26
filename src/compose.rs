@@ -4,7 +4,8 @@ use crate::jmap::{Attachment, Client, Outgoing};
 use crate::rte::{self, model::{Block, Doc, Kind}};
 use crate::{AppWindow, CmpAtt};
 use serde_json::Value;
-use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
+use slint::{ComponentHandle, ModelRc, VecModel};
+use crate::ui_types::SharedString;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -1068,7 +1069,7 @@ fn submit(u: &AppWindow, c: Arc<Client>, mut o: Outgoing, at: Option<i64>, delay
         PENDING.with(|p| *p.borrow_mut() = Some((id.clone(), o.clone(), snapshot)));
         crate::mail::show_toast(u, &format!("Sending in {delay} s…"), true);
         let w = u.as_weak();
-        slint::Timer::single_shot(std::time::Duration::from_secs(delay), move || {
+        crate::ui_types::Timer::single_shot(std::time::Duration::from_secs(delay), move || {
             let still = PENDING.with(|p| p.borrow().as_ref().is_some_and(|x| x.0 == id));
             if !still { return; }
             let Some((_, o, _)) = PENDING.with(|p| p.borrow_mut().take()) else { return };

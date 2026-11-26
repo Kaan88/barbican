@@ -3,7 +3,8 @@
 //! rules are in `identities` (lib/sub-addressing.ts); this is the dialog's glue.
 use crate::identities as ids;
 use crate::{AppWindow, CompX};
-use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
+use slint::{ComponentHandle, ModelRc, VecModel};
+use crate::ui_types::SharedString;
 
 fn strings(v: Vec<String>) -> ModelRc<SharedString> {
     ModelRc::new(VecModel::from(v.into_iter().map(SharedString::from).collect::<Vec<_>>()))

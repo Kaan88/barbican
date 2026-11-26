@@ -197,7 +197,7 @@ struct State {
 
 thread_local! {
     static ST: RefCell<State> = RefCell::new(State::default());
-    static DEBOUNCE: slint::Timer = slint::Timer::default();
+    static DEBOUNCE: crate::ui_types::Timer = crate::ui_types::Timer::default();
     static STATE: RefCell<Option<Shared>> = const { RefCell::new(None) };
 }
 
@@ -343,7 +343,7 @@ pub fn edited(u: &AppWindow, text: &str) {
     pd.set_palette_scope(scope.name().into());
     let w = u.as_weak();
     let text = text.to_string();
-    DEBOUNCE.with(|t| t.start(slint::TimerMode::SingleShot, std::time::Duration::from_millis(250), move || {
+    DEBOUNCE.with(|t| t.start(crate::ui_types::TimerMode::SingleShot, std::time::Duration::from_millis(250), move || {
         if let Some(u) = w.upgrade() { search(&u, &text); }
     }));
     if text_is_empty(&pd.get_palette_query()) { ST.with(|s| { let mut s = s.borrow_mut(); s.hits.clear(); s.loading.clear(); s.errors.clear(); }); rebuild(u); }
@@ -532,14 +532,14 @@ fn pd_focus(u: &AppWindow) {
     pd.set_focus_req(pd.get_focus_req() + 1);
 }
 
-thread_local! { static PENDING: slint::Timer = slint::Timer::default(); }
+thread_local! { static PENDING: crate::ui_types::Timer = crate::ui_types::Timer::default(); }
 
 /// Run `f` once `ready()` holds (an app loading its data), checking every 150 ms for 8 s.
 fn when_ready(u: &AppWindow, ready: impl Fn() -> bool + 'static, f: impl Fn(&AppWindow) + 'static) {
     let w = u.as_weak();
     let started = std::time::Instant::now();
     if ready() { f(u); return; }
-    PENDING.with(|t| t.start(slint::TimerMode::Repeated, std::time::Duration::from_millis(150), move || {
+    PENDING.with(|t| t.start(crate::ui_types::TimerMode::Repeated, std::time::Duration::from_millis(150), move || {
         let Some(u) = w.upgrade() else { return };
         if ready() { PENDING.with(|t| t.stop()); f(&u); }
         else if started.elapsed() > std::time::Duration::from_secs(8) { PENDING.with(|t| t.stop()); }
@@ -567,7 +567,7 @@ fn open_hit(u: &AppWindow, st: &Shared, h: &Hit) {
             let o2 = opened.clone();
             when_ready(u, listed, move |u| { o2.set(true); u.set_current_mail(id2.clone().into()); u.invoke_open_mail(id2.clone().into()); });
             // not in the list at all (e.g. beyond the first page): open it anyway
-            if !opened.get() { let (w, id) = (u.as_weak(), h.id.clone()); slint::Timer::single_shot(std::time::Duration::from_secs(9), move || {
+            if !opened.get() { let (w, id) = (u.as_weak(), h.id.clone()); crate::ui_types::Timer::single_shot(std::time::Duration::from_secs(9), move || {
                 if let (false, Some(u)) = (opened.get(), w.upgrade()) { u.set_current_mail(id.clone().into()); u.invoke_open_mail(id.into()); }
             }); }
         }

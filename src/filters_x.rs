@@ -7,7 +7,8 @@ use crate::jmap::Client;
 use crate::server_settings::Shared as Cache;
 use crate::{AppWindow, FAct, FCond, FilterX};
 use serde_json::{json, Map, Value};
-use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
+use slint::{ComponentHandle, ModelRc, VecModel};
+use crate::ui_types::SharedString;
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
 

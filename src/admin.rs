@@ -294,7 +294,7 @@ pub fn load(u: &AppWindow, c: std::sync::Arc<crate::jmap::Client>, section: &str
                         LAST.with(|l| auto_columns(&l.borrow()))
                     } else { (cols, rows) };
                     // incremental: a refresh keeps the hovered row and the scroll position
-                    crate::listsync::sync_into(&u.get_admin_cols(), cols.into_iter().map(Into::into).collect::<Vec<slint::SharedString>>(), |c| c.clone(), |a, b| a == b, |m| u.set_admin_cols(m));
+                    crate::listsync::sync_into(&u.get_admin_cols(), cols.into_iter().map(Into::into).collect::<Vec<crate::ui_types::SharedString>>(), |c| c.clone(), |a, b| a == b, |m| u.set_admin_cols(m));
                     crate::listsync::sync_into(&u.get_admin_rows(), rows, |r| format!("{}{}", r.id, r.c1), |a, b| a == b, |m| u.set_admin_rows(m));
                     crate::listsync::sync_into(&u.get_admin_tiles(), tiles.into_iter().map(|(a, b)| AdminRow { id: "".into(), c1: a.into(), c2: b.into(), c3: "".into(), c4: "".into() }).collect::<Vec<_>>(), |r| r.c1.clone(), |a, b| a == b, |m| u.set_admin_tiles(m));
                     u.set_admin_note(note.into());

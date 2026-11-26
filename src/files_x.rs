@@ -546,7 +546,7 @@ pub fn save_zip(plan: &ZipPlan, target: &std::path::Path, cancel: &AtomicBool,
 
 /// However the zip thread ends (a panic included), the card closes and the next zip may start,
 /// both on the UI thread after anything the thread queued before.
-struct ZipDone { w: slint::Weak<AppWindow>, msg: Option<(String, bool)> }
+struct ZipDone { w: crate::ui_types::Weak<AppWindow>, msg: Option<(String, bool)> }
 impl Drop for ZipDone {
     fn drop(&mut self) {
         let msg = self.msg.take().unwrap_or_else(|| ("Couldn't download the zip.".into(), true));

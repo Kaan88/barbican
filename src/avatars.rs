@@ -9,7 +9,8 @@
 //! Answers are kept on disk (config dir `avatars/`) for two weeks, a missing one for a day
 //! (Bulwark's favicon cache TTLs), and in memory for the session.
 use sha2::{Digest, Sha256};
-use slint::{ComponentHandle, Rgba8Pixel, SharedPixelBuffer};
+use slint::ComponentHandle;
+use crate::ui_types::{Rgba8Pixel, SharedPixelBuffer};
 use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -41,7 +42,7 @@ impl Prefs {
 
 /// A picture for a row: the image and whether it is a logo (drawn on white) or a photo.
 #[derive(Clone)]
-pub struct Pic { pub image: slint::Image, pub logo: bool }
+pub struct Pic { pub image: crate::ui_types::Image, pub logo: bool }
 
 enum Slot { Pending, Missing, Ready(Pic) }
 
@@ -50,8 +51,8 @@ enum Fetched { Raster(SharedPixelBuffer<Rgba8Pixel>), Svg(Vec<u8>), None }
 
 thread_local! {
     static SLOTS: RefCell<HashMap<String, Slot>> = RefCell::new(HashMap::new());
-    static WIN: RefCell<Option<slint::Weak<crate::AppWindow>>> = const { RefCell::new(None) };
-    static REDRAW: slint::Timer = slint::Timer::default();
+    static WIN: RefCell<Option<crate::ui_types::Weak<crate::AppWindow>>> = const { RefCell::new(None) };
+    static REDRAW: crate::ui_types::Timer = crate::ui_types::Timer::default();
 }
 /// The fetch queue (key, generation) and how many workers run, under one lock so a worker
 /// that finds the queue empty and stops can never miss a key pushed in the same moment.
@@ -245,7 +246,7 @@ pub fn forget_memory() {
 }
 
 /// The window to redraw when pictures arrive.
-pub fn set_window(w: slint::Weak<crate::AppWindow>) { WIN.with(|x| *x.borrow_mut() = Some(w)); }
+pub fn set_window(w: crate::ui_types::Weak<crate::AppWindow>) { WIN.with(|x| *x.borrow_mut() = Some(w)); }
 
 fn enqueue(key: String) {
     let mut work = work();
@@ -278,8 +279,8 @@ fn arrived(u: &crate::AppWindow, key: String, gen: u64, f: Fetched) {
     if gen != GEN.load(Ordering::SeqCst) { return; }
     let logo = !key.starts_with("grav:");
     let slot = guarded(|| match f {
-        Fetched::Raster(buf) => Slot::Ready(Pic { image: slint::Image::from_rgba8(buf), logo }),
-        Fetched::Svg(bytes) => match slint::Image::load_from_svg_data(&bytes) {
+        Fetched::Raster(buf) => Slot::Ready(Pic { image: crate::ui_types::Image::from_rgba8(buf), logo }),
+        Fetched::Svg(bytes) => match crate::ui_types::Image::load_from_svg_data(&bytes) {
             Ok(image) => Slot::Ready(Pic { image, logo }),
             Err(_) => Slot::Missing,
         },
@@ -290,7 +291,7 @@ fn arrived(u: &crate::AppWindow, key: String, gen: u64, f: Fetched) {
     // the reader look again (coalesced)
     let w = u.as_weak();
     REDRAW.with(|t| if !t.running() {
-        t.start(slint::TimerMode::SingleShot, Duration::from_millis(150), move || {
+        t.start(crate::ui_types::TimerMode::SingleShot, Duration::from_millis(150), move || {
             if let Some(u) = w.upgrade() { crate::mail::refresh_avatars(&u); }
         });
     });
@@ -578,7 +579,7 @@ mod tests {
         assert_eq!(*started.borrow(), vec!["grav:aa".to_string()]);
         SLOTS.with(|s| s.borrow_mut().insert("grav:aa".into(), Slot::Missing));
         assert!(matches!(look("grav:aa", |_| panic!("not again")), Look::Missing));
-        SLOTS.with(|s| s.borrow_mut().insert("grav:aa".into(), Slot::Ready(Pic { image: slint::Image::default(), logo: false })));
+        SLOTS.with(|s| s.borrow_mut().insert("grav:aa".into(), Slot::Ready(Pic { image: crate::ui_types::Image::default(), logo: false })));
         assert!(matches!(look("grav:aa", |_| panic!("not again")), Look::Ready(_)));
     }
 
@@ -595,7 +596,7 @@ mod tests {
         assert!(go().is_none());
         assert_eq!(started.borrow().len(), 1);
         // a photo that arrived is returned
-        SLOTS.with(|s| s.borrow_mut().insert(started.borrow()[0].clone(), Slot::Ready(Pic { image: slint::Image::default(), logo: false })));
+        SLOTS.with(|s| s.borrow_mut().insert(started.borrow()[0].clone(), Slot::Ready(Pic { image: crate::ui_types::Image::default(), logo: false })));
         assert!(go().is_some_and(|pic| !pic.logo));
     }
 

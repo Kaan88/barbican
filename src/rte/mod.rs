@@ -12,7 +12,8 @@ use crate::{AppWindow, RteBox, RteImage, RteState, RteText};
 use editor::Editor;
 use layout::{Painted, Role, View};
 use model::*;
-use slint::{Color, ComponentHandle, Model, ModelRc, SharedString, VecModel};
+use slint::{ComponentHandle, Model, ModelRc, VecModel};
+use crate::ui_types::{Color, SharedString};
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -22,7 +23,7 @@ thread_local! {
     static ED: RefCell<Editor> = RefCell::new(Editor::default());
     static VIEW: RefCell<View> = RefCell::new(View::default());
     static UP: Cell<bool> = const { Cell::new(false) };
-    static IMAGES: RefCell<HashMap<String, (slint::Image, u32, u32)>> = RefCell::new(HashMap::new());
+    static IMAGES: RefCell<HashMap<String, (crate::ui_types::Image, u32, u32)>> = RefCell::new(HashMap::new());
     static CLICKS: Cell<(Option<Instant>, f32, f32, u32)> = const { Cell::new((None, 0.0, 0.0, 0)) };
     static DRAG_ANCHOR: Cell<Option<Pos>> = const { Cell::new(None) };
     static DRAG_WORD: Cell<bool> = const { Cell::new(false) };
@@ -115,11 +116,11 @@ pub fn image_key(img: &ImageData) -> String {
     format!("data:{}", img.bytes.as_ref().map(|b| b.len()).unwrap_or(0))
 }
 
-fn decode_image(bytes: &[u8]) -> Option<(slint::Image, u32, u32)> {
+fn decode_image(bytes: &[u8]) -> Option<(crate::ui_types::Image, u32, u32)> {
     let im = image::load_from_memory(bytes).ok()?.to_rgba8();
     let (w, h) = im.dimensions();
-    let buf = slint::SharedPixelBuffer::<slint::Rgba8Pixel>::clone_from_slice(im.as_raw(), w, h);
-    Some((slint::Image::from_rgba8(buf), w, h))
+    let buf = crate::ui_types::SharedPixelBuffer::<crate::ui_types::Rgba8Pixel>::clone_from_slice(im.as_raw(), w, h);
+    Some((crate::ui_types::Image::from_rgba8(buf), w, h))
 }
 
 pub fn register_image(img: &ImageData) {
