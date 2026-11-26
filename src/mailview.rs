@@ -513,8 +513,8 @@ pub fn scroll_file(key: &str) {
 pub fn install_focus_hook(ui: &AppWindow) {
     #[cfg(windows)]
     {
-        use slint::winit_030::{winit::event::{ElementState, WindowEvent}, EventResult, WinitWindowAccessor};
-        ui.window().on_winit_window_event(|_, ev| {
+        use crate::ui_types::{winit::event::{ElementState, WindowEvent}, EventResult, on_winit_window_event};
+        on_winit_window_event(ui.window(), |ev| {
             if let WindowEvent::MouseInput { state: ElementState::Pressed, .. } = ev {
                 WV.with(|w| if let Ok(w) = w.try_borrow() { if let Some(v) = &*w { let _ = v.focus_parent(); } });
             }
@@ -528,8 +528,8 @@ pub fn install_focus_hook(ui: &AppWindow) {
 /// A key the email view caught (`flags|key`): replay it in the native window so the app's
 /// shortcuts work with the view focused.
 /// Parse a forwarded key (`flags|key`): the modifiers (c, s, a) and the key text for Slint.
-fn parse_key(spec: &str) -> Option<(Vec<slint::platform::Key>, String)> {
-    use slint::platform::Key;
+fn parse_key(spec: &str) -> Option<(Vec<crate::ui_types::input::Key>, String)> {
+    use crate::ui_types::input::Key;
     let (flags, key) = spec.split_once('|')?;
     let text = match key {
         "Escape" => char::from(Key::Escape).to_string(),
@@ -550,13 +550,13 @@ fn parse_key(spec: &str) -> Option<(Vec<slint::platform::Key>, String)> {
 }
 
 fn forward_key(ui: &AppWindow, spec: &str) {
-    use slint::platform::WindowEvent;
+    use crate::ui_types::input;
     let Some((mods, text)) = parse_key(spec) else { return };
     let win = ui.window();
-    for m in &mods { win.dispatch_event(WindowEvent::KeyPressed { text: (*m).into() }); }
-    win.dispatch_event(WindowEvent::KeyPressed { text: text.as_str().into() });
-    win.dispatch_event(WindowEvent::KeyReleased { text: text.as_str().into() });
-    for m in mods.iter().rev() { win.dispatch_event(WindowEvent::KeyReleased { text: (*m).into() }); }
+    for m in &mods { input::key_pressed(win, *m); }
+    input::key_pressed(win, text.as_str());
+    input::key_released(win, text.as_str());
+    for m in mods.into_iter().rev() { input::key_released(win, m); }
 }
 
 // ---- message HTML sanitising (the parts the frame's CSP and sandbox cannot do) ----
@@ -719,7 +719,7 @@ fn sanitize_pass(s: &str, links_off: bool) -> Result<Option<String>, ()> {
 #[cfg(test)]
 mod tests {
     use super::{nav_decision, parse_key, sanitize_mail_html as san, Nav};
-    use slint::platform::Key;
+    use crate::ui_types::input::Key;
 
     #[test]
     fn a_files_preview_frame_never_runs_scripts() {

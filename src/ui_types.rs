@@ -1,16 +1,12 @@
 //! Barbican's own names for the few view types the logic handles.
 //!
 //! The UI is moving to the owner's toolkit (`docs/UI-TOOLKIT-EVAL.md`, milestones U0-U12). Most of
-//! `src/` survives that switch, so it must not name Slint's view types directly: everything here is
-//! today a thin, zero-cost re-export (the very same type, no conversion at all), and this is the
-//! one module to change when the second front end (feature `ui-mdshared`, U2) brings Barbican's own
-//! values. `deny_slint_types` at the bottom fails if anything under `src/` names one of them
-//! through `slint::` again.
+//! `src/` survives that switch. This module re-exports the current view types without conversion
+//! and adapts host window and input calls for the logic.
 //!
 //! Not here, and still named through `slint::`: `ComponentHandle`, `Model`, `ModelRc`, `VecModel`
 //! and the generated `AppWindow` (replaced wholesale by U2's stand-in), `StyledText` (the list
-//! rows' markup), `include_modules!` (the generated bindings), and the winit event filters
-//! (`on_winit_window_event`), which JANK #1 folds into one.
+//! rows' markup) and `include_modules!` (the generated bindings).
 
 /// A picture for a view property: an avatar, a BIMI badge, a file thumbnail, a snapshot.
 pub use slint::Image;
@@ -29,18 +25,24 @@ pub use slint::SharedPixelBuffer;
 /// The pixel type of `SharedPixelBuffer`.
 pub use slint::Rgba8Pixel;
 /// The winit API Slint is built against: the host window's own calls (JANK #1, #9 in the plan).
-pub use slint::winit_030::winit;
+pub use slint::winit_030::{winit, EventResult};
+use slint::winit_030::WinitWindowAccessor;
 
 /// Calls `f` with the winit window behind `window`, or returns `None` when there is none (no winit
 /// backend yet, or the window is gone). The one way the logic reaches winit.
 pub fn with_winit_window<T>(window: &slint::Window, f: impl FnOnce(&winit::window::Window) -> T) -> Option<T> {
-    use slint::winit_030::WinitWindowAccessor;
     window.with_winit_window(f)
+}
+
+/// Install a host event filter using the current backend's registration semantics.
+pub fn on_winit_window_event(window: &slint::Window, mut f: impl FnMut(&winit::event::WindowEvent) -> EventResult + 'static) {
+    window.on_winit_window_event(move |_, event| f(event));
 }
 
 /// Input put into the one window, and its pixels read back: what the automation channel
 /// (`src/automation.rs`) needs, without its naming a Slint event.
 pub mod input {
+    pub use slint::platform::Key;
     use slint::platform::{PointerEventButton, WindowEvent};
 
     /// Which mouse button a press or a release is for.
@@ -48,7 +50,6 @@ pub mod input {
     pub enum Button {
         Left,
         Right,
-        Middle,
     }
 
     impl From<Button> for PointerEventButton {
@@ -56,7 +57,6 @@ pub mod input {
             match b {
                 Button::Left => Self::Left,
                 Button::Right => Self::Right,
-                Button::Middle => Self::Middle,
             }
         }
     }
@@ -90,12 +90,12 @@ pub mod input {
     }
 
     /// A key pressed, carrying the text it types (see `key_text`).
-    pub fn key_pressed(window: &slint::Window, text: &str) {
+    pub fn key_pressed(window: &slint::Window, text: impl Into<super::SharedString>) {
         send(window, WindowEvent::KeyPressed { text: text.into() });
     }
 
     /// The same key released.
-    pub fn key_released(window: &slint::Window, text: &str) {
+    pub fn key_released(window: &slint::Window, text: impl Into<super::SharedString>) {
         send(window, WindowEvent::KeyReleased { text: text.into() });
     }
 
@@ -104,10 +104,9 @@ pub mod input {
         send(window, WindowEvent::CloseRequested);
     }
 
-    /// The window's pixels as RGBA8, row by row: `(width, height, bytes)`.
-    pub fn snapshot(window: &slint::Window) -> Result<(u32, u32, Vec<u8>), String> {
-        let buf = window.take_snapshot().map_err(|e| e.to_string())?;
-        Ok((buf.width(), buf.height(), buf.as_bytes().to_vec()))
+    /// The renderer's RGBA8 buffer, without copying a frame's worth of pixels.
+    pub fn snapshot(window: &slint::Window) -> Result<super::SharedPixelBuffer<super::Rgba8Pixel>, String> {
+        window.take_snapshot().map_err(|e| e.to_string())
     }
 
     /// Resize the window, in logical pixels.
@@ -115,30 +114,27 @@ pub mod input {
         window.set_size(slint::LogicalSize::new(width, height));
     }
 
-    /// The text a named key press carries, or `None` for a name the app does not know. The values
-    /// are the key codes Slint and the toolkit's host both use, so a synthetic key is the same as a
-    /// typed one: `Enter` is a newline, `Tab` a tab, `Escape` the escape character, `Delete` DEL,
-    /// the arrows and the function keys the F7xx range, a single character itself, lower-cased.
+    /// Translate an automation key name to the current backend's key text.
     pub fn key_text(name: &str) -> Option<crate::ui_types::SharedString> {
         Some(match name {
-            "Enter" => "\n".into(),
-            "Escape" => "\u{1b}".into(),
-            "Tab" => "\t".into(),
-            "Backspace" => "\u{8}".into(),
-            "Delete" => "\u{7f}".into(),
-            "Up" => "\u{f700}".into(),
-            "Down" => "\u{f701}".into(),
-            "Left" => "\u{f702}".into(),
-            "Right" => "\u{f703}".into(),
-            "Home" => "\u{f729}".into(),
-            "End" => "\u{f72b}".into(),
-            "PageUp" => "\u{f72c}".into(),
-            "PageDown" => "\u{f72d}".into(),
+            "Enter" => Key::Return.into(),
+            "Escape" => Key::Escape.into(),
+            "Tab" => Key::Tab.into(),
+            "Backspace" => Key::Backspace.into(),
+            "Delete" => Key::Delete.into(),
+            "Up" => Key::UpArrow.into(),
+            "Down" => Key::DownArrow.into(),
+            "Left" => Key::LeftArrow.into(),
+            "Right" => Key::RightArrow.into(),
+            "Home" => Key::Home.into(),
+            "End" => Key::End.into(),
+            "PageUp" => Key::PageUp.into(),
+            "PageDown" => Key::PageDown.into(),
             "Space" => " ".into(),
-            "F2" => "\u{f705}".into(),
-            "F5" => "\u{f708}".into(),
-            "F9" => "\u{f70c}".into(),
-            "F10" => "\u{f70d}".into(),
+            "F2" => Key::F2.into(),
+            "F5" => Key::F5.into(),
+            "F9" => Key::F9.into(),
+            "F10" => Key::F10.into(),
             s if s.chars().count() == 1 => s.to_lowercase().into(),
             _ => return None,
         })
@@ -147,9 +143,9 @@ pub mod input {
     /// The key code of a modifier held while another key is pressed: `Ctrl`, `Shift`, `Alt`.
     pub fn modifier_text(name: &str) -> Option<crate::ui_types::SharedString> {
         Some(match name {
-            "Ctrl" => "\u{11}".into(),
-            "Shift" => "\u{10}".into(),
-            "Alt" => "\u{12}".into(),
+            "Ctrl" => Key::Control.into(),
+            "Shift" => Key::Shift.into(),
+            "Alt" => Key::Alt.into(),
             _ => return None,
         })
     }
@@ -160,7 +156,7 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     /// The names this module owns; nothing else under `src/` may reach them through `slint::`.
-    const OWNED: [&str; 8] = ["Image", "Color", "SharedString", "Timer", "TimerMode", "Weak", "SharedPixelBuffer", "Rgba8Pixel"];
+    const OWNED: [&str; 9] = ["Image", "Color", "SharedString", "Timer", "TimerMode", "Weak", "SharedPixelBuffer", "Rgba8Pixel", "winit_030"];
 
     /// The wrappers are the very Slint types, not copies: no conversion, no allocation.
     #[test]
@@ -237,13 +233,18 @@ mod tests {
         assert!(files.len() > 50, "found only {} files under src/", files.len());
         let mut found = Vec::new();
         for file in files {
-            if file.file_name().is_some_and(|n| n == "ui_types.rs") {
+            if file == root.join("ui_types.rs") {
                 continue;
             }
             let text = std::fs::read_to_string(&file).expect("read source");
             for (n, line) in text.lines().enumerate() {
                 if let Some(name) = OWNED.iter().find(|name| names_slint(line, name)) {
                     found.push(format!("{}:{}: slint::{name} in `{}`", file.display(), n + 1, line.trim()));
+                }
+                if [".dispatch_event(", ".take_snapshot(", ".on_winit_window_event(", ".with_winit_window("]
+                    .iter().any(|method| line.contains(method))
+                {
+                    found.push(format!("{}:{}: direct window call in `{}`", file.display(), n + 1, line.trim()));
                 }
             }
         }

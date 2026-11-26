@@ -324,9 +324,9 @@ fn run_cmd(u: &AppWindow, line: &str) -> String {
         }
         "type" => {
             for ch in a.get(1).copied().unwrap_or("").chars() {
-                let text = ch.to_string();
-                input::key_pressed(win, &text);
-                input::key_released(win, &text);
+                let text = ui::SharedString::from(ch.to_string());
+                input::key_pressed(win, text.clone());
+                input::key_released(win, text);
             }
             "ok".into()
         }
@@ -337,10 +337,10 @@ fn run_cmd(u: &AppWindow, line: &str) -> String {
             let last = parts.pop().unwrap_or("");
             let Some(text) = input::key_text(last) else { return format!("unknown key {last}") };
             let mods: Vec<ui::SharedString> = parts.iter().filter_map(|m| input::modifier_text(m)).collect();
-            for m in &mods { input::key_pressed(win, m); }
-            input::key_pressed(win, &text);
-            input::key_released(win, &text);
-            for m in mods.iter().rev() { input::key_released(win, m); }
+            for m in &mods { input::key_pressed(win, m.clone()); }
+            input::key_pressed(win, text.clone());
+            input::key_released(win, text);
+            for m in mods.into_iter().rev() { input::key_released(win, m); }
             "ok".into()
         }
         "drag" => {
@@ -486,8 +486,8 @@ fn run_cmd(u: &AppWindow, line: &str) -> String {
         "shot" => {
             let path = a.get(1).copied().unwrap_or("shot.png");
             match input::snapshot(win) {
-                Ok((w, h, rgba)) => match write_png(path, w, h, &rgba) {
-                    Ok(()) => format!("saved {w}x{h}"),
+                Ok(buf) => match write_png(path, buf.width(), buf.height(), buf.as_bytes()) {
+                    Ok(()) => format!("saved {}x{}", buf.width(), buf.height()),
                     Err(e) => format!("error {e}"),
                 },
                 Err(e) => format!("error {e}"),

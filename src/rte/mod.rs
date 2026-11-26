@@ -510,7 +510,7 @@ fn paste(u: &AppWindow, plain_only: bool) {
 
 // ---------------------------------------------------------------- input
 
-fn key(t: &str, k: slint::platform::Key) -> bool { let s: SharedString = k.into(); t == s.as_str() }
+fn key(t: &str, k: crate::ui_types::input::Key) -> bool { let s: SharedString = k.into(); t == s.as_str() }
 
 /// Keyboard input from the editor's FocusScope. Returns true when handled.
 pub fn on_key(u: &AppWindow, text: &str, ctrl: bool, shift: bool, alt: bool) -> bool {
@@ -521,7 +521,7 @@ pub fn on_key(u: &AppWindow, text: &str, ctrl: bool, shift: bool, alt: bool) -> 
 }
 
 fn handle_key(u: &AppWindow, text: &str, ctrl: bool, shift: bool, alt: bool) -> bool {
-    use slint::platform::Key as K;
+    use crate::ui_types::input::Key as K;
     let t = text;
     let altgr = ctrl && alt;
     // ---- movement
@@ -813,9 +813,9 @@ pub fn wire(ui: &AppWindow) {
 
 /// Files dropped on the window while composing: images go inline, other files are attached.
 pub fn wire_drop(ui: &AppWindow) {
-    use slint::winit_030::{winit::event::WindowEvent, EventResult, WinitWindowAccessor};
+    use crate::ui_types::{winit::event::WindowEvent, EventResult, on_winit_window_event};
     let w = ui.as_weak();
-    ui.window().on_winit_window_event(move |_, ev| {
+    on_winit_window_event(ui.window(), move |ev| {
         if let WindowEvent::DroppedFile(path) = ev {
             let Some(u) = w.upgrade() else { return EventResult::Propagate };
             if !u.get_composing() { return EventResult::Propagate; }

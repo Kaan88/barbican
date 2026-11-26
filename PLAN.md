@@ -89,3 +89,16 @@ The merged main has not had a full test run: the low-memory guard stopped it twi
 ## Not verified
 
 - Nothing in the U0 branches has been run in the GUI. Only the tests have run.
+
+## U1 — view types and host window calls
+
+- `src/ui_types.rs` re-exports the current Slint types. The three winit event filters still
+  register separately; the wrapper only forwards registration. Combining the filters would
+  change behaviour and is not part of U1.
+- Reader shortcut replay and automation dispatch use the same input wrappers. Automation uses
+  Slint's named key values and passes the renderer's pixel buffer to the PNG writer without copying it.
+- The generated window and row models stay with Slint until U2. No `.slint` changes.
+- Windows: `cargo test` with `CARGO_TARGET_DIR=..\target-u1` passed after the rustc wrapper fix:
+  1221 unit tests passed, 2 ignored; the version-resource integration test passed. No failures.
+- GUI parity and Linux were not checked; `cc-reviewer` approval remains open. The git-based
+  privacy check was not run under the brief's git restriction.
