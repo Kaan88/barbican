@@ -28,41 +28,41 @@ main is at 20d1222 (pushed), plus the local PLAN.md commits. R1-R3, the second c
 
 | Branch | Commit | What | State |
 |---|---|---|---|
-| v09-u0-list | 96317a7 | U0: mail list work moved off the UI thread, cached previews and avatars | APPROVED; low fixes half done, uncommitted (worker session ses_deae0c70affec0QDHfigs2hO6J, target-list) |
-| v09-u0-reader | ce0afab | U0: reader body prepared on the fetch thread, bodycache `prepared` map | CHANGES NEEDED; fixes edited, uncommitted, tests not yet passed (session ses_deaf3775affePa7M2MqsXTBi0N, target-reader) |
-| v09-u0-views | 89c989d | U0: calendar expansion on the worker, Files index, contacts/calendar skip reload when current, livesync holds | CHANGES NEEDED (round 1); no fix started |
-| v08-ai-m5 | 11c6ccd | AI M5: prompts, context, markdown | waiting for review |
+| v09-u0-list | b0c6d8c | U0 mail list | merged and pushed (2273570) |
+| v09-u0-reader | 4a2a792 | U0 reader | approved in round 3, merged locally (1b4ae3a) |
+| v09-u0-views | 73c7afc | U0 calendar, files, contacts | approved in round 5, merged locally (402cf37) |
+| v08-ai-m5 | 071886c | AI M5: prompts, context, markdown | approved in round 5, merged locally (ef9eaf5) |
 
-Paused 2026-11-26 by the owner, with the jobs cancelled. On resume, continue the two worker sessions above.
+The merged main has not had a full test run: the low-memory guard stopped it twice. It must pass
+`cargo test -j 2` and the privacy check before the push. Each branch passed its own tests.
 
-### Fixes still owed
+### Decisions made in review
+- M5 departs from a strict 1:1 clone, for safety:
+  - closing tags in inserted mail text are neutralised;
+  - header values are collapsed to one line;
+  - only the quote is cut, never the user's own text.
+  The spec's 2.0 and 2.13 notes record this.
+- The AI login id is a random 128-bit id in `ai-logins.json` beside the settings, keyed by
+  `assistant::logins::login_key(base, user)`. It is never stored in the account store: that is one
+  Credential Manager blob, capped at about 2.5 KB and written under RefreshLock. M6 must pass
+  `login_key(&c.base, &c.username)`. M13 must call `restore_tags` on answers and escape the text.
 
-- **list (approved, lows):**
-  1. Rows are written by position without checking the id: `refresh_marked_of`, `append_rows_of`. Sign-out does not reset the list or bump its generation.
-  2. The avatars `HASHES` cache is never cleared or bounded.
-  3. Add a test that pins `mail_row`'s exact field values.
-- **reader:**
-  1. (medium) prefill no longer clears the old message's reader state, so A's full body, source, banners and unsubscribe can act under B's header.
-  2. The settings snapshot is taken at open(); take it when the fetch lands.
-  3. The plain-text view of an HTML-only message must come from the raw HTML.
-  4. The tests can't fail: the off-thread test, and links_off through the real paths.
-  5. Closing the source view after a phishing report restores the body with links_off false.
-- **views:** skipping the reload on a cached visit broke what relied on it.
-  1. (high) The today glance tile isn't refreshed when the worker result lands.
-  2. (high) Turning on the birthday calendar with a cached calendar shows no birthdays.
-  3. A birthday added elsewhere never arrives.
-  4. A Calendar visit no longer refreshes due iCal subscriptions.
-  5. `cache_current` counts a view as current when livesync can't follow it: no states, a failed account read, an errored delta, a refused FileNode push.
-  6. `patch_local` bumps GEN without starting a rebuild.
-  7. An account switch doesn't `forget_all`; the contacts CLIENT can stay on the other account.
-  8. Weak tests.
-  9. `summary` still expands a whole year on the UI thread on every render.
-- **Workers:** a cargo run in a long foreground tool call drops the worker's connection (ECONNRESET). Tell workers to run cargo in the background to a log file and check it with short calls.
+### Left low (not blocking)
+- Reader:
+  - when the same message is reopened while its "Load full body" is running, the folder count can lag;
+  - the old body is not dimmed on the slow-page path;
+  - "Download all" can take the new message's attachments during a cache-hit window. This is
+    pre-existing.
+- Views: a failed full load that a delta asked for ignores pushes for up to 90 s (`LOAD_STALE`). This
+  is pre-existing.
+- M5:
+  - `ai-logins.json` is never pruned;
+  - two instances making an id at the same instant may differ until a restart.
 
 ## Next
 
-1. Review, fix and merge U0 list, reader and views. Merging may conflict with the M4 changes on main.
-2. Review, fix and merge M5. Then AI M6-M15.
+1. Test and push main (U0 plus M5).
+2. AI M6 onwards, and U1-U3.
 3. U1-U3 (wrappers, the gen-viewmodel stand-in behind `ui-mdshared`, bindings in Rust).
 4. U4, the first visible UI (read-only). It needs toolkit BT1/BT2/BT3 from the shared-toolkit session.
    On 2026-11-26 the toolkit session reported that P8b (the handover, PR #29) is merged at ff4b484, that
