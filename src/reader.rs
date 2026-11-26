@@ -361,8 +361,15 @@ pub fn wire(u: &AppWindow, st: Shared) {
 
 /// A message starts loading: drop the previous one's banners and views.
 pub fn clear(u: &AppWindow) {
-    ST.with(|s| *s.borrow_mut() = State::default());
+    detach();
     refresh(u);
+}
+
+/// Nothing may act on the message on screen from here on: its state (banners, source view, the
+/// reply target) goes now, before its replacement has arrived, so a late result for it finds
+/// nothing to act on. The window's rows are the caller's to drop (msgload.rs).
+pub fn detach() {
+    ST.with(|s| *s.borrow_mut() = State::default());
 }
 
 fn is_open(id: &str) -> bool { ST.with(|s| s.borrow().id == id) }
@@ -850,15 +857,7 @@ fn load_full_body(u: &AppWindow) {
 fn show_message_body(u: &AppWindow, m: &Value, links_off: bool, prepared: crate::Prepared) {
     let links_off = links_off || crate::phish::marked(m);
     let allow = crate::allow_remote(u, m);
-    let has_html = prepared.html.is_some();
-    crate::CUR.with(|c| *c.borrow_mut() = Some(crate::Current {
-        html: prepared.html,
-        text: prepared.text,
-        remote: prepared.remote,
-        allow,
-        links_off,
-        sanitized: if links_off { None } else { has_html.then_some(prepared.sanitized) },
-    }));
+    crate::CUR.with(|c| *c.borrow_mut() = Some(crate::current_for(prepared, allow, links_off)));
     crate::render_current(u);
 }
 
@@ -900,7 +899,10 @@ fn close_view(u: &AppWindow) {
     let view = ST.with(|s| std::mem::take(&mut s.borrow_mut().view));
     match view {
         View::Source { stash, .. } => {
-            crate::CUR.with(|c| *c.borrow_mut() = stash);
+            // reported as phishing while its source was shown: the body comes back with its
+            // links off, not with the copy it was stashed as
+            let off = ST.with(|s| s.borrow().phish) || crate::CUR.with(|c| c.borrow().as_ref().is_some_and(|c| c.links_off));
+            crate::CUR.with(|c| *c.borrow_mut() = crate::restore_stashed(stash, off));
             crate::render_current(u);
             refresh(u);
         }
@@ -1440,6 +1442,34 @@ pub fn automation_destroy(ids: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_message_that_is_going_away_cannot_be_acted_on() {
+        // A is on screen with everything that can act on it; opening B (which must be fetched)
+        // takes that away at once, so a late "Load full body" or "View source" result for A —
+        // and its unsubscribe, receipt, invitation banners — find nothing to act on
+        ST.with(|s| *s.borrow_mut() = State {
+            id: "a".into(),
+            msg: json!({"subject": "A", "blobId": "b1"}),
+            unsub: Some(Unsub { http: Some("https://list.example/u".into()), mailto: None, one_click: false }),
+            mdn: true,
+            phish: true,
+            view: View::Source { raw: Arc::new(vec![1]), full: "raw".into(), cut: false, stash: None },
+            ..Default::default()
+        });
+        assert!(is_open("a"));
+        let shown = ST.with(|s| banners(&s.borrow()));
+        assert!(!shown.is_empty(), "A shows its banners");
+        detach();
+        assert!(!is_open("a"), "nothing is open: a late result for A is dropped");
+        ST.with(|s| {
+            let s = s.borrow();
+            assert!(s.msg.is_null() && s.client.is_none() && s.unsub.is_none() && !s.mdn && !s.phish);
+            assert!(matches!(&s.view, View::Message), "the source view goes with it");
+        });
+        let left = ST.with(|s| banners(&s.borrow()));
+        assert!(left.is_empty(), "no banner of A is left to click");
+    }
 
     #[test]
     fn headers_unfold() {

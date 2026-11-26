@@ -32,6 +32,7 @@ example "## 0.1.0 — 2026-12-01", and start a new "Unreleased" above it.
 - Composer: "Use a sub-address…" in the From menu sends from `you+tag@domain`, using the sub-address delimiter set in Settings > Account. It shows a preview, your recent tags and suggestions for the recipients' domains, and "Remove tag" goes back to the plain address. Only the From header changes: the message still goes through the identity.
 - Templates: signing out closes an open "fill in the template" or "Save as template" dialog (they stayed over the sign-in page) and forgets the account's templates and what was typed into them.
 - Removed: printing (Print in the message list's More submenu, the reader toolbar's overflow menu, and the right-click menus of a message in a conversation and of the message text) and "Suggest times" in the event editor, with the Free/Busy label next to each guest. The app lock and sharing mail folders, calendars and address books with other people, both added since 0.2.1, are gone before release; a PIN set with a test build is removed at the next start and the app opens unlocked. Files keeps its Share menu, and what other people share with you still shows in the bell.
+- Phishing: a message you report as phishing keeps its links turned off when you close its source view. Closing the source view used to bring the message back with its links working.
 
 ## 0.2.1 — 2026-11-24
 

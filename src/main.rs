@@ -210,6 +210,57 @@ mod reader_page_tests {
         let off = mailview::sanitize_mail_html_opts(prepared.html.as_deref().unwrap_or_default(), true);
         assert!(!off.contains("http://example.com/"), "{}", off);
     }
+
+    fn prepared(body: &str) -> Prepared {
+        Prepared { html: Some(body.into()), text: "x".into(), remote: false, sanitized: mailview::sanitize_mail_html_opts(body, false) }
+    }
+
+    #[test]
+    fn a_reported_message_drops_the_prepared_links_on_copy() {
+        // the real reader paths (msgload's present and reader's show_message_body both build the
+        // body state with current_for) must not keep the links-on copy of a reported message,
+        // and the page must get the links-off body
+        let link = "<p><a href=\"http://example.com/\">x</a></p>";
+        let off = current_for(prepared(link), true, true);
+        assert!(off.sanitized.is_none(), "the cached links-on copy is dropped");
+        assert!(!shown_body(&off, false).contains("http://example.com/"), "{}", shown_body(&off, false));
+        // the ordinary case keeps it: nothing is sanitised again at render
+        let on = current_for(prepared(link), true, false);
+        assert!(on.sanitized.as_deref().is_some_and(|s| s.contains("http://example.com/")));
+        assert!(shown_body(&on, false).contains("http://example.com/"));
+        // a text-only message has no HTML to sanitise either way
+        let text = current_for(Prepared { html: None, text: "just text".into(), remote: false, sanitized: String::new() }, false, false);
+        assert_eq!(shown_body(&text, false), "<pre>just text</pre>");
+    }
+
+    #[test]
+    fn a_reported_message_comes_back_from_its_source_with_its_links_off() {
+        // the source view stashes the message's body; reporting the message while its source is
+        // shown must not bring the body back with its links working
+        let link = "<p><a href=\"http://example.com/\">x</a></p>";
+        let stash = || Some(current_for(prepared(link), true, false));
+        let back = restore_stashed(stash(), false).unwrap();
+        assert!(!back.links_off && back.sanitized.is_some());
+        assert!(shown_body(&back, false).contains("http://example.com/"), "not reported: as it was");
+        let back = restore_stashed(stash(), true).unwrap();
+        assert!(back.links_off && back.sanitized.is_none(), "the links-on copy goes");
+        assert!(!shown_body(&back, false).contains("http://example.com/"), "{}", shown_body(&back, false));
+        assert!(restore_stashed(None, true).is_none(), "nothing stashed, nothing put back");
+    }
+
+    #[test]
+    fn plain_view_reads_the_raw_html_when_the_sanitiser_gives_up() {
+        // a body the sanitiser gives up on comes back as its whole escaped source in <pre>
+        // (mailview::sanitize_mail_html_opts); the plain text view shows the message's text,
+        // not that source
+        let raw = "<p>Hi <b>there</b></p>";
+        let gave_up = format!("<pre>{}</pre>", esc(raw));
+        let cur = Current { html: Some(raw.into()), text: String::new(), remote: false, allow: false, links_off: false, sanitized: Some(gave_up) };
+        assert_eq!(shown_body(&cur, true), "<pre>Hi there</pre>");
+        // with a text part, that is what plain view shows
+        let cur = Current { text: "Hi there".into(), ..cur };
+        assert_eq!(shown_body(&cur, true), "<pre>Hi there</pre>");
+    }
 }
 
 /// The open message's body, kept so it can be re-rendered (mode change, resize, "Load images").
@@ -228,6 +279,49 @@ struct Current {
 
 thread_local! {
     static CUR: std::cell::RefCell<Option<Current>> = const { std::cell::RefCell::new(None) };
+}
+
+/// The reader's body state for a message prepared on the fetch thread. The prepared sanitised
+/// copy is used as it is; a message reported as phishing (`links_off`) drops it, so the body is
+/// sanitised again at render with its links off, as before.
+pub(crate) fn current_for(prepared: Prepared, allow: bool, links_off: bool) -> Current {
+    let has_html = prepared.html.is_some();
+    Current {
+        html: prepared.html,
+        text: prepared.text,
+        remote: prepared.remote,
+        allow,
+        links_off,
+        sanitized: if links_off { None } else { has_html.then_some(prepared.sanitized) },
+    }
+}
+
+/// The message on screen was reported as phishing: its links go off, and so does the sanitised
+/// copy made with them on (it is made again at render).
+pub(crate) fn drop_links(cur: &mut Current) {
+    cur.links_off = true;
+    cur.sanitized = None;
+}
+
+/// A body put back as it was stashed (the source view closing): a message reported as phishing
+/// meanwhile comes back with its links off, not with the copy it had when it was stashed.
+pub(crate) fn restore_stashed(stash: Option<Current>, links_off: bool) -> Option<Current> {
+    stash.map(|mut cur| { if links_off { drop_links(&mut cur); } cur })
+}
+
+/// The body the page shows. The HTML is the copy sanitised on the fetch thread; a message
+/// reported as phishing is sanitised again here, so its links lose their address (that state
+/// can arrive after it opened). In plain text view: the message's text part, else the text of
+/// the raw HTML — never of the sanitised copy, which for a body the sanitiser gives up on is
+/// that body's escaped source (`mailview::sanitize_mail_html_opts`).
+pub(crate) fn shown_body(cur: &Current, plain_view: bool) -> String {
+    // a text-only message shows its text in either view
+    let Some(raw) = cur.html.as_deref() else { return format!("<pre>{}</pre>", esc(&cur.text)); };
+    if !plain_view {
+        return cur.sanitized.clone().unwrap_or_else(|| mailview::sanitize_mail_html_opts(raw, cur.links_off));
+    }
+    let text = if cur.text.trim().is_empty() { html_to_text(raw) } else { cur.text.clone() };
+    format!("<pre>{}</pre>", esc(&text))
 }
 
 /// A message body prepared once, on the fetch thread: the HTML and text parts joined once and
@@ -316,7 +410,7 @@ fn render_current(u: &AppWindow) {
 
 /// The open message was just reported as phishing: draw it again with its links off.
 pub(crate) fn links_off_now(u: &AppWindow) {
-    CUR.with(|c| if let Some(c) = c.borrow_mut().as_mut() { c.links_off = true; c.sanitized = None; });
+    CUR.with(|c| if let Some(c) = c.borrow_mut().as_mut() { drop_links(c); });
     render_current(u);
 }
 
@@ -342,17 +436,7 @@ fn render_current_then(u: &AppWindow, on_ready: Option<Box<dyn FnOnce() -> bool>
         }
         // Settings > Accessibility > Show messages as: plain text drops the layout
         let plain_view = a.plain_view;
-        // the body is sanitised once, on the fetch thread; only a message reported as phishing
-        // (links off) is sanitised again here, so its links lose their address
-        let sanitized = cur.sanitized.clone().unwrap_or_else(|| match &cur.html {
-            Some(h) => mailview::sanitize_mail_html_opts(h, cur.links_off),
-            None => String::new(),
-        });
-        let body = match &cur.html {
-            Some(_) if !plain_view => sanitized,
-            Some(_) if cur.text.trim().is_empty() => format!("<pre>{}</pre>", esc(&html_to_text(&sanitized))),
-            _ => format!("<pre>{}</pre>", esc(&cur.text)),
-        };
+        let body = shown_body(cur, plain_view);
         match mode {
             2 => {
                 let t = if cur.text.trim().is_empty() { cur.html.as_deref().map(html_to_text).unwrap_or_default() } else { cur.text.clone() };

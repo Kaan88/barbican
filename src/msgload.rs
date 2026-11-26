@@ -31,6 +31,45 @@ static PREFETCHING: Mutex<Option<HashSet<String>>> = Mutex::new(None);
 /// A prefetch skips (and does not cache) a message whose inline images add up to more.
 const PREFETCH_INLINE_MAX: u64 = 4_000_000;
 
+/// The reader's settings, read afresh by each stage that needs them: when a message is opened
+/// (what shapes the fetch: threading, the read delay), when its body arrives (the page), and
+/// when the page is ready (the banners: read receipts, invitations). Nothing is carried from one
+/// stage to the next, so a setting changed while a message loads — "never send read receipts"
+/// during a slow fetch — is honoured by the stage that follows. Still one snapshot per stage,
+/// never one per field.
+#[derive(Clone, Copy)]
+pub(crate) struct Prefs(fn() -> settings::Snapshot);
+
+impl Prefs {
+    /// The app's saved settings.
+    pub(crate) fn live() -> Self { Self(settings::snapshot) }
+
+    /// A reader reading `read` instead of the app's settings (a test).
+    #[cfg(test)]
+    fn probe(read: fn() -> settings::Snapshot) -> Self { Self(read) }
+
+    /// The settings as they are now.
+    fn now(&self) -> settings::Snapshot { (self.0)() }
+}
+
+/// What opening a message does to the reader now, when its body is not in the cache. Whatever
+/// happens, the message on screen may not be acted on from the moment its replacement starts to
+/// load: a cached message replaces every row at once, and an empty reader has nothing to keep.
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Opening {
+    /// The reader is empty: the last message's rows go now, then the row's header.
+    Fill,
+    /// A message is on screen and its body is about to fade: its rows go with the loading state
+    /// (the point they have always gone at), so key repeat does not flicker them.
+    Fade,
+    /// Already fading (key repeat): only the row's header follows the selection.
+    Header,
+}
+
+fn opening_step(empty: bool, loading: bool) -> Opening {
+    if empty { Opening::Fill } else if loading { Opening::Header } else { Opening::Fade }
+}
+
 fn threading(p: &settings::Snapshot) -> bool { !settings::get_bool(p, "disableThreading", false) }
 
 fn mark_delay(p: &settings::Snapshot) -> i64 { p.get("markAsReadDelay").and_then(|v| v.as_i64()).unwrap_or(0) }
@@ -108,9 +147,12 @@ pub fn open(u: &AppWindow, st: &Shared, id: String) {
     shortcuts::note_opened(&id);
     let Some(c) = client_for(st, &id) else { return };
     READER_CLIENT.with(|r| *r.borrow_mut() = Some(c.clone()));
-    let p = settings::snapshot();
-    let delay = mark_delay(&p);
-    let want_thread = threading(&p);
+    // one snapshot per stage: this one shapes the fetch and the row's header; the page and the
+    // banners each take their own when they are made
+    let p = Prefs::live();
+    let now = p.now();
+    let delay = mark_delay(&now);
+    let want_thread = threading(&now);
     let seq = OPEN_SEQ.with(|s| { s.set(s.get() + 1); s.get() });
     let acct = c.state_key();
     let shared = mail::shared_account(&id);
@@ -130,33 +172,42 @@ pub fn open(u: &AppWindow, st: &Shared, id: String) {
     }
     // a page still loading for the message before must not appear under this one
     mailview::cancel_pending();
+    // from here on nothing may act on, or show, the message on screen: its state (the banners,
+    // the source view, the reply target) goes now, before its replacement has arrived, so a
+    // "Load full body" or "View source" result for it is dropped when it comes back
+    reader::clear(u);
+    let step = opening_step(CUR.with(|x| x.borrow().is_none()), u.get_r_loading());
     // what is on screen stays, but nothing may act on it: reply and attachments wait
     CUR_MSG.with(|x| *x.borrow_mut() = None);
     REPLY.with(|r| *r.borrow_mut() = None);
     WAITING.with(|w| w.set(true));
-    if CUR.with(|x| x.borrow().is_none()) {
+    match step {
         // an empty reader: nothing of the previous message may stay, then the row's header now
-        clear_reader_rows(u);
-        prefill(u, &id);
-    } else if u.get_r_loading() {
+        Opening::Fill => {
+            clear_reader_rows(u);
+            prefill(u, &id);
+        }
         // already showing the loading state: only the row's header follows the selection
-        prefill(u, &id);
-    } else if !LOADING.with(|t| t.running()) {
+        Opening::Header => prefill(u, &id),
         // started once per burst (key repeat keeps it), not restarted on every key
-        let wk = u.as_weak();
-        LOADING.with(|t| t.start(slint::TimerMode::SingleShot, Duration::from_millis(150), move || {
-            if !WAITING.with(|w| w.get()) { return; }
-            let Some(u) = wk.upgrade() else { return };
-            if u.get_current_mail().is_empty() { return; }
-            u.set_r_loading(true);
-            prefill(&u, u.get_current_mail().as_str());
-            mailview::dim(true);
-        }));
+        Opening::Fade if LOADING.with(|t| t.running()) => {}
+        Opening::Fade => {
+            let wk = u.as_weak();
+            LOADING.with(|t| t.start(slint::TimerMode::SingleShot, Duration::from_millis(150), move || {
+                if !WAITING.with(|w| w.get()) { return; }
+                let Some(u) = wk.upgrade() else { return };
+                if u.get_current_mail().is_empty() { return; }
+                u.set_r_loading(true);
+                // the message that was on screen goes with its body, which is about to fade
+                clear_reader_rows(&u);
+                prefill(&u, u.get_current_mail().as_str());
+                mailview::dim(true);
+            }));
+        }
     }
     // key repeat: warm the messages ahead of this one while it loads
     prefetch(u, &id, want_thread);
     let w = u.as_weak();
-    let prefs = p.clone();
     std::thread::spawn(move || {
         // already on its way (prefetched): wait for that instead of asking twice
         let t0 = Instant::now();
@@ -165,7 +216,8 @@ pub fn open(u: &AppWindow, st: &Shared, id: String) {
         let _ = w.upgrade_in_event_loop(move |u| {
             if OPEN_SEQ.with(|s| s.get()) != seq || u.get_current_mail().as_str() != id { return; }
             match res {
-                Ok((m, t)) => present(&u, &c, &id, m, t, delay, unseen, want_thread, &prefs),
+                // the settings as they are now: one changed while the message loaded still counts
+                Ok((m, t)) => present(&u, &c, &id, m, t, delay, unseen, want_thread, &p),
                 Err(e) => {
                     // nothing of the previous message may stay (header, reply target)
                     WAITING.with(|w| w.set(false));
@@ -175,6 +227,7 @@ pub fn open(u: &AppWindow, st: &Shared, id: String) {
                     prefill(&u, &id);
                     CUR.with(|x| *x.borrow_mut() = None);
                     let body = format!("<pre>{}</pre>", esc(&format!("Could not load message: {e}")));
+                    let prefs = p.now();
                     let a = a11y::A11y::from(&prefs, a11y::System::detect());
                     let (doc, _, bg) = page(&body, false, false, &prefs, &a);
                     mailview::show(&doc, bg, false, None);
@@ -201,6 +254,18 @@ fn prefill(u: &AppWindow, id: &str) {
     u.set_r_flagged(m["keywords"]["$flagged"].as_bool() == Some(true));
     let host = READER_CLIENT.with(|r| r.borrow().as_ref().map(|c| crate::avatars::host_of(&c.base))).unwrap_or_default();
     mail::set_reader_avatar(u, Some(&m), &host);
+    // the row's own scheduled bar, not the previous message's
+    schedule::banner(u, Some(&m));
+}
+
+/// The body the reader shows for a message: the copy the fetch thread prepared and cached with
+/// it (the normal path: nothing is joined or sanitised on the UI thread), or one prepared here
+/// for a message that reached the reader some other way. The flag says the work was done here.
+fn body_for(cache: &mut bodycache::BodyCache, acct: &str, id: &str, m: &Value) -> (Arc<crate::Prepared>, bool) {
+    match cache.get_prepared(acct, id) {
+        Some(p) => (p, false),
+        None => (Arc::new(crate::prepare_message_body(m)), true),
+    }
 }
 
 /// The reader is empty: drop every row that belonged to the previous message (the To line, the
@@ -239,7 +304,7 @@ fn mark_read(w: slint::Weak<AppWindow>, c: Arc<jmap::Client>, id: String, delay:
 /// Show a loaded message: the body first goes into the view hidden, then header and body
 /// change together. `unseen`: whether it was unread when opened (None: see its keywords).
 #[allow(clippy::too_many_arguments)]
-fn present(u: &AppWindow, c: &Arc<jmap::Client>, id: &str, m: Arc<Value>, thread: Option<Arc<Vec<Value>>>, delay: i64, unseen: Option<bool>, want_thread: bool, prefs: &settings::Snapshot) {
+fn present(u: &AppWindow, c: &Arc<jmap::Client>, id: &str, m: Arc<Value>, thread: Option<Arc<Vec<Value>>>, delay: i64, unseen: Option<bool>, want_thread: bool, p: &Prefs) {
     // the list's copy has the current keywords (a cached body may predate a flag or read)
     let live = mail::email(id);
     let kw = live.as_ref().map(|l| l["keywords"].clone()).filter(|k| !k.is_null()).unwrap_or_else(|| m["keywords"].clone());
@@ -277,24 +342,16 @@ fn present(u: &AppWindow, c: &Arc<jmap::Client>, id: &str, m: Arc<Value>, thread
     let headers = m["headers"].as_array().cloned().unwrap_or_default();
     let sp = spam::analyze(&headers).filter(|sp| sp.verdict != "clean" || u.get_spam_show_clean());
     // the body is prepared (joined once, sanitised) on the fetch thread and cached with the
-    // message; only a message that is not cached is prepared here
-    let prepared = bodycache::with(|b| b.get_prepared(&c.state_key(), id))
-        .unwrap_or_else(|| std::sync::Arc::new(crate::prepare_message_body(&m)));
+    // message: the reader only takes that copy from there (and prepares one itself only for a
+    // message that reached it another way, which `body_for` reports in its second value)
+    let (prepared, _prepared_here) = bodycache::with(|b| body_for(b, &c.state_key(), id, &m));
     let prepared = (*prepared).clone();
-    let has_html = prepared.html.is_some();
     let allow = crate::allow_remote(u, &m);
     let links_off = kw[phish::KEYWORD].as_bool() == Some(true) || phish::marked(&m);
     let reply = (email.clone(), m["subject"].as_str().unwrap_or("").to_string(), m["messageId"][0].as_str().map(String::from), prepared.text.clone(), format!("{date}, {from}"));
     let flagged = kw["$flagged"].as_bool() == Some(true);
 
-    CUR.with(|c| *c.borrow_mut() = Some(Current {
-        html: prepared.html,
-        text: prepared.text,
-        remote: prepared.remote,
-        allow,
-        links_off,
-        sanitized: if links_off { None } else { has_html.then_some(prepared.sanitized) },
-    }));
+    CUR.with(|c| *c.borrow_mut() = Some(crate::current_for(prepared, allow, links_off)));
     let atts2 = atts.clone();
     CUR_MSG.with(|x| *x.borrow_mut() = Some((m.clone(), atts)));
     REPLY.with(|r| *r.borrow_mut() = Some(reply));
@@ -302,7 +359,7 @@ fn present(u: &AppWindow, c: &Arc<jmap::Client>, id: &str, m: Arc<Value>, thread
 
     let wk = u.as_weak();
     let (c2, id2) = (c.clone(), id.to_string());
-    let header_prefs = prefs.clone();
+    let prefs_at_ready = *p;
     let header = move || -> bool {
         let Some(u) = wk.upgrade() else { return false };
         // another message was opened meanwhile: this page is not to be shown
@@ -333,14 +390,16 @@ fn present(u: &AppWindow, c: &Arc<jmap::Client>, id: &str, m: Arc<Value>, thread
             Some(sp) => { u.set_spam_verdict(sp.verdict.into()); u.set_spam_detail(sp.detail.into()); }
             None => { u.set_spam_verdict("".into()); u.set_spam_detail("".into()); }
         }
-        // banners (unsubscribe, read receipt, invitation, long body) and their loads
-        reader::loaded(&u, c2.clone(), &m, &id2, &header_prefs);
+        // banners (unsubscribe, read receipt, invitation, long body) and their loads: the
+        // settings as they are when the page is ready, not as they were when it was opened
+        reader::loaded(&u, c2.clone(), &m, &id2, &prefs_at_ready.now());
         // only a message that was unread changes the folder counts
         if unseen { load_mailboxes(u.as_weak(), c2.clone(), false); }
         prefetch(&u, &id2, want_thread);
         true
     };
-    render_current_then(u, Some(Box::new(header)), prefs);
+    // the page: the settings as they are when the body arrives
+    render_current_then(u, Some(Box::new(header)), &p.now());
 }
 
 /// Load the messages next to the open one in the list into the cache: two ahead in the
@@ -429,5 +488,55 @@ mod tests {
             {"type": "application/pdf", "size": 9_000_000}
         ]});
         assert_eq!(inline_bytes(&m), 5_000_000);
+    }
+
+    #[test]
+    fn the_previous_message_is_dropped_before_the_new_one_is_shown() {
+        // an empty reader: the last message's rows go at once
+        assert_eq!(opening_step(true, false), Opening::Fill);
+        assert_eq!(opening_step(true, true), Opening::Fill, "an empty reader has nothing to fade");
+        // a message on screen: its body stays (and fades) but only the row's header follows the
+        // selection, until the loading state, when its rows go too — the point they always went at
+        assert_eq!(opening_step(false, false), Opening::Fade);
+        assert_eq!(opening_step(false, true), Opening::Header);
+    }
+
+    #[test]
+    fn the_reader_shows_the_prepared_body_without_preparing_it_again() {
+        // the fetch thread prepares and caches the body; the reader (on the UI thread) must take
+        // that copy, not join and sanitise the parts again
+        let m = json!({"htmlBody": [{"partId": "1", "type": "text/html"}], "bodyValues": {"1": {"value": "<p>hi</p>"}}});
+        let mut cache = bodycache::BodyCache::default();
+        cache.put("a", "1", m.clone());
+        let cached = Arc::new(crate::Prepared { html: Some("<p>hi</p>".into()), text: "hi".into(), remote: false, sanitized: "<p>prepared on the fetch thread</p>".into() });
+        cache.put_prepared("a", "1", cached.clone());
+        let (prepared, prepared_here) = body_for(&mut cache, "a", "1", &m);
+        assert!(!prepared_here, "nothing is prepared on the reader's thread");
+        assert!(Arc::ptr_eq(&prepared, &cached), "the very copy the fetch thread made is used");
+        assert_eq!(prepared.sanitized, "<p>prepared on the fetch thread</p>");
+        // a message the cache does not hold (it reached the reader another way) is prepared here
+        let (fresh, prepared_here) = body_for(&mut cache, "a", "2", &m);
+        assert!(prepared_here);
+        assert_eq!(fresh.sanitized, mailview::sanitize_mail_html_opts("<p>hi</p>", false));
+    }
+
+    #[test]
+    fn each_stage_reads_the_settings_again() {
+        thread_local! {
+            static SAVED: std::cell::RefCell<Value> = std::cell::RefCell::new(json!({}));
+        }
+        fn read() -> settings::Snapshot {
+            SAVED.with(|v| Arc::new(v.borrow().as_object().cloned().unwrap_or_default()))
+        }
+        let p = Prefs::probe(read);
+        SAVED.with(|v| *v.borrow_mut() = json!({"readReceiptResponse": "always"}));
+        let opened = p.now();
+        assert_eq!(settings::get_str(&opened, "readReceiptResponse", "ask"), "always");
+        // "always send read receipts" turned off while a slow message loads: the stage that
+        // decides when it arrives sees it (a snapshot carried from the open would still say
+        // "always" and send the receipt)
+        SAVED.with(|v| *v.borrow_mut() = json!({"readReceiptResponse": "never"}));
+        assert_eq!(settings::get_str(&p.now(), "readReceiptResponse", "ask"), "never");
+        assert_eq!(settings::get_str(&opened, "readReceiptResponse", "ask"), "always", "the open's copy is unchanged");
     }
 }
