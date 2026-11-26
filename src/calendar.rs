@@ -10,7 +10,8 @@ use crate::{AppWindow, CalCell, CalDetail, CalEvent, CalGuest, CalItem, CalSum, 
 use chrono::{Datelike, Duration, Local, NaiveDate, NaiveDateTime, Timelike};
 use serde_json::{json, Value};
 use crate::listsync::{sync_into, sync_seq};
-use slint::{Color, ComponentHandle, ModelRc, VecModel};
+use slint::{ComponentHandle, ModelRc, VecModel};
+use crate::ui_types::Color;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -304,7 +305,7 @@ pub const EVENT_PROPS: [&str; 34] = ["id", "@type", "uid", "title", "description
 
 // ---------------- loading ----------------
 
-pub fn load(w: slint::Weak<AppWindow>, c: Arc<Client>) {
+pub fn load(w: crate::ui_types::Weak<AppWindow>, c: Arc<Client>) {
     if !c.has(CAL) { return; }
     // this load's number: a slower one that lands late changes nothing
     let gen = crate::livesync::begin_load(crate::livesync::View::Calendar);
@@ -583,14 +584,14 @@ pub fn render(u: &AppWindow) {
         let x = u.global::<crate::CalX>();
         x.set_tasks_enabled(cp.tasks);
         x.set_tasks_app(cp.tasks && cp.tasks_app);
-        let mut names: Vec<slint::SharedString> = ["Day", "Week", "Month", "Agenda"].into_iter().map(Into::into).collect();
+        let mut names: Vec<crate::ui_types::SharedString> = ["Day", "Week", "Month", "Agenda"].into_iter().map(Into::into).collect();
         if cp.tasks && !cp.tasks_app { names.push("Tasks".into()); }
         x.set_view_names(ModelRc::new(VecModel::from(names)));
     }
     {
         let ws = week_start(today);
-        let names: Vec<slint::SharedString> = (0..7).map(|i| (ws + Duration::days(i)).format("%a").to_string().into()).collect();
-        let short: Vec<slint::SharedString> = names.iter().map(|n| n.chars().next().map(|c| c.to_string()).unwrap_or_default().into()).collect();
+        let names: Vec<crate::ui_types::SharedString> = (0..7).map(|i| (ws + Duration::days(i)).format("%a").to_string().into()).collect();
+        let short: Vec<crate::ui_types::SharedString> = names.iter().map(|n| n.chars().next().map(|c| c.to_string()).unwrap_or_default().into()).collect();
         sync_seq(&u.get_cal_weekdays(), names, |m| u.set_cal_weekdays(m));
         sync_seq(&u.get_cal_weekdays_short(), short, |m| u.set_cal_weekdays_short(m));
         u.set_cal_show_weeknums(cp.week_numbers);
@@ -599,7 +600,7 @@ pub fn render(u: &AppWindow) {
         u.global::<crate::Prefs>().set_cal_tinted(cp.tinted);
         u.global::<crate::Prefs>().set_cal_h12(cp.h12);
         let mini_first = week_start(a.with_day(1).unwrap());
-        let nums: Vec<slint::SharedString> = (0..6).map(|w| (mini_first + Duration::days(w * 7 + 3)).iso_week().week().to_string().into()).collect();
+        let nums: Vec<crate::ui_types::SharedString> = (0..6).map(|w| (mini_first + Duration::days(w * 7 + 3)).iso_week().week().to_string().into()).collect();
         sync_seq(&u.get_cal_week_nums(), nums, |m| u.set_cal_week_nums(m));
     }
     PENDING.with(|p| *p.borrow_mut() = pending_ids(&crate::my_addrs_cached()));

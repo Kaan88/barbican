@@ -166,7 +166,7 @@ thread_local! {
     /// The last normal rectangle seen (never a maximised or minimised one).
     static NORMAL: RefCell<Option<Saved>> = const { RefCell::new(None) };
     static MAXIMIZED: Cell<bool> = const { Cell::new(false) };
-    static DEBOUNCER: slint::Timer = slint::Timer::default();
+    static DEBOUNCER: crate::ui_types::Timer = crate::ui_types::Timer::default();
 }
 
 /// Automation runs off-screen and must leave the user's window file alone.
@@ -181,8 +181,7 @@ fn monitors(ui: &AppWindow) -> Vec<Rect> {
     }
     #[cfg(not(windows))]
     {
-        use slint::winit_030::WinitWindowAccessor;
-        ui.window().with_winit_window(|w| {
+        crate::ui_types::with_winit_window(ui.window(), |w| {
             w.available_monitors().map(|m| {
                 let (p, s) = (m.position(), m.size());
                 Rect { x: p.x, y: p.y, w: s.width as i32, h: s.height as i32 }
@@ -213,7 +212,7 @@ pub fn restore(ui: &AppWindow) {
     }
     // no monitor list before the window exists (not Windows): once the loop runs
     let w = ui.as_weak();
-    slint::Timer::single_shot(Duration::ZERO, move || {
+    crate::ui_types::Timer::single_shot(Duration::ZERO, move || {
         let Some(u) = w.upgrade() else { return };
         if let Some(p) = plan(&saved, &monitors(&u)) { apply(&u, &p); }
     });
@@ -247,11 +246,11 @@ pub fn save(ui: &AppWindow) {
 
 /// From the window's winit event filter (motion::install_filter): a resize or move writes
 /// the file once it has been quiet for a moment.
-pub fn event(ui: &AppWindow, ev: &slint::winit_030::winit::event::WindowEvent) {
-    use slint::winit_030::winit::event::WindowEvent::{Moved, Resized};
+pub fn event(ui: &AppWindow, ev: &crate::ui_types::winit::event::WindowEvent) {
+    use crate::ui_types::winit::event::WindowEvent::{Moved, Resized};
     if off() || !matches!(ev, Resized(_) | Moved(_)) { return; }
     let w = ui.as_weak();
-    DEBOUNCER.with(|t| t.start(slint::TimerMode::SingleShot, DEBOUNCE, move || { if let Some(u) = w.upgrade() { save(&u); } }));
+    DEBOUNCER.with(|t| t.start(crate::ui_types::TimerMode::SingleShot, DEBOUNCE, move || { if let Some(u) = w.upgrade() { save(&u); } }));
 }
 
 #[cfg(test)]

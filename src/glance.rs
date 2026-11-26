@@ -99,7 +99,7 @@ fn gb(n: u64) -> String {
 }
 
 /// Flagged mail (count and who sent the latest) and the storage quota.
-pub fn refresh(w: slint::Weak<AppWindow>, c: Arc<Client>) {
+pub fn refresh(w: crate::ui_types::Weak<AppWindow>, c: Arc<Client>) {
     std::thread::spawn(move || {
         let quota = c.quota().ok().flatten();
         let flagged = c.call(json!([
@@ -155,7 +155,7 @@ fn short_date(v: &Value) -> String {
 
 /// Fill the sender panel for `email` (the open message is `current`): the contact card if
 /// there is one, the latest other messages from them, files they sent, the next shared event.
-pub fn sender(w: slint::Weak<AppWindow>, c: Arc<Client>, email: String, current: String) {
+pub fn sender(w: crate::ui_types::Weak<AppWindow>, c: Arc<Client>, email: String, current: String) {
     if email.is_empty() { return; }
     if let Some((when, title)) = crate::calendar::next_with(&email) {
         if let Some(u) = w.upgrade() { u.set_sx_next(when.into()); u.set_sx_next_title(title.into()); }
@@ -205,7 +205,7 @@ pub fn sender(w: slint::Weak<AppWindow>, c: Arc<Client>, email: String, current:
 /// The contact detail tiles (design/mockups BNContacts): recent mail from the contact, files
 /// they sent and the next event with them. `email` is the contact's first address; the
 /// results are dropped if another contact was opened meanwhile.
-pub fn contact(w: slint::Weak<AppWindow>, c: Arc<Client>, email: String) {
+pub fn contact(w: crate::ui_types::Weak<AppWindow>, c: Arc<Client>, email: String) {
     if let Some(u) = w.upgrade() {
         u.set_cx_recent(ModelRc::default());
         u.set_cx_files(ModelRc::default());

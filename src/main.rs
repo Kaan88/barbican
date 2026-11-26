@@ -103,10 +103,13 @@ mod listsync;
 mod livesync;
 mod notices;
 mod motion;
+// Barbican's own names for the view types the logic handles (docs/UI-TOOLKIT-EVAL.md, U1)
+mod ui_types;
 
 use chrono::{DateTime, Local};
 use serde_json::{json, Value};
-use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
+use slint::{ComponentHandle, Model, ModelRc, VecModel};
+use crate::ui_types::SharedString;
 use std::sync::{Arc, Mutex};
 
 slint::include_modules!();
@@ -591,20 +594,20 @@ pub fn html_to_text(h: &str) -> String {
 
 thread_local! { pub(crate) static WV_UNAVAILABLE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
 thread_local! { static RESET_ARMED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
-thread_local! { static RESET_DISARM: slint::Timer = slint::Timer::default(); }
+thread_local! { static RESET_DISARM: crate::ui_types::Timer = crate::ui_types::Timer::default(); }
 thread_local! { static CACHE_ARMED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
-thread_local! { static CACHE_DISARM: slint::Timer = slint::Timer::default(); }
+thread_local! { static CACHE_DISARM: crate::ui_types::Timer = crate::ui_types::Timer::default(); }
 /// How long a "press again" confirmation stays armed (RESET_ARMED, CACHE_ARMED): a press a week
 /// after the first must ask again rather than go through.
 const ARMED_FOR: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// Arm a "press again to do it" flag, and take it back silently after [`ARMED_FOR`].
-fn arm_for_press(flag: &'static std::thread::LocalKey<std::cell::Cell<bool>>, disarm: &'static std::thread::LocalKey<slint::Timer>) {
+fn arm_for_press(flag: &'static std::thread::LocalKey<std::cell::Cell<bool>>, disarm: &'static std::thread::LocalKey<crate::ui_types::Timer>) {
     flag.with(|x| x.set(true));
-    disarm.with(|t| t.start(slint::TimerMode::SingleShot, ARMED_FOR, move || flag.with(|x| x.set(false))));
+    disarm.with(|t| t.start(crate::ui_types::TimerMode::SingleShot, ARMED_FOR, move || flag.with(|x| x.set(false))));
 }
 
-thread_local! { static SERVER_DEBOUNCE: slint::Timer = slint::Timer::default(); }
+thread_local! { static SERVER_DEBOUNCE: crate::ui_types::Timer = crate::ui_types::Timer::default(); }
 /// The server writes the debounce timer runs, one per slot (server_settings::job_slot).
 type ServerJob = (Arc<jmap::Client>, Box<dyn FnOnce(&jmap::Client) -> Result<(), String> + Send>);
 thread_local! { static SERVER_PENDING: std::cell::RefCell<server_settings::PendingJobs<ServerJob>> = std::cell::RefCell::new(Default::default()); }
@@ -615,7 +618,7 @@ thread_local! { static TEMPLATES: std::cell::RefCell<(String, Vec<Value>)> = con
 thread_local! { static THREAD_ID: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) }; }
 
 /// Load the open message's conversation (unless threading is turned off, like Bulwark's disableThreading).
-fn load_thread(w: slint::Weak<AppWindow>, c: Arc<jmap::Client>, id: String) {
+fn load_thread(w: crate::ui_types::Weak<AppWindow>, c: Arc<jmap::Client>, id: String) {
     if settings::bool_pref("disableThreading", false) { return; }
     std::thread::spawn(move || {
         let Ok(mut list) = c.thread_emails(unified::real_id(&id)) else { return };
@@ -751,7 +754,7 @@ static SESSION_GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64:
 /// The stream is re-opened with exponential backoff (2 s .. 5 min, with jitter) after it drops
 /// or goes silent. Each time it opens everything is synced once (cheap: /changes deltas), since
 /// changes made before it was listening (or while it was down) are never pushed.
-fn start_push(w: slint::Weak<AppWindow>, c: Arc<jmap::Client>) {
+fn start_push(w: crate::ui_types::Weak<AppWindow>, c: Arc<jmap::Client>) {
     let gen = SESSION_GEN.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
     let live = move || SESSION_GEN.load(std::sync::atomic::Ordering::SeqCst) == gen;
     std::thread::spawn(move || {
@@ -800,15 +803,15 @@ fn start_push(w: slint::Weak<AppWindow>, c: Arc<jmap::Client>) {
 }
 
 thread_local! {
-    static REFRESH: slint::Timer = slint::Timer::default();
+    static REFRESH: crate::ui_types::Timer = crate::ui_types::Timer::default();
     static PUSHED: std::cell::RefCell<std::collections::HashSet<String>> = std::cell::RefCell::new(Default::default());
 }
 
 /// Coalesce pushes for 700 ms, then sync only what changed: folders (Mailbox/changes), the list
 /// (Email/queryChanges + Email/changes), new-mail notifications, the Scheduled view.
-fn schedule_refresh(w: slint::Weak<AppWindow>, c: Arc<jmap::Client>, types: std::collections::HashSet<String>) {
+fn schedule_refresh(w: crate::ui_types::Weak<AppWindow>, c: Arc<jmap::Client>, types: std::collections::HashSet<String>) {
     PUSHED.with(|p| p.borrow_mut().extend(types));
-    REFRESH.with(|t| t.start(slint::TimerMode::SingleShot, std::time::Duration::from_millis(700), move || {
+    REFRESH.with(|t| t.start(crate::ui_types::TimerMode::SingleShot, std::time::Duration::from_millis(700), move || {
         let types = PUSHED.with(|p| std::mem::take(&mut *p.borrow_mut()));
         let has = |t: &str| types.contains(t);
         if has("Mailbox") || has("Email") || has("Thread") { mail::load_mailboxes(w.clone(), c.clone(), false); }
@@ -833,7 +836,7 @@ static NOTIFIED: Mutex<Option<std::collections::HashSet<String>>> = Mutex::new(N
 /// Desktop notification for newly arrived unread inbox mail (Bulwark: emailNotificationsEnabled,
 /// lib/desktop/mail-notifications.ts): mail that arrives together is told about once, one
 /// message with Archive / Mark as read / Delete, several as a count that opens the Inbox.
-fn check_new_mail(c: Arc<jmap::Client>, w: Option<slint::Weak<AppWindow>>) {
+fn check_new_mail(c: Arc<jmap::Client>, w: Option<crate::ui_types::Weak<AppWindow>>) {
     let prefs = settings::Settings::load();
     if !prefs.bool("emailNotificationsEnabled", true) { return; }
     // Bulwark: Do not disturb keeps every notification quiet
@@ -886,8 +889,8 @@ fn check_new_mail(c: Arc<jmap::Client>, w: Option<slint::Weak<AppWindow>>) {
         if arrived && a11y::A11y::load().visual_alerts {
             if let Some(w) = w {
                 let _ = w.upgrade_in_event_loop(|u| {
-                    use slint::winit_030::{winit::window::UserAttentionType, WinitWindowAccessor};
-                    u.window().with_winit_window(|ww| ww.request_user_attention(Some(UserAttentionType::Informational)));
+                    use crate::ui_types::winit::window::UserAttentionType;
+                    crate::ui_types::with_winit_window(u.window(), |ww| ww.request_user_attention(Some(UserAttentionType::Informational)));
                 });
             }
         }
@@ -967,7 +970,7 @@ fn body_html(m: &Value) -> String {
     if is_html && !html.is_empty() { html } else { format!("<pre>{}</pre>", esc(&text)) }
 }
 
-fn load_folder(ui: slint::Weak<AppWindow>, client: Arc<jmap::Client>, mailbox: Option<String>, text: Option<String>) {
+fn load_folder(ui: crate::ui_types::Weak<AppWindow>, client: Arc<jmap::Client>, mailbox: Option<String>, text: Option<String>) {
     let filter = match (mailbox, text) {
         (Some(m), Some(t)) if m == unified::FOLDER_ID => mail::folder_filter(&m, Some(&t)),
         (_, Some(t)) => gsearch::mailbox_search_filter(&t, None, mail::role_id),
@@ -979,7 +982,7 @@ fn load_folder(ui: slint::Weak<AppWindow>, client: Arc<jmap::Client>, mailbox: O
     mail::load_list(ui, client, filter);
 }
 
-fn load_mailboxes(ui: slint::Weak<AppWindow>, client: Arc<jmap::Client>, select_inbox: bool) {
+fn load_mailboxes(ui: crate::ui_types::Weak<AppWindow>, client: Arc<jmap::Client>, select_inbox: bool) {
     mail::load_mailboxes(ui, client, select_inbox);
 }
 
@@ -1182,7 +1185,7 @@ fn main() -> Result<(), slint::PlatformError> {
         tplflow::reset(&u);
         subaddr::reset(&u);
         TEMPLATES.with(|t| *t.borrow_mut() = (String::new(), Vec::new()));
-        u.set_tpl_names(ModelRc::new(VecModel::from(vec![slint::SharedString::from("Insert template…")])));
+        u.set_tpl_names(ModelRc::new(VecModel::from(vec![crate::ui_types::SharedString::from("Insert template…")])));
         u.set_tpl_index(0);
         u.set_tpl_note("".into());
         // nobody at this computer finds the last person's password or code in the form
@@ -1333,7 +1336,7 @@ fn main() -> Result<(), slint::PlatformError> {
         // (forget_trusted_senders), Reset; and settings sync is paused (settings_sync::frozen).
         eprintln!("barbican: the settings file could not be read; settings changes will not be saved this session");
         let w = ui.as_weak();
-        slint::Timer::single_shot(std::time::Duration::from_secs(2), move || {
+        crate::ui_types::Timer::single_shot(std::time::Duration::from_secs(2), move || {
             if let Some(u) = w.upgrade() {
                 mail::show_toast(&u, "Your settings could not be read, so the defaults are in use. Settings changes, sign-out and reset will not be saved this session; restart Barbican to load your settings.", false);
             }
@@ -1469,7 +1472,7 @@ fn main() -> Result<(), slint::PlatformError> {
             let since = SERVER_WAITING_SINCE.with(|s| *s.get().get_or_insert_with(std::time::Instant::now));
             let delay = server_settings::debounce_delay(std::time::Duration::from_millis(delay_ms), since.elapsed());
             let w = w.clone();
-            SERVER_DEBOUNCE.with(|t| t.start(slint::TimerMode::SingleShot, delay, move || {
+            SERVER_DEBOUNCE.with(|t| t.start(crate::ui_types::TimerMode::SingleShot, delay, move || {
                 SERVER_WAITING_SINCE.with(|s| s.set(None));
                 let jobs = SERVER_PENDING.with(|p| p.borrow_mut().take_all());
                 if jobs.is_empty() { return; }
@@ -2191,7 +2194,7 @@ fn main() -> Result<(), slint::PlatformError> {
         let key = format!("{}|{}", c.username, c.account);
         if TEMPLATES.with(|t| t.borrow().0 != key) {
             TEMPLATES.with(|t| *t.borrow_mut() = (String::new(), Vec::new()));
-            if let Some(u) = w.upgrade() { u.set_tpl_names(ModelRc::new(VecModel::from(vec![slint::SharedString::from("Insert template…")]))); u.set_tpl_index(0); }
+            if let Some(u) = w.upgrade() { u.set_tpl_names(ModelRc::new(VecModel::from(vec![crate::ui_types::SharedString::from("Insert template…")]))); u.set_tpl_index(0); }
         }
         if let Some(u) = w.upgrade() { if TEMPLATES.with(|t| t.borrow().0 != key) { u.set_tpl_note("Loading…".into()); } }
         let st = st.clone();
@@ -2202,7 +2205,7 @@ fn main() -> Result<(), slint::PlatformError> {
                 if compose_client(&st).map(|c| format!("{}|{}", c.username, c.account)).as_deref() != Some(key.as_str()) { return; }
                 u.set_tpl_note("".into());
                 TEMPLATES.with(|t| *t.borrow_mut() = (key, list.clone()));
-                let mut names: Vec<slint::SharedString> = vec!["Insert template…".into()];
+                let mut names: Vec<crate::ui_types::SharedString> = vec!["Insert template…".into()];
                 names.extend(list.iter().map(|t| t["name"].as_str().unwrap_or("(unnamed)").into()));
                 u.set_tpl_names(ModelRc::new(VecModel::from(names)));
                 u.set_tpl_index(0);
@@ -2373,8 +2376,8 @@ fn main() -> Result<(), slint::PlatformError> {
     // here when the login form is what is shown (nothing remembered to sign in with), or on a
     // clean quit; the timer is only the fallback (see crashguard.rs)
     if oauth::remembered().is_none() { crashguard::done(&config_dir()); }
-    let guard_timer = slint::Timer::default();
-    guard_timer.start(slint::TimerMode::SingleShot, crashguard::UP_FOR, || crashguard::done(&config_dir()));
+    let guard_timer = crate::ui_types::Timer::default();
+    guard_timer.start(crate::ui_types::TimerMode::SingleShot, crashguard::UP_FOR, || crashguard::done(&config_dir()));
     if automation::enabled() {
         ui.window().set_position(slint::PhysicalPosition::new(-6000, 0));
     }
@@ -2382,22 +2385,22 @@ fn main() -> Result<(), slint::PlatformError> {
     let set_now = |u: &AppWindow| { use chrono::Timelike; let n = chrono::Local::now(); u.set_now_minutes((n.hour() * 60 + n.minute()) as i32); };
     set_now(&ui);
     let w = ui.as_weak();
-    let now_timer = slint::Timer::default();
-    now_timer.start(slint::TimerMode::Repeated, std::time::Duration::from_secs(30), move || {
+    let now_timer = crate::ui_types::Timer::default();
+    now_timer.start(crate::ui_types::TimerMode::Repeated, std::time::Duration::from_secs(30), move || {
         if let Some(u) = w.upgrade() { set_now(&u); }
     });
     let w = ui.as_weak();
     ui.on_webview_sync(move || { if let Some(u) = w.upgrade() { mailview::sync(&u); } });
     let w = ui.as_weak();
-    let timer = slint::Timer::default();
-    timer.start(slint::TimerMode::Repeated, std::time::Duration::from_millis(50), move || {
+    let timer = crate::ui_types::Timer::default();
+    timer.start(crate::ui_types::TimerMode::Repeated, std::time::Duration::from_millis(50), move || {
         if let Some(u) = w.upgrade() { mailview::sync(&u); }
     });
     // Bulwark unreadBadgeAllAccounts: the other signed-in accounts' inbox counts for the
     // title badge, refreshed now and then (the active account's come with its push)
     let w = ui.as_weak();
-    let badge_timer = slint::Timer::default();
-    badge_timer.start(slint::TimerMode::Repeated, std::time::Duration::from_secs(120), move || {
+    let badge_timer = crate::ui_types::Timer::default();
+    badge_timer.start(crate::ui_types::TimerMode::Repeated, std::time::Duration::from_secs(120), move || {
         if w.upgrade().is_some_and(|u| u.get_logged_in()) { unified::refresh_other_logins(w.clone(), false); }
     });
     // the window can be closed to the tray: the loop runs until Quit
@@ -2417,7 +2420,7 @@ fn main() -> Result<(), slint::PlatformError> {
 static CONFIRM: Mutex<Option<std::sync::mpsc::Sender<bool>>> = Mutex::new(None);
 
 struct UiHost {
-    w: slint::Weak<AppWindow>,
+    w: crate::ui_types::Weak<AppWindow>,
     client: Arc<jmap::Client>,
     cancel: Arc<std::sync::atomic::AtomicBool>,
 }
@@ -2491,7 +2494,7 @@ fn push_chat(u: &AppWindow, role: &str, text: &str) {
         vm.push(ChatMsg { role: role.into(), text: text.into() });
     }
     let w = u.as_weak();
-    slint::Timer::single_shot(std::time::Duration::from_millis(60), move || {
+    crate::ui_types::Timer::single_shot(std::time::Duration::from_millis(60), move || {
         if let Some(u) = w.upgrade() { u.invoke_scroll_chat(); }
     });
 }
@@ -2552,7 +2555,7 @@ static RESTORE_PENDING: Mutex<Option<Value>> = Mutex::new(None);
 /// A start-up failure that is not the server turning the sign-in down is retried with backoff
 /// (`restore::restore_outcome`) and then shown with "Try again"; whatever happens the stored
 /// entry stays until the user signs in again or out.
-fn restore_session(w: slint::Weak<AppWindow>, st: Shared, v: Value, switching: bool, source: Option<secrets::Source>) {
+fn restore_session(w: crate::ui_types::Weak<AppWindow>, st: Shared, v: Value, switching: bool, source: Option<secrets::Source>) {
     let gen = SESSION_GEN.load(std::sync::atomic::Ordering::SeqCst);
     std::thread::spawn(move || {
         let server = v["server"].as_str().unwrap_or("").to_string();
@@ -2639,7 +2642,7 @@ fn restore_session(w: slint::Weak<AppWindow>, st: Shared, v: Value, switching: b
 /// `gen`: the [`SESSION_GEN`] the sign-in started in. A sign-out since (a forgotten app-lock PIN
 /// signs everyone out while a start-up restore is still connecting) drops the result: nothing is
 /// remembered again and nobody is signed in.
-fn finish_login(w: slint::Weak<AppWindow>, st: Shared, res: Result<jmap::Client, String>, server: String, user: String, remember: Option<Value>, origin: oauth::Origin, gen: u64) {
+fn finish_login(w: crate::ui_types::Weak<AppWindow>, st: Shared, res: Result<jmap::Client, String>, server: String, user: String, remember: Option<Value>, origin: oauth::Origin, gen: u64) {
     let current = move || SESSION_GEN.load(std::sync::atomic::Ordering::SeqCst) == gen;
     match res {
         Ok(_) if !current() => {}
@@ -2803,11 +2806,11 @@ pub fn apply_ui_prefs(ui: &AppWindow) {
     ui.global::<Prefs>().set_hover_bottom(corner.starts_with("bottom"));
     ui.set_pref_day_start(p.int("calendarDayStartHour", 8).clamp(0, 23) as i32);
     // Bulwark hoverActions (delete, star, markRead, archive, tag, spam), in the user's order
-    let hover: Vec<slint::SharedString> = match p.prefs.get("hoverActions").and_then(|v| v.as_array()) {
+    let hover: Vec<crate::ui_types::SharedString> = match p.prefs.get("hoverActions").and_then(|v| v.as_array()) {
         Some(a) => a.iter().filter_map(|x| x.as_str()).filter_map(|x| match x {
             "delete" => Some("delete"), "star" => Some("star"), "markRead" => Some("read"), "archive" => Some("archive"), "spam" => Some("spam"), _ => None,
-        }).map(slint::SharedString::from).collect(),
-        None => ["delete", "star", "read", "archive"].into_iter().map(slint::SharedString::from).collect(),
+        }).map(crate::ui_types::SharedString::from).collect(),
+        None => ["delete", "star", "read", "archive"].into_iter().map(crate::ui_types::SharedString::from).collect(),
     };
     ui.global::<Prefs>().set_hover_actions(slint::ModelRc::new(slint::VecModel::from(hover)));
     // the open message picks up reading and accessibility changes

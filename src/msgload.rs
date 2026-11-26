@@ -18,7 +18,7 @@ use std::time::{Duration, Instant};
 
 thread_local! {
     static OPEN_SEQ: Cell<u64> = const { Cell::new(0) };
-    static LOADING: slint::Timer = slint::Timer::default();
+    static LOADING: crate::ui_types::Timer = crate::ui_types::Timer::default();
     /// A message is being fetched for the reader (it still shows the previous one).
     static WAITING: Cell<bool> = const { Cell::new(false) };
     /// The list position of the last message prefetched around, and the way the user is going
@@ -206,7 +206,7 @@ pub fn open(u: &AppWindow, st: &Shared, id: String) {
     // started once per burst (key repeat keeps it), not restarted on every key
     if plan.fade && !LOADING.with(|t| t.running()) {
         let wk = u.as_weak();
-        LOADING.with(|t| t.start(slint::TimerMode::SingleShot, Duration::from_millis(150), move || {
+        LOADING.with(|t| t.start(crate::ui_types::TimerMode::SingleShot, Duration::from_millis(150), move || {
             if !WAITING.with(|w| w.get()) { return; }
             let Some(u) = wk.upgrade() else { return };
             if u.get_current_mail().is_empty() { return; }
@@ -297,7 +297,7 @@ fn clear_reader_rows(u: &AppWindow) {
 }
 
 /// Bulwark markAsReadDelay (ms): 0 = instantly, N = after N ms if still open, -1 = never.
-fn mark_read(w: slint::Weak<AppWindow>, c: Arc<jmap::Client>, id: String, delay: i64) {
+fn mark_read(w: crate::ui_types::Weak<AppWindow>, c: Arc<jmap::Client>, id: String, delay: i64) {
     std::thread::spawn(move || {
         if delay > 0 { std::thread::sleep(Duration::from_millis(delay as u64)); }
         let still = Arc::new(std::sync::atomic::AtomicBool::new(delay == 0));

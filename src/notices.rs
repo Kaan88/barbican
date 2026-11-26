@@ -410,7 +410,7 @@ fn pump(u: &AppWindow) {
         }
     };
     let w = u.as_weak();
-    slint::Timer::single_shot(after, move || if let Some(u) = w.upgrade() { pump(&u) } else { PUMPING.with(|p| p.set(false)) });
+    crate::ui_types::Timer::single_shot(after, move || if let Some(u) = w.upgrade() { pump(&u) } else { PUMPING.with(|p| p.set(false)) });
 }
 
 /// An item's toast is on screen: keep a warning in the centre, then destroy what it showed.
@@ -427,7 +427,7 @@ fn displayed(u: &AppWindow, item: QItem) {
 
 /// Pull both notification kinds and show what is new; a push arriving while this login's pull
 /// runs joins it (one more pull after it, with the session current then).
-pub fn fetch(w: slint::Weak<AppWindow>, c: Arc<Client>) {
+pub fn fetch(w: crate::ui_types::Weak<AppWindow>, c: Arc<Client>) {
     let (shares_on, events_on) = (c.has(PRINCIPALS), c.has(crate::calendar::CAL));
     if !shares_on && !events_on { return; }
     let owner = c.state_key();
@@ -492,7 +492,7 @@ fn show(u: &AppWindow, c: &Arc<Client>, shares: Vec<Value>, events: Vec<Value>) 
     WAITING.with(|ws| ws.borrow_mut().push(Waiting { id, owner, account: c.account.clone(), notes: shares, before, need }));
     if WAITING.with(|ws| ws.borrow().iter().any(|x| x.id == id && x.need.is_empty())) { land(u, None); return; }
     let w = u.as_weak();
-    slint::Timer::single_shot(LIST_WAIT, move || if let Some(u) = w.upgrade() {
+    crate::ui_types::Timer::single_shot(LIST_WAIT, move || if let Some(u) = w.upgrade() {
         let late = WAITING.with(|ws| { let mut ws = ws.borrow_mut(); ws.iter().position(|x| x.id == id).map(|p| ws.remove(p)) });
         if let Some(x) = late { share_ready(&u, x); }
     });

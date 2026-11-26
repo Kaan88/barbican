@@ -524,7 +524,7 @@ fn spec(view: View) -> Spec {
 /// One view's push: the deltas of its recorded (type, account) states on a thread, then on the UI
 /// thread the full load or the delta's application, as [`Ledger::settle`] decides. Reruns use the
 /// session current at that moment.
-fn follow(view: View, w: slint::Weak<AppWindow>, c: Arc<Client>) {
+fn follow(view: View, w: crate::ui_types::Weak<AppWindow>, c: Arc<Client>) {
     let owner = c.state_key();
     if !is_current(&owner) { return; }
     let Some(steps) = with(|l| l.steps(view, &owner)) else { return };
@@ -545,17 +545,17 @@ fn follow(view: View, w: slint::Weak<AppWindow>, c: Arc<Client>) {
 // ---------------- the views ----------------
 
 /// Calendar and CalendarEvent of every calendar account the view read.
-pub fn calendar(w: slint::Weak<AppWindow>, c: Arc<Client>) { follow(View::Calendar, w, c); }
+pub fn calendar(w: crate::ui_types::Weak<AppWindow>, c: Arc<Client>) { follow(View::Calendar, w, c); }
 
 /// AddressBook and ContactCard of the contacts account.
-pub fn contacts(w: slint::Weak<AppWindow>, c: Arc<Client>) { follow(View::Contacts, w, c); }
+pub fn contacts(w: crate::ui_types::Weak<AppWindow>, c: Arc<Client>) { follow(View::Contacts, w, c); }
 
 /// FileNode of every account with file storage the view read.
-pub fn files(w: slint::Weak<AppWindow>, c: Arc<Client>) { follow(View::Files, w, c); }
+pub fn files(w: crate::ui_types::Weak<AppWindow>, c: Arc<Client>) { follow(View::Files, w, c); }
 
 /// Identity push: the delta is applied to the login's list, which then goes to the open
 /// settings page (when it shows this login) and to the own-address checks.
-pub fn identities(w: slint::Weak<AppWindow>, c: Arc<Client>) { follow(View::Identities, w, c); }
+pub fn identities(w: crate::ui_types::Weak<AppWindow>, c: Arc<Client>) { follow(View::Identities, w, c); }
 
 // ---------------- identities ----------------
 

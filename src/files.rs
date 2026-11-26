@@ -9,7 +9,8 @@
 use crate::jmap::Client;
 use crate::{AppWindow, FileRow, NavRow};
 use serde_json::{json, Value};
-use slint::{ComponentHandle, SharedString};
+use slint::ComponentHandle;
+use crate::ui_types::SharedString;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;

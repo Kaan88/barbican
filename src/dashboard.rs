@@ -6,7 +6,8 @@
 use crate::admin::Admin;
 use crate::{AppWindow, DashBar, DashCol, DashPanel, DashRow, DashTip};
 use serde_json::{json, Value};
-use slint::{Color, ComponentHandle, ModelRc, SharedString, VecModel};
+use slint::{ComponentHandle, ModelRc, VecModel};
+use crate::ui_types::{Color, SharedString};
 use std::collections::HashMap;
 
 const PINK: u32 = 0xe8486f;

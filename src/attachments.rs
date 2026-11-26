@@ -5,7 +5,8 @@
 use crate::jmap::Client;
 use crate::{AppWindow, AttCard};
 use serde_json::Value;
-use slint::{ComponentHandle, Model, ModelRc, SharedPixelBuffer, Rgba8Pixel, VecModel};
+use slint::{ComponentHandle, Model, ModelRc, VecModel};
+use crate::ui_types::{SharedPixelBuffer, Rgba8Pixel};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -202,7 +203,7 @@ pub fn show(u: &AppWindow, c: Arc<Client>, id: &str, atts: &[Value]) {
             ext: ext.into(),
             size: crate::human_size(a["size"].as_u64().unwrap_or(0)).into(),
             has_thumb: cached.is_some(),
-            thumb: cached.map(slint::Image::from_rgba8).unwrap_or_default(),
+            thumb: cached.map(crate::ui_types::Image::from_rgba8).unwrap_or_default(),
         }
     }).collect();
     u.set_att_summary(summary(atts).into());
@@ -227,7 +228,7 @@ pub fn show(u: &AppWindow, c: Arc<Client>, id: &str, atts: &[Value]) {
                 if u.get_current_mail().as_str() != id { return; }
                 let m = u.get_att_cards();
                 if let Some(mut card) = m.row_data(i) {
-                    card.thumb = slint::Image::from_rgba8(buf);
+                    card.thumb = crate::ui_types::Image::from_rgba8(buf);
                     card.has_thumb = true;
                     m.set_row_data(i, card);
                 }

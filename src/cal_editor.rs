@@ -470,7 +470,7 @@ pub fn series_update(master: &Value, occ_start: NaiveDateTime, data: &Map<String
 
 // ---------------- opening ----------------
 
-fn calendars_for_editor() -> (Vec<String>, Vec<slint::SharedString>) {
+fn calendars_for_editor() -> (Vec<String>, Vec<crate::ui_types::SharedString>) {
     let cals = calendar::calendars();
     let ids = cals.iter().map(|c| c["id"].as_str().unwrap_or("").to_string()).collect();
     let names = cals.iter().map(|c| {
@@ -493,7 +493,7 @@ fn set_common(u: &AppWindow) {
     let x = u.global::<crate::CalX>();
     x.set_ed_tz_open(false);
     x.set_ed_tz_query("".into());
-    x.set_ed_tz_matches(ModelRc::new(VecModel::from(Vec::<slint::SharedString>::new())));
+    x.set_ed_tz_matches(ModelRc::new(VecModel::from(Vec::<crate::ui_types::SharedString>::new())));
     x.set_ed_att_query("".into());
     x.set_ed_att_suggest(ModelRc::new(VecModel::from(Vec::<CxSuggest>::new())));
     x.set_rr_open(false);
@@ -870,7 +870,7 @@ fn update_your_time(u: &AppWindow) {
 }
 
 pub fn tz_query(u: &AppWindow, q: &str) {
-    let hits: Vec<slint::SharedString> = recurrence::search_zones(q, 8).into_iter().map(Into::into).collect();
+    let hits: Vec<crate::ui_types::SharedString> = recurrence::search_zones(q, 8).into_iter().map(Into::into).collect();
     u.global::<crate::CalX>().set_ed_tz_matches(ModelRc::new(VecModel::from(hits)));
 }
 
@@ -879,7 +879,7 @@ pub fn tz_pick(u: &AppWindow, z: &str) {
     x.set_ed_tz(z.into());
     x.set_ed_tz_open(false);
     x.set_ed_tz_query("".into());
-    x.set_ed_tz_matches(ModelRc::new(VecModel::from(Vec::<slint::SharedString>::new())));
+    x.set_ed_tz_matches(ModelRc::new(VecModel::from(Vec::<crate::ui_types::SharedString>::new())));
     ED.with(|e| e.borrow_mut().tz = Some(z.to_string()));
     update_your_time(u);
 }
@@ -1200,7 +1200,7 @@ pub fn quick(u: &AppWindow, day: &str, hour: i32, minute: i32, x: f32, y: f32) {
     let cals = calendar::calendars();
     let usable: Vec<&Value> = cals.iter().filter(|c| writable(c)).collect();
     if usable.is_empty() { return; }
-    let names: Vec<slint::SharedString> = usable.iter().map(|c| c["name"].as_str().unwrap_or("Calendar").into()).collect();
+    let names: Vec<crate::ui_types::SharedString> = usable.iter().map(|c| c["name"].as_str().unwrap_or("Calendar").into()).collect();
     let def = usable.iter().position(|c| c["isDefault"] == true && c["_shared"] != true).unwrap_or(0) as i32;
     QC.with(|q| *q.borrow_mut() = Quick { start: Some(start), end: Some(end), all_day, calendars: usable.iter().map(|c| c["id"].as_str().unwrap_or("").to_string()).collect() });
     let h12 = calendar::h12();

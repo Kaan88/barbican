@@ -1,8 +1,8 @@
 //! Test automation without touching the real mouse, keyboard or screen.
 //! Enabled only when BARBICAN_AUTOMATION=1. Listens on 127.0.0.1:<BARBICAN_AUTOMATION_PORT|8792>
-//! for one command per line; input is injected into Slint's own event queue
-//! (`Window::dispatch_event`) and screenshots come from Slint's renderer
-//! (`Window::take_snapshot`), so the window can stay off-screen and unfocused.
+//! for one command per line; input is injected into the window's own event queue and screenshots
+//! come from its renderer (`crate::ui_types::input`), so the window can stay off-screen and
+//! unfocused.
 //!
 //! Commands (logical pixels):
 //!   click X Y | rclick X Y | dclick X Y | move X Y | scroll X Y DY
@@ -46,9 +46,9 @@
 //!   every MS N CMD       (run CMD N times, one every MS ms, from a UI-thread timer; returns at once)
 //!   motion reduce|normal|rapid|calm   (Motion.reduce / Motion.rapid in memory only, never saved)
 //!   toast [TEXT]         (show a toast, or clear it without TEXT; UI only)
+use crate::ui_types::{self as ui, input};
 use crate::AppWindow;
-use slint::platform::{Key, PointerEventButton, WindowEvent};
-use slint::{ComponentHandle, LogicalPosition, SharedString};
+use slint::ComponentHandle;
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
 use std::sync::mpsc;
@@ -192,9 +192,9 @@ fn probe_ms(p: &Probe) -> f64 { p.t0.elapsed().as_secs_f64() * 1000.0 }
 /// From the window's winit event filter (motion::install_filter). A frame starts with RedrawRequested (Slint renders
 /// and presents right after the filter returns); it has ended when a zero-delay timer queued
 /// at its start fires, on the next turn of the event loop. Only does anything while probing.
-pub fn winit_event(ev: &slint::winit_030::winit::event::WindowEvent) {
+pub fn winit_event(ev: &crate::ui_types::winit::event::WindowEvent) {
     if !PROBING.load(std::sync::atomic::Ordering::Relaxed) { return; }
-    if !matches!(ev, slint::winit_030::winit::event::WindowEvent::RedrawRequested) { return; }
+    if !matches!(ev, crate::ui_types::winit::event::WindowEvent::RedrawRequested) { return; }
     let idx = PROBE.with(|p| {
         let mut p = p.borrow_mut();
         if !p.on { return None; }
@@ -203,7 +203,7 @@ pub fn winit_event(ev: &slint::winit_030::winit::event::WindowEvent) {
         Some(p.frames.len() - 1)
     });
     if let Some(i) = idx {
-        slint::Timer::single_shot(std::time::Duration::ZERO, move || PROBE.with(|p| {
+        crate::ui_types::Timer::single_shot(std::time::Duration::ZERO, move || PROBE.with(|p| {
             let mut p = p.borrow_mut();
             let t = probe_ms(&p);
             if let Some(f) = p.frames.get_mut(i) { f.1 = t; }
@@ -245,10 +245,10 @@ fn every(u: &AppWindow, args: &[&str]) -> String {
     if cmd.is_empty() || cmd.starts_with("every") { return "usage: every MS N CMD".into(); }
     let w = u.as_weak();
     let left = std::rc::Rc::new(std::cell::Cell::new(n));
-    let timer = std::rc::Rc::new(slint::Timer::default());
+    let timer = std::rc::Rc::new(crate::ui_types::Timer::default());
     let t2 = timer.clone();
     let i = std::rc::Rc::new(std::cell::Cell::new(0usize));
-    timer.start(slint::TimerMode::Repeated, std::time::Duration::from_millis(ms), move || {
+    timer.start(crate::ui_types::TimerMode::Repeated, std::time::Duration::from_millis(ms), move || {
         if left.get() == 0 { t2.stop(); return; }
         left.set(left.get() - 1);
         let line = step_args(&cmd, i.get());
@@ -299,35 +299,34 @@ fn run_cmd(u: &AppWindow, line: &str) -> String {
     let args: Vec<&str> = a.get(1).map(|s| s.split(' ').collect()).unwrap_or_default();
     let win = u.window();
     let click = |x: f32, y: f32, n: usize| {
-        let position = LogicalPosition::new(x, y);
-        win.dispatch_event(WindowEvent::PointerMoved { position });
+        input::pointer_moved(win, x, y);
         for _ in 0..n {
-            win.dispatch_event(WindowEvent::PointerPressed { position, button: PointerEventButton::Left });
-            win.dispatch_event(WindowEvent::PointerReleased { position, button: PointerEventButton::Left });
+            input::pointer_pressed(win, x, y, input::Button::Left);
+            input::pointer_released(win, x, y, input::Button::Left);
         }
     };
     match a[0] {
         "click" => { click(pos(&args, 0), pos(&args, 1), 1); "ok".into() }
         "rclick" => {
-            let position = LogicalPosition::new(pos(&args, 0), pos(&args, 1));
-            win.dispatch_event(WindowEvent::PointerMoved { position });
-            win.dispatch_event(WindowEvent::PointerPressed { position, button: PointerEventButton::Right });
-            win.dispatch_event(WindowEvent::PointerReleased { position, button: PointerEventButton::Right });
+            let (x, y) = (pos(&args, 0), pos(&args, 1));
+            input::pointer_moved(win, x, y);
+            input::pointer_pressed(win, x, y, input::Button::Right);
+            input::pointer_released(win, x, y, input::Button::Right);
             "ok".into()
         }
         "dclick" => { click(pos(&args, 0), pos(&args, 1), 2); "ok".into() }
-        "move" => { win.dispatch_event(WindowEvent::PointerMoved { position: LogicalPosition::new(pos(&args, 0), pos(&args, 1)) }); "ok".into() }
+        "move" => { input::pointer_moved(win, pos(&args, 0), pos(&args, 1)); "ok".into() }
         "scroll" => {
-            let position = LogicalPosition::new(pos(&args, 0), pos(&args, 1));
-            win.dispatch_event(WindowEvent::PointerMoved { position });
-            win.dispatch_event(WindowEvent::PointerScrolled { position, delta_x: 0.0, delta_y: -pos(&args, 2) });
+            let (x, y) = (pos(&args, 0), pos(&args, 1));
+            input::pointer_moved(win, x, y);
+            input::pointer_scrolled(win, x, y, 0.0, -pos(&args, 2));
             "ok".into()
         }
         "type" => {
             for ch in a.get(1).copied().unwrap_or("").chars() {
-                let text = SharedString::from(ch.to_string());
-                win.dispatch_event(WindowEvent::KeyPressed { text: text.clone() });
-                win.dispatch_event(WindowEvent::KeyReleased { text });
+                let text = ui::SharedString::from(ch.to_string());
+                input::key_pressed(win, text.clone());
+                input::key_released(win, text);
             }
             "ok".into()
         }
@@ -336,37 +335,23 @@ fn run_cmd(u: &AppWindow, line: &str) -> String {
             let spec = args.first().copied().unwrap_or("");
             let mut parts: Vec<&str> = spec.split('+').collect();
             let last = parts.pop().unwrap_or("");
-            let named = |n: &str| -> Option<SharedString> {
-                Some(match n {
-                    "Enter" => Key::Return.into(), "Escape" => Key::Escape.into(), "Tab" => Key::Tab.into(), "Backspace" => Key::Backspace.into(),
-                    "Delete" => Key::Delete.into(), "Up" => Key::UpArrow.into(), "Down" => Key::DownArrow.into(), "Left" => Key::LeftArrow.into(),
-                    "Right" => Key::RightArrow.into(), "Home" => Key::Home.into(), "End" => Key::End.into(), "PageUp" => Key::PageUp.into(),
-                    "PageDown" => Key::PageDown.into(), "Space" => " ".into(),
-                    "F2" => Key::F2.into(), "F5" => Key::F5.into(), "F9" => Key::F9.into(), "F10" => Key::F10.into(),
-                    s if s.chars().count() == 1 => s.to_lowercase().into(),
-                    _ => return None,
-                })
-            };
-            let Some(text) = named(last) else { return format!("unknown key {last}") };
-            let mods: Vec<SharedString> = parts.iter().filter_map(|m| match *m {
-                "Ctrl" => Some(Key::Control.into()), "Shift" => Some(Key::Shift.into()), "Alt" => Some(Key::Alt.into()), _ => None,
-            }).collect();
-            for m in &mods { win.dispatch_event(WindowEvent::KeyPressed { text: m.clone() }); }
-            win.dispatch_event(WindowEvent::KeyPressed { text: text.clone() });
-            win.dispatch_event(WindowEvent::KeyReleased { text });
-            for m in mods.iter().rev() { win.dispatch_event(WindowEvent::KeyReleased { text: m.clone() }); }
+            let Some(text) = input::key_text(last) else { return format!("unknown key {last}") };
+            let mods: Vec<ui::SharedString> = parts.iter().filter_map(|m| input::modifier_text(m)).collect();
+            for m in &mods { input::key_pressed(win, m.clone()); }
+            input::key_pressed(win, text.clone());
+            input::key_released(win, text);
+            for m in mods.into_iter().rev() { input::key_released(win, m); }
             "ok".into()
         }
         "drag" => {
             let (x0, y0, x1, y1) = (pos(&args, 0), pos(&args, 1), pos(&args, 2), pos(&args, 3));
-            let p0 = LogicalPosition::new(x0, y0);
-            win.dispatch_event(WindowEvent::PointerMoved { position: p0 });
-            win.dispatch_event(WindowEvent::PointerPressed { position: p0, button: PointerEventButton::Left });
+            input::pointer_moved(win, x0, y0);
+            input::pointer_pressed(win, x0, y0, input::Button::Left);
             for i in 1..=8 {
                 let f = i as f32 / 8.0;
-                win.dispatch_event(WindowEvent::PointerMoved { position: LogicalPosition::new(x0 + (x1 - x0) * f, y0 + (y1 - y0) * f) });
+                input::pointer_moved(win, x0 + (x1 - x0) * f, y0 + (y1 - y0) * f);
             }
-            win.dispatch_event(WindowEvent::PointerReleased { position: LogicalPosition::new(x1, y1), button: PointerEventButton::Left });
+            input::pointer_released(win, x1, y1, input::Button::Left);
             "ok".into()
         }
         "rte-image" => {
@@ -435,7 +420,7 @@ fn run_cmd(u: &AppWindow, line: &str) -> String {
         }
         "update-check" => { if crate::updater::enabled() { crate::updater::check(true); "ok".into() } else { "updates are off in this profile".into() } }
         // the window's close button (X): quits, or hides to the tray with close to tray on
-        "close" => { win.dispatch_event(WindowEvent::CloseRequested); "ok".into() }
+        "close" => { input::close_requested(win); "ok".into() }
         // "tray open|compose|check|quit": what the tray menu items do
         "tray" => { crate::desktop::tray_command(args.first().copied().unwrap_or("")); "ok".into() }
         "burst" => start_burst(u, &args),
@@ -480,7 +465,7 @@ fn run_cmd(u: &AppWindow, line: &str) -> String {
         "every" => every(u, &args),
         "size" => { let s = win.size(); format!("{} {} scale {}", s.width, s.height, win.scale_factor()) }
         // resize the (off-screen) window, in logical pixels, to check narrow layouts
-        "resize" => { win.set_size(slint::LogicalSize::new(pos(&args, 0).max(400.0), pos(&args, 1).max(300.0))); "ok".into() }
+        "resize" => { input::set_size(win, pos(&args, 0).max(400.0), pos(&args, 1).max(300.0)); "ok".into() }
         // switch the look in memory only (nothing is saved): ui bento|nordic dark|light [more|normal]
         "ui" => {
             let t = u.global::<crate::Theme>();
@@ -500,7 +485,7 @@ fn run_cmd(u: &AppWindow, line: &str) -> String {
         "from" => format!("custom={} name={} email={} identity={}", u.get_c_from_custom(), u.get_c_from_name(), u.get_c_from_email(), u.get_c_from_index()),
         "shot" => {
             let path = a.get(1).copied().unwrap_or("shot.png");
-            match win.take_snapshot() {
+            match input::snapshot(win) {
                 Ok(buf) => match write_png(path, buf.width(), buf.height(), buf.as_bytes()) {
                     Ok(()) => format!("saved {}x{}", buf.width(), buf.height()),
                     Err(e) => format!("error {e}"),

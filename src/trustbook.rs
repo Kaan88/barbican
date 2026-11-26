@@ -654,7 +654,7 @@ impl Drop for Running { fn drop(&mut self) { LOADING.store(false, Ordering::SeqC
 /// current session's (a timer armed before a sign-out or switch), while a load is already running
 /// (a forced one then runs once more afterwards) and, unless `force`, when this account's book
 /// was read in the last ten seconds.
-pub fn refresh(w: slint::Weak<AppWindow>, c: Arc<Client>, force: bool) {
+pub fn refresh(w: crate::ui_types::Weak<AppWindow>, c: Arc<Client>, force: bool) {
     if !setting_on(&crate::settings::snapshot()) || !current(&c) { return; }
     if force { failed().clear(); }
     {
@@ -705,7 +705,7 @@ pub fn refresh(w: slint::Weak<AppWindow>, c: Arc<Client>, force: bool) {
 
 /// "Trust sender" in the reader (and the settings page's additions): trusted at once for the open
 /// message by the caller; this files the address in the background and says how it went.
-pub fn trust_sender(w: slint::Weak<AppWindow>, c: Option<Arc<Client>>, entry: String, settings_on: bool) {
+pub fn trust_sender(w: crate::ui_types::Weak<AppWindow>, c: Option<Arc<Client>>, entry: String, settings_on: bool) {
     let gen = generation();
     std::thread::spawn(move || {
         let addr = sender_key(&entry);
@@ -734,7 +734,7 @@ pub fn trust_sender(w: slint::Weak<AppWindow>, c: Option<Arc<Client>>, entry: St
 /// that joined meanwhile is never removed; an edit typed for another account or an earlier
 /// session is dropped with a message. Removals need this account's book to have been read; without
 /// that they are refused and said so.
-pub fn apply_pending(w: slint::Weak<AppWindow>, c: Option<Arc<Client>>) {
+pub fn apply_pending(w: crate::ui_types::Weak<AppWindow>, c: Option<Arc<Client>>) {
     let (gen, key) = (generation(), cache().key.clone());
     let (snapshot, text) = match take_staged(&key, gen) {
         Ok(x) => x,
@@ -794,7 +794,7 @@ pub fn apply_pending(w: slint::Weak<AppWindow>, c: Option<Arc<Client>>) {
 /// are copied to the device's list, each tagged with its account (the book is not touched), after
 /// reading the book if it has not been read yet; when that is not possible the user is told that
 /// nothing was copied. On: read the book and file the device's list.
-pub fn toggled(on: bool, w: slint::Weak<AppWindow>, c: Option<Arc<Client>>) {
+pub fn toggled(on: bool, w: crate::ui_types::Weak<AppWindow>, c: Option<Arc<Client>>) {
     if on {
         if let Some(c) = c { refresh(w, c, true); }
         return;

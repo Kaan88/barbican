@@ -19,7 +19,8 @@
 use crate::jmap::Client;
 use crate::{AppWindow, FilesV, Pd};
 use serde_json::{json, Map, Value};
-use slint::{ComponentHandle, Model, Rgba8Pixel, SharedPixelBuffer};
+use slint::{ComponentHandle, Model};
+use crate::ui_types::{Rgba8Pixel, SharedPixelBuffer};
 use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -686,13 +687,13 @@ pub fn decorate(row: &mut crate::FileRow, n: &Value, fs: &FilesSettings) {
     let (kind, (r, g, b)) = if dir { ("folder", (0, 0, 0)) } else { icon_kind(name) };
     row.icon = icon_path(kind).into();
     row.typed = kind != "file" && kind != "folder";
-    row.tint = slint::Color::from_rgb_u8(r, g, b);
+    row.tint = crate::ui_types::Color::from_rgb_u8(r, g, b);
     let blob = n["blobId"].as_str().unwrap_or("");
     let can = !dir && can_thumb(name, &crate::files::mime(n), n["size"].as_u64().unwrap_or(0), !blob.is_empty(), fs.show_thumbnails);
     let cached = if can { VIEW.with(|v| v.borrow_mut().thumbs.get(blob)) } else { None };
     row.has_thumb = cached.is_some();
     row.want_thumb = can && cached.is_none() && VIEW.with(|v| !v.borrow().failed.contains(blob));
-    row.thumb = cached.map(slint::Image::from_rgba8).unwrap_or_default();
+    row.thumb = cached.map(crate::ui_types::Image::from_rgba8).unwrap_or_default();
 }
 
 /// After files::render: the view's flags, the order for the preview, the details panel.
@@ -745,7 +746,7 @@ pub fn want_thumb(u: &AppWindow, key: &str) {
     }
 }
 
-fn thumb_worker(w: slint::Weak<AppWindow>) {
+fn thumb_worker(w: crate::ui_types::Weak<AppWindow>) {
     loop {
         // the newest first: what was scrolled to last is on screen
         let job = lock_queue().pop_back();
@@ -792,7 +793,7 @@ fn keys_with_blob(blob: &str) -> HashSet<String> {
 /// Put a thumbnail into the rows (and the panel) that show `blob`.
 fn show_thumb(u: &AppWindow, blob: &str, buf: SharedPixelBuffer<Rgba8Pixel>) {
     if !VIEW.with(|v| v.borrow().fs.show_thumbnails) { return; }
-    let img = slint::Image::from_rgba8(buf);
+    let img = crate::ui_types::Image::from_rgba8(buf);
     let keys = keys_with_blob(blob);
     let rows = u.get_files();
     for i in 0..rows.row_count() {
@@ -1047,7 +1048,7 @@ fn preview_done(u: &AppWindow, gen: u64, shown: Shown) {
     let x = u.global::<FilesV>();
     if !x.get_p_open() { return; }
     match shown {
-        Shown::Image(b) => { x.set_p_image(slint::Image::from_rgba8(b)); x.set_p_state("image".into()); }
+        Shown::Image(b) => { x.set_p_image(crate::ui_types::Image::from_rgba8(b)); x.set_p_state("image".into()); }
         Shown::Text(t, cut) => {
             x.set_p_text(t.into());
             x.set_p_note(if cut { "Only the beginning of the file is shown. Download it to see all of it.".into() } else { "".into() });

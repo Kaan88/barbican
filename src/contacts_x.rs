@@ -6,7 +6,8 @@
 use crate::jmap::Client;
 use crate::{AppWindow, CtDupe, CtField, CtLine, CtX};
 use serde_json::{json, Map, Value};
-use slint::{ComponentHandle, Image, ModelRc, Rgba8Pixel, SharedPixelBuffer, SharedString, VecModel};
+use slint::{ComponentHandle, ModelRc, VecModel};
+use crate::ui_types::{Image, Rgba8Pixel, SharedPixelBuffer, SharedString};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};

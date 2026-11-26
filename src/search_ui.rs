@@ -142,7 +142,7 @@ pub fn remove_chip(u: &AppWindow, key: &str) {
 
 /// After a list page loaded: ask the server why each hit matched (RFC 8621 §5.1), when the
 /// filter has a term to highlight. Rows without a mark keep their plain subject and preview.
-pub fn fetch_snippets(w: slint::Weak<AppWindow>, c: Arc<crate::jmap::Client>, filter: Value, ids: Vec<String>) {
+pub fn fetch_snippets(w: crate::ui_types::Weak<AppWindow>, c: Arc<crate::jmap::Client>, filter: Value, ids: Vec<String>) {
     // the merged lists are not one JMAP filter of this account
     if !gsearch::has_snippet_terms(&filter) || filter["unified"] == true || filter["scheduled"] == true {
         SNIP.with(|s| s.borrow_mut().clear());
@@ -177,10 +177,10 @@ pub fn fetch_snippets(w: slint::Weak<AppWindow>, c: Arc<crate::jmap::Client>, fi
 thread_local! { static ACCENT: std::cell::RefCell<String> = std::cell::RefCell::new("#c8234a".into()); }
 
 /// Hex form of a colour for markdown highlights.
-pub fn hex(c: slint::Color) -> String { format!("#{:02x}{:02x}{:02x}", c.red(), c.green(), c.blue()) }
+pub fn hex(c: crate::ui_types::Color) -> String { format!("#{:02x}{:02x}{:02x}", c.red(), c.green(), c.blue()) }
 
 /// Highlights take Theme.accent; called whenever the theme or contrast changes.
-pub fn set_accent(c: slint::Color) { ACCENT.with(|a| *a.borrow_mut() = hex(c)); }
+pub fn set_accent(c: crate::ui_types::Color) { ACCENT.with(|a| *a.borrow_mut() = hex(c)); }
 
 /// A new list started: drop the old one's snippets.
 pub fn clear_snippets() { SNIP.with(|s| s.borrow_mut().clear()); }

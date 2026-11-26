@@ -8,7 +8,7 @@ use slint::{ComponentHandle, Model};
 use std::cell::{Cell, RefCell};
 
 thread_local! {
-    static UI: RefCell<Option<slint::Weak<AppWindow>>> = const { RefCell::new(None) };
+    static UI: RefCell<Option<crate::ui_types::Weak<AppWindow>>> = const { RefCell::new(None) };
     static STATE: RefCell<Option<Shared>> = const { RefCell::new(None) };
     static TRAY: RefCell<Option<tray::Tray>> = const { RefCell::new(None) };
     static UNREAD: Cell<i64> = const { Cell::new(-1) };
@@ -19,7 +19,7 @@ thread_local! {
     static DISMISSED: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
     /// After a draft could not be saved, quitting again within a minute closes without it.
     static QUIT_ANYWAY_UNTIL: Cell<Option<std::time::Instant>> = const { Cell::new(None) };
-    static TIMERS: RefCell<Vec<slint::Timer>> = const { RefCell::new(Vec::new()) };
+    static TIMERS: RefCell<Vec<crate::ui_types::Timer>> = const { RefCell::new(Vec::new()) };
 }
 
 /// Calendar hook: what a reminder notification's click or button does (the calendar sets it).
@@ -66,8 +66,7 @@ fn app() -> Option<AppWindow> { UI.with(|u| u.borrow().as_ref().and_then(|w| w.u
 /// Bring the window back (from the tray, a notification or a second start).
 pub fn show_window(u: &AppWindow) {
     let _ = u.show();
-    use slint::winit_030::WinitWindowAccessor;
-    u.window().with_winit_window(|w| { w.set_minimized(false); w.focus_window(); });
+    crate::ui_types::with_winit_window(u.window(), |w| { w.set_minimized(false); w.focus_window(); });
 }
 
 pub fn init(ui: &AppWindow, state: Shared) {
@@ -80,8 +79,8 @@ pub fn init(ui: &AppWindow, state: Shared) {
     // Linux: WebKitGTK and the GTK file dialogs need their loop turned
     #[cfg(target_os = "linux")]
     {
-        let t = slint::Timer::default();
-        t.start(slint::TimerMode::Repeated, std::time::Duration::from_millis(16), platform::pump);
+        let t = crate::ui_types::Timer::default();
+        t.start(crate::ui_types::TimerMode::Repeated, std::time::Duration::from_millis(16), platform::pump);
         TIMERS.with(|v| v.borrow_mut().push(t));
     }
 
@@ -116,20 +115,20 @@ pub fn init(ui: &AppWindow, state: Shared) {
     });
 
     // unread badge (tray, taskbar overlay) and the updater's state, checked every second
-    let t = slint::Timer::default();
-    t.start(slint::TimerMode::Repeated, std::time::Duration::from_secs(1), || {
+    let t = crate::ui_types::Timer::default();
+    t.start(crate::ui_types::TimerMode::Repeated, std::time::Duration::from_secs(1), || {
         if let Some(u) = app() { refresh_badge(&u); refresh_update(&u); }
     });
     TIMERS.with(|v| v.borrow_mut().push(t));
 
     // updates: a first check soon after start, then every few hours
-    let t = slint::Timer::default();
+    let t = crate::ui_types::Timer::default();
     // (the default profile only: a test, automation or dev profile never checks or downloads)
-    t.start(slint::TimerMode::SingleShot, std::time::Duration::from_secs(20), || {
+    t.start(crate::ui_types::TimerMode::SingleShot, std::time::Duration::from_secs(20), || {
         if !updater::enabled() { return; }
         if updater::auto_check() { updater::check(false); }
-        let every = slint::Timer::default();
-        every.start(slint::TimerMode::Repeated, updater::CHECK_EVERY, || if updater::enabled() && updater::auto_check() { updater::check(false); });
+        let every = crate::ui_types::Timer::default();
+        every.start(crate::ui_types::TimerMode::Repeated, updater::CHECK_EVERY, || if updater::enabled() && updater::auto_check() { updater::check(false); });
         TIMERS.with(|v| v.borrow_mut().push(every));
     });
     TIMERS.with(|v| v.borrow_mut().push(t));
@@ -165,9 +164,9 @@ pub fn quit_saving_draft(u: &AppWindow, then: fn() -> Result<(), String>) {
     let fails = crate::compose::save_failures();
     u.invoke_save_draft(true);
     let tries = std::rc::Rc::new(Cell::new(0));
-    let timer = std::rc::Rc::new(slint::Timer::default());
+    let timer = std::rc::Rc::new(crate::ui_types::Timer::default());
     let t2 = timer.clone();
-    timer.start(slint::TimerMode::Repeated, std::time::Duration::from_millis(100), move || {
+    timer.start(crate::ui_types::TimerMode::Repeated, std::time::Duration::from_millis(100), move || {
         tries.set(tries.get() + 1);
         let Some(u) = app() else { t2.stop(); return };
         // the composer may close at once while its save waits behind an autosave (src/autosave.rs):
@@ -214,8 +213,8 @@ fn refresh_badge(u: &AppWindow) {
     TRAY.with(|t| if let Some(t) = &*t.borrow() { t.set_unread(n as u32); });
     #[cfg(windows)]
     {
-        use slint::winit_030::{winit::raw_window_handle::{HasWindowHandle, RawWindowHandle}, WinitWindowAccessor};
-        let hwnd = u.window().with_winit_window(|w| match w.window_handle().map(|h| h.as_raw()) {
+        use crate::ui_types::winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
+        let hwnd = crate::ui_types::with_winit_window(u.window(), |w| match w.window_handle().map(|h| h.as_raw()) {
             Ok(RawWindowHandle::Win32(h)) => Some(h.hwnd.get()),
             _ => None,
         }).flatten();
@@ -487,7 +486,7 @@ fn refresh_update(u: &AppWindow) {
 
 // ---------------- settings ----------------
 
-fn s(v: &str) -> slint::SharedString { v.into() }
+fn s(v: &str) -> crate::ui_types::SharedString { v.into() }
 
 fn row(kind: &str, key: &str, label: &str, desc: &str) -> crate::SRow {
     crate::SRow { kind: s(kind), key: s(key), label: s(label), desc: s(desc), options: Default::default(), index: 0, on: false, text: s("") }

@@ -12,7 +12,8 @@ use crate::{AppWindow, RteBox, RteImage, RteState, RteText};
 use editor::Editor;
 use layout::{Painted, Role, View};
 use model::*;
-use slint::{Color, ComponentHandle, Model, ModelRc, SharedString, VecModel};
+use slint::{ComponentHandle, Model, ModelRc, VecModel};
+use crate::ui_types::{Color, SharedString};
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -22,7 +23,7 @@ thread_local! {
     static ED: RefCell<Editor> = RefCell::new(Editor::default());
     static VIEW: RefCell<View> = RefCell::new(View::default());
     static UP: Cell<bool> = const { Cell::new(false) };
-    static IMAGES: RefCell<HashMap<String, (slint::Image, u32, u32)>> = RefCell::new(HashMap::new());
+    static IMAGES: RefCell<HashMap<String, (crate::ui_types::Image, u32, u32)>> = RefCell::new(HashMap::new());
     static CLICKS: Cell<(Option<Instant>, f32, f32, u32)> = const { Cell::new((None, 0.0, 0.0, 0)) };
     static DRAG_ANCHOR: Cell<Option<Pos>> = const { Cell::new(None) };
     static DRAG_WORD: Cell<bool> = const { Cell::new(false) };
@@ -115,11 +116,11 @@ pub fn image_key(img: &ImageData) -> String {
     format!("data:{}", img.bytes.as_ref().map(|b| b.len()).unwrap_or(0))
 }
 
-fn decode_image(bytes: &[u8]) -> Option<(slint::Image, u32, u32)> {
+fn decode_image(bytes: &[u8]) -> Option<(crate::ui_types::Image, u32, u32)> {
     let im = image::load_from_memory(bytes).ok()?.to_rgba8();
     let (w, h) = im.dimensions();
-    let buf = slint::SharedPixelBuffer::<slint::Rgba8Pixel>::clone_from_slice(im.as_raw(), w, h);
-    Some((slint::Image::from_rgba8(buf), w, h))
+    let buf = crate::ui_types::SharedPixelBuffer::<crate::ui_types::Rgba8Pixel>::clone_from_slice(im.as_raw(), w, h);
+    Some((crate::ui_types::Image::from_rgba8(buf), w, h))
 }
 
 pub fn register_image(img: &ImageData) {
@@ -509,7 +510,7 @@ fn paste(u: &AppWindow, plain_only: bool) {
 
 // ---------------------------------------------------------------- input
 
-fn key(t: &str, k: slint::platform::Key) -> bool { let s: SharedString = k.into(); t == s.as_str() }
+fn key(t: &str, k: crate::ui_types::input::Key) -> bool { let s: SharedString = k.into(); t == s.as_str() }
 
 /// Keyboard input from the editor's FocusScope. Returns true when handled.
 pub fn on_key(u: &AppWindow, text: &str, ctrl: bool, shift: bool, alt: bool) -> bool {
@@ -520,7 +521,7 @@ pub fn on_key(u: &AppWindow, text: &str, ctrl: bool, shift: bool, alt: bool) -> 
 }
 
 fn handle_key(u: &AppWindow, text: &str, ctrl: bool, shift: bool, alt: bool) -> bool {
-    use slint::platform::Key as K;
+    use crate::ui_types::input::Key as K;
     let t = text;
     let altgr = ctrl && alt;
     // ---- movement
@@ -812,9 +813,9 @@ pub fn wire(ui: &AppWindow) {
 
 /// Files dropped on the window while composing: images go inline, other files are attached.
 pub fn wire_drop(ui: &AppWindow) {
-    use slint::winit_030::{winit::event::WindowEvent, EventResult, WinitWindowAccessor};
+    use crate::ui_types::{winit::event::WindowEvent, EventResult, on_winit_window_event};
     let w = ui.as_weak();
-    ui.window().on_winit_window_event(move |_, ev| {
+    on_winit_window_event(ui.window(), move |ev| {
         if let WindowEvent::DroppedFile(path) = ev {
             let Some(u) = w.upgrade() else { return EventResult::Propagate };
             if !u.get_composing() { return EventResult::Propagate; }
