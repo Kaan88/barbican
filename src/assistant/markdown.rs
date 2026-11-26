@@ -16,7 +16,9 @@
 //!   label as text.
 //!
 //! Text and link targets are kept as they are, not HTML-escaped: the panel (M13) must escape them
-//! when it renders the tree.
+//! when it renders the tree. It must also pass an answer's text through
+//! [`super::context::restore_tags`] before showing it, so a `<\/text` the model copied back from a
+//! prompt reads as `</text`.
 //!
 //! The markdown-shared-rs toolkit has no Markdown block parser to reuse (its crates highlight
 //! code and convert HTML; the editors parse elsewhere), so this one stays here; the tree is the
