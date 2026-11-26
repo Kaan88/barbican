@@ -4,23 +4,33 @@
 //! callback and stops it with a [`Cancel`] flag.
 //!
 //! * [`history`]: the neutral conversation entries every provider reads and writes (3.0).
+//! * [`logins`]: the assistant's own random id for each login, kept in a local file beside the
+//!   settings (2.0).
 //! * [`sse`]: the server-sent events reader, the 180 s idle timeout, cancellation (3.1).
 //! * [`error`]: [`ProviderError`], the error text built from an HTTP answer and the friendly
 //!   wording the panel shows (3.1, 3.4).
 //! * [`anthropic`]: the Anthropic Messages API client, model names and the Models API (3.2).
 //! * [`config`]: the settings, the migration from the earlier ones, the provider list and pick (4).
+//! * [`context`]: the open message as text for the model and the user turn (2.0).
 //! * `http`: the client, redirect rules and error answers shared by the providers.
+//! * [`markdown`]: answers as a block tree, `email` fences as their own block (7.6).
 //! * [`openai`]: the OpenAI-compatible Chat Completions client (3.3).
+//! * [`prompts`]: the system prompt, the "Now:" line, the quick actions and the writing help's
+//!   prompts (2.0, 2.3 to 2.6, 2.13 to 2.19).
 //!
 //! Not wired into the app yet (milestone M12 swaps it in for `ai.rs` / `agent.rs`).
 #![allow(dead_code)]
 
 pub mod anthropic;
 pub mod config;
+pub mod context;
 pub mod error;
 pub mod history;
 pub(crate) mod http;
+pub mod logins;
+pub mod markdown;
 pub mod openai;
+pub mod prompts;
 pub mod sse;
 
 #[cfg(test)]

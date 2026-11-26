@@ -252,6 +252,25 @@ async function buildUserTurn(text) {
 The full message is sent once per conversation per message id (`sentContext`). Later turns refer to
 it by id. After a message was sent and none is open now, it says so.
 
+Barbican note: a JMAP email id is unique only within its account, and an account id only within
+its server (Stalwart's are short and sequential, so two servers can both call an account "d" and a
+message "b"), so the tag the model sees names all three — `<email id="b" account="d" login="4f3a…">`
+— and `sentContext` is keyed on the triple. `login` is Barbican's own id for that login: 128 random
+bits in hex, kept in `ai-logins.json` beside the settings (a local file, written whole or not at
+all, one entry per login — the server address and the user), made the first time the assistant needs
+an id for that login and kept from then on, so a login only appears in that file once the assistant
+has been used with it. It is random and never derived from the address, so no address reaches the
+provider and a guessed address cannot be checked against it; the three ids are reduced to
+`[A-Za-z0-9_-]` inside the tag. Barbican also closes off the tags: a `</email`, `</passage` or `</text` inside the
+text it inserts (body, subject, recipient and attachment names, folder, passage, quote, selection,
+own text) has a backslash put before its slash, `<\/email`, in any case and with any whitespace, so
+an email cannot end its block and pass for the user's own turn; `restoreTags` undoes that exactly,
+whitespace and case included, wherever the text is shown again. That is a deliberate departure from
+the extension, which inserts the text as it is, because with Actions set to Automatic it is a real
+prompt-injection path. Header values (subject, names, attachment names, folder) are collapsed to one
+line, so an encoded word carrying a line break cannot forge a line of the prompt. Barbican also
+lists at most 5 addresses or attachments per header line, followed by "and N more".
+
 **Message as text for the model** (`lib/mail.js:92`):
 
 ```js
@@ -605,6 +624,11 @@ function cleanResult(text) {
 ```
 
 - **Output:** result view (2.19), title `Suggested text`.
+
+Barbican note: `buildPrompt` cuts the quote to 8000 characters (`MAX_QUOTE`) and lists at most 5
+recipients in the To line, followed by "and N more". The selection and the own text are sent whole,
+because the result replaces them: a cut there would delete part of the draft. Closing tags inside
+those texts are neutralised as in 2.0, and the From, To and Subject lines are collapsed to one line.
 
 ### 2.14 Writing help: rewrite
 
