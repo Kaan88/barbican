@@ -25,7 +25,10 @@ const POLL: Duration = Duration::from_millis(20);
 /// The Stop button: shared between the UI and the worker running the request. Setting it ends
 /// the request at the next check (within a few tens of milliseconds), with an `Aborted` error.
 #[derive(Clone, Debug, Default)]
-pub struct Cancel(Arc<AtomicBool>);
+pub struct Cancel {
+    flag: Arc<AtomicBool>,
+    parent: Option<Arc<Cancel>>,
+}
 
 impl Cancel {
     pub fn new() -> Cancel {
@@ -33,11 +36,16 @@ impl Cancel {
     }
 
     pub fn cancel(&self) {
-        self.0.store(true, Ordering::SeqCst);
+        self.flag.store(true, Ordering::SeqCst);
     }
 
     pub fn is_cancelled(&self) -> bool {
-        self.0.load(Ordering::SeqCst)
+        self.flag.load(Ordering::SeqCst) || self.parent.as_ref().is_some_and(|c| c.is_cancelled())
+    }
+
+    /// Stop one tool without stopping the entire conversation; conversation Stop still reaches it.
+    pub(crate) fn child(&self) -> Self {
+        Self { parent: Some(Arc::new(self.clone())), ..Self::default() }
     }
 }
 
