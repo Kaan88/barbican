@@ -549,97 +549,300 @@ fn reader_avatar(u: &AppWindow, ap: &crate::avatars::Prefs) {
 /// Sender pictures arrived (or the settings changed): update the rows in place and the reader.
 pub fn refresh_avatars(u: &AppWindow) {
     let ap = crate::avatars::Prefs::load();
-    let junk = LIST.with(|l| filter_in_junk(&l.borrow().filter));
     let model = u.get_mails();
+    LIST.with(|l| {
+        if let Some(vm) = model.as_any().downcast_ref::<VecModel<Mail>>() {
+            refresh_avatar_rows(vm, &l.borrow(), &ap);
+        }
+    });
+    reader_avatar(u, &ap);
+}
+
+/// Update the rows whose sender picture changed, in one pass over the model. The id -> email map
+/// makes this linear where it used to scan `emails` once per row (O(n²) while avatars stream in).
+/// Returns how many rows were set (the tests use it; nothing else changes a row).
+fn refresh_avatar_rows(model: &VecModel<Mail>, st: &ListState, ap: &crate::avatars::Prefs) -> usize {
+    let junk = filter_in_junk(&st.filter);
+    let index: HashMap<&str, &Value> = st.emails.iter().filter_map(|m| m["id"].as_str().map(|id| (id, m))).collect();
+    let mut touched = 0;
     for i in 0..model.row_count() {
         let Some(mut row) = model.row_data(i) else { continue };
-        let Some(m) = email(&row.id) else { continue };
-        let (img, kind) = row_avatar(&m, &ap, junk);
-        if row.avatar_kind != kind || (kind != 0 && row.avatar != img) {
+        let Some(m) = index.get(row.id.as_str()).copied() else { continue };
+        let (img, kind) = row_avatar(m, ap, junk);
+        if row.avatar_kind != kind || !same_avatar(&row.avatar, &img) {
             row.avatar = img;
             row.avatar_kind = kind;
             model.set_row_data(i, row);
+            touched += 1;
         }
     }
-    reader_avatar(u, &ap);
+    touched
+}
+
+/// Everything a row needs that is shared across the list, read once per build.
+struct RowCtx {
+    lp: ListPrefs,
+    ap: crate::avatars::Prefs,
+    junk: bool,
+    tdefs: Vec<crate::tags::TagDef>,
+    unified: bool,
+    mark: &'static str,
+}
+
+impl RowCtx {
+    fn new(p: &crate::settings::Settings, st: &ListState) -> RowCtx {
+        let lp = list_prefs_from(p);
+        let ap = crate::avatars::Prefs::from_settings(p, crate::crashguard::safe_mode());
+        let junk = filter_in_junk(&st.filter);
+        let tdefs = crate::tags::parse(p.prefs.get("emailKeywords"));
+        let unified = st.filter["unified"] == true;
+        let mark = if unified { account_mark(p) } else { "none" };
+        RowCtx { lp, ap, junk, tdefs, unified, mark }
+    }
+}
+
+/// A cleaned preview remembered per message so a rebuild does not redo it.
+#[derive(Default)]
+struct RowMemo { preview_src: String, preview: String }
+
+thread_local! {
+    /// Cleaned previews by message id, verified against the raw text they were built from.
+    static ROW_CACHE: RefCell<HashMap<String, RowMemo>> = RefCell::new(HashMap::new());
+}
+
+/// `clean_preview(raw)`, computed once per message and reused across rebuilds. The raw text is
+/// kept beside the result so a changed preview recomputes instead of serving a stale one, and an
+/// id from an earlier list can never leak wrong data.
+fn cached_preview(id: &str, raw: &str) -> String {
+    ROW_CACHE.with(|c| {
+        let mut c = c.borrow_mut();
+        let e = c.entry(id.to_string()).or_default();
+        if e.preview_src != raw { e.preview_src = raw.to_string(); e.preview = clean_preview(raw); }
+        e.preview.clone()
+    })
+}
+
+/// Drop cached previews other than those of the messages `keep` (the list now shown), so the
+/// cache stays the size of the list rather than growing with every folder visited.
+fn prune_previews<'a>(keep: impl Iterator<Item = &'a str>) {
+    let keep: HashSet<&str> = keep.collect();
+    ROW_CACHE.with(|c| c.borrow_mut().retain(|id, _| keep.contains(id.as_str())));
+}
+
+/// One row's data from one message, independent of the UI: the pure function the toolkit UI will
+/// reuse. `t` is the parsed received time (computed once for the header), `header` the group
+/// header, `checked` the selection state.
+fn mail_row(st: &ListState, m: &Value, t: Option<DateTime<Local>>, header: &str, checked: bool, ctx: &RowCtx) -> Mail {
+    let s = sender(m);
+    let avatar = row_avatar(m, &ctx.ap, ctx.junk);
+    let kw = &m["keywords"];
+    let id = m["id"].as_str().unwrap_or("").to_string();
+    let tags: Vec<Color> = kw.as_object().map(|o| o.keys().filter_map(|k| k.strip_prefix("$label:")).map(|k| tag_color(&ctx.tdefs, k)).collect()).unwrap_or_default();
+    let acct = m["__account"].as_str().filter(|_| ctx.unified).unwrap_or("");
+    let acct_color = if acct.is_empty() { None } else { Some(rgb(crate::a11y::color(crate::unified::account_color(acct)))) };
+    let row_tint = if let (true, Some(c)) = (ctx.mark == "tint", acct_color) { c.with_alpha(0.10) } else if ctx.lp.tint_rows { tags.first().map(|c| c.with_alpha(0.12)).unwrap_or(Color::from_argb_u8(0, 0, 0, 0)) } else { Color::from_argb_u8(0, 0, 0, 0) };
+    // one-time codes only for fresh mail (Bulwark: received within the last day)
+    let fresh = t.as_ref().is_some_and(|t| { let age = Local::now().signed_duration_since(*t); age.num_minutes() >= -5 && age.num_hours() <= 24 });
+    let subject = m["subject"].as_str().filter(|s| !s.is_empty()).unwrap_or("(no subject)");
+    let code = if ctx.lp.codes && fresh {
+        crate::otp::find(m["subject"].as_str().unwrap_or(""), m["preview"].as_str().unwrap_or("")).unwrap_or_default()
+    } else { String::new() };
+    let files: Vec<slint::SharedString> = if ctx.lp.attachment_chips {
+        let names: Vec<String> = attachment_names(m, ctx.lp.hide_inline_images);
+        let mut v: Vec<slint::SharedString> = names.iter().take(2).map(|n| n.as_str().into()).collect();
+        if names.len() > 2 { v.push(format!("+{}", names.len() - 2).into()); }
+        v
+    } else { vec![] };
+    let preview_clean = if ctx.lp.show_preview { cached_preview(&id, m["preview"].as_str().unwrap_or("")) } else { String::new() };
+    // a search hit: the server's highlighted subject and preview (SearchSnippet/get)
+    let hl = crate::search_ui::styled(&id, subject, &preview_clean);
+    Mail {
+        initials: initials(&s).into(),
+        color: tint(&s),
+        sender: s.into(),
+        subject: subject.into(),
+        preview: preview_clean.into(),
+        time: t.as_ref().map(|t| time_label_with(t, &ctx.lp)).unwrap_or_default().into(),
+        unread: kw["$seen"].as_bool() != Some(true),
+        attach: m["hasAttachment"].as_bool().unwrap_or(false),
+        header: header.into(),
+        threads: st.threads.get(m["__tkey"].as_str().or(m["threadId"].as_str()).unwrap_or("")).copied().unwrap_or(1) as i32,
+        flagged: kw["$flagged"].as_bool() == Some(true),
+        answered: kw["$answered"].as_bool() == Some(true),
+        draft: kw["$draft"].as_bool() == Some(true),
+        checked,
+        tags: ModelRc::new(VecModel::from(tags)),
+        account: if ctx.mark == "dot" { acct.into() } else { "".into() },
+        account_color: acct_color.unwrap_or(rgb(0)),
+        id: id.into(),
+        code: code.into(),
+        row_tint,
+        files: ModelRc::new(VecModel::from(files)),
+        hl: hl.is_some(),
+        hl_subject: hl.as_ref().map(|h| h.0.clone()).unwrap_or_default(),
+        hl_preview: hl.map(|h| h.1).unwrap_or_default(),
+        avatar: avatar.0,
+        avatar_kind: avatar.1,
+    }
 }
 
 /// `p`: the settings, read once for the whole list.
 fn build_rows(st: &ListState, p: &crate::settings::Settings) -> Vec<Mail> {
-    let lp = list_prefs_from(p);
-    let ap = crate::avatars::Prefs::from_settings(p, crate::crashguard::safe_mode());
-    let junk = filter_in_junk(&st.filter);
-    let tdefs = crate::tags::parse(p.prefs.get("emailKeywords"));
-    let unified = st.filter["unified"] == true;
-    let mark = if unified { account_mark(p) } else { "none" };
-    let mut last = String::new();
-    st.emails.iter().enumerate().map(|(i, m)| {
+    let ctx = RowCtx::new(p, st);
+    build_rows_from(st, 0, String::new(), &ctx)
+}
+
+/// Rows for `st.emails[start..]`, with `last` the date group of the row just before `start`.
+fn build_rows_from(st: &ListState, start: usize, mut last: String, ctx: &RowCtx) -> Vec<Mail> {
+    st.emails[start..].iter().enumerate().map(|(j, m)| {
+        let i = start + j;
         let t = parse_time(&m["receivedAt"]);
         let g = t.as_ref().map(group_label).unwrap_or_default();
         let header = if st.unread_first.is_some() {
             // Bulwark unread-first Inbox: the unread section, then everything else
             if i == 0 && st.section > 0 { "Unread".to_string() } else if i == st.section { "Everything else".to_string() } else { String::new() }
-        } else if lp.group_by_date && g != last { last = g.clone(); g } else { String::new() };
-        let s = sender(m);
-        let avatar = row_avatar(m, &ap, junk);
-        let kw = &m["keywords"];
-        let id = m["id"].as_str().unwrap_or("").to_string();
-        let tags: Vec<Color> = kw.as_object().map(|o| o.keys().filter_map(|k| k.strip_prefix("$label:")).map(|k| tag_color(&tdefs, k)).collect()).unwrap_or_default();
-        let acct = m["__account"].as_str().filter(|_| unified).unwrap_or("");
-        let acct_color = if acct.is_empty() { None } else { Some(rgb(crate::a11y::color(crate::unified::account_color(acct)))) };
-        let row_tint = if let (true, Some(c)) = (mark == "tint", acct_color) { c.with_alpha(0.10) } else if lp.tint_rows { tags.first().map(|c| c.with_alpha(0.12)).unwrap_or(Color::from_argb_u8(0, 0, 0, 0)) } else { Color::from_argb_u8(0, 0, 0, 0) };
-        // one-time codes only for fresh mail (Bulwark: received within the last day)
-        let fresh = t.as_ref().is_some_and(|t| { let age = Local::now().signed_duration_since(*t); age.num_minutes() >= -5 && age.num_hours() <= 24 });
-        let code = if lp.codes && fresh {
-            crate::otp::find(m["subject"].as_str().unwrap_or(""), m["preview"].as_str().unwrap_or("")).unwrap_or_default()
-        } else { String::new() };
-        let files: Vec<slint::SharedString> = if lp.attachment_chips {
-            let names: Vec<String> = attachment_names(m, lp.hide_inline_images);
-            let mut v: Vec<slint::SharedString> = names.iter().take(2).map(|n| n.as_str().into()).collect();
-            if names.len() > 2 { v.push(format!("+{}", names.len() - 2).into()); }
-            v
-        } else { vec![] };
-        // a search hit: the server's highlighted subject and preview (SearchSnippet/get)
-        let hl = crate::search_ui::styled(&id, m["subject"].as_str().filter(|s| !s.is_empty()).unwrap_or("(no subject)"),
-            &if lp.show_preview { clean_preview(m["preview"].as_str().unwrap_or("")) } else { String::new() });
-        Mail {
-            initials: initials(&s).into(),
-            color: tint(&s),
-            sender: s.into(),
-            subject: m["subject"].as_str().filter(|s| !s.is_empty()).unwrap_or("(no subject)").into(),
-            preview: if lp.show_preview { clean_preview(m["preview"].as_str().unwrap_or("")).into() } else { "".into() },
-            time: t.as_ref().map(|t| time_label_with(t, &lp)).unwrap_or_default().into(),
-            unread: kw["$seen"].as_bool() != Some(true),
-            attach: m["hasAttachment"].as_bool().unwrap_or(false),
-            header: header.into(),
-            threads: st.threads.get(m["__tkey"].as_str().or(m["threadId"].as_str()).unwrap_or("")).copied().unwrap_or(1) as i32,
-            flagged: kw["$flagged"].as_bool() == Some(true),
-            answered: kw["$answered"].as_bool() == Some(true),
-            draft: kw["$draft"].as_bool() == Some(true),
-            checked: st.checked.contains(&id),
-            tags: ModelRc::new(VecModel::from(tags)),
-            account: if mark == "dot" { acct.into() } else { "".into() },
-            account_color: acct_color.unwrap_or(rgb(0)),
-            id: id.into(),
-            code: code.into(),
-            row_tint,
-            files: ModelRc::new(VecModel::from(files)),
-            hl: hl.is_some(),
-            hl_subject: hl.as_ref().map(|h| h.0.clone()).unwrap_or_default(),
-            hl_preview: hl.map(|h| h.1).unwrap_or_default(),
-            avatar: avatar.0,
-            avatar_kind: avatar.1,
-        }
+        } else if ctx.lp.group_by_date && g != last { last = g.clone(); g } else { String::new() };
+        mail_row(st, m, t, &header, st.checked.contains(m["id"].as_str().unwrap_or("")), ctx)
     }).collect()
 }
 
-/// Two list rows show the same thing: `==` on the nested tag and file models only compares
-/// identity, and every rebuild makes new ones, so those are compared by content.
+/// The group header of the row at index `i` (for rebuilding one row in place).
+fn header_at(st: &ListState, i: usize, ctx: &RowCtx) -> String {
+    if st.unread_first.is_some() {
+        return if i == 0 && st.section > 0 { "Unread".into() } else if i == st.section { "Everything else".into() } else { String::new() };
+    }
+    if !ctx.lp.group_by_date { return String::new(); }
+    let g = |idx: usize| st.emails.get(idx).and_then(|m| parse_time(&m["receivedAt"])).as_ref().map(group_label).unwrap_or_default();
+    let cur = g(i);
+    let prev = if i > 0 { g(i - 1) } else { String::new() };
+    if cur != prev { cur } else { String::new() }
+}
+
+/// One row rebuilt from its position (a mark changed its keywords; the header is unchanged).
+fn row_at(st: &ListState, i: usize, ctx: &RowCtx) -> Mail {
+    let m = &st.emails[i];
+    let t = parse_time(&m["receivedAt"]);
+    let header = header_at(st, i, ctx);
+    mail_row(st, m, t, &header, st.checked.contains(m["id"].as_str().unwrap_or("")), ctx)
+}
+
+/// Two sender pictures are the same. Slint 1.18's `Image` equality reports two empty pictures as
+/// unequal (`ImageInner::None` has no arm in its `eq`), so "no picture" is compared by size; two
+/// real pictures compare by value (the cache hands out clones of one decode).
+fn same_avatar(a: &slint::Image, b: &slint::Image) -> bool {
+    let empty = |i: &slint::Image| { let s = i.size(); s.width == 0 && s.height == 0 };
+    match (empty(a), empty(b)) {
+        (true, true) => true,
+        (false, false) => a == b,
+        _ => false,
+    }
+}
+
+/// Two list rows show the same thing. The nested tag/file models and the picture cannot use
+/// `==`: `ModelRc` compares by identity and every rebuild makes new ones, and Slint 1.18's
+/// `Image` equality reports two empty pictures as unequal. So the models are compared by content,
+/// the picture by [`same_avatar`], and everything else field by field.
 pub fn same_row(a: &Mail, b: &Mail) -> bool {
-    let mut x = a.clone();
-    x.tags = b.tags.clone();
-    x.files = b.files.clone();
-    x == *b && crate::listsync::rows_eq(&a.tags, &b.tags) && crate::listsync::rows_eq(&a.files, &b.files)
+    a.id == b.id
+        && a.sender == b.sender
+        && a.initials == b.initials
+        && a.color == b.color
+        && a.subject == b.subject
+        && a.preview == b.preview
+        && a.time == b.time
+        && a.unread == b.unread
+        && a.attach == b.attach
+        && a.header == b.header
+        && a.threads == b.threads
+        && a.flagged == b.flagged
+        && a.answered == b.answered
+        && a.checked == b.checked
+        && a.draft == b.draft
+        && a.account == b.account
+        && a.account_color == b.account_color
+        && a.code == b.code
+        && a.row_tint == b.row_tint
+        && a.hl == b.hl
+        && a.hl_subject == b.hl_subject
+        && a.hl_preview == b.hl_preview
+        && a.avatar_kind == b.avatar_kind
+        && same_avatar(&a.avatar, &b.avatar)
+        && crate::listsync::rows_eq(&a.tags, &b.tags)
+        && crate::listsync::rows_eq(&a.files, &b.files)
+}
+
+// ---------------- in-place row updates (no AppWindow; unit-tested) ----------------
+
+/// Set one row's checkbox from `st.checked`, without rebuilding the list.
+fn set_checked_of(model: &VecModel<Mail>, st: &ListState, id: &str) {
+    for i in 0..model.row_count() {
+        if let Some(mut r) = model.row_data(i) {
+            if r.id == id {
+                let c = st.checked.contains(id);
+                if r.checked != c { r.checked = c; model.set_row_data(i, r); }
+                break;
+            }
+        }
+    }
+}
+
+fn toggle_checked_state(st: &mut ListState, id: &str) {
+    if !st.checked.remove(id) { st.checked.insert(id.to_string()); }
+}
+
+/// Toggle one message's checkbox in `st` and the matching row (a checkbox click).
+fn toggle_checked_of(model: &VecModel<Mail>, st: &mut ListState, id: &str) {
+    toggle_checked_state(st, id);
+    set_checked_of(model, st, id);
+}
+
+fn toggle_all_checked(st: &mut ListState) {
+    if st.checked.is_empty() {
+        st.checked = st.emails.iter().filter_map(|m| m["id"].as_str().map(String::from)).collect();
+    } else {
+        st.checked.clear();
+    }
+}
+
+/// Select all / none in `st`, then set every row's checkbox in place.
+fn select_all_of(model: &VecModel<Mail>, st: &mut ListState) {
+    toggle_all_checked(st);
+    for i in 0..model.row_count() {
+        if let Some(mut r) = model.row_data(i) {
+            let c = st.checked.contains(r.id.as_str());
+            if r.checked != c { r.checked = c; model.set_row_data(i, r); }
+        }
+    }
+}
+
+/// Rebuild only the rows whose id is in `ids` (a mark changed their keywords), in place.
+fn refresh_marked_of(model: &VecModel<Mail>, st: &ListState, ids: &[String], p: &crate::settings::Settings) {
+    if ids.is_empty() { return; }
+    let ctx = RowCtx::new(p, st);
+    let index: HashMap<&str, usize> = st.emails.iter().enumerate().filter_map(|(i, m)| m["id"].as_str().map(|id| (id, i))).collect();
+    for id in ids {
+        let Some(&i) = index.get(id.as_str()) else { continue };
+        // the row at this position must be this message: after sign-out the model is emptied while
+        // `st` still holds the old list for a moment, and writing by position would put one
+        // message's data on another's row
+        let Some(old) = model.row_data(i) else { continue };
+        if old.id.as_str() != id.as_str() { continue; }
+        let row = row_at(st, i, &ctx);
+        if !same_row(&old, &row) { model.set_row_data(i, row); }
+    }
+}
+
+/// Build the rows appended from index `start` and push them (a load-more page). Writes nothing and
+/// returns false when the model is not that long (it was replaced, e.g. at sign-out), so the page
+/// cannot land at the wrong offset; the caller rebuilds the list instead.
+fn append_rows_of(model: &VecModel<Mail>, st: &ListState, start: usize, p: &crate::settings::Settings) -> bool {
+    if model.row_count() != start { return false; }
+    let ctx = RowCtx::new(p, st);
+    let last = if start == 0 { String::new() } else {
+        st.emails.get(start - 1).and_then(|m| parse_time(&m["receivedAt"])).as_ref().map(group_label).unwrap_or_default()
+    };
+    for row in build_rows_from(st, start, last, &ctx) { model.push(row); }
+    true
 }
 
 /// An image the body references by cid (not a real attachment).
@@ -663,9 +866,13 @@ pub fn rebuild_list(u: &AppWindow) {
     u.set_mail_row_height(h);
     LIST.with(|l| {
         let l = l.borrow();
+        let rows = build_rows(&l, &p);
+        // a preview cache entry for a message this list no longer holds is dropped: the cache
+        // stays the size of the list shown, across folder switches and sign-outs
+        prune_previews(rows.iter().map(|r| r.id.as_str()));
         // in place, by message id: a refresh only touches the rows that changed, new mail is an
         // insert, a moved or deleted message a remove (design/MOTION.md, "Lists")
-        crate::listsync::sync_into(&u.get_mails(), build_rows(&l, &p), |m| m.id.clone(), same_row, |m| u.set_mails(m));
+        crate::listsync::sync_into(&u.get_mails(), rows, |m| m.id.clone(), same_row, |m| u.set_mails(m));
         u.set_has_more(l.emails.len() < l.total);
         u.set_checked_count(l.checked.len() as i32);
         // the selection bar offers "Report phishing" only once an address is set (Bulwark: while one is)
@@ -674,6 +881,45 @@ pub fn rebuild_list(u: &AppWindow) {
         // the start was a good one (an empty mailbox falls back to crashguard::UP_FOR)
         if u.get_logged_in() && !l.emails.is_empty() { crate::crashguard::done(&crate::config_dir()); }
     });
+}
+
+/// Run `f` against the mail list's `VecModel` (installed by the first rebuild), if present.
+fn with_mail_model<R>(u: &AppWindow, f: impl FnOnce(&VecModel<Mail>) -> R) -> Option<R> {
+    let model = u.get_mails();
+    model.as_any().downcast_ref::<VecModel<Mail>>().map(f)
+}
+
+/// The selection bar state that follows the checked set (count and "Report phishing").
+fn set_checked_state(u: &AppWindow) {
+    LIST.with(|l| {
+        let l = l.borrow();
+        u.set_checked_count(l.checked.len() as i32);
+        if !l.checked.is_empty() { u.set_phish_ok(crate::phish::setup_cached().is_some()); }
+    });
+}
+
+/// Rebuild only the rows a mark changed (read / unread / star / tag), leaving the rest alone.
+pub fn refresh_rows(u: &AppWindow, ids: &[String]) {
+    if ids.is_empty() { return; }
+    let p = crate::settings::Settings::load();
+    let model = u.get_mails();
+    LIST.with(|l| {
+        if let Some(vm) = model.as_any().downcast_ref::<VecModel<Mail>>() {
+            refresh_marked_of(vm, &l.borrow(), ids, &p);
+        }
+    });
+}
+
+/// Append the rows for the emails from index `start` (the load-more page), not the whole list. A
+/// model that no longer has `start` rows (the list was emptied meanwhile) gets a full rebuild.
+fn append_rows(u: &AppWindow, start: usize) {
+    let p = crate::settings::Settings::load();
+    let model = u.get_mails();
+    let done = LIST.with(|l| match model.as_any().downcast_ref::<VecModel<Mail>>() {
+        Some(vm) => append_rows_of(vm, &l.borrow(), start, &p),
+        None => false,
+    });
+    if !done { rebuild_list(u); }
 }
 
 type Page = Result<crate::jmap::ListPage, String>;
@@ -750,13 +996,22 @@ pub fn folder_filter(folder: &str, text: Option<&str>) -> Value {
 /// Whether the shown list is the unified one.
 pub fn showing_unified() -> bool { LIST.with(|l| l.borrow().filter["unified"] == true) }
 
-/// Empty the list (the unified folder was turned off while it was open).
-pub fn clear_list(u: &AppWindow) {
+/// Forget the open list and invalidate every page still in flight: a new list, as at sign-out
+/// (which also empties the model itself) or when the unified folder is turned off. The generation
+/// bump is what a load-more, a sync or a reload started before now checks.
+pub fn forget_list() {
     LIST.with(|l| {
         let mut l = l.borrow_mut();
         let generation = l.generation + 1;
         *l = ListState { generation, ..Default::default() };
     });
+    // the cleaned previews are the previous account's mail
+    prune_previews(std::iter::empty::<&str>());
+}
+
+/// Empty the list (the unified folder was turned off while it was open).
+pub fn clear_list(u: &AppWindow) {
+    forget_list();
     rebuild_list(u);
 }
 
@@ -833,6 +1088,7 @@ pub fn load_more(w: slint::Weak<AppWindow>, c: Arc<Client>) {
             None => c.list_page(filter, pos, anchor.as_deref(), page_size()),
         };
         let _ = w.upgrade_in_event_loop(move |u| {
+            let mut append_from: Option<usize> = None;
             LIST.with(|l| {
                 let mut l = l.borrow_mut();
                 if l.generation != gen { return; }
@@ -841,6 +1097,7 @@ pub fn load_more(w: slint::Weak<AppWindow>, c: Arc<Client>) {
                     // a page of another list state: the rows no longer form one snapshot, so the
                     // next sync re-queries in full
                     if l.sync.as_ref().map(|s| Some(&s.query)) != Some(p.query_state.as_ref()) { l.sync = None; }
+                    let before = l.emails.len();
                     if l.filter["unified"] == true {
                         // merge cursor: rows from every source, re-ordered by time
                         l.emails.extend(p.emails);
@@ -848,6 +1105,8 @@ pub fn load_more(w: slint::Weak<AppWindow>, c: Arc<Client>) {
                     } else {
                         let have: HashSet<String> = l.emails.iter().filter_map(|m| m["id"].as_str().map(String::from)).collect();
                         l.emails.extend(p.emails.into_iter().filter(|m| !have.contains(m["id"].as_str().unwrap_or(""))));
+                        // the page appended after the loaded rows: build only those
+                        append_from = Some(before);
                     }
                     l.total = if l.unread_first.is_some() { p.total + l.section } else { p.total };
                     l.threads.extend(p.threads);
@@ -855,7 +1114,13 @@ pub fn load_more(w: slint::Weak<AppWindow>, c: Arc<Client>) {
                     crate::search_ui::fetch_snippets(u.as_weak(), c.clone(), l.filter.clone(), ids);
                 }
             });
-            rebuild_list(&u);
+            match append_from {
+                Some(start) => {
+                    append_rows(&u, start);
+                    u.set_has_more(LIST.with(|l| { let l = l.borrow(); l.emails.len() < l.total }));
+                }
+                None => rebuild_list(&u),
+            }
         });
     });
 }
@@ -935,22 +1200,22 @@ pub fn reload(w: slint::Weak<AppWindow>, c: Arc<Client>) {
 
 pub fn toggle_check(u: &AppWindow, id: &str) {
     LIST.with(|l| {
-        let mut l = l.borrow_mut();
-        if !l.checked.remove(id) { l.checked.insert(id.to_string()); }
+        let mut st = l.borrow_mut();
+        if with_mail_model(u, |vm| toggle_checked_of(vm, &mut st, id)).is_none() {
+            toggle_checked_state(&mut st, id);
+        }
     });
-    rebuild_list(u);
+    set_checked_state(u);
 }
 
 pub fn select_all(u: &AppWindow) {
     LIST.with(|l| {
-        let mut l = l.borrow_mut();
-        if l.checked.is_empty() {
-            l.checked = l.emails.iter().filter_map(|m| m["id"].as_str().map(String::from)).collect();
-        } else {
-            l.checked.clear();
+        let mut st = l.borrow_mut();
+        if with_mail_model(u, |vm| select_all_of(vm, &mut st)).is_none() {
+            toggle_all_checked(&mut st);
         }
     });
-    rebuild_list(u);
+    set_checked_state(u);
 }
 
 pub fn checked_ids() -> Vec<String> {
@@ -1059,8 +1324,6 @@ pub fn moved_away(u: &AppWindow, ids: &[String]) {
     rebuild_list(u);
 }
 
-/// Apply an action to messages: delete, archive, spam, notspam, star, unstar, read, unread,
-/// tag:<id>, untag:<id>, move:<mailboxId>.
 thread_local! { pub static CONFIRM_BULK: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
 
 /// Put text on the clipboard (platform layer).
@@ -1068,6 +1331,8 @@ pub fn copy_to_clipboard(text: &str) -> bool {
     crate::platform::copy_text(text)
 }
 
+/// Apply an action to messages: delete, archive, spam, notspam, star, unstar, read, unread,
+/// tag:<id>, untag:<id>, move:<mailboxId>.
 pub fn apply(u: &AppWindow, c: Arc<Client>, ids: Vec<String>, action: &str) {
     if ids.is_empty() { return; }
     if let Some(code) = action.strip_prefix("copy-code:") {
@@ -1137,7 +1402,8 @@ pub fn apply_confirmed(u: &AppWindow, c: Arc<Client>, ids: Vec<String>, action: 
     let received: Vec<(String, String)> = if action == "archive" && archive_mode != "single" {
         ids.iter().map(|i| (crate::unified::real_id(i).to_string(), email(i).and_then(|m| m["receivedAt"].as_str().map(String::from)).unwrap_or_default())).collect()
     } else { vec![] };
-    // optimistic local change
+    // optimistic local change (a keyword mark stays in place; a move/delete removes the rows)
+    let mut removed = false;
     match action.as_str() {
         "star" => patch_local(&ids, |m| m["keywords"]["$flagged"] = json!(true)),
         "unstar" => patch_local(&ids, |m| { if let Some(o) = m["keywords"].as_object_mut() { o.remove("$flagged"); } }),
@@ -1145,8 +1411,8 @@ pub fn apply_confirmed(u: &AppWindow, c: Arc<Client>, ids: Vec<String>, action: 
         "unread" => patch_local(&ids, |m| { if let Some(o) = m["keywords"].as_object_mut() { o.remove("$seen"); } }),
         a if a.starts_with("tag:") => { let k = format!("$label:{}", &a[4..]); patch_local(&ids, |m| m["keywords"][k.as_str()] = json!(true)) }
         a if a.starts_with("untag:") => { let k = format!("$label:{}", &a[6..]); patch_local(&ids, |m| { if let Some(o) = m["keywords"].as_object_mut() { o.remove(&k); } }) }
-        "delete" | "archive" | "spam" | "notspam" => remove_local(&ids),
-        a if a.starts_with("move:") || a.starts_with("moveto:") => remove_local(&ids),
+        "delete" | "archive" | "spam" | "notspam" => { remove_local(&ids); removed = true; }
+        a if a.starts_with("move:") || a.starts_with("moveto:") => { remove_local(&ids); removed = true; }
         _ => {}
     }
     let mut open_next: Option<String> = None;
@@ -1160,7 +1426,7 @@ pub fn apply_confirmed(u: &AppWindow, c: Arc<Client>, ids: Vec<String>, action: 
             u.set_current_mail("".into());
         }
     }
-    rebuild_list(u);
+    if removed { rebuild_list(u); } else { refresh_rows(u, &ids); }
     if let Some(next) = open_next { u.invoke_open_mail(next.into()); }
     // the server knows the messages by their own ids
     let ids = real_ids(&ids);
@@ -1329,5 +1595,533 @@ mod tests {
         assert!(archive_path("nonsense", "year").is_empty());
         assert_eq!(unread_section_size(50), 50);
         assert_eq!(unread_section_size(7), 25);
+    }
+
+    // ---------------- incremental row updates (#8, #19) ----------------
+
+    fn msg(id: &str, from: &str, at: &str) -> serde_json::Value {
+        serde_json::json!({
+            "id": id,
+            "from": [{"name": from, "email": format!("{}@example.test", from.to_lowercase())}],
+            "receivedAt": at,
+            "subject": format!("Subject {id}"),
+            "preview": format!("Preview {id}"),
+            "keywords": {"$seen": false},
+            "hasAttachment": false,
+            "threadId": format!("thread-{id}"),
+        })
+    }
+
+    /// A message with the list's optional parts: read/flagged, a tag, files (one real, one inline).
+    fn rich(id: &str, from: &str, at: &str, seen: bool, flagged: bool, label: Option<&str>) -> Value {
+        let mut kw = serde_json::Map::new();
+        kw.insert("$seen".into(), json!(seen));
+        if flagged { kw.insert("$flagged".into(), json!(true)); }
+        if let Some(l) = label { kw.insert(format!("$label:{l}"), json!(true)); }
+        json!({
+            "id": id,
+            "from": [{"name": from, "email": format!("{}@example.test", from.to_lowercase())}],
+            "receivedAt": at,
+            "subject": format!("Subject {id}"),
+            "preview": format!("Preview {id}\u{200b}   with\tspace"),
+            "keywords": Value::Object(kw),
+            "hasAttachment": true,
+            "threadId": format!("thread-{id}"),
+            "attachments": [
+                {"name": format!("{id}.pdf"), "type": "application/pdf"},
+                {"name": "inline.png", "type": "image/png", "cid": "c1"},
+            ],
+        })
+    }
+
+    fn one_pixel() -> slint::Image {
+        let mut buf = slint::SharedPixelBuffer::<slint::Rgba8Pixel>::new(1, 1);
+        buf.make_mut_bytes()[..4].copy_from_slice(&[255, 0, 0, 255]);
+        slint::Image::from_rgba8(buf)
+    }
+
+    fn list_state(emails: Vec<serde_json::Value>) -> ListState {
+        ListState { emails, total: 100, threads: HashMap::new(), ..Default::default() }
+    }
+
+    fn prefs() -> crate::settings::Settings {
+        crate::settings::Settings::with_prefs(serde_json::Map::new())
+    }
+
+    fn settings(pairs: &[(&str, Value)]) -> crate::settings::Settings {
+        let mut m = serde_json::Map::new();
+        for (k, v) in pairs { m.insert((*k).to_string(), v.clone()); }
+        crate::settings::Settings::with_prefs(m)
+    }
+
+    /// Every field of `Mail`, compared by name. A test failure names what differs, and a field
+    /// `same_row` forgot cannot make the equivalence tests pass by being skipped here too.
+    fn assert_same_fields(a: &Mail, b: &Mail, what: &str) {
+        assert_eq!(a.id, b.id, "{what}: id");
+        assert_eq!(a.sender, b.sender, "{what}: sender");
+        assert_eq!(a.initials, b.initials, "{what}: initials");
+        assert_eq!(a.color, b.color, "{what}: color");
+        assert_eq!(a.subject, b.subject, "{what}: subject");
+        assert_eq!(a.preview, b.preview, "{what}: preview");
+        assert_eq!(a.time, b.time, "{what}: time");
+        assert_eq!(a.unread, b.unread, "{what}: unread");
+        assert_eq!(a.attach, b.attach, "{what}: attach");
+        assert_eq!(a.header, b.header, "{what}: header");
+        assert_eq!(a.threads, b.threads, "{what}: threads");
+        assert_eq!(a.flagged, b.flagged, "{what}: flagged");
+        assert_eq!(a.answered, b.answered, "{what}: answered");
+        assert_eq!(a.checked, b.checked, "{what}: checked");
+        assert_eq!(a.draft, b.draft, "{what}: draft");
+        assert_eq!(a.account, b.account, "{what}: account");
+        assert_eq!(a.account_color, b.account_color, "{what}: account-color");
+        assert_eq!(a.code, b.code, "{what}: code");
+        assert_eq!(a.row_tint, b.row_tint, "{what}: row-tint");
+        assert_eq!(a.hl, b.hl, "{what}: hl");
+        assert_eq!(a.hl_subject, b.hl_subject, "{what}: hl-subject");
+        assert_eq!(a.hl_preview, b.hl_preview, "{what}: hl-preview");
+        assert_eq!(a.tags.iter().collect::<Vec<_>>(), b.tags.iter().collect::<Vec<_>>(), "{what}: tags");
+        assert_eq!(a.files.iter().collect::<Vec<_>>(), b.files.iter().collect::<Vec<_>>(), "{what}: files");
+        assert_eq!(a.avatar_kind, b.avatar_kind, "{what}: avatar-kind");
+        // a picture is compared by value; "no picture" is 0x0 (Slint's own `==` calls two of them
+        // unequal, which is what this comparison works around)
+        assert_eq!(a.avatar.size(), b.avatar.size(), "{what}: avatar size");
+        if a.avatar.size().width != 0 { assert_eq!(a.avatar, b.avatar, "{what}: avatar"); }
+    }
+
+    fn assert_rows_named(model: &VecModel<Mail>, expected: &[Mail], what: &str) {
+        assert_eq!(model.row_count(), expected.len(), "{what}: row count");
+        for (i, e) in expected.iter().enumerate() {
+            let a = model.row_data(i).expect("row");
+            assert_same_fields(&a, e, &format!("{what} row {i}"));
+            // and the comparison the update path uses must agree: a rebuilt row is "the same"
+            assert!(same_row(&a, e), "{what} row {i}: same_row sees a difference");
+        }
+    }
+
+    fn assert_rows(model: &VecModel<Mail>, expected: &[Mail]) {
+        assert_rows_named(model, expected, "list");
+    }
+
+    fn three() -> Vec<Value> {
+        vec![
+            msg("a", "Alice", "2024-06-15T12:00:00Z"),
+            msg("b", "Bob", "2024-06-16T12:00:00Z"),
+            msg("c", "Carol", "2024-06-17T12:00:00Z"),
+        ]
+    }
+
+    #[test]
+    fn checkbox_toggle_matches_full_rebuild() {
+        let mut st = list_state(three());
+        let p = prefs();
+        let model = VecModel::from(build_rows(&st, &p));
+        toggle_checked_of(&model, &mut st, "b");
+        assert_rows(&model, &build_rows(&st, &p));
+        // toggle it back
+        toggle_checked_of(&model, &mut st, "b");
+        assert_rows(&model, &build_rows(&st, &p));
+    }
+
+    #[test]
+    fn select_all_matches_full_rebuild() {
+        let mut st = list_state(three());
+        let p = prefs();
+        let model = VecModel::from(build_rows(&st, &p));
+        select_all_of(&model, &mut st);
+        assert_rows(&model, &build_rows(&st, &p));
+        select_all_of(&model, &mut st);
+        assert_rows(&model, &build_rows(&st, &p));
+    }
+
+    #[test]
+    fn mark_read_matches_full_rebuild() {
+        let mut st = list_state(three());
+        let p = prefs();
+        let model = VecModel::from(build_rows(&st, &p));
+        for m in st.emails.iter_mut() {
+            if ["b", "c"].contains(&m["id"].as_str().unwrap_or("")) { m["keywords"]["$seen"] = serde_json::json!(true); }
+        }
+        refresh_marked_of(&model, &st, &["b".to_string(), "c".to_string()], &p);
+        assert_rows(&model, &build_rows(&st, &p));
+    }
+
+    #[test]
+    fn mark_tag_matches_full_rebuild() {
+        let mut st = list_state(three());
+        let p = prefs();
+        let model = VecModel::from(build_rows(&st, &p));
+        for m in st.emails.iter_mut() {
+            if m["id"] == "b" { m["keywords"]["$label:red"] = serde_json::json!(true); }
+        }
+        refresh_marked_of(&model, &st, &["b".to_string()], &p);
+        assert_rows(&model, &build_rows(&st, &p));
+    }
+
+    #[test]
+    fn load_more_matches_full_rebuild() {
+        let mut st = list_state(vec![msg("a", "Alice", "2024-06-15T12:00:00Z"), msg("b", "Bob", "2024-06-15T13:00:00Z")]);
+        let p = prefs();
+        let model = VecModel::from(build_rows(&st, &p));
+        // the next page appends two messages in a later month (a new date group header)
+        st.emails.extend([msg("c", "Carol", "2024-07-20T08:30:00Z"), msg("d", "Dan", "2024-07-20T09:00:00Z")]);
+        assert!(append_rows_of(&model, &st, 2, &p), "the page is refused");
+        assert_rows(&model, &build_rows(&st, &p));
+    }
+
+    /// A load-more started before the list was emptied (sign-out swaps in an empty model) must not
+    /// write its rows at an offset of the list it was built for: it is refused instead, so the
+    /// caller rebuilds.
+    #[test]
+    fn append_after_the_model_was_replaced_is_refused() {
+        let mut st = list_state(three());
+        let p = prefs();
+        let model = VecModel::from(build_rows(&st, &p));
+        st.emails.extend([msg("d", "Dan", "2024-07-20T08:30:00Z"), msg("e", "Eve", "2024-07-20T09:00:00Z")]);
+        // the model the page was built for is gone: the one now shown is empty
+        let empty: VecModel<Mail> = VecModel::from(Vec::<Mail>::new());
+        assert!(!append_rows_of(&empty, &st, 3, &p));
+        assert_eq!(empty.row_count(), 0);
+        // a model of another length is not written either (the rows would sit at the wrong place)
+        assert!(!append_rows_of(&model, &st, 4, &p));
+        assert_eq!(model.row_count(), 3);
+    }
+
+    /// A row is only written where its own id sits: a mark for a message whose row is not at that
+    /// position (the model was replaced, or holds another list) leaves the row alone.
+    #[test]
+    fn refresh_marked_skips_a_row_of_another_message() {
+        let mut st = list_state(three());
+        let p = prefs();
+        // a model with other messages, at the same positions
+        let other = VecModel::from(build_rows(&list_state(vec![
+            msg("x", "Xena", "2024-06-15T12:00:00Z"),
+            msg("y", "Yuri", "2024-06-16T12:00:00Z"),
+            msg("z", "Zoe", "2024-06-17T12:00:00Z"),
+        ]), &p));
+        let before: Vec<Mail> = other.iter().collect();
+        st.emails[0]["keywords"]["$seen"] = json!(true);
+        st.emails[1]["keywords"]["$label:red"] = json!(true);
+        refresh_marked_of(&other, &st, &["a".to_string(), "b".to_string(), "missing".to_string()], &p);
+        assert_rows(&other, &before);
+        // when the model does hold those messages, a mark updates its row
+        let model = VecModel::from(build_rows(&st, &p));
+        st.emails[2]["keywords"]["$seen"] = json!(true);
+        refresh_marked_of(&model, &st, &["c".to_string()], &p);
+        assert_rows(&model, &build_rows(&st, &p));
+    }
+
+    /// Sign-out forgets the list's own state and bumps the generation, so a load-more, a sync or a
+    /// reload started before it is dropped when it lands (as `clear_list` does).
+    #[test]
+    fn sign_out_forgets_the_list_state() {
+        let gen = LIST.with(|l| {
+            let mut l = l.borrow_mut();
+            l.emails = three();
+            l.total = 99;
+            l.checked.insert("a".into());
+            l.checked.insert("b".into());
+            l.filter = json!({"inMailbox": "mb1"});
+            l.loading = true;
+            l.generation
+        });
+        forget_list();
+        LIST.with(|l| {
+            let l = l.borrow();
+            assert!(l.emails.is_empty(), "the messages are left");
+            assert_eq!(l.total, 0);
+            assert!(l.checked.is_empty());
+            assert!(l.filter.is_null());
+            assert!(!l.loading);
+            assert!(l.sync.is_none());
+            assert_eq!(l.generation, gen + 1, "the generation did not move");
+        });
+    }
+
+    #[test]
+    fn sync_diff_matches_full_rebuild() {
+        let st = list_state(three());
+        let p = prefs();
+        let model = VecModel::from(build_rows(&st, &p));
+        // the sync delta: d inserted on top, b marked read, c removed
+        let mut after = list_state(vec![
+            msg("d", "Dan", "2024-07-01T12:00:00Z"),
+            msg("a", "Alice", "2024-06-15T12:00:00Z"),
+            msg("b", "Bob", "2024-06-16T12:00:00Z"),
+        ]);
+        for m in after.emails.iter_mut() {
+            if m["id"] == "b" { m["keywords"]["$seen"] = serde_json::json!(true); }
+        }
+        let expected = build_rows(&after, &p);
+        crate::listsync::sync_by(&model, expected.clone(), |m| m.id.clone(), same_row);
+        assert_rows(&model, &expected);
+    }
+
+    #[test]
+    fn avatar_update_touches_only_matching_rows() {
+        crate::avatars::forget_memory();
+        let st = list_state(vec![msg("a", "Alice", "2024-06-15T12:00:00Z"), msg("b", "Bob", "2024-06-16T12:00:00Z")]);
+        let p = prefs();
+        let model = VecModel::from(build_rows(&st, &p));
+        assert_eq!(model.row_data(0).unwrap().avatar_kind, 0);
+        assert_eq!(model.row_data(1).unwrap().avatar_kind, 0);
+        // a photo is ready for alice only; bob is known to have none (so nothing is fetched)
+        crate::avatars::seed_ready(&format!("grav:{}", crate::avatars::gravatar_hash("alice@example.test")),
+            crate::avatars::Pic { image: slint::Image::default(), logo: false });
+        crate::avatars::seed_missing(&format!("grav:{}", crate::avatars::gravatar_hash("bob@example.test")));
+        let ap = crate::avatars::Prefs { favicons: false, gravatar: true, in_junk: false };
+        assert_eq!(refresh_avatar_rows(&model, &st, &ap), 1); // alice's row only
+        assert_eq!(model.row_data(0).unwrap().avatar_kind, 1); // alice's photo
+        assert_eq!(model.row_data(1).unwrap().avatar_kind, 0); // bob untouched
+        // the next tick finds nothing to do: no row notifications while pictures stream in
+        assert_eq!(refresh_avatar_rows(&model, &st, &ap), 0);
+    }
+
+    #[test]
+    fn same_row_sees_every_field() {
+        let st = list_state(three());
+        let p = prefs();
+        let base = build_rows(&st, &p).remove(1);
+        // two empty pictures (the row has none) are the same picture; a rebuild clones the rest
+        assert!(same_row(&base, &base.clone()));
+        // rebuilt tag/file models are new objects: compared by content, not identity
+        let mut rebuilt = base.clone();
+        rebuilt.tags = ModelRc::new(VecModel::from(base.tags.iter().collect::<Vec<_>>()));
+        rebuilt.files = ModelRc::new(VecModel::from(base.files.iter().collect::<Vec<_>>()));
+        assert!(same_row(&base, &rebuilt));
+
+        let styled = || slint::StyledText::from_markdown("**hit**").expect("markdown");
+        let mut variants: Vec<(&str, Mail)> = vec![];
+        macro_rules! vary { ($name:literal, $field:ident, $value:expr) => {{
+            let mut m = base.clone();
+            m.$field = $value;
+            variants.push(($name, m));
+        }}; }
+        vary!("id", id, "other".into());
+        vary!("sender", sender, "Zed".into());
+        vary!("initials", initials, "ZZ".into());
+        vary!("color", color, Color::from_argb_u8(255, 1, 2, 3));
+        vary!("subject", subject, "Elsewhere".into());
+        vary!("preview", preview, "Elsewhere".into());
+        vary!("time", time, "99:99".into());
+        vary!("unread", unread, !base.unread);
+        vary!("attach", attach, !base.attach);
+        vary!("header", header, "Today".into());
+        vary!("threads", threads, base.threads + 1);
+        vary!("flagged", flagged, !base.flagged);
+        vary!("answered", answered, !base.answered);
+        vary!("checked", checked, !base.checked);
+        vary!("draft", draft, !base.draft);
+        vary!("account", account, "acct".into());
+        vary!("account-color", account_color, Color::from_argb_u8(255, 9, 9, 9));
+        vary!("code", code, "123456".into());
+        vary!("row-tint", row_tint, Color::from_argb_u8(16, 1, 2, 3));
+        vary!("hl", hl, !base.hl);
+        vary!("hl-subject", hl_subject, styled());
+        vary!("hl-preview", hl_preview, styled());
+        vary!("tags", tags, ModelRc::new(VecModel::from(vec![Color::from_argb_u8(255, 1, 1, 1)])));
+        vary!("files", files, ModelRc::new(VecModel::from(vec![slint::SharedString::from("x.pdf")])));
+        vary!("avatar-kind", avatar_kind, 1);
+        vary!("avatar", avatar, one_pixel());
+        for (name, changed) in variants {
+            assert!(!same_row(&base, &changed), "same_row misses {name}");
+            assert!(!same_row(&changed, &base), "same_row is asymmetric on {name}");
+        }
+    }
+
+    /// A keyboard walk (`move_sel` in main.rs) reads ids and `unread` off the rows: both must be
+    /// those of a full rebuild after an in-place mark.
+    #[test]
+    fn keyboard_walk_sees_the_same_rows() {
+        let mut st = list_state(three());
+        let p = prefs();
+        let model = VecModel::from(build_rows(&st, &p));
+        st.emails[0]["keywords"]["$seen"] = json!(true);
+        st.emails[2]["keywords"]["$seen"] = json!(true);
+        refresh_marked_of(&model, &st, &["a".to_string(), "c".to_string()], &p);
+        let walk = |m: &VecModel<Mail>, unread_only: bool| -> Vec<String> {
+            m.iter().filter(|r| !unread_only || r.unread).map(|r| r.id.to_string()).collect()
+        };
+        let rebuilt = VecModel::from(build_rows(&st, &p));
+        assert_eq!(walk(&model, false), walk(&rebuilt, false));
+        assert_eq!(walk(&model, true), walk(&rebuilt, true));
+        assert_eq!(walk(&model, true), vec!["b".to_string()]);
+    }
+
+    /// Thread counts, stars and tags are row data too: an in-place rebuild of a marked row keeps
+    /// them (and takes an updated count).
+    #[test]
+    fn threads_and_flags_match_a_full_rebuild() {
+        let mut st = list_state(vec![
+            rich("a", "Alice", "2024-06-17T12:00:00Z", false, true, Some("red")),
+            rich("b", "Bob", "2024-06-16T12:00:00Z", true, false, None),
+        ]);
+        st.threads.insert("thread-a".into(), 3);
+        st.threads.insert("thread-b".into(), 2);
+        let p = prefs();
+        let model = VecModel::from(build_rows(&st, &p));
+        assert_eq!(model.row_data(0).unwrap().threads, 3);
+        assert!(model.row_data(0).unwrap().flagged);
+        assert_eq!(model.row_data(0).unwrap().tags.iter().count(), 1);
+        st.threads.insert("thread-a".into(), 4);
+        refresh_marked_of(&model, &st, &["a".to_string()], &p);
+        assert_eq!(model.row_data(0).unwrap().threads, 4);
+        assert_rows(&model, &build_rows(&st, &p));
+    }
+
+    /// Every incremental path over one list state, compared field by field with a full rebuild
+    /// after each step: checkbox on/off, select all/none, read + star + tag, and a load-more page
+    /// (one message in the last date group, one in the next month), then a sync delta.
+    fn check_paths(label: &str, st0: ListState, p: &crate::settings::Settings) {
+        let mut st = st0;
+        let model = VecModel::from(build_rows(&st, p));
+        let expect = |st: &ListState| build_rows(st, p);
+        assert_rows_named(&model, &expect(&st), label);
+        let set = |st: &mut ListState, i: usize, k: &str, on: bool| {
+            if on { st.emails[i]["keywords"][k] = json!(true); }
+            else if let Some(o) = st.emails[i]["keywords"].as_object_mut() { o.remove(k); }
+        };
+
+        let id = st.emails[1]["id"].as_str().unwrap().to_string();
+        toggle_checked_of(&model, &mut st, &id);
+        assert_rows_named(&model, &expect(&st), &format!("{label}: check"));
+        toggle_checked_of(&model, &mut st, &id);
+        assert_rows_named(&model, &expect(&st), &format!("{label}: uncheck"));
+        select_all_of(&model, &mut st);
+        assert_rows_named(&model, &expect(&st), &format!("{label}: select-all"));
+        select_all_of(&model, &mut st);
+        assert_rows_named(&model, &expect(&st), &format!("{label}: select-none"));
+
+        let first = st.emails[0]["id"].as_str().unwrap().to_string();
+        for (k, on) in [("$seen", true), ("$flagged", true), ("$label:red", true)] { set(&mut st, 0, k, on); }
+        refresh_marked_of(&model, &st, &[first.clone()], p);
+        assert_rows_named(&model, &expect(&st), &format!("{label}: mark"));
+        for (k, on) in [("$seen", false), ("$flagged", false), ("$label:red", false)] { set(&mut st, 0, k, on); }
+        refresh_marked_of(&model, &st, &[first], p);
+        assert_rows_named(&model, &expect(&st), &format!("{label}: unmark"));
+
+        let start = st.emails.len();
+        st.emails.push(rich("x", "Xena", "2024-06-20T08:00:00Z", true, false, None));
+        st.emails.push(rich("y", "Yuri", "2024-08-01T09:00:00Z", false, true, Some("blue")));
+        assert!(append_rows_of(&model, &st, start, p), "{label}: load-more refused");
+        assert_rows_named(&model, &expect(&st), &format!("{label}: load-more"));
+
+        let mut after = st;
+        after.emails.insert(0, rich("z", "Zoe", "2024-09-01T10:00:00Z", false, false, None));
+        after.emails.retain(|m| m["id"] != "b");
+        if let Some(m) = after.emails.iter_mut().find(|m| m["id"] == "c") { m["keywords"]["$seen"] = json!(true); }
+        let rows = expect(&after);
+        crate::listsync::sync_by(&model, rows.clone(), |m| m.id.clone(), same_row);
+        assert_rows_named(&model, &rows, &format!("{label}: sync"));
+    }
+
+    #[test]
+    fn every_incremental_path_matches_a_full_rebuild() {
+        check_paths("plain", list_state(three()), &prefs());
+
+        // every list setting that changes a row
+        let fancy = settings(&[
+            ("groupListByDate", json!(false)),
+            ("showPreview", json!(false)),
+            ("dateFormat", json!("full")),
+            ("timeFormat", json!("12h")),
+            ("density", json!("compact")),           // Bulwark: no attachment chips here
+            ("tintListRowsByTag", json!(true)),
+            ("showVerificationCodes", json!(false)),
+            ("hideInlineImageAttachments", json!(false)),
+        ]);
+        let attached = list_state(vec![
+            rich("a", "Alice", "2024-06-17T12:00:00Z", false, true, Some("red")),
+            rich("b", "Bob", "2024-06-16T12:00:00Z", true, false, None),
+            msg("c", "Carol", "2024-06-15T12:00:00Z"),
+        ]);
+        check_paths("settings", attached, &fancy);
+
+        // unread first: the two section headers
+        let mut unread = list_state(vec![
+            rich("u1", "Uma", "2024-06-17T12:00:00Z", false, false, Some("red")),
+            rich("u2", "Ugo", "2024-06-17T11:00:00Z", false, false, None),
+            rich("r1", "Rita", "2024-06-16T12:00:00Z", true, true, None),
+            rich("r2", "Rolf", "2024-06-15T12:00:00Z", true, false, None),
+        ]);
+        unread.unread_first = Some(2);
+        unread.section = 2;
+        check_paths("unread-first", unread, &prefs());
+
+        // the unified list: each row's account colour, and the per-account row tint
+        let unified = list_state(vec![
+            { let mut m = rich("acct1|a", "Alice", "2024-06-17T12:00:00Z", false, false, None); m["__account"] = json!("acct1"); m },
+            { let mut m = rich("acct2|b", "Bob", "2024-06-16T12:00:00Z", true, false, None); m["__account"] = json!("acct2"); m },
+        ]);
+        let mut unified = unified;
+        unified.filter = json!({"unified": true});
+        check_paths("unified-tint", unified, &settings(&[("tintListRowsByAccount", json!("tint"))]));
+    }
+
+    /// A few rows' fields pinned to hand-written values (not to another code path): the cleaned
+    /// preview, the search highlight, the one-time code, the tag tint and the date group header.
+    /// A change in `mail_row` has to be a deliberate change here too.
+    #[test]
+    fn rows_carry_the_expected_field_values() {
+        let p = settings(&[("tintListRowsByTag", json!(true))]);
+        let mut tagged = msg("a", "Alice", "2024-06-15T12:00:00Z");
+        tagged["preview"] = json!("Preview\u{200b}   a\u{00ad} with\tspace");
+        tagged["keywords"]["$label:red"] = json!(true);
+        let mut hit = msg("b", "Bob", "2024-06-16T12:00:00Z");
+        hit["keywords"]["$seen"] = json!(true);
+        let mut fresh = msg("c", "Carol", &Local::now().to_rfc3339());
+        fresh["subject"] = json!("Your verification code is 177945");
+        fresh["keywords"]["$seen"] = json!(true);
+        let st = list_state(vec![tagged, hit, fresh]);
+        // the server's snippet for "b": the search term marked in the subject and in the preview
+        crate::search_ui::clear_snippets();
+        crate::search_ui::seed_snippet("b",
+            vec![("Subject ".into(), false), ("b".into(), true)],
+            vec![("Preview ".into(), true), ("b".into(), false)]);
+        let rows = build_rows(&st, &p);
+        crate::search_ui::clear_snippets();
+
+        let no_colour = Color::from_argb_u8(255, 0, 0, 0);
+        // row 0: the preview has its invisible characters dropped, the tag tints the row, and the
+        // date group header names the month (the message is from another year)
+        let a = &rows[0];
+        assert_eq!(a.id.as_str(), "a");
+        assert_eq!(a.sender.as_str(), "Alice");
+        assert_eq!(a.initials.as_str(), "AL");
+        assert_eq!(a.subject.as_str(), "Subject a");
+        assert_eq!(a.preview.as_str(), "Preview a with space");
+        assert_eq!(a.header.as_str(), "June 2024");
+        assert_eq!(a.time.as_str(), "15 Jun");
+        assert!(a.unread);
+        assert!(!a.flagged && !a.answered && !a.draft && !a.checked && !a.attach);
+        assert!(!a.hl);
+        assert_eq!(a.hl_subject, slint::StyledText::default());
+        assert_eq!(a.hl_preview, slint::StyledText::default());
+        assert_eq!(a.code.as_str(), "");
+        assert_eq!(a.threads, 1);
+        assert_eq!(a.files.iter().count(), 0);
+        assert_eq!(a.account.as_str(), "");
+        assert_eq!(a.account_color, no_colour);
+        assert_eq!(a.tags.iter().collect::<Vec<_>>(), vec![Color::from_argb_u8(255, 0xef, 0x44, 0x44)]);
+        // the row tint is the tag's own red at 12% opacity (Bulwark tintListRowsByTag)
+        assert_eq!(a.row_tint, Color::from_argb_u8(31, 0xef, 0x44, 0x44));
+        assert_eq!(a.avatar_kind, 0);
+
+        // row 1: the same date group (no header of its own), a search hit with both parts marked
+        let b = &rows[1];
+        assert_eq!(b.header.as_str(), "");
+        assert_eq!(b.preview.as_str(), "Preview b");
+        assert!(!b.unread);
+        assert!(b.hl);
+        let marked = |md: &str| slint::StyledText::from_markdown(md).expect("markdown");
+        assert_eq!(b.hl_subject, marked("Subject <font color=\"#c8234a\">**b**</font>"));
+        assert_eq!(b.hl_preview, marked("<font color=\"#c8234a\">**Preview**</font> b"));
+
+        // row 2: todays mail, with its one-time code
+        let c = &rows[2];
+        assert_eq!(c.header.as_str(), "Today");
+        assert_eq!(c.subject.as_str(), "Your verification code is 177945");
+        assert_eq!(c.code.as_str(), "177945");
+        assert!(!c.unread);
+        assert!(!c.time.is_empty());
     }
 }
