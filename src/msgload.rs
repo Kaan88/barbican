@@ -52,23 +52,35 @@ impl Prefs {
     fn now(&self) -> settings::Snapshot { (self.0)() }
 }
 
-/// What opening a message does to the reader now, when its body is not in the cache. Whatever
-/// happens, the message on screen may not be acted on from the moment its replacement starts to
-/// load: a cached message replaces every row at once, and an empty reader has nothing to keep.
+/// What opening a message does to the reader's rows now, when its body is not in the cache:
+/// nothing on screen may act on, or show, the message it belonged to. A cached message replaces
+/// every row at once, and an empty reader has nothing to keep.
 #[derive(Clone, Copy, PartialEq, Debug)]
-enum Opening {
-    /// The reader is empty: the last message's rows go now, then the row's header.
-    Fill,
-    /// A message is on screen and its body is about to fade: its rows go with the loading state
-    /// (the point they have always gone at), so key repeat does not flicker them.
-    Fade,
-    /// Already fading (key repeat): only the row's header follows the selection.
-    Header,
+struct Opening {
+    /// The rows of the message on screen go now: the To line, the attachments, the thread strip,
+    /// the spam verdict, the images bar, the scheduled bar and the banners.
+    clear: bool,
+    /// The row's header takes the selection now.
+    header: bool,
+    /// The old body stays (and fades) until the loading state, 150 ms in.
+    fade: bool,
 }
 
 fn opening_step(empty: bool, loading: bool) -> Opening {
-    if empty { Opening::Fill } else if loading { Opening::Header } else { Opening::Fade }
+    // Rows may be left over from a message that is no longer the one on screen: an empty reader
+    // has nothing to keep, and a reader already in the loading state — the fade of the message
+    // before, or a page that took over 600 ms to lay out (mailview::slow sets the same state
+    // before the next message's header runs) — can still show the rows of the message before
+    // last (its To line, attachments and thread strip, or a "Load images" bar). Both go now;
+    // only a message still fully on screen keeps its rows, until its body fades.
+    if empty || loading { Opening { clear: true, header: true, fade: false } }
+    else { Opening { clear: false, header: false, fade: true } }
 }
+
+/// The settings the ready stage decides the banners from (read receipts, invitations): read when
+/// the page is ready, not when the message was opened, so a setting changed during a slow fetch
+/// counts. It takes the handle, so no snapshot taken at the open can be passed here instead.
+fn ready_prefs(p: &Prefs) -> settings::Snapshot { p.now() }
 
 fn threading(p: &settings::Snapshot) -> bool { !settings::get_bool(p, "disableThreading", false) }
 
@@ -167,6 +179,11 @@ pub fn open(u: &AppWindow, st: &Shared, id: String) {
     if let Some((m, t)) = hit {
         WAITING.with(|w| w.set(false));
         LOADING.with(|t| t.stop());
+        // the message on screen is replaced at once, and nothing may act on it from here on: a
+        // late "Load full body" or "View source" result for it must find it closed. The message
+        // being opened again keeps its state (it is still the one on screen), so reopening it
+        // does not flicker its banners while the page is laid out.
+        if !reader::is_showing(&id) { reader::detach(); }
         present(u, &c, &id, m, t, delay, unseen, want_thread, &p);
         return;
     }
@@ -174,36 +191,31 @@ pub fn open(u: &AppWindow, st: &Shared, id: String) {
     mailview::cancel_pending();
     // from here on nothing may act on, or show, the message on screen: its state (the banners,
     // the source view, the reply target) goes now, before its replacement has arrived, so a
-    // "Load full body" or "View source" result for it is dropped when it comes back
-    reader::clear(u);
-    let step = opening_step(CUR.with(|x| x.borrow().is_none()), u.get_r_loading());
+    // "Load full body" or "View source" result for it is dropped when it comes back. The window's
+    // rows follow `plan` (an empty or already fading reader: at once; a message still on screen:
+    // with its body, 150 ms in), and the banners are drawn again when they go, so a burst of
+    // key presses does not flash them.
+    reader::detach();
+    let plan = opening_step(CUR.with(|x| x.borrow().is_none()), u.get_r_loading());
     // what is on screen stays, but nothing may act on it: reply and attachments wait
     CUR_MSG.with(|x| *x.borrow_mut() = None);
     REPLY.with(|r| *r.borrow_mut() = None);
     WAITING.with(|w| w.set(true));
-    match step {
-        // an empty reader: nothing of the previous message may stay, then the row's header now
-        Opening::Fill => {
-            clear_reader_rows(u);
-            prefill(u, &id);
-        }
-        // already showing the loading state: only the row's header follows the selection
-        Opening::Header => prefill(u, &id),
-        // started once per burst (key repeat keeps it), not restarted on every key
-        Opening::Fade if LOADING.with(|t| t.running()) => {}
-        Opening::Fade => {
-            let wk = u.as_weak();
-            LOADING.with(|t| t.start(slint::TimerMode::SingleShot, Duration::from_millis(150), move || {
-                if !WAITING.with(|w| w.get()) { return; }
-                let Some(u) = wk.upgrade() else { return };
-                if u.get_current_mail().is_empty() { return; }
-                u.set_r_loading(true);
-                // the message that was on screen goes with its body, which is about to fade
-                clear_reader_rows(&u);
-                prefill(&u, u.get_current_mail().as_str());
-                mailview::dim(true);
-            }));
-        }
+    if plan.clear { clear_reader_rows(u); }
+    if plan.header { prefill(u, &id); }
+    // started once per burst (key repeat keeps it), not restarted on every key
+    if plan.fade && !LOADING.with(|t| t.running()) {
+        let wk = u.as_weak();
+        LOADING.with(|t| t.start(slint::TimerMode::SingleShot, Duration::from_millis(150), move || {
+            if !WAITING.with(|w| w.get()) { return; }
+            let Some(u) = wk.upgrade() else { return };
+            if u.get_current_mail().is_empty() { return; }
+            u.set_r_loading(true);
+            // the message that was on screen goes with its body, which is about to fade
+            clear_reader_rows(&u);
+            prefill(&u, u.get_current_mail().as_str());
+            mailview::dim(true);
+        }));
     }
     // key repeat: warm the messages ahead of this one while it loads
     prefetch(u, &id, want_thread);
@@ -359,7 +371,7 @@ fn present(u: &AppWindow, c: &Arc<jmap::Client>, id: &str, m: Arc<Value>, thread
 
     let wk = u.as_weak();
     let (c2, id2) = (c.clone(), id.to_string());
-    let prefs_at_ready = *p;
+    let prefs = *p;
     let header = move || -> bool {
         let Some(u) = wk.upgrade() else { return false };
         // another message was opened meanwhile: this page is not to be shown
@@ -392,7 +404,7 @@ fn present(u: &AppWindow, c: &Arc<jmap::Client>, id: &str, m: Arc<Value>, thread
         }
         // banners (unsubscribe, read receipt, invitation, long body) and their loads: the
         // settings as they are when the page is ready, not as they were when it was opened
-        reader::loaded(&u, c2.clone(), &m, &id2, &prefs_at_ready.now());
+        reader::loaded(&u, c2.clone(), &m, &id2, &ready_prefs(&prefs));
         // only a message that was unread changes the folder counts
         if unseen { load_mailboxes(u.as_weak(), c2.clone(), false); }
         prefetch(&u, &id2, want_thread);
@@ -491,14 +503,57 @@ mod tests {
     }
 
     #[test]
-    fn the_previous_message_is_dropped_before_the_new_one_is_shown() {
-        // an empty reader: the last message's rows go at once
-        assert_eq!(opening_step(true, false), Opening::Fill);
-        assert_eq!(opening_step(true, true), Opening::Fill, "an empty reader has nothing to fade");
-        // a message on screen: its body stays (and fades) but only the row's header follows the
-        // selection, until the loading state, when its rows go too — the point they always went at
-        assert_eq!(opening_step(false, false), Opening::Fade);
-        assert_eq!(opening_step(false, true), Opening::Header);
+    fn the_rows_of_the_previous_message_go_before_the_next_one_is_shown() {
+        // an empty reader: nothing of the last message may stay
+        assert_eq!(opening_step(true, false), Opening { clear: true, header: true, fade: false });
+        // a message still on screen: its rows stay as they are (they go with the body, which
+        // fades) and only the row's header follows the selection
+        assert_eq!(opening_step(false, false), Opening { clear: false, header: false, fade: true });
+        // the loading state is not only the fade: a page that took over 600 ms to lay out sets
+        // it too (mailview::slow), before the next message's header runs. The rows on screen then
+        // belong to the message before last — its To line, attachments, thread strip, or a
+        // "Load images" bar — and must go at once, under the new header
+        let slow = opening_step(false, true);
+        assert!(slow.clear, "a slow page's rows go at once, not 150 ms later");
+        assert!(slow.header && !slow.fade);
+        // an empty reader has nothing to fade, whatever the state says
+        assert_eq!(opening_step(true, true), slow);
+    }
+
+    #[test]
+    fn each_stage_reads_the_settings_again() {
+        thread_local! {
+            static SAVED: std::cell::RefCell<Value> = std::cell::RefCell::new(json!({}));
+            static READS: Cell<u32> = const { Cell::new(0) };
+        }
+        fn read() -> settings::Snapshot {
+            READS.with(|c| c.set(c.get() + 1));
+            SAVED.with(|v| Arc::new(v.borrow().as_object().cloned().unwrap_or_default()))
+        }
+        let p = Prefs::probe(read);
+        let set = |v: Value| SAVED.with(|s| *s.borrow_mut() = v);
+        let reads = || READS.with(|c| c.get());
+        set(json!({"readReceiptResponse": "always"}));
+        // opening the message: one read, which shapes the fetch
+        let opened = p.now();
+        assert_eq!(settings::get_str(&opened, "readReceiptResponse", "ask"), "always");
+        assert_eq!(reads(), 1);
+        // "always send read receipts" turned off while a slow message loads
+        set(json!({"readReceiptResponse": "never"}));
+        // the page takes its own read when the body arrives
+        assert_eq!(settings::get_str(&p.now(), "readReceiptResponse", "ask"), "never");
+        assert_eq!(reads(), 2);
+        // and the banners theirs when the page is ready (reader::loaded's readReceiptResponse and
+        // calendarInvitationParsingEnabled): a copy carried from the open would still say
+        // "always" and send the receipt
+        assert_eq!(settings::get_str(&ready_prefs(&p), "readReceiptResponse", "ask"), "never");
+        assert_eq!(reads(), 3, "no snapshot is kept between stages");
+        // and it reads again the next time round: a copy kept from the first ready stage would
+        // still say "never" and hold back a receipt the user turned back on
+        set(json!({"readReceiptResponse": "always"}));
+        assert_eq!(settings::get_str(&ready_prefs(&p), "readReceiptResponse", "ask"), "always");
+        assert_eq!(reads(), 4);
+        assert_eq!(settings::get_str(&opened, "readReceiptResponse", "ask"), "always", "the open's copy is unchanged");
     }
 
     #[test]
@@ -518,25 +573,5 @@ mod tests {
         let (fresh, prepared_here) = body_for(&mut cache, "a", "2", &m);
         assert!(prepared_here);
         assert_eq!(fresh.sanitized, mailview::sanitize_mail_html_opts("<p>hi</p>", false));
-    }
-
-    #[test]
-    fn each_stage_reads_the_settings_again() {
-        thread_local! {
-            static SAVED: std::cell::RefCell<Value> = std::cell::RefCell::new(json!({}));
-        }
-        fn read() -> settings::Snapshot {
-            SAVED.with(|v| Arc::new(v.borrow().as_object().cloned().unwrap_or_default()))
-        }
-        let p = Prefs::probe(read);
-        SAVED.with(|v| *v.borrow_mut() = json!({"readReceiptResponse": "always"}));
-        let opened = p.now();
-        assert_eq!(settings::get_str(&opened, "readReceiptResponse", "ask"), "always");
-        // "always send read receipts" turned off while a slow message loads: the stage that
-        // decides when it arrives sees it (a snapshot carried from the open would still say
-        // "always" and send the receipt)
-        SAVED.with(|v| *v.borrow_mut() = json!({"readReceiptResponse": "never"}));
-        assert_eq!(settings::get_str(&p.now(), "readReceiptResponse", "ask"), "never");
-        assert_eq!(settings::get_str(&opened, "readReceiptResponse", "ask"), "always", "the open's copy is unchanged");
     }
 }

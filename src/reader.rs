@@ -374,6 +374,9 @@ pub fn detach() {
 
 fn is_open(id: &str) -> bool { ST.with(|s| s.borrow().id == id) }
 
+/// The reader's state is that of `id` (it is the message on screen).
+pub fn is_showing(id: &str) -> bool { is_open(id) }
+
 /// The open message is shown: work out its banners and start what loads in the background.
 pub fn loaded(u: &AppWindow, c: Arc<Client>, m: &Value, id: &str, prefs: &crate::settings::Snapshot) {
     let headers = m["headers"].as_array().cloned().unwrap_or_default();
