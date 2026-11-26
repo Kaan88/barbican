@@ -44,6 +44,27 @@ pub fn set_people(p: Vec<Value>) { PEOPLE.with(|x| *x.borrow_mut() = Arc::new(p)
 /// a rebuild must not copy every card on the UI thread).
 pub fn people() -> Arc<Vec<Value>> { PEOPLE.with(|p| Arc::clone(&p.borrow())) }
 
+/// Make sure the birthday calendar's cards are there and current. A calendar load reads them on
+/// every visit; a cached visit reads them only when they are missing or when push cannot keep
+/// them fresh (the contacts view was not loaded this session), and only while the birthday
+/// calendar is on. They are fetched on a worker and the calendar redraws when they land.
+pub fn ensure_people(u: &AppWindow, c: Arc<Client>) {
+    if !crate::settings::bool_pref("showBirthdayCalendar", false) { return; }
+    // a calendar load fetches them itself, and a fresh one would only race it
+    if !calendar::has_events() { return; }
+    if !people().is_empty() && crate::livesync::followed(crate::livesync::View::Contacts) { return; }
+    let w = u.as_weak();
+    std::thread::spawn(move || {
+        let owner = c.state_key();
+        let r = fetch_people(&c);
+        let _ = w.upgrade_in_event_loop(move |u| {
+            // signed out or switched meanwhile: another login's cards are not shown
+            if !crate::livesync::is_current(&owner) { return; }
+            if let Ok(p) = r { set_people(p); calendar::rebuild(&u); }
+        });
+    });
+}
+
 fn card_name(c: &Value) -> String {
     if let Some(f) = c["name"]["full"].as_str().filter(|s| !s.is_empty()) { return f.to_string(); }
     let comps: Vec<&str> = c["name"]["components"].as_array().map(|a| a.iter().filter_map(|x| x["value"].as_str()).collect()).unwrap_or_default();
@@ -946,6 +967,15 @@ pub fn sub_refresh(u: &AppWindow, c: Arc<Client>, id: &str) {
 
 thread_local! { static LAST_SUB_CHECK: std::cell::Cell<i64> = const { std::cell::Cell::new(0) }; }
 
+/// The subscriptions due a refresh, at most once a minute (each check re-reads the list).
+fn sub_due(u: &AppWindow, c: Arc<Client>) {
+    let now = chrono::Utc::now().timestamp_millis();
+    if now - LAST_SUB_CHECK.with(|l| l.get()) > 60_000 {
+        LAST_SUB_CHECK.with(|l| l.set(now));
+        sub_refresh(u, c, "");
+    }
+}
+
 /// After the calendars loaded: the subscription list, and the subscriptions due a refresh.
 pub fn after_load(u: &AppWindow, _w: slint::Weak<AppWindow>, c: Arc<Client>) {
     render_subs(u, &c);
@@ -954,12 +984,15 @@ pub fn after_load(u: &AppWindow, _w: slint::Weak<AppWindow>, c: Arc<Client>) {
     let subs = subscriptions(&c);
     let kept: Vec<Value> = subs.iter().filter(|s| cals.iter().any(|x| x["id"] == s["calendarId"])).cloned().collect();
     if kept.len() != subs.len() && !cals.is_empty() { save_subscriptions(&c, kept); render_subs(u, &c); }
-    let now = chrono::Utc::now().timestamp_millis();
-    if now - LAST_SUB_CHECK.with(|l| l.get()) > 60_000 {
-        LAST_SUB_CHECK.with(|l| l.set(now));
-        sub_refresh(u, c, "");
-    }
+    sub_due(u, c);
     if calendar::view() == 4 { render_tasks_view(u); }
+}
+
+/// What a calendar visit still does when the events are already loaded and kept fresh by push (a
+/// cached switch): the subscription list, and a subscription refresh that has come due.
+pub fn after_load_light(u: &AppWindow, c: Arc<Client>) {
+    render_subs(u, &c);
+    sub_due(u, c);
 }
 
 // ---------------- wiring ----------------

@@ -150,6 +150,8 @@ pub fn switch_to(u: &AppWindow, c: Arc<Client>) {
 pub fn load(w: slint::Weak<AppWindow>, c: Arc<Client>) {
     if !c.has("urn:ietf:params:jmap:contacts") { return; }
     crate::contacts_x::set_has_principals(c.has("urn:ietf:params:jmap:principals"));
+    // the view's client is the login it is loading for; a load that lands for another login (a
+    // switch meanwhile) takes it back below
     CLIENT.with(|x| *x.borrow_mut() = Some(c.clone()));
     std::thread::spawn(move || {
         let acc = c.account_for("urn:ietf:params:jmap:contacts");
@@ -168,15 +170,26 @@ pub fn load(w: slint::Weak<AppWindow>, c: Arc<Client>) {
             let cards = c.get_all("ContactCard/get", &acc, &ids, None)?;
             Ok((books, cards))
         })();
+        // both states recorded: only then can push keep the view fresh
+        let complete = states.len() == 2;
         let _ = w.upgrade_in_event_loop(move |u| match res {
-            // signed out or switched meanwhile: another login's data is not shown
-            Ok(_) if !crate::livesync::is_current(&owner) => {}
+            // signed out or switched meanwhile: another login's data is not shown, and the view
+            // stops pointing at the client of the login that was left
+            Ok(_) if !crate::livesync::is_current(&owner) => {
+                let stale = CLIENT.with(|x| x.borrow().as_ref().is_some_and(|k| Arc::ptr_eq(k, &c)));
+                if stale { CLIENT.with(|x| *x.borrow_mut() = None); }
+            }
             Ok((books, cards)) => {
                 install(&u, books, cards);
-                crate::livesync::loaded(&u, crate::livesync::View::Contacts, &owner, &states);
+                crate::livesync::loaded(&u, crate::livesync::View::Contacts, &owner, &states, complete);
                 for f in THEN.with(|t| std::mem::take(&mut *t.borrow_mut())) { f(&u); }
             }
-            Err(e) => crate::mail::show_error(&u, &format!("Contacts: {e}")),
+            Err(e) => {
+                // nothing was read: the view holds nothing push can vouch for, so the next visit
+                // loads it again
+                crate::livesync::load_failed(crate::livesync::View::Contacts);
+                crate::mail::show_error(&u, &format!("Contacts: {e}"));
+            }
         });
     });
 }

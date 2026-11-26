@@ -26,6 +26,9 @@ struct State {
     calendars: Vec<Value>,
     hidden: HashSet<String>,
     events: Vec<Occ>,
+    /// the events (not tasks or birthdays) a year ahead, from the same expansion: the summary
+    /// tiles and the context panel read this instead of expanding on the UI thread
+    ahead: Vec<Occ>,
     query: String,
     /// the day columns on screen (day/week), for a click on column N
     columns: Vec<NaiveDate>,
@@ -60,9 +63,35 @@ pub struct Occ {
 thread_local! {
     static ST: RefCell<State> = RefCell::new(State::default());
     static RAW: RefCell<Arc<Vec<Value>>> = RefCell::new(Arc::new(Vec::new()));
-    /// The generation of the newest range expansion: only its result is drawn (a stale worker's
-    /// answer for a range the user already left is dropped).
-    static GEN: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    /// Which range expansions may still be drawn (see [`Landings`]).
+    static LAND: RefCell<Landings> = RefCell::new(Landings::default());
+}
+
+/// Which range expansions may still be drawn. Each ask takes a number; a result is drawn only
+/// while no newer ask has started (the user left that range), and an expansion invalidated by a
+/// local change is never drawn (a new one follows it). The glance tile reads the drawn
+/// occurrences, so it is refreshed exactly when a result is drawn.
+#[derive(Default, Debug)]
+pub struct Landings { newest: u64, drawn: u64, glance_due: bool }
+
+impl Landings {
+    /// A new expansion starts: only its result may be drawn.
+    pub fn begin(&mut self) -> u64 { self.newest = self.newest.wrapping_add(1); self.newest }
+
+    /// The events changed under the running expansion (a local move): drop its result, a new
+    /// expansion follows.
+    pub fn invalidate(&mut self) { self.newest = self.newest.wrapping_add(1); }
+
+    /// A result lands: `true` (and the glance is now behind) when it is still the newest ask.
+    pub fn land(&mut self, gen: u64) -> bool {
+        if gen != self.newest { return false; }
+        self.drawn = self.drawn.wrapping_add(1);
+        self.glance_due = true;
+        true
+    }
+
+    /// What was drawn reached the glance tile.
+    pub fn glance_refreshed(&mut self) { self.glance_due = false; }
 }
 
 const PALETTE: [u32; 8] = [0x3b82f6, 0x22c55e, 0xf97316, 0xa855f7, 0xec4899, 0x14b8a6, 0xeab308, 0xef4444];
@@ -282,6 +311,9 @@ pub fn load(w: slint::Weak<AppWindow>, c: Arc<Client>) {
         let primary = c.account_for(CAL);
         let owner = c.state_key();
         let mut states: Vec<(String, String, String)> = vec![];
+        // whether every calendar account was read and gave its states: push can only keep the view
+        // fresh when it was (a skipped or failed account leaves it to a full load next visit)
+        let mut complete = true;
         let res: Result<(Vec<Value>, Vec<Value>), String> = (|| {
             let mut cals = vec![];
             let mut events = vec![];
@@ -290,6 +322,7 @@ pub fn load(w: slint::Weak<AppWindow>, c: Arc<Client>) {
                 let r = c.request(json!([["Calendar/get", {"accountId": acc, "ids": null, "properties": CAL_PROPS}, "c"]]))?;
                 if r.first().is_none_or(|x| x[0] == "error") {
                     if is_primary { return Err(crate::jmap::method_error(&r.first().map(|x| x[1].clone()).unwrap_or(json!({})))); }
+                    complete = false;
                     continue;
                 }
                 let mut list = r[0][1]["list"].as_array().cloned().unwrap_or_default();
@@ -304,13 +337,13 @@ pub fn load(w: slint::Weak<AppWindow>, c: Arc<Client>) {
                 let ids = match c.query_all("CalendarEvent/query", &acc, json!({"timeZone": tz})) {
                     Ok(ids) => ids,
                     Err(e) if is_primary => return Err(e),
-                    Err(_) => continue,
+                    Err(_) => { complete = false; continue; }
                 };
                 let props = json!(EVENT_PROPS.to_vec());
                 let got = match c.get_all("CalendarEvent/get", &acc, &ids, Some(&props)) {
                     Ok(v) => v,
                     Err(e) if is_primary => return Err(e),
-                    Err(_) => continue,
+                    Err(_) => { complete = false; continue; }
                 };
                 for mut e in got {
                     namespace_event(&mut e, &primary, &acc);
@@ -319,6 +352,8 @@ pub fn load(w: slint::Weak<AppWindow>, c: Arc<Client>) {
                 if let (Some(cs), Some(es)) = (cal_state, ev_state) {
                     states.push(("Calendar".to_string(), acc.clone(), cs));
                     states.push(("CalendarEvent".to_string(), acc.clone(), es));
+                } else {
+                    complete = false;
                 }
             }
             Ok((cals, events))
@@ -336,9 +371,14 @@ pub fn load(w: slint::Weak<AppWindow>, c: Arc<Client>) {
                 rebuild(&u);
                 render_tasks(&u);
                 crate::cal_extra::after_load(&u, w2, c2);
-                crate::livesync::loaded(&u, crate::livesync::View::Calendar, &owner, &states);
+                crate::livesync::loaded(&u, crate::livesync::View::Calendar, &owner, &states, complete);
             }
-            Err(e) => crate::mail::show_error(&u, &format!("Calendar: {e}")),
+            Err(e) => {
+                // nothing could be read: the view holds nothing push can vouch for, so the next
+                // visit loads it again
+                crate::livesync::load_failed(crate::livesync::View::Calendar);
+                crate::mail::show_error(&u, &format!("Calendar: {e}"));
+            }
         });
     });
 }
@@ -405,10 +445,12 @@ pub fn namespace_event(e: &mut Value, primary: &str, acc: &str) {
     }
 }
 
-/// Every event (not task / birthday) occurrence between f and t, sorted by start.
-fn occurrences(events: &[Value], f: NaiveDateTime, t: NaiveDateTime) -> Vec<Occ> {
+/// Every event (not task / birthday) occurrence between `f` and `t`, sorted by start: the summary
+/// tiles and the context panel read a year of these, so it is built on the worker and kept in the
+/// state (`State::ahead`) rather than expanded on the UI thread.
+fn events_between(events: &[Value], people: &[Value], cp: &CalPrefs, f: NaiveDateTime, t: NaiveDateTime) -> Vec<Occ> {
     let end = if t.time() == chrono::NaiveTime::MIN { t.date() } else { t.date() + Duration::days(1) };
-    let mut occ: Vec<Occ> = occurrences_in(events, f.date(), end).into_iter().filter(|o| o.kind == 0).collect();
+    let mut occ: Vec<Occ> = expand(events, people, cp, f.date(), end).into_iter().filter(|o| o.kind == 0).collect();
     occ.retain(|o| o.end > f && o.start < t);
     occ
 }
@@ -482,15 +524,12 @@ fn expand(events: &[Value], people: &[Value], cp: &CalPrefs, from: NaiveDate, to
 }
 
 /// Whether the range expansion numbered `gen` is still the newest ask: only its result is drawn.
-fn is_newest(gen: u64, newest: u64) -> bool { gen == newest }
-
-/// Recompute the occurrences of the range on screen from the loaded events and draw. The range
-/// expansion runs on a worker thread (never on the UI thread); the result is drawn only if it is
-/// still the newest ask.
+/// The start and the landing of an expansion, and the glance tile that follows a landing.
 pub fn rebuild(u: &AppWindow) {
     NARROW.with(|n| n.set(u.get_cal_narrow()));
     let (from, to) = range();
-    let gen = GEN.with(|g| { let n = g.get().wrapping_add(1); g.set(n); n });
+    let now = Local::now().naive_local();
+    let gen = LAND.with(|l| l.borrow_mut().begin());
     // the snapshot is shared with the worker, not copied: a range change must not clone every event
     let events = RAW.with(|r| Arc::clone(&r.borrow()));
     // the birthday cards and the prefs are thread-local, so read them here (UI thread) first;
@@ -499,11 +538,16 @@ pub fn rebuild(u: &AppWindow) {
     let people = if cp.birthdays { crate::cal_extra::people() } else { Default::default() };
     let w = u.as_weak();
     std::thread::spawn(move || {
+        // the range on screen, and the year the summary tiles look at: both off the UI thread
         let occ = expand(&events, &people[..], &cp, from, to);
+        let ahead = events_between(&events, &people[..], &cp, now - Duration::days(1), now + Duration::days(366));
         let _ = w.upgrade_in_event_loop(move |u| {
-            if !is_newest(gen, GEN.with(|g| g.get())) { return; }
-            ST.with(|s| s.borrow_mut().events = occ);
+            if !LAND.with(|l| l.borrow_mut().land(gen)) { return; }
+            ST.with(|s| { let mut s = s.borrow_mut(); s.events = occ; s.ahead = ahead; });
             render(&u);
+            // the mail tile counts what was just drawn (it is not part of the grid's render)
+            crate::glance::calendar(&u);
+            LAND.with(|l| l.borrow_mut().glance_refreshed());
         });
     });
 }
@@ -769,14 +813,24 @@ pub fn set_view(u: &AppWindow, c: Arc<Client>, v: i32) {
     load(u.as_weak(), c);
 }
 
-/// Draw the calendar and fetch only when the cache does not already hold this login's data
-/// (livesync keeps it fresh in between). App switch: the cached grid is drawn at once, and its
-/// range is expanded again because the day or the view may have moved since (the expansion runs
-/// on a worker and draws only if it is still the newest ask).
+/// Draw the calendar and fetch only when the cache does not already hold this login's data kept
+/// fresh by push (livesync keeps it fresh in between). App switch: a cached visit still does what
+/// a load used to do beside reading the events — it expands the range again (the day or the view
+/// may have moved), keeps the subscriptions due a refresh going and makes sure the birthday cards
+/// are there.
 pub fn switch_to(u: &AppWindow, c: Arc<Client>) {
     render(u);
-    if crate::livesync::cache_current(crate::livesync::View::Calendar, &c) { rebuild(u); } else { load(u.as_weak(), c); }
+    if crate::livesync::cache_current(crate::livesync::View::Calendar, &c) {
+        rebuild(u);
+        crate::cal_extra::after_load_light(u, c.clone());
+        crate::cal_extra::ensure_people(u, c);
+        return;
+    }
+    load(u.as_weak(), c);
 }
+
+/// Whether any event is loaded (so an expansion has something to draw).
+pub fn has_events() -> bool { RAW.with(|r| !r.borrow().is_empty()) }
 
 /// The all-day strip's "+N" / "less" toggle (Bulwark `isAllDayExpanded`).
 pub fn toggle_allday(u: &AppWindow) {
@@ -898,16 +952,50 @@ mod tests {
         assert_eq!(hex_color("#fff"), Some(Color::from_rgb_u8(255, 255, 255)));
     }
     #[test]
-    fn expand_matches_occurrences_in() {
-        // the pure worker form yields the same occurrences as the old full computation
+    fn the_worker_expansion_matches_the_old_full_computation() {
+        // the pure worker form (expand) and the UI-thread form (occurrences_in, which reads the
+        // prefs and the cards itself) give the same list, and that list is written out by hand
+        // rather than one form checked against itself
         let evs = vec![
             json!({"id": "e1", "@type": "Event", "title": "Weekly", "start": "2026-11-03T10:00:00", "duration": "PT1H30M", "recurrenceRules": [{"frequency": "weekly", "count": 3}], "calendarIds": {"a": true}}),
             json!({"id": "e2", "@type": "Event", "title": "", "start": "2026-11-05T00:00:00", "duration": "P2D", "showWithoutTime": true, "calendarIds": {"a": true}}),
+            json!({"id": "t1", "@type": "Task", "title": "File taxes", "due": "2026-11-06T00:00:00", "showWithoutTime": true, "calendarIds": {"a": true}}),
         ];
         let f = NaiveDate::from_ymd_opt(2026, 11, 1).unwrap();
         let to = f + Duration::days(60);
         let cp = cal_prefs();
-        assert_eq!(expand(&evs, &[], &cp, f, to), occurrences_in(&evs, f, to));
+        let worker = expand(&evs, &[], &cp, f, to);
+        assert_eq!(worker, occurrences_in(&evs, f, to));
+        let events: Vec<(String, String, String)> = worker.iter().filter(|o| o.kind != 1)
+            .map(|o| (o.title.clone(), o.start.to_string(), o.end.to_string())).collect();
+        assert_eq!(events, vec![
+            ("Weekly".to_string(), "2026-11-03 10:00:00".to_string(), "2026-11-03 11:30:00".to_string()),
+            ("(no title)".to_string(), "2026-11-05 00:00:00".to_string(), "2026-11-07 00:00:00".to_string()),
+            ("Weekly".to_string(), "2026-11-10 10:00:00".to_string(), "2026-11-10 11:30:00".to_string()),
+            ("Weekly".to_string(), "2026-11-17 10:00:00".to_string(), "2026-11-17 11:30:00".to_string()),
+        ]);
+        // the task shows on its due date when the settings say so (the default does)
+        if cp.tasks && cp.tasks_on_calendar {
+            assert!(worker.iter().any(|o| o.kind == 1 && o.base == "t1" && o.start.date() == NaiveDate::from_ymd_opt(2026, 11, 6).unwrap()));
+        }
+    }
+    #[test]
+    fn the_year_the_summary_reads_holds_the_events_only() {
+        // the worker builds the year the tile counts and "next up" read; it carries events only,
+        // and drops what ends before the window starts
+        let evs = vec![
+            json!({"id": "next", "@type": "Event", "title": "Stand-up", "start": "2026-11-20T09:00:00", "duration": "PT15M", "calendarIds": {"a": true}}),
+            json!({"id": "past", "@type": "Event", "title": "Old", "start": "2026-01-05T09:00:00", "duration": "PT15M", "calendarIds": {"a": true}}),
+            json!({"id": "t1", "@type": "Task", "title": "File taxes", "due": "2026-11-20T00:00:00", "showWithoutTime": true, "calendarIds": {"a": true}}),
+        ];
+        let cp = cal_prefs();
+        let f = NaiveDateTime::parse_from_str("2026-11-19T00:00:00", "%Y-%m-%dT%H:%M:%S").unwrap();
+        let t = f + Duration::days(366);
+        let ahead = events_between(&evs, &[], &cp, f, t);
+        assert_eq!(ahead.len(), 1, "got {ahead:?}");
+        assert_eq!(ahead[0].title, "Stand-up");
+        assert!(ahead.iter().all(|o| o.kind == 0), "no tasks or birthdays");
+        assert!(events_between(&evs, &[], &cp, f, f + Duration::days(1)).is_empty(), "a window that misses it holds nothing");
     }
     #[test]
     fn bucket_by_day_matches_the_full_scan_across_dst_and_all_day() {
@@ -969,9 +1057,37 @@ mod tests {
         assert_eq!(ids, ["week", "early", "late"], "in start order, as the full scan gave");
     }
     #[test]
-    fn only_the_newest_expansion_is_drawn() {
-        assert!(is_newest(7, 7));
-        assert!(!is_newest(6, 7), "a worker's answer for a range the user already left is dropped");
+    fn only_the_newest_expansion_is_drawn_and_the_glance_follows_it() {
+        let mut l = Landings::default();
+        let first = l.begin();
+        assert!(l.land(first), "the only ask: drawn");
+        assert!(l.glance_due, "a landing updates the mail tile with what was drawn");
+        l.glance_refreshed();
+        assert!(!l.glance_due);
+        // the user leaves the range while it expands: its answer is dropped and touches nothing
+        let left = l.begin();
+        let now = l.begin();
+        assert!(!l.land(left), "a worker's answer for a range the user already left is dropped");
+        assert!(!l.glance_due, "a dropped answer does not update the tile");
+        assert_eq!(l.drawn, 1);
+        assert!(l.land(now));
+        assert_eq!(l.drawn, 2);
+        assert!(l.glance_due);
+    }
+
+    #[test]
+    fn a_move_during_an_expansion_drops_it_and_the_rebuild_draws() {
+        // patch_local: the events change under the running expansion, so its answer must not draw
+        // (it would put the event back where it was), and the rebuild patch_local starts replaces it
+        let mut l = Landings::default();
+        let running = l.begin();
+        l.invalidate();
+        let after_move = l.begin();
+        assert!(!l.land(running), "the expansion from before the move is dropped");
+        assert!(!l.glance_due);
+        assert!(l.land(after_move));
+        assert_eq!(l.drawn, 1);
+        assert!(l.glance_due);
     }
 }
 
@@ -1387,13 +1503,11 @@ fn summary(u: &AppWindow) {
     let view = ST.with(|s| s.borrow().view);
     ST.with(|s| {
         let s = s.borrow();
-        // from the raw events, not the loaded range: right straight after a view / range change
-        // (before the fetch is back), and "next up" is the next event overall, not only in this view
+        // the drawn range (the worker's expansion) and the year it also built: right straight
+        // after a view / range change, and "next up" is the next event overall, not only here
         let (f, t) = (from.and_hms_opt(0, 0, 0).unwrap(), to.and_hms_opt(0, 0, 0).unwrap());
-        let (in_range, ahead) = RAW.with(|r| {
-            let r = r.borrow();
-            (occurrences(&r, f, t), occurrences(&r, now - Duration::days(1), now + Duration::days(366)))
-        });
+        let in_range: Vec<Occ> = s.events.iter().filter(|o| o.start < t && o.end > f).cloned().collect();
+        let ahead = &s.ahead;
         let visible: Vec<&Occ> = in_range.iter().filter(|o| !s.hidden.contains(&o.calendar)).collect();
         // next up
         let next = ahead.iter().filter(|o| !s.hidden.contains(&o.calendar) && !o.all_day && o.start >= now).min_by_key(|o| o.start);
@@ -1458,7 +1572,7 @@ fn detail(u: &AppWindow) {
                 let all: Vec<&Occ> = s.events.iter().filter(|o| &o.id == id).collect();
                 all.iter().find(|o| o.end > now).or(all.last()).map(|o| (*o).clone()).or_else(|| {
                     // chosen from a summary tile: may lie outside the loaded range
-                    RAW.with(|r| occurrences(&r.borrow(), now - Duration::days(1), now + Duration::days(366))).into_iter().find(|o| &o.id == id)
+                    s.ahead.iter().find(|o| &o.id == id).cloned()
                 })
             }
             // nothing chosen: the next event to come, else the last one that has ended
@@ -1541,10 +1655,11 @@ pub fn rsvp_selected(u: &AppWindow, c: Arc<Client>, status: &str, mine: &[String
 /// An event's length (all-day events without one last a day; raw_event is above).
 pub fn duration_of(e: &Value) -> Duration { crate::recurrence::event_duration(e) }
 
-/// Apply a moved event to what is shown right away (the reload after the server write confirms).
-pub fn patch_local(id: &str, patch: &Value) {
-    // an expansion started before the move must not draw over the moved event when it lands
-    GEN.with(|g| g.set(g.get().wrapping_add(1)));
+/// Apply a moved event to what is shown right away, then expand the range again so the summary
+/// tiles and the next push agree with it (the reload after the server write confirms).
+pub fn patch_local(u: &AppWindow, id: &str, patch: &Value) {
+    // an expansion started before the move must not draw over it
+    LAND.with(|l| l.borrow_mut().invalidate());
     RAW.with(|r| {
         if let Some(e) = Arc::make_mut(&mut r.borrow_mut()).iter_mut().find(|e| e["id"] == id) {
             if let Some(o) = patch.as_object() { for (k, v) in o { e[k] = v.clone(); } }
@@ -1556,4 +1671,6 @@ pub fn patch_local(id: &str, patch: &Value) {
     ST.with(|s| {
         for o in s.borrow_mut().events.iter_mut().filter(|o| o.id == id) { o.start = start; o.end = end; }
     });
+    // the expansion that was dropped is replaced by one from the moved events
+    rebuild(u);
 }

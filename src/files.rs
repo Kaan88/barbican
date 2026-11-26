@@ -312,18 +312,21 @@ fn fetch(u: &AppWindow, c: Arc<Client>) {
             if cap.is_object() && cap.get("forbiddenNameChars").is_none() { legacy.insert(a.clone()); }
         }
         // Stalwart can't filter FileNode/query by parent: list the account, filter here (as Bulwark does).
+        // whether every account with file storage was read and gave its state: push can only keep
+        // the view fresh when it was
+        let mut complete = true;
         let res: Result<Vec<Value>, String> = (|| {
             let mut nodes = vec![];
             for (i, acc) in accounts.iter().enumerate() {
                 // live updates (livesync): the state the view is read at, taken before the read and
                 // kept once the account's read went through
                 let state = crate::livesync::state_of(&c, "FileNode", acc);
-                let ids = match c.query_all("FileNode/query", acc, json!({})) { Ok(q) => q, Err(e) if i == 0 => return Err(e), Err(_) => continue };
+                let ids = match c.query_all("FileNode/query", acc, json!({})) { Ok(q) => q, Err(e) if i == 0 => return Err(e), Err(_) => { complete = false; continue } };
                 for chunk in ids.chunks(c.max_get()) {
                     let g = c.call(json!([["FileNode/get", {"accountId": acc, "ids": chunk, "properties": PROPS}, "g"]]))?;
                     for n in g[0][1]["list"].as_array().cloned().unwrap_or_default() { nodes.push(prepare(n, acc, i > 0)); }
                 }
-                if let Some(s) = state { states.push(("FileNode".into(), acc.clone(), s)); }
+                match state { Some(s) => states.push(("FileNode".into(), acc.clone(), s)), None => complete = false }
             }
             Ok(nodes)
         })();
@@ -334,9 +337,14 @@ fn fetch(u: &AppWindow, c: Arc<Client>) {
                 let draft = draft_cap || nodes.iter().any(|n| n["@type"].is_string());
                 ST.with(|s| { let mut s = s.borrow_mut(); s.nodes = nodes; s.draft18 = draft; s.primary = primary; s.legacy = legacy; });
                 render(&u);
-                crate::livesync::loaded(&u, crate::livesync::View::Files, &owner, &states);
+                crate::livesync::loaded(&u, crate::livesync::View::Files, &owner, &states, complete);
             }
-            Err(e) => crate::mail::show_error(&u, &format!("Files: {e}")),
+            Err(e) => {
+                // nothing was read: the view holds nothing push can vouch for, so the next visit
+                // loads it again
+                crate::livesync::load_failed(crate::livesync::View::Files);
+                crate::mail::show_error(&u, &format!("Files: {e}"));
+            }
         });
     });
 }

@@ -601,7 +601,12 @@ fn start_push(w: slint::Weak<AppWindow>, c: Arc<jmap::Client>) {
                 return;
             }
             // a server that does not know the newer types may refuse or drop the stream: again without them
-            if livesync::retry_without_more(more, opened, res.as_ref().err().map(|e| e.as_str())) { more = false; continue; }
+            if livesync::retry_without_more(more, opened, res.as_ref().err().map(|e| e.as_str())) {
+                // the files view can no longer be kept fresh by push: the next visit loads it
+                livesync::unfollow(livesync::View::Files);
+                more = false;
+                continue;
+            }
             if started.elapsed() > std::time::Duration::from_secs(120) { backoff = 2; }
             let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.subsec_nanos() as u64).unwrap_or(0);
             let wait = backoff * 1000 + nanos % (backoff * 500);
@@ -1062,6 +1067,8 @@ fn main() -> Result<(), slint::PlatformError> {
         u.set_busy(true);
         // settings changed in the last seconds go to the account being left first
         settings_sync::flush();
+        // the views' cached data is the old login's: nothing of it may be shown as current again
+        livesync::switch_session();
         restore_session(w.clone(), st.clone(), v, true, None);
     });
     let (w, st, srv_add) = (ui.as_weak(), state.clone(), server_cache.clone());
@@ -2608,5 +2615,8 @@ pub fn apply_ui_prefs(ui: &AppWindow) {
     // the open message picks up reading and accessibility changes
     if ui.get_current_mail() != "" { render_current(ui); }
     calendar::render(ui);
+    // the birthday calendar newly turned on (or its cards no longer kept fresh by push) still
+    // needs its cards: a cached calendar visit no longer reads them every time
+    if let Some(c) = crate::cal_extra::client() { crate::cal_extra::ensure_people(ui, c); }
     contacts::render(ui);
 }
