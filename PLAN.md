@@ -72,7 +72,7 @@ Paused 2026-11-26 by the owner, with the jobs cancelled. On resume, continue the
    - the 1.5 s watchdog can be shorter than a slow page;
    - the wrong message's capture can show briefly in redraw_stale;
    - an undimmed old body can show when a parked reader comes back during a fetch.
-6. Update ROADMAP.md: M4 is merged, M5 is in review.
+6. Dependabot alert 1, glib < 0.20 (moderate). glib is pulled in only on Linux, through the GTK side of wry, so it does not affect the Windows build. It clears when wry/tao move to glib 0.20.
 
 ## Waiting on the owner
 
