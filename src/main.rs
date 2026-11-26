@@ -1067,8 +1067,6 @@ fn main() -> Result<(), slint::PlatformError> {
         u.set_busy(true);
         // settings changed in the last seconds go to the account being left first
         settings_sync::flush();
-        // the views' cached data is the old login's: nothing of it may be shown as current again
-        livesync::switch_session();
         restore_session(w.clone(), st.clone(), v, true, None);
     });
     let (w, st, srv_add) = (ui.as_weak(), state.clone(), server_cache.clone());
@@ -2464,8 +2462,10 @@ fn finish_login(w: slint::Weak<AppWindow>, st: Shared, res: Result<jmap::Client,
                 *RESTORE_PENDING.lock().unwrap() = None;
                 *g = Some(c.clone());
                 admin::bind_session(Some(&c));
-                // live updates and notifications are this session's from now on
-                livesync::set_current(Some(c.clone()));
+                // live updates and notifications are this session's from now on; the views' cached
+                // data is the login that left's, so it is dropped here — only a switch that came
+                // up does that, a failed one never gets here and keeps the old session
+                livesync::start_session(c.clone());
             }
             // the new session starts now: a "Trust sender" click from here on is this account's
             trustbook::begin(&c);
@@ -2505,8 +2505,9 @@ fn finish_login(w: slint::Weak<AppWindow>, st: Shared, res: Result<jmap::Client,
             {
                 let (w3, c3) = (w2.clone(), c.clone());
                 std::thread::spawn(move || {
+                    let gen = livesync::begin_load(livesync::View::Identities);
                     let (ids, state) = livesync::load_identities(&c3).unwrap_or_default();
-                    let _ = w3.upgrade_in_event_loop(move |u| livesync::identities_loaded(&u, &c3, ids, state));
+                    let _ = w3.upgrade_in_event_loop(move |u| livesync::identities_loaded(&u, &c3, ids, state, gen));
                 });
             }
             // today's events and open tasks for the mail screen's summary tiles
@@ -2615,8 +2616,11 @@ pub fn apply_ui_prefs(ui: &AppWindow) {
     // the open message picks up reading and accessibility changes
     if ui.get_current_mail() != "" { render_current(ui); }
     calendar::render(ui);
-    // the birthday calendar newly turned on (or its cards no longer kept fresh by push) still
-    // needs its cards: a cached calendar visit no longer reads them every time
-    if let Some(c) = crate::cal_extra::client() { crate::cal_extra::ensure_people(ui, c); }
+    // the birthday calendar's cards are read when the switch is turned on (a cached calendar visit
+    // does not read them every time), and only then: any other settings change leaves them alone
+    let bday = p.bool("showBirthdayCalendar", false);
+    if crate::cal_extra::birthday_calendar_switched(bday) {
+        if let Some(c) = crate::cal_extra::client() { crate::cal_extra::ensure_people(ui, c, true); }
+    }
     contacts::render(ui);
 }

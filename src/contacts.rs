@@ -153,6 +153,8 @@ pub fn load(w: slint::Weak<AppWindow>, c: Arc<Client>) {
     // the view's client is the login it is loading for; a load that lands for another login (a
     // switch meanwhile) takes it back below
     CLIENT.with(|x| *x.borrow_mut() = Some(c.clone()));
+    // this load's number: a slower one that lands late changes nothing
+    let gen = crate::livesync::begin_load(crate::livesync::View::Contacts);
     std::thread::spawn(move || {
         let acc = c.account_for("urn:ietf:params:jmap:contacts");
         let owner = c.state_key();
@@ -181,13 +183,13 @@ pub fn load(w: slint::Weak<AppWindow>, c: Arc<Client>) {
             }
             Ok((books, cards)) => {
                 install(&u, books, cards);
-                crate::livesync::loaded(&u, crate::livesync::View::Contacts, &owner, &states, complete);
+                crate::livesync::loaded(&u, crate::livesync::View::Contacts, &owner, &states, complete, gen);
                 for f in THEN.with(|t| std::mem::take(&mut *t.borrow_mut())) { f(&u); }
             }
             Err(e) => {
-                // nothing was read: the view holds nothing push can vouch for, so the next visit
-                // loads it again
-                crate::livesync::load_failed(crate::livesync::View::Contacts);
+                // nothing was read: the view is not reused again until a load lands (a newer load,
+                // or another login's, is left alone)
+                crate::livesync::load_failed(crate::livesync::View::Contacts, &owner, gen);
                 crate::mail::show_error(&u, &format!("Contacts: {e}"));
             }
         });

@@ -298,6 +298,8 @@ pub fn open(u: &AppWindow, c: Arc<Client>, folder: &str) {
 /// The account listing (worker thread), used by the first open and by [`reload`].
 fn fetch(u: &AppWindow, c: Arc<Client>) {
     let w = u.as_weak();
+    // this load's number: a slower one that lands late changes nothing
+    let gen = crate::livesync::begin_load(crate::livesync::View::Files);
     std::thread::spawn(move || {
         let primary = c.account_for(CAP);
         let accounts = accounts(&c);
@@ -337,12 +339,12 @@ fn fetch(u: &AppWindow, c: Arc<Client>) {
                 let draft = draft_cap || nodes.iter().any(|n| n["@type"].is_string());
                 ST.with(|s| { let mut s = s.borrow_mut(); s.nodes = nodes; s.draft18 = draft; s.primary = primary; s.legacy = legacy; });
                 render(&u);
-                crate::livesync::loaded(&u, crate::livesync::View::Files, &owner, &states, complete);
+                crate::livesync::loaded(&u, crate::livesync::View::Files, &owner, &states, complete, gen);
             }
             Err(e) => {
-                // nothing was read: the view holds nothing push can vouch for, so the next visit
-                // loads it again
-                crate::livesync::load_failed(crate::livesync::View::Files);
+                // nothing was read: the view is not reused again until a load lands (a newer load,
+                // or another login's, is left alone)
+                crate::livesync::load_failed(crate::livesync::View::Files, &owner, gen);
                 crate::mail::show_error(&u, &format!("Files: {e}"));
             }
         });

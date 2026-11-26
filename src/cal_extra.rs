@@ -19,6 +19,13 @@ thread_local! {
     /// contact cards (name, emails, birthdays, group members), shared so a rebuild of the
     /// calendar hands them to its worker instead of copying every card
     static PEOPLE: RefCell<Arc<Vec<Value>>> = RefCell::new(Arc::new(Vec::new()));
+    /// The cards' revisions: a read takes the next number before it starts and only a newer number
+    /// may replace the cards on show, so a slow read (the birthday calendar's) never overwrites
+    /// cards that arrived meanwhile (the contacts view's own). Every update takes one too.
+    static PEOPLE_NEXT: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    static PEOPLE_SHOWN: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    /// The "show birthday calendar" switch as the view last saw it (see [`birthday_calendar_switched`]).
+    static BDAY_ON: std::cell::Cell<Option<bool>> = const { std::cell::Cell::new(None) };
     static IMPORT: RefCell<Option<(String, Vec<Value>)>> = const { RefCell::new(None) };
     static TASK_LISTS: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
     static IMPORT_TARGETS: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
@@ -38,21 +45,41 @@ pub fn fetch_people(c: &Client) -> Result<Vec<Value>, String> {
     c.get_all("ContactCard/get", &acc, &ids, Some(&json!(["id", "uid", "kind", "name", "emails", "anniversaries", "members"])))
 }
 
-pub fn set_people(p: Vec<Value>) { PEOPLE.with(|x| *x.borrow_mut() = Arc::new(p)); }
+/// The cards' next revision: take it before reading them (see [`set_people_at`]).
+pub fn people_read() -> u64 { PEOPLE_NEXT.with(|n| { let v = n.get().wrapping_add(1); n.set(v); v }) }
+
+/// Put the cards read at revision `rev`: `false` (and nothing changes) when cards at that revision
+/// or newer are already on show, so a slow read never overwrites newer cards.
+pub fn set_people_at(rev: u64, p: Vec<Value>) -> bool {
+    if rev <= PEOPLE_SHOWN.with(|s| s.get()) { return false; }
+    PEOPLE.with(|x| *x.borrow_mut() = Arc::new(p));
+    PEOPLE_SHOWN.with(|s| s.set(rev));
+    true
+}
+
+/// Put cards that are newer than any read in flight (the contacts view's own, or a test).
+pub fn set_people(p: Vec<Value>) { let rev = people_read(); set_people_at(rev, p); }
 
 /// The loaded contact cards, shared with the caller (the birthday calendar's worker reads them:
 /// a rebuild must not copy every card on the UI thread).
 pub fn people() -> Arc<Vec<Value>> { PEOPLE.with(|p| Arc::clone(&p.borrow())) }
 
-/// Make sure the birthday calendar's cards are there and current. A calendar load reads them on
-/// every visit; a cached visit reads them only when they are missing or when push cannot keep
-/// them fresh (the contacts view was not loaded this session), and only while the birthday
-/// calendar is on. They are fetched on a worker and the calendar redraws when they land.
-pub fn ensure_people(u: &AppWindow, c: Arc<Client>) {
+/// The "show birthday calendar" switch, as the view last saw it: `true` when it was just turned on
+/// (turn it on is the moment its cards may be out of date, since a cached calendar visit no longer
+/// reads them every time, and the contacts view skipped them while it was off).
+pub fn birthday_calendar_switched(on: bool) -> bool {
+    let was = BDAY_ON.with(|b| b.replace(Some(on)));
+    on && was != Some(true)
+}
+
+/// Make sure the birthday calendar's cards are there and current, while the birthday calendar is
+/// on: read them (on a worker) when they were never read, or when push cannot keep them fresh (the
+/// contacts view was not loaded this session), or always with `force` (the switch was just turned
+/// on). A read that lands over newer cards is dropped, and the calendar redraws when it lands.
+pub fn ensure_people(u: &AppWindow, c: Arc<Client>, force: bool) {
     if !crate::settings::bool_pref("showBirthdayCalendar", false) { return; }
-    // a calendar load fetches them itself, and a fresh one would only race it
-    if !calendar::has_events() { return; }
-    if !people().is_empty() && crate::livesync::followed(crate::livesync::View::Contacts) { return; }
+    if !force && !people().is_empty() && crate::livesync::followed(crate::livesync::View::Contacts) { return; }
+    let rev = people_read();
     let w = u.as_weak();
     std::thread::spawn(move || {
         let owner = c.state_key();
@@ -60,7 +87,8 @@ pub fn ensure_people(u: &AppWindow, c: Arc<Client>) {
         let _ = w.upgrade_in_event_loop(move |u| {
             // signed out or switched meanwhile: another login's cards are not shown
             if !crate::livesync::is_current(&owner) { return; }
-            if let Ok(p) = r { set_people(p); calendar::rebuild(&u); }
+            // cards that arrived while this read ran (the contacts view's) are newer: kept
+            if let Ok(p) = r { if set_people_at(rev, p) { calendar::rebuild(&u); } }
         });
     });
 }
@@ -1195,6 +1223,28 @@ mod tests {
         let leap = birthdays_in(&cards, d("2027-02-01"), d("2027-03-01"));
         assert_eq!(leap[0].start.date(), d("2027-02-28"));
         assert_eq!(birthday_parts(&json!({"@type": "Timestamp", "utc": "1985-03-04T00:00:00Z"})), Some((3, 4, Some(1985))));
+    }
+
+    #[test]
+    fn a_slow_read_of_the_cards_never_overwrites_newer_ones() {
+        // the birthday calendar's read was taken before the contacts view set its own cards
+        let slow = people_read();
+        set_people(vec![json!({"id": "new", "name": {"full": "New Card"}})]);
+        assert!(!set_people_at(slow, vec![json!({"id": "old", "name": {"full": "Old Card"}})]), "a read older than the cards on show is dropped");
+        assert_eq!(people().len(), 1);
+        assert_eq!(people()[0]["id"], "new");
+        // a read taken after them applies
+        let fresh = people_read();
+        assert!(set_people_at(fresh, vec![]));
+        assert!(people().is_empty());
+    }
+
+    #[test]
+    fn the_birthday_switch_is_noticed_only_when_it_turns_on() {
+        assert!(birthday_calendar_switched(true), "the first time it is seen on: its cards may be missing");
+        assert!(!birthday_calendar_switched(true), "still on: nothing to read");
+        assert!(!birthday_calendar_switched(false), "off: nothing to read");
+        assert!(birthday_calendar_switched(true), "turned on again: the cards may be stale by now");
     }
 
     #[test]

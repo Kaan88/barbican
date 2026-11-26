@@ -52,6 +52,9 @@ pub struct Ledger {
     /// Views whose push type the server refused: nothing keeps them fresh this session, however
     /// they were loaded (cleared by a sign-out or another account).
     unfollowable: HashSet<View>,
+    /// The newest full load of each view: a load that lands or fails after a newer one started
+    /// changes nothing.
+    loads: HashMap<View, u64>,
 }
 
 /// What to do once a delta's outcome is in (see [`Ledger::settle`]).
@@ -59,11 +62,25 @@ pub struct Ledger {
 pub struct Settle { pub full: bool, pub apply: bool, pub rerun: bool }
 
 impl Ledger {
-    /// A full load of `view` for `owner` finished: it now holds exactly these states, and
-    /// whether the read was whole (every account it lists was read and gave its states).
-    pub fn loaded(&mut self, view: View, owner: &str, states: &[Step], complete: bool) {
+    /// A full load of `view` starts: its number. A result is applied only while it is the newest
+    /// load of its view, so a slow load that lands — or errors — after a newer one changes nothing.
+    pub fn begin_load(&mut self, view: View) -> u64 {
+        let n = self.loads.get(&view).copied().unwrap_or(0).wrapping_add(1);
+        self.loads.insert(view, n);
+        n
+    }
+
+    /// Whether load `gen` is still the newest one of `view`.
+    pub fn newest_load(&self, view: View, gen: u64) -> bool { self.loads.get(&view).copied() == Some(gen) }
+
+    /// A full load of `view` for `owner`, number `gen`, finished: it now holds exactly these
+    /// states, and whether the read was whole (every account it lists was read and gave its
+    /// states). A load that a newer one has overtaken changes nothing and returns `false`.
+    pub fn loaded(&mut self, view: View, owner: &str, states: &[Step], complete: bool, gen: u64) -> bool {
+        if !self.newest_load(view, gen) { return false; }
         let states = states.iter().map(|(t, a, s)| ((t.clone(), a.clone()), s.clone())).collect();
         self.books.insert(view, Book { owner: owner.to_string(), states, complete, unfollowed: false });
+        true
     }
 
     /// The state `view` holds `ty` of `account` at, when it holds `owner`'s data.
@@ -100,9 +117,24 @@ impl Ledger {
     /// for the rest of the session, however it is loaded.
     pub fn unfollow_for_the_session(&mut self, view: View) { self.unfollowable.insert(view); }
 
-    /// A full load of `view` failed: nothing is known about what it holds, so the next visit
-    /// loads it again.
-    pub fn load_failed(&mut self, view: View) { self.books.remove(&view); }
+    /// A full load of `view` failed. What the view holds stays (pushes keep following it from its
+    /// recorded states), but it is no longer reused: the next visit loads it in full. A failure
+    /// that arrives after a newer load started says nothing about that one and changes nothing.
+    pub fn load_failed(&mut self, view: View, owner: &str, gen: u64) {
+        if !self.newest_load(view, gen) { return; }
+        if let Some(b) = self.books.get_mut(&view).filter(|b| b.owner == owner) { b.complete = false; }
+    }
+
+    /// A login attempt ended: `Some(owner)` is the login that came up, so it takes the views over
+    /// (the recorded states are the previous login's and are dropped). `None` is a failed attempt,
+    /// which leaves the login that is still signed in — and with it its views — as it was.
+    /// Returns whether the views were dropped.
+    pub fn session_takeover(&mut self, owner: Option<&str>) -> bool {
+        match owner {
+            Some(_) => { self.clear(); true }
+            None => false,
+        }
+    }
 
     /// Every view forgets what it holds (sign-out, another account).
     pub fn clear(&mut self) { *self = Ledger::default(); }
@@ -224,27 +256,45 @@ pub fn followed(view: View) -> bool {
     can_reuse(&book, Some(&key), health)
 }
 
-/// A full load of `view` failed: it holds nothing that can be relied on, so the next visit loads
-/// it again instead of showing what was there before.
-pub fn load_failed(view: View) { with(|l| l.load_failed(view)) }
+/// A full load of `view` for `owner` started: its number, to pass to [`loaded`] or
+/// [`load_failed`] so a result that arrives after a newer load started changes nothing.
+pub fn begin_load(view: View) -> u64 { with(|l| l.begin_load(view)) }
+
+/// The newest load of `view` for `owner` failed (UI thread). What the view holds stays and pushes
+/// keep following it, but it is no longer reused: the next visit loads it in full. A failure for a
+/// login that is no longer current, or one a newer load has overtaken, changes nothing.
+pub fn load_failed(view: View, owner: &str, gen: u64) {
+    if !is_current(owner) { return; }
+    with(|l| l.load_failed(view, owner, gen));
+}
 
 /// `view`'s changes cannot be read from the server (a refused push type): nothing keeps it fresh
 /// for the rest of the session, so every visit loads it in full.
 pub fn unfollow(view: View) { with(|l| l.unfollow_for_the_session(view)) }
 
-/// Another login takes over (an account switch): the recorded states are the old login's, so
-/// nothing may be reused from the cache and nothing of it is followed until the new session's
-/// views load. The notifications and the identities kept for the account bell stay.
-pub fn switch_session() { with(|l| l.clear()); set_current(None); }
+/// A login came up (sign-in, account switch): it takes the views over — the recorded states are
+/// the login that left's, so nothing of them is reused. Called only once the attempt succeeded, so
+/// a failed switch (B unreachable, a changed password) leaves the session that is still signed in,
+/// with its views, exactly as it was. The notifications and identities kept for the bell stay.
+pub fn start_session(c: Arc<Client>) {
+    let key = c.state_key();
+    with(|l| { l.session_takeover(Some(&key)); });
+    set_current(Some(c));
+}
 
 /// A full load of `view` for `owner` landed (UI thread): record its states and whether the read
 /// was whole, tell the notifications waiting for that list, and run a delta asked for while it
 /// loaded.
-pub fn loaded(u: &AppWindow, view: View, owner: &str, states: &[Step], complete: bool) {
-    // a load for a login that is no longer the current one: nothing of it is recorded (the
-    // loaders do not install its data either)
+pub fn loaded(u: &AppWindow, view: View, owner: &str, states: &[Step], complete: bool, gen: u64) {
+    // a load for a login that is no longer the current one, or one a newer load has overtaken:
+    // nothing of it is recorded (the loaders do not install its data either)
     if !is_current(owner) { return; }
-    let again = with(|l| { l.loaded(view, owner, states, complete); l.finish(view) });
+    let again = with(|l| {
+        // a load a newer one has overtaken changes nothing; either way it no longer holds the view
+        let seen = l.newest_load(view, gen);
+        if seen { l.loaded(view, owner, states, complete, gen); }
+        if seen { l.finish(view) } else { false }
+    });
     crate::notices::landed(u, view);
     if again { if let Some(c) = current() { follow(view, u.as_weak(), c); } }
 }
@@ -423,10 +473,11 @@ fn spec(view: View) -> Spec {
             props: |_| None, extra: |_| Value::Null,
             full: |u, c| {
                 let w = u.as_weak();
+                let gen = begin_load(View::Identities);
                 std::thread::spawn(move || {
                     let r = load_identities(&c);
                     let _ = w.upgrade_in_event_loop(move |u| match r {
-                        Ok((list, state)) => identities_loaded(&u, &c, list, state),
+                        Ok((list, state)) => identities_loaded(&u, &c, list, state, gen),
                         // nothing landed: the view is free for the next push
                         Err(_) => { if with(|l| l.finish(View::Identities)) { if let Some(c) = current() { follow(View::Identities, u.as_weak(), c); } } }
                     });
@@ -500,14 +551,14 @@ pub fn load_identities(c: &Client) -> Result<(Vec<Value>, Option<String>), Strin
 }
 
 /// Identities read for `c` landed (UI thread): kept, recorded and shown, unless the session is no
-/// longer `c`'s.
-pub fn identities_loaded(u: &AppWindow, c: &Arc<Client>, list: Vec<Value>, state: Option<String>) {
+/// longer `c`'s (or a newer load has overtaken it).
+pub fn identities_loaded(u: &AppWindow, c: &Arc<Client>, list: Vec<Value>, state: Option<String>, gen: u64) {
     let owner = c.state_key();
     if !is_current(&owner) { return; }
     let acc = crate::identities::account(c);
     *IDENTITIES.lock().unwrap_or_else(|e| e.into_inner()) = (owner.clone(), list.clone());
     let states: Vec<Step> = state.into_iter().map(|s| ("Identity".to_string(), acc.clone(), s)).collect();
-    loaded(u, View::Identities, &owner, &states, !states.is_empty());
+    loaded(u, View::Identities, &owner, &states, !states.is_empty(), gen);
     identities_changed(u, c, list);
 }
 
@@ -527,6 +578,12 @@ mod tests {
 
     fn st(t: &str, a: &str, s: &str) -> (String, String, String) { (t.into(), a.into(), s.into()) }
     fn mv(t: &str, a: &str, f: &str, n: &str) -> (String, String, String, String) { (t.into(), a.into(), f.into(), n.into()) }
+
+    /// A whole load of `view` for `owner` lands, as its own (newest) revision.
+    fn load(l: &mut Ledger, v: View, o: &str, s: &[Step], complete: bool) {
+        let gen = l.begin_load(v);
+        assert!(l.loaded(v, o, s, complete, gen), "the newest load is applied");
+    }
 
     #[test]
     fn a_cached_view_is_reused_only_when_it_is_followed_and_complete() {
@@ -548,20 +605,20 @@ mod tests {
     fn a_delta_that_could_not_be_read_or_a_failed_load_leaves_nothing_to_reuse() {
         let now = Instant::now();
         let mut l = Ledger::default();
-        l.loaded(View::Files, "ann", &[st("FileNode", "A", "f1")], true);
+        load(&mut l, View::Files, "ann", &[st("FileNode", "A", "f1")], true);
         assert!(l.health(View::Files, "ann").ok());
         // the changes could not be read (offline, or the server refused): the view is not followed
         assert!(l.begin(View::Files, now));
         assert_eq!(l.settle(View::Files, "ann", true, &Outcome::Failed, now), Settle::default());
         assert_eq!(l.health(View::Files, "ann"), Health { states: true, complete: true, followed: false });
         // a whole load lands again and it may be reused
-        l.loaded(View::Files, "ann", &[st("FileNode", "A", "f2")], true);
+        load(&mut l, View::Files, "ann", &[st("FileNode", "A", "f2")], true);
         assert!(l.health(View::Files, "ann").ok());
         // a load that read one account and skipped another (or lost its state) is not complete
-        l.loaded(View::Files, "ann", &[st("FileNode", "A", "f3")], false);
+        load(&mut l, View::Files, "ann", &[st("FileNode", "A", "f3")], false);
         assert!(!l.health(View::Files, "ann").ok());
         // a load that recorded no state at all cannot be followed
-        l.loaded(View::Contacts, "ann", &[], true);
+        load(&mut l, View::Contacts, "ann", &[], true);
         assert_eq!(l.health(View::Contacts, "ann"), Health { states: false, complete: true, followed: true });
     }
 
@@ -570,34 +627,74 @@ mod tests {
         let mut l = Ledger::default();
         l.unfollow_for_the_session(View::Files);
         // a whole load read afterwards cannot be trusted to stay fresh either
-        l.loaded(View::Files, "ann", &[st("FileNode", "A", "f1")], true);
+        load(&mut l, View::Files, "ann", &[st("FileNode", "A", "f1")], true);
         assert!(!l.health(View::Files, "ann").followed);
         // the other views are untouched
-        l.loaded(View::Calendar, "ann", &[st("CalendarEvent", "A", "e1")], true);
+        load(&mut l, View::Calendar, "ann", &[st("CalendarEvent", "A", "e1")], true);
         assert!(l.health(View::Calendar, "ann").ok());
         // a sign-out or another account starts over
         l.clear();
-        l.loaded(View::Files, "ann", &[st("FileNode", "A", "f1")], true);
+        load(&mut l, View::Files, "ann", &[st("FileNode", "A", "f1")], true);
         assert!(l.health(View::Files, "ann").ok());
     }
 
     #[test]
     fn a_failed_read_and_a_switch_leave_nothing_in_the_cache() {
         let mut l = Ledger::default();
-        l.loaded(View::Calendar, "ann", &[st("CalendarEvent", "A", "e1")], true);
+        let gen = l.begin_load(View::Calendar);
+        assert!(l.loaded(View::Calendar, "ann", &[st("CalendarEvent", "A", "e1")], true, gen));
         assert!(can_reuse(&l.owner(View::Calendar), Some("ann"), l.health(View::Calendar, "ann")));
-        // the read failed: what the view holds is unknown, so the next visit loads it
-        l.load_failed(View::Calendar);
-        assert_eq!(l.owner(View::Calendar), "");
+        // the read failed: what the view holds is not reused, though push can still follow it
+        l.load_failed(View::Calendar, "ann", gen);
         assert!(!can_reuse(&l.owner(View::Calendar), Some("ann"), l.health(View::Calendar, "ann")));
+        assert_eq!(l.owner(View::Calendar), "ann", "what it holds is kept");
+        assert!(l.steps(View::Calendar, "ann").is_some(), "pushes still run from its states");
+        // a newer load puts it back
+        load(&mut l, View::Calendar, "ann", &[st("CalendarEvent", "A", "e2")], true);
+        assert!(l.health(View::Calendar, "ann").ok());
         // A to B to A: the switch clears the ledger, so A's states from before are not reused
-        l.loaded(View::Calendar, "ann", &[st("CalendarEvent", "A", "e1")], true);
-        l.loaded(View::Files, "ann", &[st("FileNode", "A", "f1")], true);
-        l.clear();
+        load(&mut l, View::Calendar, "ann", &[st("CalendarEvent", "A", "e1")], true);
+        load(&mut l, View::Files, "ann", &[st("FileNode", "A", "f1")], true);
+        assert!(l.session_takeover(Some("bob")));
         for v in [View::Calendar, View::Files] {
             assert_eq!(l.owner(v), "");
             assert!(!can_reuse(&l.owner(v), Some("ann"), l.health(v, "ann")), "{v:?} is loaded again after a switch");
         }
+    }
+
+    #[test]
+    fn a_switch_that_fails_keeps_the_login_and_its_views() {
+        let mut l = Ledger::default();
+        load(&mut l, View::Calendar, "A", &[st("CalendarEvent", "x", "e1")], true);
+        // the attempt failed (B unreachable, a changed password): livesync is never told a session
+        // started, so nothing is dropped and the login that is still signed in keeps its views —
+        // its pushes and its loads still count as current
+        assert!(!l.session_takeover(None));
+        assert_eq!(l.owner(View::Calendar), "A");
+        assert!(can_reuse(&l.owner(View::Calendar), Some("A"), l.health(View::Calendar, "A")));
+        // the switch that comes up takes the views over: nothing of A's is reused for B
+        assert!(l.session_takeover(Some("B")));
+        assert_eq!(l.owner(View::Calendar), "");
+        assert!(!can_reuse(&l.owner(View::Calendar), Some("B"), l.health(View::Calendar, "B")));
+    }
+
+    #[test]
+    fn a_load_that_arrives_after_a_newer_one_changes_nothing() {
+        let mut l = Ledger::default();
+        let older = l.begin_load(View::Files);
+        let newer = l.begin_load(View::Files);
+        assert!(!l.newest_load(View::Files, older));
+        assert!(l.newest_load(View::Files, newer));
+        // the newer load lands; the older one then errors: its failure says nothing about this one
+        assert!(l.loaded(View::Files, "ann", &[st("FileNode", "A", "f2")], true, newer));
+        l.load_failed(View::Files, "ann", older);
+        assert!(l.health(View::Files, "ann").ok(), "the newer load is untouched");
+        // the older one landing late is refused: it does not replace the newer states
+        assert!(!l.loaded(View::Files, "ann", &[st("FileNode", "A", "f1")], true, older));
+        assert_eq!(l.since(View::Files, "ann", "FileNode", "A").as_deref(), Some("f2"));
+        // another login's failure at the newest revision is not theirs to mark
+        l.load_failed(View::Files, "bob", newer);
+        assert!(l.health(View::Files, "ann").ok());
     }
 
     #[test]
@@ -608,7 +705,7 @@ mod tests {
         assert!(!holds("ann", Some("bob")));
         assert!(!holds("ann", None));
         let mut l = Ledger::default();
-        l.loaded(View::Contacts, "ann", &[], true);
+        load(&mut l, View::Contacts, "ann", &[], true);
         assert_eq!(l.owner(View::Contacts), "ann");
         assert!(holds(&l.owner(View::Contacts), Some("ann")));
         assert!(!holds(&l.owner(View::Contacts), Some("bob")), "another login's data is not current");
@@ -617,8 +714,8 @@ mod tests {
     #[test]
     fn states_are_kept_per_view_type_account_and_login() {
         let mut l = Ledger::default();
-        l.loaded(View::Calendar, "srv\nann\nA", &[st("CalendarEvent", "A", "s1"), st("CalendarEvent", "B", "t1"), st("Calendar", "A", "c1")], true);
-        l.loaded(View::Contacts, "srv\nann\nA", &[st("ContactCard", "A", "k1")], true);
+        load(&mut l, View::Calendar, "srv\nann\nA", &[st("CalendarEvent", "A", "s1"), st("CalendarEvent", "B", "t1"), st("Calendar", "A", "c1")], true);
+        load(&mut l, View::Contacts, "srv\nann\nA", &[st("ContactCard", "A", "k1")], true);
         assert_eq!(l.since(View::Calendar, "srv\nann\nA", "CalendarEvent", "A").as_deref(), Some("s1"));
         assert_eq!(l.since(View::Calendar, "srv\nann\nA", "CalendarEvent", "B").as_deref(), Some("t1"));
         assert_eq!(l.since(View::Calendar, "srv\nann\nA", "Calendar", "B"), None);
@@ -631,9 +728,9 @@ mod tests {
     #[test]
     fn a_switch_drops_the_old_logins_states_and_its_deltas() {
         let mut l = Ledger::default();
-        l.loaded(View::Files, "ann", &[st("FileNode", "A", "f1")], true);
+        load(&mut l, View::Files, "ann", &[st("FileNode", "A", "f1")], true);
         // bob's full load replaces the book; a delta ann computed meanwhile does not apply
-        l.loaded(View::Files, "bob", &[st("FileNode", "A", "g1")], true);
+        load(&mut l, View::Files, "bob", &[st("FileNode", "A", "g1")], true);
         assert!(!l.advance(View::Files, "ann", &[mv("FileNode", "A", "f1", "f2")]));
         assert_eq!(l.since(View::Files, "bob", "FileNode", "A").as_deref(), Some("g1"));
         assert_eq!(l.since(View::Files, "ann", "FileNode", "A"), None);
@@ -642,7 +739,7 @@ mod tests {
     #[test]
     fn advance_is_all_or_nothing_and_needs_the_starting_state() {
         let mut l = Ledger::default();
-        l.loaded(View::Calendar, "o", &[st("Calendar", "A", "c1"), st("CalendarEvent", "A", "e1")], true);
+        load(&mut l, View::Calendar, "o", &[st("Calendar", "A", "c1"), st("CalendarEvent", "A", "e1")], true);
         // a full reload moved CalendarEvent on meanwhile: the delta from e1 is stale, nothing moves
         assert!(!l.advance(View::Calendar, "o", &[mv("Calendar", "A", "c1", "c2"), mv("CalendarEvent", "A", "e0", "e2")]));
         assert_eq!(l.since(View::Calendar, "o", "Calendar", "A").as_deref(), Some("c1"));
@@ -675,18 +772,18 @@ mod tests {
     fn settle_applies_only_for_the_current_login_holding_the_starting_state() {
         let now = Instant::now();
         let mut l = Ledger::default();
-        l.loaded(View::Files, "ann", &[st("FileNode", "A", "f1")], true);
+        load(&mut l, View::Files, "ann", &[st("FileNode", "A", "f1")], true);
         let ok = Outcome::Apply(vec![applied("FileNode", "A", "f1", "f2")]);
         // the session switched to someone else meanwhile: dropped, no rerun, the view is free
         assert!(l.begin(View::Files, now));
         assert_eq!(l.settle(View::Files, "ann", false, &ok, now), Settle::default());
         assert_eq!(l.since(View::Files, "ann", "FileNode", "A").as_deref(), Some("f1"));
         // another login's full load landed: the view is not ann's any more
-        l.loaded(View::Files, "bob", &[st("FileNode", "A", "g1")], true);
+        load(&mut l, View::Files, "bob", &[st("FileNode", "A", "g1")], true);
         assert!(l.begin(View::Files, now));
         assert_eq!(l.settle(View::Files, "ann", true, &ok, now), Settle::default());
         // ann's again, current: applied and moved on
-        l.loaded(View::Files, "ann", &[st("FileNode", "A", "f1")], true);
+        load(&mut l, View::Files, "ann", &[st("FileNode", "A", "f1")], true);
         assert!(l.begin(View::Files, now));
         assert_eq!(l.settle(View::Files, "ann", true, &ok, now), Settle { apply: true, ..Default::default() });
         assert_eq!(l.since(View::Files, "ann", "FileNode", "A").as_deref(), Some("f2"));
@@ -696,11 +793,11 @@ mod tests {
     fn a_delta_that_lost_to_a_full_load_runs_again_from_the_new_state() {
         let now = Instant::now();
         let mut l = Ledger::default();
-        l.loaded(View::Contacts, "ann", &[st("ContactCard", "A", "k1")], true);
+        load(&mut l, View::Contacts, "ann", &[st("ContactCard", "A", "k1")], true);
         assert!(l.begin(View::Contacts, now));
         let steps = l.steps(View::Contacts, "ann").unwrap();
         // a full load (opening the view) lands while the delta from k1 runs
-        l.loaded(View::Contacts, "ann", &[st("ContactCard", "A", "k5")], true);
+        load(&mut l, View::Contacts, "ann", &[st("ContactCard", "A", "k5")], true);
         let out = Outcome::Apply(vec![applied("ContactCard", "A", &steps[0].2, "k2")]);
         assert_eq!(l.settle(View::Contacts, "ann", true, &out, now), Settle { rerun: true, ..Default::default() });
         assert_eq!(l.steps(View::Contacts, "ann").unwrap(), vec![st("ContactCard", "A", "k5")], "the rerun starts from the new state");
@@ -710,14 +807,14 @@ mod tests {
     fn a_full_load_asked_for_holds_the_view_until_it_lands() {
         let now = Instant::now();
         let mut l = Ledger::default();
-        l.loaded(View::Calendar, "ann", &[st("CalendarEvent", "A", "e1")], true);
+        load(&mut l, View::Calendar, "ann", &[st("CalendarEvent", "A", "e1")], true);
         assert!(l.begin(View::Calendar, now));
         assert_eq!(l.settle(View::Calendar, "ann", true, &Outcome::Full, now), Settle { full: true, ..Default::default() });
         // pushes while it loads wait
         assert!(!l.begin(View::Calendar, now));
         assert!(!l.begin(View::Calendar, now + Duration::from_secs(5)));
         // it lands (livesync::loaded): recorded, and the push that waited runs once
-        l.loaded(View::Calendar, "ann", &[st("CalendarEvent", "A", "e9")], true);
+        load(&mut l, View::Calendar, "ann", &[st("CalendarEvent", "A", "e9")], true);
         assert!(l.finish(View::Calendar));
         assert!(l.begin(View::Calendar, now));
         assert!(!l.finish(View::Calendar));
@@ -733,11 +830,11 @@ mod tests {
         // a shared calendar account whose read failed (or that appeared later) has no state: the
         // delta runs for the others and never turns into a full load on every push
         let mut l = Ledger::default();
-        l.loaded(View::Calendar, "ann", &[st("Calendar", "A", "c1"), st("CalendarEvent", "A", "e1")], true);
+        load(&mut l, View::Calendar, "ann", &[st("Calendar", "A", "c1"), st("CalendarEvent", "A", "e1")], true);
         assert_eq!(l.steps(View::Calendar, "ann").unwrap(), vec![st("Calendar", "A", "c1"), st("CalendarEvent", "A", "e1")]);
         assert_eq!(l.steps(View::Calendar, "bob"), None);
         // a load that read nothing follows nothing
-        l.loaded(View::Files, "ann", &[], true);
+        load(&mut l, View::Files, "ann", &[], true);
         assert_eq!(l.steps(View::Files, "ann"), None);
         let c = server(vec![json!({"oldState": "c1", "newState": "c1", "hasMoreChanges": false, "created": [], "updated": [], "destroyed": []}),
             json!({"oldState": "e1", "newState": "e1", "hasMoreChanges": false, "created": [], "updated": [], "destroyed": []})], json!({}), Arc::new(Mutex::new(vec![])));

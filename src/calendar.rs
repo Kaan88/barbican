@@ -306,6 +306,8 @@ pub const EVENT_PROPS: [&str; 34] = ["id", "@type", "uid", "title", "description
 
 pub fn load(w: slint::Weak<AppWindow>, c: Arc<Client>) {
     if !c.has(CAL) { return; }
+    // this load's number: a slower one that lands late changes nothing
+    let gen = crate::livesync::begin_load(crate::livesync::View::Calendar);
     std::thread::spawn(move || {
         let tz = crate::agent::local_tz();
         let primary = c.account_for(CAL);
@@ -358,25 +360,26 @@ pub fn load(w: slint::Weak<AppWindow>, c: Arc<Client>) {
             }
             Ok((cals, events))
         })();
-        let people = if crate::settings::bool_pref("showBirthdayCalendar", false) { crate::cal_extra::fetch_people(&c).ok() } else { None };
         let w2 = w.clone();
         let c2 = c.clone();
         let _ = w.upgrade_in_event_loop(move |u| match res {
             // signed out or switched meanwhile: another login's data is not shown
             Ok(_) if !crate::livesync::is_current(&owner) => {}
             Ok((cals, events)) => {
-                if let Some(p) = people { crate::cal_extra::set_people(p); }
                 ST.with(|s| s.borrow_mut().calendars = cals);
                 RAW.with(|r| *r.borrow_mut() = Arc::new(events));
                 rebuild(&u);
                 render_tasks(&u);
+                // the birthday cards (when the calendar is on) are read through one place, so a
+                // slow read cannot overwrite newer cards set meanwhile
+                crate::cal_extra::ensure_people(&u, c2.clone(), false);
                 crate::cal_extra::after_load(&u, w2, c2);
-                crate::livesync::loaded(&u, crate::livesync::View::Calendar, &owner, &states, complete);
+                crate::livesync::loaded(&u, crate::livesync::View::Calendar, &owner, &states, complete, gen);
             }
             Err(e) => {
-                // nothing could be read: the view holds nothing push can vouch for, so the next
-                // visit loads it again
-                crate::livesync::load_failed(crate::livesync::View::Calendar);
+                // nothing could be read: the view is not reused again until a load lands (a newer
+                // load, or another login's, is left alone)
+                crate::livesync::load_failed(crate::livesync::View::Calendar, &owner, gen);
                 crate::mail::show_error(&u, &format!("Calendar: {e}"));
             }
         });
@@ -823,14 +826,11 @@ pub fn switch_to(u: &AppWindow, c: Arc<Client>) {
     if crate::livesync::cache_current(crate::livesync::View::Calendar, &c) {
         rebuild(u);
         crate::cal_extra::after_load_light(u, c.clone());
-        crate::cal_extra::ensure_people(u, c);
+        crate::cal_extra::ensure_people(u, c, false);
         return;
     }
     load(u.as_weak(), c);
 }
-
-/// Whether any event is loaded (so an expansion has something to draw).
-pub fn has_events() -> bool { RAW.with(|r| !r.borrow().is_empty()) }
 
 /// The all-day strip's "+N" / "less" toggle (Bulwark `isAllDayExpanded`).
 pub fn toggle_allday(u: &AppWindow) {
@@ -1073,6 +1073,32 @@ mod tests {
         assert!(l.land(now));
         assert_eq!(l.drawn, 2);
         assert!(l.glance_due);
+    }
+
+    #[test]
+    fn the_range_summary_counts_events_only() {
+        // a timed event, an all-day event, a task's due date and a birthday in the same window: the
+        // tile counts the two events and only the timed one's minutes (a due date and a birthday
+        // are not events)
+        let mk = |kind: u8, all_day: bool, s: &str, e: &str, cal: &str| Occ {
+            id: format!("o{kind}{s}"), base: String::new(), rid: None, title: "t".into(),
+            start: parse_local(s).unwrap(), end: parse_local(e).unwrap(), all_day,
+            calendar: cal.into(), location: String::new(), kind, done: false,
+        };
+        let evs = vec![
+            mk(0, false, "2026-11-02T09:00:00", "2026-11-02T10:30:00", "a"),
+            mk(0, true, "2026-11-03T00:00:00", "2026-11-04T00:00:00", "a"),
+            mk(1, true, "2026-11-02T00:00:00", "2026-11-03T00:00:00", "a"),
+            mk(2, true, "2026-11-02T00:00:00", "2026-11-03T00:00:00", "bday"),
+        ];
+        let f = parse_local("2026-11-01T00:00:00").unwrap();
+        let t = parse_local("2026-11-08T00:00:00").unwrap();
+        assert_eq!(range_summary(&evs, &HashSet::new(), f, t), (2, 90), "two events, the timed one's 90 minutes");
+        // a hidden calendar's events are left out
+        let hidden: HashSet<String> = ["a".to_string()].into();
+        assert_eq!(range_summary(&evs, &hidden, f, t), (0, 0));
+        // and a window that holds none
+        assert_eq!(range_summary(&evs, &HashSet::new(), t, t + Duration::days(7)), (0, 0));
     }
 
     #[test]
@@ -1494,6 +1520,17 @@ fn when_text(o: &Occ, h12: bool) -> String {
     if o.all_day { format!("{day} · all day") } else { format!("{day} · {} – {}", fmt_time(o.start, h12), fmt_time(o.end, h12)) }
 }
 
+/// The range summary the tiles and the Nordic line show: how many events (not tasks or birthdays —
+/// a due date or a birthday is not an event) are visible in the range, and how many minutes of them
+/// are timed. Pure, so the counting is tested directly.
+fn range_summary(events: &[Occ], hidden: &HashSet<String>, f: NaiveDateTime, t: NaiveDateTime) -> (usize, i64) {
+    let inr: Vec<&Occ> = events.iter()
+        .filter(|o| o.kind == 0 && !hidden.contains(&o.calendar) && o.start < t && o.end > f)
+        .collect();
+    let mins: i64 = inr.iter().filter(|o| !o.all_day).map(|o| (o.end.min(t) - o.start.max(f)).num_minutes().max(0)).sum();
+    (inr.len(), mins)
+}
+
 /// The three Bento summary tiles (and the Nordic sidebar line), from the loaded range only:
 /// the next event to come, what this day / week / month holds, and unanswered invitations.
 fn summary(u: &AppWindow) {
@@ -1506,9 +1543,7 @@ fn summary(u: &AppWindow) {
         // the drawn range (the worker's expansion) and the year it also built: right straight
         // after a view / range change, and "next up" is the next event overall, not only here
         let (f, t) = (from.and_hms_opt(0, 0, 0).unwrap(), to.and_hms_opt(0, 0, 0).unwrap());
-        let in_range: Vec<Occ> = s.events.iter().filter(|o| o.start < t && o.end > f).cloned().collect();
         let ahead = &s.ahead;
-        let visible: Vec<&Occ> = in_range.iter().filter(|o| !s.hidden.contains(&o.calendar)).collect();
         // next up
         let next = ahead.iter().filter(|o| !s.hidden.contains(&o.calendar) && !o.all_day && o.start >= now).min_by_key(|o| o.start);
         u.set_cal_sum_next(match next {
@@ -1520,14 +1555,13 @@ fn summary(u: &AppWindow) {
             }
             None => CalSum { label: "Next up".into(), value: "Nothing coming".into(), sub: "No upcoming events".into(), id: "".into() },
         });
-        // what the range holds
-        let inr: Vec<&&Occ> = visible.iter().filter(|o| o.start < t && o.end > f).collect();
-        let mins: i64 = inr.iter().filter(|o| !o.all_day).map(|o| (o.end.min(t) - o.start.max(f)).num_minutes().max(0)).sum();
+        // what the range holds (events only: tasks and birthdays are not events)
+        let (count, mins) = range_summary(&s.events, &s.hidden, f, t);
         let label = match view { 0 => "This day", 1 => "This week", _ => "This month" };
-        u.set_cal_sum_range(CalSum { label: label.into(), value: plural(inr.len(), "event", "events").into(),
+        u.set_cal_sum_range(CalSum { label: label.into(), value: plural(count, "event", "events").into(),
             sub: if mins > 0 { format!("{} scheduled", dur_text(mins)) } else { "Nothing timed".to_string() }.into(), id: "".into() });
         let wk = if view == 1 { format!("Week {} · ", from.iso_week().week()) } else { String::new() };
-        u.set_cal_side_line(format!("{wk}{}{}", plural(inr.len(), "event", "events"), if mins > 0 { format!(" · {} scheduled", dur_text(mins)) } else { String::new() }).into());
+        u.set_cal_side_line(format!("{wk}{}{}", plural(count, "event", "events"), if mins > 0 { format!(" · {} scheduled", dur_text(mins)) } else { String::new() }).into());
         // invitations still to answer (upcoming ones)
         let pend = PENDING.with(|p| p.borrow().clone());
         let mut inv: Vec<&Occ> = ahead.iter().filter(|o| !s.hidden.contains(&o.calendar) && o.end > now && pend.contains(&o.base)).collect();
