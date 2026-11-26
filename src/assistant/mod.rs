@@ -1,7 +1,6 @@
-//! The AI assistant core: a 1:1 port of the Thunderbird "AI Assistant" extension's provider layer
-//! (docs/AI-ASSISTANT-SPEC.md, section 3). Toolkit-free on purpose: nothing here knows about Slint
-//! or any other UI. A caller runs a request on a worker thread, gets text chunks through a
-//! callback and stops it with a [`Cancel`] flag.
+//! The toolkit-free AI assistant core (docs/AI-ASSISTANT-SPEC.md). The caller runs on a worker
+//! thread, receives streamed text and tool steps through callbacks, and stops a conversation
+//! with a [`Cancel`] flag.
 //!
 //! * [`history`]: the neutral conversation entries every provider reads and writes (3.0).
 //! * [`logins`]: the assistant's own random id for each login, kept in a local file beside the
@@ -10,6 +9,7 @@
 //! * [`error`]: [`ProviderError`], the error text built from an HTTP answer and the friendly
 //!   wording the panel shows (3.1, 3.4).
 //! * [`anthropic`]: the Anthropic Messages API client, model names and the Models API (3.2).
+//! * [`agent`]: the agent loop, 30 steps per user message and the stop text (2.0).
 //! * [`config`]: the settings, the migration from the earlier ones, the provider list and pick (4).
 //! * [`context`]: the open message as text for the model and the user turn (2.0).
 //! * `http`: the client, redirect rules and error answers shared by the providers.
@@ -17,10 +17,12 @@
 //! * [`openai`]: the OpenAI-compatible Chat Completions client (3.3).
 //! * [`prompts`]: the system prompt, the "Now:" line, the quick actions and the writing help's
 //!   prompts (2.0, 2.3 to 2.6, 2.13 to 2.19).
+//! * [`tools`]: the tool registry, the runner and the mail tools (5.1 to 5.5).
 //!
 //! Not wired into the app yet (milestone M12 swaps it in for `ai.rs` / `agent.rs`).
 #![allow(dead_code)]
 
+pub mod agent;
 pub mod anthropic;
 pub mod config;
 pub mod context;
@@ -32,9 +34,11 @@ pub mod markdown;
 pub mod openai;
 pub mod prompts;
 pub mod sse;
+pub mod tools;
 
 #[cfg(test)]
 pub(crate) mod fake;
+
 
 // the API M12 and the new UI use; nothing outside the module calls it yet
 #[allow(unused_imports)]

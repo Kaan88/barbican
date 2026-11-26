@@ -101,7 +101,7 @@ where
 /// An address as Thunderbird shows a header: `Name <email>`, or whichever of the two there is (a
 /// name without an address names the person; it does not become `Name <>`). Both parts are one
 /// line ([`one_line`]).
-fn address(name: &str, email: &str) -> String {
+pub fn address(name: &str, email: &str) -> String {
     let (name, email) = (one_line(name), one_line(email));
     if email.is_empty() {
         name
@@ -113,7 +113,7 @@ fn address(name: &str, email: &str) -> String {
 }
 
 /// An address list as Thunderbird shows a header: `Name <email>`, or the address alone.
-fn addresses(v: &Value) -> Vec<String> {
+pub fn addresses(v: &Value) -> Vec<String> {
     v.as_array()
         .map(|a| a.iter().map(|x| address(x["name"].as_str().unwrap_or(""), x["email"].as_str().unwrap_or(""))).collect())
         .unwrap_or_default()

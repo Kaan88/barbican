@@ -112,3 +112,33 @@ Paused 2026-11-26 by the owner, who also stopped DeepSeek delegation. M6 and U1 
   1221 unit tests passed, 2 ignored; the version-resource integration test passed. No failures.
 - GUI parity and Linux were not checked; `cc-reviewer` approval remains open. The git-based
   privacy check was not run under the brief's git restriction.
+
+## AI assistant M6 — tool framework, loop and mail
+
+- The new core in `src/assistant/` has the 13 §5.4–5.5 tools, the lookup/action policy (including
+  per-call risk), approval callbacks, deadlines and result caps, and the 30-turn agent loop. The
+  agent gets definitions, frozen settings and one Stop signal from the same tool context.
+- Messages resolve by `(login, account, id)`. The login comes from `login_key(base, username)` in
+  `ai-logins.json`; it is not kept in the account store. The model does not get the login's server
+  URL as an account field. The step sink gets search headers separately from provider history.
+- Move/copy are same-account; copy adds a mailbox membership as specified in §8.4. Transfer cards
+  show and pin the exact resolved destination before approval. Delete always requires explicit
+  approval and checks all targets before offering it and again before acting. Mixed-account writes
+  are not transactional; report an error if JMAP does not confirm every requested item.
+- Parity interpretations: §5.5 lists junk flags, but the Barbican mapping in §8.4 also calls for the
+  Junk/Inbox move, which is implemented. With both `raw` and `headers`, raw wins and returns the
+  stored RFC 822 source (already includes headers); there is no client-side decryption. Blob output
+  uses bounded memory; attachment markup stays closed at the result limit.
+- Stop/timeout returns without waiting for a blocking JMAP dispatch. The tool stops issuing further
+  requests at its checkpoints, but the shared blocking client cannot cancel a dispatch already
+  entered (including its auth/queue wait). Check the server before retrying an unconfirmed write.
+  The eventual host must dismiss pending approvals on Stop and invalidate the tool context on
+  logout/account changes; it must not log approval, step, provider or message contents.
+- No app wiring or GUI in M6; swap-in and the tag saver are for M12. Claude-local's own loop is
+  M11. When rendering tool-derived text, M13 should handle the escaped `attachment` and
+  `all-headers` closing tags alongside M5's `restore_tags`. No live provider, JMAP, GUI, real
+  profile or Credential Manager verification.
+- Full offline `cargo test -j 2` in `target-m6` (the filtered build first caught a blob-writer
+  lifetime error, fixed before this run):
+  - `test result: ok. 1268 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 15.32s`
+  - `test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.75s`
