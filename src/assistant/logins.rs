@@ -1,12 +1,13 @@
 //! The assistant's own id for each login (docs/AI-ASSISTANT-SPEC.md 2.0): a random 128-bit id per
 //! login, kept in a small local file beside the settings (`ai-logins.json`), written whole or not
 //! at all. It is not a secret and never leaves this computer except as the id itself, so it is
-//! keyed by the app's own account key ([`crate::jmap::Client::state_key`] or
-//! [`crate::identities::account_key`]) and only the id is ever sent to the provider.
+//! keyed by [`login_key`] — the server address and the user — and only the id is ever sent to the
+//! provider.
 //!
 //! An id is made the first time the assistant needs one for that login, and kept. The file is read
 //! once per run; a write that fails leaves the map in memory as it is, so an id stays the same for
-//! the rest of the run.
+//! the rest of the run. Every write merges over the file as it is then, so another instance of
+//! Barbican never loses its entries and an id it made is adopted rather than replaced.
 use serde_json::{Map, Value};
 use std::sync::{Arc, Mutex};
 
@@ -60,31 +61,49 @@ fn read() -> Map<String, Value> {
         .unwrap_or_default()
 }
 
-/// Write the map whole or not at all: a temporary file beside it, renamed over it. A failure
-/// leaves the old file (or none) and changes nothing.
-fn write(map: &Map<String, Value>) {
+/// The key the map is keyed by: the server address as [`crate::jmap::normalize_base`] gives it and
+/// the user, one line each. It names a login, not a JMAP account (an account inside one login is
+/// told apart by its account id in [`MessageRef`](super::context::MessageRef)), so a login keeps
+/// one id whatever accounts it reaches.
+pub fn login_key(base: &str, user: &str) -> String {
+    format!("{}\n{}", crate::jmap::normalize_base(base), user.trim())
+}
+
+/// Write the map whole or not at all, merged over the file as it is now (another instance of
+/// Barbican may have written entries since this run read it), and with the settings' own writer:
+/// its temporary file, its Windows retry and its `sync_all`. An entry only that instance has is
+/// never erased; ours win for a key both have. The merged map (theirs included) stays in memory.
+fn write(map: &mut Map<String, Value>) {
+    let mut merged = read();
+    for (k, v) in map.iter() {
+        merged.insert(k.clone(), v.clone());
+    }
     let p = path();
     if let Some(dir) = p.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
-    let Ok(text) = serde_json::to_vec(&Value::Object(map.clone())) else { return };
-    let tmp = p.with_extension(format!("{}.tmp", std::process::id()));
-    if std::fs::write(&tmp, &text).is_ok() && std::fs::rename(&tmp, &p).is_ok() {
-        return;
-    }
-    let _ = std::fs::remove_file(&tmp);
+    // a temporary file of a run that stopped mid-write, as the settings clean up theirs
+    crate::settings::remove_stale_temp(&p);
+    let _ = crate::settings::write_file(&p, &merged);
+    *map = merged;
 }
 
 /// The assistant's id for one login, made the first time it is needed and kept. `key` is
-/// Barbican's own internal account key — the server, the login and the account, as
-/// `state_key`/`account_key` write it — so two logins with the same account and message ids never
-/// share one. The id is random: nothing of the address can be read from it or checked against it.
+/// [`login_key`]: the server address and the user, never the address alone. The id is random, so
+/// nothing of the login can be read from it or checked against it; a write that fails still keeps
+/// it for the rest of the run, and an id another instance of Barbican made meanwhile is adopted
+/// rather than replaced.
 pub fn assistant_login_id(key: &str) -> String {
     let cell = cache();
     let mut guard = cell.lock().unwrap_or_else(|e| e.into_inner());
     let map = guard.get_or_insert_with(read);
     if let Some(id) = map.get(key).and_then(Value::as_str).filter(|s| is_id(s)) {
         return id.to_string();
+    }
+    // another instance may have made one since this run read the file: take its id
+    if let Some(id) = read().get(key).and_then(Value::as_str).filter(|s| is_id(s)).map(String::from) {
+        map.insert(key.to_string(), Value::String(id.clone()));
+        return id;
     }
     let id = new_id();
     map.insert(key.to_string(), Value::String(id.clone()));
@@ -149,70 +168,114 @@ impl Drop for TestScope {
 mod tests {
     use super::*;
 
-    const WORK: &str = "https://mail.work.example.test\nann@example.test\na1";
-    const HOME: &str = "https://mail.home.example.test\nann@example.test\na1";
+    fn work() -> String {
+        login_key("https://mail.work.example.test", "ann@example.test")
+    }
+    fn home() -> String {
+        login_key("https://mail.home.example.test", "ann@example.test")
+    }
+
+    #[test]
+    fn one_login_one_key() {
+        // the same login is one key, however its address is written
+        assert_eq!(login_key("https://mail.example.test/jmap", "ann@example.test"), login_key("https://mail.example.test/jmap/", "ann@example.test"));
+        assert_eq!(login_key("mail.example.test", "ann@example.test"), login_key("https://mail.example.test", "ann@example.test"));
+        // another port is another server, another user another login
+        assert_ne!(login_key("https://mail.example.test", "ann@example.test"), login_key("https://mail.example.test:8443", "ann@example.test"));
+        assert_ne!(login_key("http://mail.example.test", "ann@example.test"), login_key("https://mail.example.test", "ann@example.test"));
+        assert_ne!(login_key("https://mail.example.test", "ann@example.test"), login_key("https://mail.example.test", "bob@example.test"));
+        // and it holds the user and the server, so it names exactly one login
+        assert!(work().starts_with("https://mail.work.example.test\nann@example.test"));
+    }
 
     #[test]
     fn an_id_is_made_once_and_kept_across_a_reload() {
         let scope = TestScope::new();
-        let id = assistant_login_id(WORK);
+        let id = assistant_login_id(&work());
         assert_eq!(id.len(), ID_LEN);
         assert!(is_id(&id), "{id}");
         // on disk, keyed by the login key
         let saved: Value = serde_json::from_slice(&std::fs::read(scope.file()).unwrap()).unwrap();
-        assert_eq!(saved[WORK].as_str(), Some(id.as_str()));
+        assert_eq!(saved[work().as_str()].as_str(), Some(id.as_str()));
         // asked again in the same run: the same id, and only one record
-        assert_eq!(assistant_login_id(WORK), id);
+        assert_eq!(assistant_login_id(&work()), id);
         assert_eq!(serde_json::from_slice::<Value>(&std::fs::read(scope.file()).unwrap()).unwrap().as_object().unwrap().len(), 1);
         // a restart reads the file: the id is the one that was made
         scope.reload();
-        assert_eq!(assistant_login_id(WORK), id);
+        assert_eq!(assistant_login_id(&work()), id);
     }
 
     #[test]
     fn two_logins_get_different_ids() {
         let _scope = TestScope::new();
-        let work = assistant_login_id(WORK);
-        let home = assistant_login_id(HOME);
-        let other = assistant_login_id("https://mail.work.example.test\nbob@example.test\na1");
-        assert_ne!(work, home);
-        assert_ne!(work, other);
-        assert_ne!(home, other);
-        assert_eq!(assistant_login_id(HOME), home);
+        let a = assistant_login_id(&work());
+        let b = assistant_login_id(&home());
+        let other = assistant_login_id(&login_key("https://mail.work.example.test", "bob@example.test"));
+        assert_ne!(a, b);
+        assert_ne!(a, other);
+        assert_ne!(b, other);
+        assert_eq!(assistant_login_id(&work()), a);
     }
 
     #[test]
     fn nothing_of_the_key_is_in_the_id() {
         let _scope = TestScope::new();
-        let id = assistant_login_id(WORK);
+        let id = assistant_login_id(&work());
         // hex only: no address, no server, no '@', no separator
         assert!(id.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()), "{id}");
         assert!(!id.contains("ann") && !id.contains("example") && !id.contains('@') && !id.contains('\n'));
         // a stored value that is not an id (an address pasted in) is replaced, not used
         let scope = TestScope::new();
         let mut m = Map::new();
-        m.insert(WORK.to_string(), Value::String("ann@example.test".into()));
+        m.insert(work(), Value::String("ann@example.test".into()));
         std::fs::write(scope.file(), serde_json::to_vec(&Value::Object(m)).unwrap()).unwrap();
-        let fresh = assistant_login_id(WORK);
+        let fresh = assistant_login_id(&work());
         assert!(is_id(&fresh), "{fresh}");
         assert_ne!(fresh, "ann@example.test");
-        assert_eq!(assistant_login_id(WORK), fresh);
+        assert_eq!(assistant_login_id(&work()), fresh);
+    }
+
+    #[test]
+    fn an_entry_another_instance_wrote_survives_and_is_adopted() {
+        let scope = TestScope::new();
+        let mine = assistant_login_id(&work());
+        // a second Barbican writes its own login and makes an id for ours before we ask for it
+        let theirs = "0123456789abcdef0123456789abcdef";
+        let adopted = "fedcba9876543210fedcba9876543210";
+        let mut other = Map::new();
+        other.insert(work(), Value::String(mine.clone()));
+        other.insert("https://mail.theirs.example.test\nkim@example.test".to_string(), Value::String(theirs.into()));
+        other.insert(home(), Value::String(adopted.into()));
+        std::fs::write(scope.file(), serde_json::to_vec(&Value::Object(other)).unwrap()).unwrap();
+        // its id for our other login is taken as it is, not replaced
+        assert_eq!(assistant_login_id(&home()), adopted);
+        // and a new id of ours is written beside its entries, not over them
+        let third = assistant_login_id(&login_key("https://mail.work.example.test", "cy@example.test"));
+        let saved: Value = serde_json::from_slice(&std::fs::read(scope.file()).unwrap()).unwrap();
+        assert_eq!(saved["https://mail.theirs.example.test\nkim@example.test"].as_str(), Some(theirs));
+        assert_eq!(saved[home().as_str()].as_str(), Some(adopted));
+        assert_eq!(saved[work().as_str()].as_str(), Some(mine.as_str()));
+        assert_eq!(saved[login_key("https://mail.work.example.test", "cy@example.test").as_str()].as_str(), Some(third.as_str()));
+        // and the merge stays in memory: another restart keeps every one of them
+        scope.reload();
+        assert_eq!(assistant_login_id(&home()), adopted);
+        assert_eq!(assistant_login_id(&work()), mine);
     }
 
     #[test]
     fn a_failed_save_keeps_the_id_in_this_run() {
         let scope = TestScope::new();
-        let first = assistant_login_id(WORK);
+        let first = assistant_login_id(&work());
         // every later write fails: the file's place is taken by a folder
         std::fs::remove_file(scope.file()).unwrap();
         std::fs::create_dir(scope.file()).unwrap();
-        let home = assistant_login_id(HOME);
-        assert!(is_id(&home));
+        let home_id = assistant_login_id(&home());
+        assert!(is_id(&home_id));
         // nothing could be written ...
         assert!(std::fs::read_to_string(scope.file()).is_err());
         // ... but the ids stay what they were for the rest of the run
-        assert_eq!(assistant_login_id(HOME), home);
-        assert_eq!(assistant_login_id(WORK), first);
+        assert_eq!(assistant_login_id(&home()), home_id);
+        assert_eq!(assistant_login_id(&work()), first);
         std::fs::remove_dir(scope.file()).ok();
     }
 }

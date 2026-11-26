@@ -214,7 +214,7 @@ pub(crate) fn unsaved_session() -> bool {
 
 /// Remove the temporary files an earlier run left when it stopped mid-write
 /// (`prefs.json.<pid>-<n>.tmp` of another process, untouched for a minute; this one's may be in use).
-fn remove_stale_temp(p: &std::path::Path) {
+pub(crate) fn remove_stale_temp(p: &std::path::Path) {
     const STALE_AFTER: std::time::Duration = std::time::Duration::from_secs(60);
     let (Some(dir), Some(name)) = (p.parent(), p.file_name()) else { return };
     let pre = format!("{}.", name.to_string_lossy());
@@ -297,7 +297,7 @@ pub(crate) fn int_pref(key: &str, default: i64) -> i64 { get_int(&current(), key
 
 /// Write the prefs file whole or not at all: a temporary file in the same folder, renamed over it
 /// (a crash or a full disk mid-write leaves the old file, never half of one).
-fn write_file(p: &std::path::Path, prefs: &Map<String, Value>) -> std::io::Result<()> {
+pub(crate) fn write_file(p: &std::path::Path, prefs: &Map<String, Value>) -> std::io::Result<()> {
     use std::io::Write;
     static N: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let dir = p.parent().ok_or_else(|| std::io::Error::other("no folder"))?;
