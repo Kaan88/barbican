@@ -238,7 +238,7 @@ pub fn event_dropped(u: &AppWindow, st: &Shared, id: &str, days: i32, minutes: i
     if ns == start && nd == dur { crate::calendar::render(u); return; }
     let patch = json!({"start": ns.format("%Y-%m-%dT%H:%M:%S").to_string(), "duration": iso_minutes(nd.num_minutes())});
     let Some(c) = st.lock().unwrap().clone() else { return };
-    crate::calendar::patch_local(id, &patch);
+    crate::calendar::patch_local(u, id, &patch);
     crate::calendar::render(u);
     crate::calendar::set_call(u, c, "CalendarEvent/set", update_args(id, patch, &e), "Event not moved");
 }

@@ -16,12 +16,20 @@ use std::sync::Arc;
 
 thread_local! {
     static SHARED: RefCell<Option<crate::Shared>> = const { RefCell::new(None) };
-    /// contact cards (name, emails, birthdays, group members)
-    static PEOPLE: RefCell<Vec<Value>> = const { RefCell::new(Vec::new()) };
+    /// The "show birthday calendar" switch as the view last saw it (see [`birthday_calendar_switched`]).
+    static BDAY_ON: std::cell::Cell<Option<bool>> = const { std::cell::Cell::new(None) };
     static IMPORT: RefCell<Option<(String, Vec<Value>)>> = const { RefCell::new(None) };
     static TASK_LISTS: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
     static IMPORT_TARGETS: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
 }
+
+/// The birth anniversary cards (name, emails, birthdays, group members) and their revisions.
+/// Process-wide, not per thread: a session's start and its sign-out clear them from whichever
+/// thread the sign-in or the sign-out runs on, while the calendar reads them on the UI thread.
+struct Cards { list: Option<Arc<Vec<Value>>>, next: u64, shown: u64 }
+static CARDS: std::sync::Mutex<Cards> = std::sync::Mutex::new(Cards { list: None, next: 0, shown: 0 });
+
+fn cards() -> std::sync::MutexGuard<'static, Cards> { CARDS.lock().unwrap_or_else(|e| e.into_inner()) }
 
 /// The signed-in client (UI thread).
 pub fn client() -> Option<Arc<Client>> {
@@ -37,7 +45,58 @@ pub fn fetch_people(c: &Client) -> Result<Vec<Value>, String> {
     c.get_all("ContactCard/get", &acc, &ids, Some(&json!(["id", "uid", "kind", "name", "emails", "anniversaries", "members"])))
 }
 
-pub fn set_people(p: Vec<Value>) { PEOPLE.with(|x| *x.borrow_mut() = p); }
+/// The cards' next revision: take it before reading them (see [`set_people_at`]).
+pub fn people_read() -> u64 { let mut c = cards(); c.next = c.next.wrapping_add(1); c.next }
+
+/// Put the cards read at revision `rev`: `false` (and nothing changes) when cards at that revision
+/// or newer are already on show, so a slow read never overwrites newer cards.
+pub fn set_people_at(rev: u64, p: Vec<Value>) -> bool {
+    let mut c = cards();
+    if rev <= c.shown { return false; }
+    c.list = Some(Arc::new(p));
+    c.shown = rev;
+    true
+}
+
+/// The cards are another login's now (sign-out, another account): cleared from any thread. Their
+/// revision moves on, so a read still in flight cannot put the previous login's cards back.
+pub fn forget_people() { let rev = people_read(); set_people_at(rev, vec![]); }
+
+/// Put cards that are newer than any read in flight (the contacts view's own, or a test).
+pub fn set_people(p: Vec<Value>) { let rev = people_read(); set_people_at(rev, p); }
+
+/// The loaded contact cards, shared with the caller (the birthday calendar's worker reads them:
+/// a rebuild must not copy every card on the UI thread).
+pub fn people() -> Arc<Vec<Value>> { cards().list.clone().unwrap_or_default() }
+
+/// The "show birthday calendar" switch, as the view last saw it: `true` when it was just turned on
+/// (turn it on is the moment its cards may be out of date, since a cached calendar visit no longer
+/// reads them every time, and the contacts view skipped them while it was off).
+pub fn birthday_calendar_switched(on: bool) -> bool {
+    let was = BDAY_ON.with(|b| b.replace(Some(on)));
+    on && was != Some(true)
+}
+
+/// Make sure the birthday calendar's cards are there and current, while the birthday calendar is
+/// on: read them (on a worker) when they were never read, or when push cannot keep them fresh (the
+/// contacts view was not loaded this session), or always with `force` (the switch was just turned
+/// on). A read that lands over newer cards is dropped, and the calendar redraws when it lands.
+pub fn ensure_people(u: &AppWindow, c: Arc<Client>, force: bool) {
+    if !crate::settings::bool_pref("showBirthdayCalendar", false) { return; }
+    if !force && !people().is_empty() && crate::livesync::followed(crate::livesync::View::Contacts) { return; }
+    let rev = people_read();
+    let w = u.as_weak();
+    std::thread::spawn(move || {
+        let owner = c.state_key();
+        let r = fetch_people(&c);
+        let _ = w.upgrade_in_event_loop(move |u| {
+            // signed out or switched meanwhile: another login's cards are not shown
+            if !crate::livesync::is_current(&owner) { return; }
+            // cards that arrived while this read ran (the contacts view's) are newer: kept
+            if let Ok(p) = r { if set_people_at(rev, p) { calendar::rebuild(&u); } }
+        });
+    });
+}
 
 fn card_name(c: &Value) -> String {
     if let Some(f) = c["name"]["full"].as_str().filter(|s| !s.is_empty()) { return f.to_string(); }
@@ -51,8 +110,9 @@ fn card_emails(c: &Value) -> Vec<String> {
 
 /// Contacts and groups whose name or address contains `q`, without the addresses in `have`.
 pub fn people_matching(q: &str, have: &[String], max: usize) -> Vec<(Person, Vec<Person>)> {
-    PEOPLE.with(|p| {
-        let p = p.borrow();
+    let cards = people();
+    let p: &[Value] = &cards;
+    {
         let mut out: Vec<(Person, Vec<Person>)> = vec![];
         for c in p.iter() {
             let name = card_name(c);
@@ -74,7 +134,7 @@ pub fn people_matching(q: &str, have: &[String], max: usize) -> Vec<(Person, Vec
         out.sort_by_key(|(p, _)| (!p.name.to_lowercase().starts_with(q) && !p.email.to_lowercase().starts_with(q), p.name.to_lowercase()));
         out.truncate(max);
         out
-    })
+    }
 }
 
 // ---------------- birthday calendar ----------------
@@ -122,7 +182,7 @@ pub fn birthdays_in(cards: &[Value], from: NaiveDate, to: NaiveDate) -> Vec<Occ>
     out
 }
 
-pub fn birthday_occurrences(from: NaiveDate, to: NaiveDate) -> Vec<Occ> { PEOPLE.with(|p| birthdays_in(&p.borrow(), from, to)) }
+pub fn birthday_occurrences(from: NaiveDate, to: NaiveDate) -> Vec<Occ> { birthdays_in(&people(), from, to) }
 
 /// One birthday by its key ("cardId:anniversaryKey:year").
 pub fn birthday(key: &str) -> Option<Occ> {
@@ -941,6 +1001,15 @@ pub fn sub_refresh(u: &AppWindow, c: Arc<Client>, id: &str) {
 
 thread_local! { static LAST_SUB_CHECK: std::cell::Cell<i64> = const { std::cell::Cell::new(0) }; }
 
+/// The subscriptions due a refresh, at most once a minute (each check re-reads the list).
+fn sub_due(u: &AppWindow, c: Arc<Client>) {
+    let now = chrono::Utc::now().timestamp_millis();
+    if now - LAST_SUB_CHECK.with(|l| l.get()) > 60_000 {
+        LAST_SUB_CHECK.with(|l| l.set(now));
+        sub_refresh(u, c, "");
+    }
+}
+
 /// After the calendars loaded: the subscription list, and the subscriptions due a refresh.
 pub fn after_load(u: &AppWindow, _w: slint::Weak<AppWindow>, c: Arc<Client>) {
     render_subs(u, &c);
@@ -949,12 +1018,15 @@ pub fn after_load(u: &AppWindow, _w: slint::Weak<AppWindow>, c: Arc<Client>) {
     let subs = subscriptions(&c);
     let kept: Vec<Value> = subs.iter().filter(|s| cals.iter().any(|x| x["id"] == s["calendarId"])).cloned().collect();
     if kept.len() != subs.len() && !cals.is_empty() { save_subscriptions(&c, kept); render_subs(u, &c); }
-    let now = chrono::Utc::now().timestamp_millis();
-    if now - LAST_SUB_CHECK.with(|l| l.get()) > 60_000 {
-        LAST_SUB_CHECK.with(|l| l.set(now));
-        sub_refresh(u, c, "");
-    }
+    sub_due(u, c);
     if calendar::view() == 4 { render_tasks_view(u); }
+}
+
+/// What a calendar visit still does when the events are already loaded and kept fresh by push (a
+/// cached switch): the subscription list, and a subscription refresh that has come due.
+pub fn after_load_light(u: &AppWindow, c: Arc<Client>) {
+    render_subs(u, &c);
+    sub_due(u, c);
 }
 
 // ---------------- wiring ----------------
@@ -1010,6 +1082,12 @@ pub fn wire(ui: &AppWindow, st: crate::Shared) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The cards are process-wide (a session's start clears them from the sign-in's thread), so
+    /// the tests that set them take turns.
+    static CARDS_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    fn cards_lock() -> std::sync::MutexGuard<'static, ()> { CARDS_LOCK.lock().unwrap_or_else(|e| e.into_inner()) }
+
     #[test]
     fn agenda_titles_lose_marker_and_day_filter_toggles() {
         assert_eq!(agenda_task_title("\u{25CB} Pay rent"), "Pay rent");
@@ -1160,6 +1238,70 @@ mod tests {
     }
 
     #[test]
+    fn a_switch_or_sign_out_clears_the_cards() {
+        let _g = cards_lock();
+        let stale = people_read();
+        set_people(vec![json!({"id": "a", "name": {"full": "Ann"}})]);
+        forget_people();
+        assert!(people().is_empty(), "the previous login's cards are gone");
+        // a read taken before the switch cannot put them back
+        assert!(!set_people_at(stale, vec![json!({"id": "b", "name": {"full": "Bob"}})]));
+        assert!(people().is_empty());
+    }
+
+    #[test]
+    fn the_cards_are_cleared_from_the_sign_ins_thread_too() {
+        // a sign-in runs on a worker thread: its clear must reach the cards the UI thread reads
+        // (the store is process-wide, not per thread)
+        let _g = cards_lock();
+        set_people(vec![json!({"id": "a", "name": {"full": "Ann"}})]);
+        std::thread::spawn(forget_people).join().unwrap();
+        assert!(people().is_empty(), "the previous login's birthdays are gone");
+    }
+
+    #[test]
+    fn a_slow_read_of_the_cards_never_overwrites_newer_ones() {
+        let _g = cards_lock();
+        // the birthday calendar's read was taken before the contacts view set its own cards
+        let slow = people_read();
+        set_people(vec![json!({"id": "new", "name": {"full": "New Card"}})]);
+        assert!(!set_people_at(slow, vec![json!({"id": "old", "name": {"full": "Old Card"}})]), "a read older than the cards on show is dropped");
+        assert_eq!(people().len(), 1);
+        assert_eq!(people()[0]["id"], "new");
+        // a read taken after them applies
+        let fresh = people_read();
+        assert!(set_people_at(fresh, vec![]));
+        assert!(people().is_empty());
+    }
+
+    #[test]
+    fn the_birthday_switch_is_noticed_only_when_it_turns_on() {
+        assert!(birthday_calendar_switched(true), "the first time it is seen on: its cards may be missing");
+        assert!(!birthday_calendar_switched(true), "still on: nothing to read");
+        assert!(!birthday_calendar_switched(false), "off: nothing to read");
+        assert!(birthday_calendar_switched(true), "turned on again: the cards may be stale by now");
+    }
+
+    #[test]
+    fn the_birthday_cards_are_shared_not_copied() {
+        let _g = cards_lock();
+        // a calendar rebuild hands the cards to its worker, so it takes an Arc, never a copy
+        set_people(vec![
+            json!({"id": "c1", "name": {"full": "Ann Lee"}, "anniversaries": {"b": {"kind": "birth", "date": {"@type": "PartialDate", "year": 1990, "month": 11, "day": 20}}}}),
+            json!({"id": "c2", "name": {"full": "Bob Annex"}}),
+        ]);
+        let a = people();
+        let b = people();
+        assert!(Arc::ptr_eq(&a, &b), "each rebuild shares the cards instead of copying them");
+        assert_eq!(a.len(), 2);
+        // and the birthday calendar still reads the same list
+        let o = birthdays_in(&a, d("2026-11-01"), d("2026-12-01"));
+        assert_eq!(o.len(), 1);
+        assert_eq!(o[0].title, "\u{1F382} Ann Lee (36)");
+        set_people(vec![]);
+    }
+
+    #[test]
     fn agenda_parts() {
         let mk = |s: &str, e: &str| Occ { id: "x".into(), base: "x".into(), rid: None, title: "t".into(), start: parse_local(s).unwrap(), end: parse_local(e).unwrap(),
             all_day: false, calendar: "c".into(), location: String::new(), kind: 0, done: false };
@@ -1190,6 +1332,7 @@ mod tests {
 
     #[test]
     fn people_search() {
+        let _g = cards_lock();
         set_people(vec![
             json!({"id": "1", "uid": "u1", "name": {"full": "Ann Lee"}, "emails": {"e": {"address": "ann@x.org"}}}),
             json!({"id": "2", "uid": "u2", "name": {"full": "Bob Annex"}, "emails": {"e": {"address": "bob@x.org"}}}),

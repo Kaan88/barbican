@@ -110,6 +110,9 @@ fn all(c: &Value, map: &str, field: &str) -> Vec<String> {
 
 /// Hold these books and cards (groups split off, both sorted by name) and redraw.
 fn install(u: &AppWindow, books: Vec<Value>, mut cards: Vec<Value>) {
+    // the birthday calendar reads these same cards, so a contact added or changed here reaches it
+    // without a calendar load (they are only kept while that calendar is on)
+    if crate::settings::bool_pref("showBirthdayCalendar", false) { crate::cal_extra::set_people(cards.clone()); }
     let mut groups: Vec<Value> = cards.iter().filter(|x| x["kind"].as_str() == Some("group")).cloned().collect();
     groups.sort_by_key(|x| full_name(x).to_lowercase());
     cards.retain(|x| x["kind"].as_str() != Some("group"));
@@ -137,10 +140,21 @@ pub fn apply_live(u: &AppWindow, ds: &[crate::livesync::Applied]) {
 /// The account the address books were loaded from.
 pub fn account() -> Option<String> { client().map(|c| c.account_for("urn:ietf:params:jmap:contacts")) }
 
+/// Draw the contacts and fetch only when the cache does not already hold this login's data
+/// (livesync keeps it fresh in between). App switch.
+pub fn switch_to(u: &AppWindow, c: Arc<Client>) {
+    render(u);
+    if !crate::livesync::cache_current(crate::livesync::View::Contacts, &c) { load(u.as_weak(), c); }
+}
+
 pub fn load(w: slint::Weak<AppWindow>, c: Arc<Client>) {
     if !c.has("urn:ietf:params:jmap:contacts") { return; }
     crate::contacts_x::set_has_principals(c.has("urn:ietf:params:jmap:principals"));
+    // the view's client is the login it is loading for; a load that lands for another login (a
+    // switch meanwhile) takes it back below
     CLIENT.with(|x| *x.borrow_mut() = Some(c.clone()));
+    // this load's number: a slower one that lands late changes nothing
+    let gen = crate::livesync::begin_load(crate::livesync::View::Contacts);
     std::thread::spawn(move || {
         let acc = c.account_for("urn:ietf:params:jmap:contacts");
         let owner = c.state_key();
@@ -158,18 +172,39 @@ pub fn load(w: slint::Weak<AppWindow>, c: Arc<Client>) {
             let cards = c.get_all("ContactCard/get", &acc, &ids, None)?;
             Ok((books, cards))
         })();
-        let _ = w.upgrade_in_event_loop(move |u| match res {
-            // signed out or switched meanwhile: another login's data is not shown
-            Ok(_) if !crate::livesync::is_current(&owner) => {}
-            Ok((books, cards)) => {
-                install(&u, books, cards);
-                crate::livesync::loaded(&u, crate::livesync::View::Contacts, &owner, &states);
-                for f in THEN.with(|t| std::mem::take(&mut *t.borrow_mut())) { f(&u); }
+        // both states recorded: only then can push keep the view fresh
+        let complete = states.len() == 2;
+        let _ = w.upgrade_in_event_loop(move |u| {
+            // signed out or switched meanwhile, or a newer load of this view has started: this
+            // one's cards are dropped whole, and the view stops pointing at a login that was left
+            if !crate::livesync::landing(crate::livesync::View::Contacts, &owner, gen) {
+                // the view stops pointing at a login that left; a newer load of the same login
+                // keeps its client
+                let same = CLIENT.with(|x| x.borrow().as_ref().is_some_and(|k| Arc::ptr_eq(k, &c)));
+                if drop_client(same, crate::livesync::is_current(&owner)) { CLIENT.with(|x| *x.borrow_mut() = None); }
+                return;
             }
-            Err(e) => crate::mail::show_error(&u, &format!("Contacts: {e}")),
+            match res {
+                Ok((books, cards)) => {
+                    install(&u, books, cards);
+                    crate::livesync::loaded(&u, crate::livesync::View::Contacts, &owner, &states, complete, gen);
+                    for f in THEN.with(|t| std::mem::take(&mut *t.borrow_mut())) { f(&u); }
+                }
+                Err(e) => {
+                    // nothing was read: the view is not reused again until a load lands
+                    crate::livesync::load_failed(crate::livesync::View::Contacts, &owner, gen);
+                    crate::mail::show_error(&u, &format!("Contacts: {e}"));
+                }
+            }
         });
     });
 }
+
+/// Whether a dropped load must also take the view's client back: only when the client it set is
+/// the dropped load's own **and** that login is no longer the current one. A load overtaken by a
+/// newer load of the same login keeps it, so the Directory, the contact panel and the notices keep
+/// working.
+fn drop_client(same_client: bool, login_is_current: bool) -> bool { same_client && !login_is_current }
 
 fn bare(k: &str) -> &str { k.strip_prefix("urn:uuid:").unwrap_or(k) }
 
@@ -591,5 +626,17 @@ mod live_tests {
         assert_eq!(books.iter().map(|b| b["id"].as_str().unwrap()).collect::<Vec<_>>(), ["b1", "b3"]);
         assert_eq!(all.iter().map(|c| full_name(c)).collect::<Vec<_>>(), ["Ann B", "Cy"]);
         assert!(all[0].get("emails").is_none(), "an updated card is replaced whole");
+    }
+
+    #[test]
+    fn a_dropped_load_takes_the_client_back_only_when_its_login_left() {
+        // a newer load of the same login overtook this one: the view keeps its client, so the
+        // Directory, the contact panel and the notices keep working
+        assert!(!drop_client(true, true));
+        // the login it was for is gone: the view must not keep pointing at it
+        assert!(drop_client(true, false));
+        // the client is already the newer load's: nothing of this load's to take back
+        assert!(!drop_client(false, true));
+        assert!(!drop_client(false, false));
     }
 }

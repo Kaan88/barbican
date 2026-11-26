@@ -495,10 +495,9 @@ fn run(u: &AppWindow, st: &crate::Shared, place: Place, action: Action) -> bool 
         }
         A11y => { u.set_settings_tab("accessibility".into()); u.invoke_open_settings(); }
         Refresh => match place {
-            Place::Calendar | Place::Contacts | Place::Files => {
-                let a = u.get_app();
-                if a == 3 { if let Some(c) = client(st) { crate::files::open(u, c, &u.get_fl_cwd()); } } else { u.invoke_app_changed(a); }
-            }
+            Place::Calendar => { if let Some(c) = client(st) { crate::calendar::load(u.as_weak(), c); } }
+            Place::Contacts => { if let Some(c) = client(st) { crate::contacts::load(u.as_weak(), c); } }
+            Place::Files => { if let Some(c) = client(st) { crate::files::reload(u, c); } }
             Place::Mail => u.invoke_refresh(),
             _ => return false,
         },

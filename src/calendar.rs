@@ -12,7 +12,7 @@ use serde_json::{json, Value};
 use crate::listsync::{sync_into, sync_seq};
 use slint::{Color, ComponentHandle, ModelRc, VecModel};
 use std::cell::RefCell;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 pub const HOUR_PX: f32 = 56.0;
@@ -26,6 +26,9 @@ struct State {
     calendars: Vec<Value>,
     hidden: HashSet<String>,
     events: Vec<Occ>,
+    /// the events (not tasks or birthdays) a year ahead, from the same expansion: the summary
+    /// tiles and the context panel read this instead of expanding on the UI thread
+    ahead: Vec<Occ>,
     query: String,
     /// the day columns on screen (day/week), for a click on column N
     columns: Vec<NaiveDate>,
@@ -36,7 +39,7 @@ struct State {
 }
 
 /// One thing on the grid: an occurrence of an event, a task's due date or a birthday.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Occ {
     /// What the views hand back: the event id, "id|recurrenceId" for an occurrence of a series,
     /// "task:ID" or "bday:KEY".
@@ -59,7 +62,36 @@ pub struct Occ {
 
 thread_local! {
     static ST: RefCell<State> = RefCell::new(State::default());
-    static RAW: RefCell<Vec<Value>> = const { RefCell::new(Vec::new()) };
+    static RAW: RefCell<Arc<Vec<Value>>> = RefCell::new(Arc::new(Vec::new()));
+    /// Which range expansions may still be drawn (see [`Landings`]).
+    static LAND: RefCell<Landings> = RefCell::new(Landings::default());
+}
+
+/// Which range expansions may still be drawn. Each ask takes a number; a result is drawn only
+/// while no newer ask has started (the user left that range), and an expansion invalidated by a
+/// local change is never drawn (a new one follows it). The glance tile reads the drawn
+/// occurrences, so it is refreshed exactly when a result is drawn.
+#[derive(Default, Debug)]
+pub struct Landings { newest: u64, drawn: u64, glance_due: bool }
+
+impl Landings {
+    /// A new expansion starts: only its result may be drawn.
+    pub fn begin(&mut self) -> u64 { self.newest = self.newest.wrapping_add(1); self.newest }
+
+    /// The events changed under the running expansion (a local move): drop its result, a new
+    /// expansion follows.
+    pub fn invalidate(&mut self) { self.newest = self.newest.wrapping_add(1); }
+
+    /// A result lands: `true` (and the glance is now behind) when it is still the newest ask.
+    pub fn land(&mut self, gen: u64) -> bool {
+        if gen != self.newest { return false; }
+        self.drawn = self.drawn.wrapping_add(1);
+        self.glance_due = true;
+        true
+    }
+
+    /// What was drawn reached the glance tile.
+    pub fn glance_refreshed(&mut self) { self.glance_due = false; }
 }
 
 const PALETTE: [u32; 8] = [0x3b82f6, 0x22c55e, 0xf97316, 0xa855f7, 0xec4899, 0x14b8a6, 0xeab308, 0xef4444];
@@ -274,11 +306,16 @@ pub const EVENT_PROPS: [&str; 34] = ["id", "@type", "uid", "title", "description
 
 pub fn load(w: slint::Weak<AppWindow>, c: Arc<Client>) {
     if !c.has(CAL) { return; }
+    // this load's number: a slower one that lands late changes nothing
+    let gen = crate::livesync::begin_load(crate::livesync::View::Calendar);
     std::thread::spawn(move || {
         let tz = crate::agent::local_tz();
         let primary = c.account_for(CAL);
         let owner = c.state_key();
         let mut states: Vec<(String, String, String)> = vec![];
+        // whether every calendar account was read and gave its states: push can only keep the view
+        // fresh when it was (a skipped or failed account leaves it to a full load next visit)
+        let mut complete = true;
         let res: Result<(Vec<Value>, Vec<Value>), String> = (|| {
             let mut cals = vec![];
             let mut events = vec![];
@@ -287,6 +324,7 @@ pub fn load(w: slint::Weak<AppWindow>, c: Arc<Client>) {
                 let r = c.request(json!([["Calendar/get", {"accountId": acc, "ids": null, "properties": CAL_PROPS}, "c"]]))?;
                 if r.first().is_none_or(|x| x[0] == "error") {
                     if is_primary { return Err(crate::jmap::method_error(&r.first().map(|x| x[1].clone()).unwrap_or(json!({})))); }
+                    complete = false;
                     continue;
                 }
                 let mut list = r[0][1]["list"].as_array().cloned().unwrap_or_default();
@@ -301,13 +339,13 @@ pub fn load(w: slint::Weak<AppWindow>, c: Arc<Client>) {
                 let ids = match c.query_all("CalendarEvent/query", &acc, json!({"timeZone": tz})) {
                     Ok(ids) => ids,
                     Err(e) if is_primary => return Err(e),
-                    Err(_) => continue,
+                    Err(_) => { complete = false; continue; }
                 };
                 let props = json!(EVENT_PROPS.to_vec());
                 let got = match c.get_all("CalendarEvent/get", &acc, &ids, Some(&props)) {
                     Ok(v) => v,
                     Err(e) if is_primary => return Err(e),
-                    Err(_) => continue,
+                    Err(_) => { complete = false; continue; }
                 };
                 for mut e in got {
                     namespace_event(&mut e, &primary, &acc);
@@ -316,26 +354,36 @@ pub fn load(w: slint::Weak<AppWindow>, c: Arc<Client>) {
                 if let (Some(cs), Some(es)) = (cal_state, ev_state) {
                     states.push(("Calendar".to_string(), acc.clone(), cs));
                     states.push(("CalendarEvent".to_string(), acc.clone(), es));
+                } else {
+                    complete = false;
                 }
             }
             Ok((cals, events))
         })();
-        let people = if crate::settings::bool_pref("showBirthdayCalendar", false) { crate::cal_extra::fetch_people(&c).ok() } else { None };
         let w2 = w.clone();
         let c2 = c.clone();
-        let _ = w.upgrade_in_event_loop(move |u| match res {
-            // signed out or switched meanwhile: another login's data is not shown
-            Ok(_) if !crate::livesync::is_current(&owner) => {}
-            Ok((cals, events)) => {
-                if let Some(p) = people { crate::cal_extra::set_people(p); }
-                ST.with(|s| s.borrow_mut().calendars = cals);
-                RAW.with(|r| *r.borrow_mut() = events);
-                rebuild(&u);
-                render_tasks(&u);
-                crate::cal_extra::after_load(&u, w2, c2);
-                crate::livesync::loaded(&u, crate::livesync::View::Calendar, &owner, &states);
+        let _ = w.upgrade_in_event_loop(move |u| {
+            // signed out or switched meanwhile, or a newer load of this view has started: this
+            // one's data is dropped whole, before anything is put on screen or recorded
+            if !crate::livesync::landing(crate::livesync::View::Calendar, &owner, gen) { return; }
+            match res {
+                Ok((cals, events)) => {
+                    ST.with(|s| s.borrow_mut().calendars = cals);
+                    RAW.with(|r| *r.borrow_mut() = Arc::new(events));
+                    rebuild(&u);
+                    render_tasks(&u);
+                    // the birthday cards (when the calendar is on) are read through one place, so
+                    // a slow read cannot overwrite newer cards set meanwhile
+                    crate::cal_extra::ensure_people(&u, c2.clone(), false);
+                    crate::cal_extra::after_load(&u, w2, c2);
+                    crate::livesync::loaded(&u, crate::livesync::View::Calendar, &owner, &states, complete, gen);
+                }
+                Err(e) => {
+                    // nothing could be read: the view is not reused again until a load lands
+                    crate::livesync::load_failed(crate::livesync::View::Calendar, &owner, gen);
+                    crate::mail::show_error(&u, &format!("Calendar: {e}"));
+                }
             }
-            Err(e) => crate::mail::show_error(&u, &format!("Calendar: {e}")),
         });
     });
 }
@@ -382,7 +430,7 @@ pub fn apply_deltas(cals: &mut Vec<Value>, events: &mut Vec<Value>, accounts: &[
 pub fn apply_live(u: &AppWindow, c: &Arc<Client>, ds: &[crate::livesync::Applied], colors: &Value) {
     let accounts = calendar_accounts(c);
     let primary = c.account_for(CAL);
-    ST.with(|s| RAW.with(|r| apply_deltas(&mut s.borrow_mut().calendars, &mut r.borrow_mut(), &accounts, &primary, &c.username, colors, ds)));
+    ST.with(|s| RAW.with(|r| apply_deltas(&mut s.borrow_mut().calendars, Arc::make_mut(&mut r.borrow_mut()), &accounts, &primary, &c.username, colors, ds)));
     rebuild(u);
     render_tasks(u);
     crate::cal_extra::after_load(u, u.as_weak(), c.clone());
@@ -402,10 +450,12 @@ pub fn namespace_event(e: &mut Value, primary: &str, acc: &str) {
     }
 }
 
-/// Every event (not task / birthday) occurrence between f and t, sorted by start.
-fn occurrences(events: &[Value], f: NaiveDateTime, t: NaiveDateTime) -> Vec<Occ> {
+/// Every event (not task / birthday) occurrence between `f` and `t`, sorted by start: the summary
+/// tiles and the context panel read a year of these, so it is built on the worker and kept in the
+/// state (`State::ahead`) rather than expanded on the UI thread.
+fn events_between(events: &[Value], people: &[Value], cp: &CalPrefs, f: NaiveDateTime, t: NaiveDateTime) -> Vec<Occ> {
     let end = if t.time() == chrono::NaiveTime::MIN { t.date() } else { t.date() + Duration::days(1) };
-    let mut occ: Vec<Occ> = occurrences_in(events, f.date(), end).into_iter().filter(|o| o.kind == 0).collect();
+    let mut occ: Vec<Occ> = expand(events, people, cp, f.date(), end).into_iter().filter(|o| o.kind == 0).collect();
     occ.retain(|o| o.end > f && o.start < t);
     occ
 }
@@ -422,9 +472,17 @@ pub fn location_of(e: &Value) -> String {
 
 /// The occurrences of every loaded event, task and birthday in [from, to) on the local clock.
 pub fn occurrences_in(events: &[Value], from: NaiveDate, to: NaiveDate) -> Vec<Occ> {
+    let cp = cal_prefs();
+    let people = if cp.birthdays { crate::cal_extra::people() } else { Default::default() };
+    expand(events, &people[..], &cp, from, to)
+}
+
+/// [`occurrences_in`] without reading any thread-local state: `people` are the birthday cards and
+/// `cp` the calendar prefs, both read by the caller (off the UI thread), so a worker can run this
+/// and the recurrence results (RRULE, EXDATE, overrides, time zones) stay identical.
+fn expand(events: &[Value], people: &[Value], cp: &CalPrefs, from: NaiveDate, to: NaiveDate) -> Vec<Occ> {
     let (f, t) = (from.and_hms_opt(0, 0, 0).unwrap(), to.and_hms_opt(0, 0, 0).unwrap());
     let mut occ = vec![];
-    let cp = cal_prefs();
     for e in events {
         if is_task(e) {
             if !(cp.tasks && cp.tasks_on_calendar) { continue; }
@@ -464,19 +522,39 @@ pub fn occurrences_in(events: &[Value], from: NaiveDate, to: NaiveDate) -> Vec<O
         }
     }
     if cp.birthdays {
-        occ.extend(crate::cal_extra::birthday_occurrences(from, to));
+        occ.extend(crate::cal_extra::birthdays_in(people, from, to));
     }
     occ.sort_by_key(|o| (o.start, !o.all_day));
     occ
 }
 
-/// Recompute the occurrences of the range on screen from the loaded events and draw.
+/// Whether the range expansion numbered `gen` is still the newest ask: only its result is drawn.
+/// The start and the landing of an expansion, and the glance tile that follows a landing.
 pub fn rebuild(u: &AppWindow) {
     NARROW.with(|n| n.set(u.get_cal_narrow()));
     let (from, to) = range();
-    let occ = RAW.with(|r| occurrences_in(&r.borrow(), from, to));
-    ST.with(|s| s.borrow_mut().events = occ);
-    render(u);
+    let now = Local::now().naive_local();
+    let gen = LAND.with(|l| l.borrow_mut().begin());
+    // the snapshot is shared with the worker, not copied: a range change must not clone every event
+    let events = RAW.with(|r| Arc::clone(&r.borrow()));
+    // the birthday cards and the prefs are thread-local, so read them here (UI thread) first;
+    // the cards are shared with the worker, not copied
+    let cp = cal_prefs();
+    let people = if cp.birthdays { crate::cal_extra::people() } else { Default::default() };
+    let w = u.as_weak();
+    std::thread::spawn(move || {
+        // the range on screen, and the year the summary tiles look at: both off the UI thread
+        let occ = expand(&events, &people[..], &cp, from, to);
+        let ahead = events_between(&events, &people[..], &cp, now - Duration::days(1), now + Duration::days(366));
+        let _ = w.upgrade_in_event_loop(move |u| {
+            if !LAND.with(|l| l.borrow_mut().land(gen)) { return; }
+            ST.with(|s| { let mut s = s.borrow_mut(); s.events = occ; s.ahead = ahead; });
+            render(&u);
+            // the mail tile counts what was just drawn (it is not part of the grid's render)
+            crate::glance::calendar(&u);
+            LAND.with(|l| l.borrow_mut().glance_refreshed());
+        });
+    });
 }
 
 /// The loaded events whose title contains `q`, as one line of JSON (automation probe).
@@ -535,6 +613,8 @@ pub fn render(u: &AppWindow) {
             .filter(|o| !s.hidden.contains(&o.calendar))
             .filter(|o| q.is_empty() || o.title.to_lowercase().contains(&q) || o.location.to_lowercase().contains(&q))
             .cloned().collect();
+        // the day buckets for the grid views, built once so the cells never scan every event
+        let buckets: HashMap<NaiveDate, Vec<Occ>> = if matches!(s.view, 0 | 1 | 2) { bucket_by_day(&visible, from, to) } else { HashMap::new() };
         u.set_cal_view(s.view);
         u.set_cal_title(match s.view {
             0 => {
@@ -576,7 +656,7 @@ pub fn render(u: &AppWindow) {
             2 => {
                 let cells: Vec<CalCell> = (0..42).map(|i| {
                     let d = from + Duration::days(i);
-                    let evs: Vec<&Occ> = visible.iter().filter(|o| covers(o, d)).collect();
+                    let evs: &[Occ] = buckets.get(&d).map(|v| v.as_slice()).unwrap_or(&[]);
                     let items: Vec<CalEvent> = evs.iter().take(4).map(|o| {
                         let mut e = ev(o, &s.calendars, 0, 0.0, 0.0, 1, cp.h12);
                         // Bulwark: only the start time, and only with showTimeInMonthView
@@ -605,7 +685,8 @@ pub fn render(u: &AppWindow) {
                 }
                 s.columns = dates.clone();
                 let all_by_day: Vec<Vec<CalEvent>> = dates.iter().enumerate().map(|(i, &d)| {
-                    visible.iter().filter(|o| (o.all_day || (o.end - o.start).num_hours() >= 24) && covers(o, d))
+                    buckets.get(&d).map(|v| v.as_slice()).unwrap_or(&[]).iter()
+                        .filter(|o| o.all_day || (o.end - o.start).num_hours() >= 24)
                         .map(|o| ev(o, &s.calendars, i as i32, 0.0, 0.0, 1, cp.h12)).collect()
                 }).collect();
                 // at most three rows, the rest behind "+N more" until the strip is expanded (D-M4-08)
@@ -624,7 +705,8 @@ pub fn render(u: &AppWindow) {
                 let mut timed: Vec<CalEvent> = vec![];
                 let off = cp.hour_from as f32 * HOUR_PX;
                 for (i, &d) in dates.iter().enumerate() {
-                    let day_ev: Vec<&Occ> = visible.iter().filter(|o| !o.all_day && (o.end - o.start).num_hours() < 24 && o.start.date() == d).collect();
+                    let day_ev: Vec<&Occ> = buckets.get(&d).map(|v| v.as_slice()).unwrap_or(&[]).iter()
+                        .filter(|o| !o.all_day && (o.end - o.start).num_hours() < 24 && o.start.date() == d).collect();
                     let mut lanes: Vec<NaiveDateTime> = vec![];
                     let mut placed: Vec<(usize, &Occ)> = vec![];
                     for o in &day_ev {
@@ -654,10 +736,34 @@ pub fn render(u: &AppWindow) {
     }
 }
 
-/// Whether an occurrence shows on day `d` (an all-day or multi-day one on each day it covers).
+/// The last day an occurrence shows on (its start day when it ends where it starts).
+fn covers_last(o: &Occ) -> NaiveDate {
+    if o.end > o.start { (o.end - Duration::seconds(1)).date() } else { o.start.date() }
+}
+
+// Whether an occurrence shows on day `d` (an all-day or multi-day one on each day it covers).
+// Test helper: the cells read their day's bucket instead, so this only asserts the buckets.
+#[cfg(test)]
 fn covers(o: &Occ, d: NaiveDate) -> bool {
-    let last = if o.end > o.start { (o.end - Duration::seconds(1)).date() } else { o.start.date() };
-    o.start.date() <= d && last >= d
+    o.start.date() <= d && covers_last(o) >= d
+}
+
+/// The occurrences of each day of [from, to), in start order: an all-day or multi-day occurrence
+/// appears under every day it covers (its last covered day is [`covers_last`]), a timed one under
+/// its start day. The cells read their own day's bucket instead of scanning every occurrence.
+pub fn bucket_by_day(occ: &[Occ], from: NaiveDate, to: NaiveDate) -> HashMap<NaiveDate, Vec<Occ>> {
+    let mut m: HashMap<NaiveDate, Vec<Occ>> = HashMap::new();
+    let last_day = to - Duration::days(1);
+    for o in occ {
+        let first = o.start.date().max(from);
+        let last = covers_last(o).min(last_day);
+        let mut d = first;
+        while d <= last {
+            m.entry(d).or_default().push(o.clone());
+            d += Duration::days(1);
+        }
+    }
+    m
 }
 
 fn ev(o: &Occ, cals: &[Value], col: i32, top: f32, h: f32, lanes: i32, h12: bool) -> CalEvent {
@@ -709,6 +815,22 @@ pub fn nav(u: &AppWindow, c: Arc<Client>, how: &str) {
 pub fn set_view(u: &AppWindow, c: Arc<Client>, v: i32) {
     ST.with(|s| s.borrow_mut().view = v);
     rebuild(u);
+    load(u.as_weak(), c);
+}
+
+/// Draw the calendar and fetch only when the cache does not already hold this login's data kept
+/// fresh by push (livesync keeps it fresh in between). App switch: a cached visit still does what
+/// a load used to do beside reading the events — it expands the range again (the day or the view
+/// may have moved), keeps the subscriptions due a refresh going and makes sure the birthday cards
+/// are there.
+pub fn switch_to(u: &AppWindow, c: Arc<Client>) {
+    render(u);
+    if crate::livesync::cache_current(crate::livesync::View::Calendar, &c) {
+        rebuild(u);
+        crate::cal_extra::after_load_light(u, c.clone());
+        crate::cal_extra::ensure_people(u, c, false);
+        return;
+    }
     load(u.as_weak(), c);
 }
 
@@ -831,6 +953,170 @@ mod tests {
         assert_eq!(rid_of("e|2026-01-01T00:00:00"), Some("2026-01-01T00:00:00"));
         assert_eq!(hex_color("#fff"), Some(Color::from_rgb_u8(255, 255, 255)));
     }
+    #[test]
+    fn the_worker_expansion_matches_the_old_full_computation() {
+        // the pure worker form (expand) and the UI-thread form (occurrences_in, which reads the
+        // prefs and the cards itself) give the same list, and that list is written out by hand
+        // rather than one form checked against itself
+        let evs = vec![
+            json!({"id": "e1", "@type": "Event", "title": "Weekly", "start": "2026-11-03T10:00:00", "duration": "PT1H30M", "recurrenceRules": [{"frequency": "weekly", "count": 3}], "calendarIds": {"a": true}}),
+            json!({"id": "e2", "@type": "Event", "title": "", "start": "2026-11-05T00:00:00", "duration": "P2D", "showWithoutTime": true, "calendarIds": {"a": true}}),
+            json!({"id": "t1", "@type": "Task", "title": "File taxes", "due": "2026-11-06T00:00:00", "showWithoutTime": true, "calendarIds": {"a": true}}),
+        ];
+        let f = NaiveDate::from_ymd_opt(2026, 11, 1).unwrap();
+        let to = f + Duration::days(60);
+        let cp = cal_prefs();
+        let worker = expand(&evs, &[], &cp, f, to);
+        assert_eq!(worker, occurrences_in(&evs, f, to));
+        let events: Vec<(String, String, String)> = worker.iter().filter(|o| o.kind != 1)
+            .map(|o| (o.title.clone(), o.start.to_string(), o.end.to_string())).collect();
+        assert_eq!(events, vec![
+            ("Weekly".to_string(), "2026-11-03 10:00:00".to_string(), "2026-11-03 11:30:00".to_string()),
+            ("(no title)".to_string(), "2026-11-05 00:00:00".to_string(), "2026-11-07 00:00:00".to_string()),
+            ("Weekly".to_string(), "2026-11-10 10:00:00".to_string(), "2026-11-10 11:30:00".to_string()),
+            ("Weekly".to_string(), "2026-11-17 10:00:00".to_string(), "2026-11-17 11:30:00".to_string()),
+        ]);
+        // the task shows on its due date when the settings say so (the default does)
+        if cp.tasks && cp.tasks_on_calendar {
+            assert!(worker.iter().any(|o| o.kind == 1 && o.base == "t1" && o.start.date() == NaiveDate::from_ymd_opt(2026, 11, 6).unwrap()));
+        }
+    }
+    #[test]
+    fn the_year_the_summary_reads_holds_the_events_only() {
+        // the worker builds the year the tile counts and "next up" read; it carries events only,
+        // and drops what ends before the window starts
+        let evs = vec![
+            json!({"id": "next", "@type": "Event", "title": "Stand-up", "start": "2026-11-20T09:00:00", "duration": "PT15M", "calendarIds": {"a": true}}),
+            json!({"id": "past", "@type": "Event", "title": "Old", "start": "2026-01-05T09:00:00", "duration": "PT15M", "calendarIds": {"a": true}}),
+            json!({"id": "t1", "@type": "Task", "title": "File taxes", "due": "2026-11-20T00:00:00", "showWithoutTime": true, "calendarIds": {"a": true}}),
+        ];
+        let cp = cal_prefs();
+        let f = NaiveDateTime::parse_from_str("2026-11-19T00:00:00", "%Y-%m-%dT%H:%M:%S").unwrap();
+        let t = f + Duration::days(366);
+        let ahead = events_between(&evs, &[], &cp, f, t);
+        assert_eq!(ahead.len(), 1, "got {ahead:?}");
+        assert_eq!(ahead[0].title, "Stand-up");
+        assert!(ahead.iter().all(|o| o.kind == 0), "no tasks or birthdays");
+        assert!(events_between(&evs, &[], &cp, f, f + Duration::days(1)).is_empty(), "a window that misses it holds nothing");
+    }
+    #[test]
+    fn bucket_by_day_matches_the_full_scan_across_dst_and_all_day() {
+        // a weekly event on America/New_York's own clock across the 2026-03-08 US DST change, a
+        // two-day all-day event, and a one-off timed event
+        let evs = vec![
+            json!({"id": "dst", "@type": "Event", "title": "DST weekly", "start": "2026-03-02T09:30:00", "duration": "PT1H", "timeZone": "America/New_York", "recurrenceRules": [{"frequency": "weekly", "count": 3}], "calendarIds": {"a": true}}),
+            json!({"id": "allday", "@type": "Event", "title": "Trip", "start": "2026-03-06T00:00:00", "duration": "P2D", "showWithoutTime": true, "calendarIds": {"a": true}}),
+            json!({"id": "once", "@type": "Event", "title": "Once", "start": "2026-03-10T15:00:00", "duration": "PT30M", "calendarIds": {"a": true}}),
+        ];
+        let from = NaiveDate::from_ymd_opt(2026, 3, 1).unwrap();
+        let to = NaiveDate::from_ymd_opt(2026, 3, 20).unwrap();
+        let occ = occurrences_in(&evs, from, to);
+        let bucket = bucket_by_day(&occ, from, to);
+        // each day's bucket equals the old full scan of that day
+        let mut d = from;
+        while d < to {
+            let old: Vec<Occ> = occ.iter().filter(|o| covers(o, d)).cloned().collect();
+            assert_eq!(bucket.get(&d).cloned().unwrap_or_default(), old, "day {d}");
+            d += Duration::days(1);
+        }
+        // the weekly event keeps its 09:30 wall clock in its own zone across the DST change and
+        // lasts one real hour each time
+        let weekly: Vec<&Occ> = occ.iter().filter(|o| o.base == "dst").collect();
+        assert_eq!(weekly.len(), 3);
+        for o in &weekly {
+            let wall = recurrence::local_to_zone(o.start, Some("America/New_York"));
+            assert_eq!(wall.format("%H:%M").to_string(), "09:30");
+            assert_eq!((o.end - o.start).num_minutes(), 60);
+        }
+        // the all-day event covers exactly Mar 6 and Mar 7, and is bucketed once under each
+        let trip = occ.iter().find(|o| o.base == "allday").unwrap();
+        assert!(covers(trip, NaiveDate::from_ymd_opt(2026, 3, 6).unwrap()));
+        assert!(covers(trip, NaiveDate::from_ymd_opt(2026, 3, 7).unwrap()));
+        assert!(!covers(trip, NaiveDate::from_ymd_opt(2026, 3, 8).unwrap()));
+        for day in [6u32, 7] {
+            let day = NaiveDate::from_ymd_opt(2026, 3, day).unwrap();
+            assert_eq!(bucket.get(&day).unwrap().iter().filter(|o| o.base == "allday").count(), 1);
+        }
+        assert!(!bucket.get(&NaiveDate::from_ymd_opt(2026, 3, 8).unwrap()).map(|v| v.iter().any(|o| o.base == "allday")).unwrap_or(false));
+    }
+    #[test]
+    fn bucketing_clips_to_the_range_and_keeps_start_order() {
+        // a week-long all-day event started before the window (it shows on each visible day it
+        // covers, and on no day outside the window), plus two timed events of the same day
+        let evs = vec![
+            json!({"id": "week", "@type": "Event", "title": "Week", "start": "2026-03-01T00:00:00", "duration": "P7D", "showWithoutTime": true, "calendarIds": {"a": true}}),
+            json!({"id": "late", "@type": "Event", "title": "Late", "start": "2026-03-06T11:00:00", "duration": "PT1H", "calendarIds": {"a": true}}),
+            json!({"id": "early", "@type": "Event", "title": "Early", "start": "2026-03-06T08:00:00", "duration": "PT1H", "calendarIds": {"a": true}}),
+        ];
+        let from = NaiveDate::from_ymd_opt(2026, 3, 5).unwrap();
+        let to = NaiveDate::from_ymd_opt(2026, 3, 8).unwrap();
+        let occ = occurrences_in(&evs, from, to);
+        let b = bucket_by_day(&occ, from, to);
+        assert!(b.keys().all(|d| *d >= from && *d < to), "no day outside the window is bucketed");
+        assert_eq!(b.len(), 3);
+        let day = NaiveDate::from_ymd_opt(2026, 3, 6).unwrap();
+        let ids: Vec<&str> = b[&day].iter().map(|o| o.base.as_str()).collect();
+        assert_eq!(ids, ["week", "early", "late"], "in start order, as the full scan gave");
+    }
+    #[test]
+    fn only_the_newest_expansion_is_drawn_and_the_glance_follows_it() {
+        let mut l = Landings::default();
+        let first = l.begin();
+        assert!(l.land(first), "the only ask: drawn");
+        assert!(l.glance_due, "a landing updates the mail tile with what was drawn");
+        l.glance_refreshed();
+        assert!(!l.glance_due);
+        // the user leaves the range while it expands: its answer is dropped and touches nothing
+        let left = l.begin();
+        let now = l.begin();
+        assert!(!l.land(left), "a worker's answer for a range the user already left is dropped");
+        assert!(!l.glance_due, "a dropped answer does not update the tile");
+        assert_eq!(l.drawn, 1);
+        assert!(l.land(now));
+        assert_eq!(l.drawn, 2);
+        assert!(l.glance_due);
+    }
+
+    #[test]
+    fn the_range_summary_counts_events_only() {
+        // a timed event, an all-day event, a task's due date and a birthday in the same window: the
+        // tile counts the two events and only the timed one's minutes (a due date and a birthday
+        // are not events)
+        let mk = |kind: u8, all_day: bool, s: &str, e: &str, cal: &str| Occ {
+            id: format!("o{kind}{s}"), base: String::new(), rid: None, title: "t".into(),
+            start: parse_local(s).unwrap(), end: parse_local(e).unwrap(), all_day,
+            calendar: cal.into(), location: String::new(), kind, done: false,
+        };
+        let evs = vec![
+            mk(0, false, "2026-11-02T09:00:00", "2026-11-02T10:30:00", "a"),
+            mk(0, true, "2026-11-03T00:00:00", "2026-11-04T00:00:00", "a"),
+            mk(1, true, "2026-11-02T00:00:00", "2026-11-03T00:00:00", "a"),
+            mk(2, true, "2026-11-02T00:00:00", "2026-11-03T00:00:00", "bday"),
+        ];
+        let f = parse_local("2026-11-01T00:00:00").unwrap();
+        let t = parse_local("2026-11-08T00:00:00").unwrap();
+        assert_eq!(range_summary(&evs, &HashSet::new(), f, t), (2, 90), "two events, the timed one's 90 minutes");
+        // a hidden calendar's events are left out
+        let hidden: HashSet<String> = ["a".to_string()].into();
+        assert_eq!(range_summary(&evs, &hidden, f, t), (0, 0));
+        // and a window that holds none
+        assert_eq!(range_summary(&evs, &HashSet::new(), t, t + Duration::days(7)), (0, 0));
+    }
+
+    #[test]
+    fn a_move_during_an_expansion_drops_it_and_the_rebuild_draws() {
+        // patch_local: the events change under the running expansion, so its answer must not draw
+        // (it would put the event back where it was), and the rebuild patch_local starts replaces it
+        let mut l = Landings::default();
+        let running = l.begin();
+        l.invalidate();
+        let after_move = l.begin();
+        assert!(!l.land(running), "the expansion from before the move is dropped");
+        assert!(!l.glance_due);
+        assert!(l.land(after_move));
+        assert_eq!(l.drawn, 1);
+        assert!(l.glance_due);
+    }
 }
 
 
@@ -924,7 +1210,7 @@ pub fn create_in(u: &AppWindow, c: Arc<Client>, cal: &str, mut obj: Value, what:
 pub fn toggle_task(u: &AppWindow, c: Arc<Client>, id: &str) {
     let done = RAW.with(|r| r.borrow().iter().find(|e| e["id"] == id).map(|e| e["progress"] == "completed")).unwrap_or(false);
     let progress = if done { "needs-action" } else { "completed" };
-    RAW.with(|r| if let Some(e) = r.borrow_mut().iter_mut().find(|e| e["id"] == id) { e["progress"] = json!(progress); });
+    RAW.with(|r| if let Some(e) = Arc::make_mut(&mut r.borrow_mut()).iter_mut().find(|e| e["id"] == id) { e["progress"] = json!(progress); });
     render_tasks(u);
     rebuild(u);
     let (w, id) = (u.as_weak(), id.to_string());
@@ -1015,7 +1301,7 @@ pub fn set_call(u: &AppWindow, c: Arc<Client>, method: &str, args: Value, what: 
 
 pub fn set_task_due(u: &AppWindow, c: Arc<Client>, id: &str, due: chrono::NaiveDate) {
     let d = format!("{}T00:00:00", due.format("%Y-%m-%d"));
-    RAW.with(|r| if let Some(e) = r.borrow_mut().iter_mut().find(|e| e["id"] == id) { e["due"] = json!(d); e["showWithoutTime"] = json!(true); });
+    RAW.with(|r| if let Some(e) = Arc::make_mut(&mut r.borrow_mut()).iter_mut().find(|e| e["id"] == id) { e["due"] = json!(d); e["showWithoutTime"] = json!(true); });
     render_tasks(u);
     set_call(u, c, "CalendarEvent/set", json!({"update": {id: {"due": d, "showWithoutTime": true}}}), "Task not updated");
 }
@@ -1025,13 +1311,13 @@ pub fn task_has_due(id: &str) -> bool {
 }
 
 pub fn clear_task_due(u: &AppWindow, c: Arc<Client>, id: &str) {
-    RAW.with(|r| if let Some(e) = r.borrow_mut().iter_mut().find(|e| e["id"] == id) { if let Some(o) = e.as_object_mut() { o.remove("due"); } });
+    RAW.with(|r| if let Some(e) = Arc::make_mut(&mut r.borrow_mut()).iter_mut().find(|e| e["id"] == id) { if let Some(o) = e.as_object_mut() { o.remove("due"); } });
     render_tasks(u);
     set_call(u, c, "CalendarEvent/set", json!({"update": {id: {"due": null}}}), "Task not updated");
 }
 
 pub fn delete_task(u: &AppWindow, c: Arc<Client>, id: &str) {
-    RAW.with(|r| r.borrow_mut().retain(|e| e["id"] != id));
+    RAW.with(|r| Arc::make_mut(&mut r.borrow_mut()).retain(|e| e["id"] != id));
     render_tasks(u);
     rebuild(u);
     set_call(u, c, "CalendarEvent/set", json!({"destroy": [id]}), "Task not deleted");
@@ -1067,7 +1353,7 @@ pub fn participant_email(p: &Value) -> String {
 pub fn rsvp(u: &AppWindow, c: Arc<Client>, id: &str, pid: &str, status: &str) {
     let id = base_id(id).to_string();
     let esc = pid.replace('~', "~0").replace('/', "~1");
-    RAW.with(|r| if let Some(e) = r.borrow_mut().iter_mut().find(|e| e["id"] == id) { e["participants"][pid]["participationStatus"] = json!(status); });
+    RAW.with(|r| if let Some(e) = Arc::make_mut(&mut r.borrow_mut()).iter_mut().find(|e| e["id"] == id) { e["participants"][pid]["participationStatus"] = json!(status); });
     let mut patch = serde_json::Map::new();
     patch.insert(format!("participants/{esc}/participationStatus"), json!(status));
     set_call(u, c, "CalendarEvent/set", json!({"update": {id: Value::Object(patch)}, "sendSchedulingMessages": true}), "Answer not sent");
@@ -1236,6 +1522,17 @@ fn when_text(o: &Occ, h12: bool) -> String {
     if o.all_day { format!("{day} · all day") } else { format!("{day} · {} – {}", fmt_time(o.start, h12), fmt_time(o.end, h12)) }
 }
 
+/// The range summary the tiles and the Nordic line show: how many events (not tasks or birthdays —
+/// a due date or a birthday is not an event) are visible in the range, and how many minutes of them
+/// are timed. Pure, so the counting is tested directly.
+fn range_summary(events: &[Occ], hidden: &HashSet<String>, f: NaiveDateTime, t: NaiveDateTime) -> (usize, i64) {
+    let inr: Vec<&Occ> = events.iter()
+        .filter(|o| o.kind == 0 && !hidden.contains(&o.calendar) && o.start < t && o.end > f)
+        .collect();
+    let mins: i64 = inr.iter().filter(|o| !o.all_day).map(|o| (o.end.min(t) - o.start.max(f)).num_minutes().max(0)).sum();
+    (inr.len(), mins)
+}
+
 /// The three Bento summary tiles (and the Nordic sidebar line), from the loaded range only:
 /// the next event to come, what this day / week / month holds, and unanswered invitations.
 fn summary(u: &AppWindow) {
@@ -1245,14 +1542,10 @@ fn summary(u: &AppWindow) {
     let view = ST.with(|s| s.borrow().view);
     ST.with(|s| {
         let s = s.borrow();
-        // from the raw events, not the loaded range: right straight after a view / range change
-        // (before the fetch is back), and "next up" is the next event overall, not only in this view
+        // the drawn range (the worker's expansion) and the year it also built: right straight
+        // after a view / range change, and "next up" is the next event overall, not only here
         let (f, t) = (from.and_hms_opt(0, 0, 0).unwrap(), to.and_hms_opt(0, 0, 0).unwrap());
-        let (in_range, ahead) = RAW.with(|r| {
-            let r = r.borrow();
-            (occurrences(&r, f, t), occurrences(&r, now - Duration::days(1), now + Duration::days(366)))
-        });
-        let visible: Vec<&Occ> = in_range.iter().filter(|o| !s.hidden.contains(&o.calendar)).collect();
+        let ahead = &s.ahead;
         // next up
         let next = ahead.iter().filter(|o| !s.hidden.contains(&o.calendar) && !o.all_day && o.start >= now).min_by_key(|o| o.start);
         u.set_cal_sum_next(match next {
@@ -1264,14 +1557,13 @@ fn summary(u: &AppWindow) {
             }
             None => CalSum { label: "Next up".into(), value: "Nothing coming".into(), sub: "No upcoming events".into(), id: "".into() },
         });
-        // what the range holds
-        let inr: Vec<&&Occ> = visible.iter().filter(|o| o.start < t && o.end > f).collect();
-        let mins: i64 = inr.iter().filter(|o| !o.all_day).map(|o| (o.end.min(t) - o.start.max(f)).num_minutes().max(0)).sum();
+        // what the range holds (events only: tasks and birthdays are not events)
+        let (count, mins) = range_summary(&s.events, &s.hidden, f, t);
         let label = match view { 0 => "This day", 1 => "This week", _ => "This month" };
-        u.set_cal_sum_range(CalSum { label: label.into(), value: plural(inr.len(), "event", "events").into(),
+        u.set_cal_sum_range(CalSum { label: label.into(), value: plural(count, "event", "events").into(),
             sub: if mins > 0 { format!("{} scheduled", dur_text(mins)) } else { "Nothing timed".to_string() }.into(), id: "".into() });
         let wk = if view == 1 { format!("Week {} · ", from.iso_week().week()) } else { String::new() };
-        u.set_cal_side_line(format!("{wk}{}{}", plural(inr.len(), "event", "events"), if mins > 0 { format!(" · {} scheduled", dur_text(mins)) } else { String::new() }).into());
+        u.set_cal_side_line(format!("{wk}{}{}", plural(count, "event", "events"), if mins > 0 { format!(" · {} scheduled", dur_text(mins)) } else { String::new() }).into());
         // invitations still to answer (upcoming ones)
         let pend = PENDING.with(|p| p.borrow().clone());
         let mut inv: Vec<&Occ> = ahead.iter().filter(|o| !s.hidden.contains(&o.calendar) && o.end > now && pend.contains(&o.base)).collect();
@@ -1316,7 +1608,7 @@ fn detail(u: &AppWindow) {
                 let all: Vec<&Occ> = s.events.iter().filter(|o| &o.id == id).collect();
                 all.iter().find(|o| o.end > now).or(all.last()).map(|o| (*o).clone()).or_else(|| {
                     // chosen from a summary tile: may lie outside the loaded range
-                    RAW.with(|r| occurrences(&r.borrow(), now - Duration::days(1), now + Duration::days(366))).into_iter().find(|o| &o.id == id)
+                    s.ahead.iter().find(|o| &o.id == id).cloned()
                 })
             }
             // nothing chosen: the next event to come, else the last one that has ended
@@ -1399,10 +1691,13 @@ pub fn rsvp_selected(u: &AppWindow, c: Arc<Client>, status: &str, mine: &[String
 /// An event's length (all-day events without one last a day; raw_event is above).
 pub fn duration_of(e: &Value) -> Duration { crate::recurrence::event_duration(e) }
 
-/// Apply a moved event to what is shown right away (the reload after the server write confirms).
-pub fn patch_local(id: &str, patch: &Value) {
+/// Apply a moved event to what is shown right away, then expand the range again so the summary
+/// tiles and the next push agree with it (the reload after the server write confirms).
+pub fn patch_local(u: &AppWindow, id: &str, patch: &Value) {
+    // an expansion started before the move must not draw over it
+    LAND.with(|l| l.borrow_mut().invalidate());
     RAW.with(|r| {
-        if let Some(e) = r.borrow_mut().iter_mut().find(|e| e["id"] == id) {
+        if let Some(e) = Arc::make_mut(&mut r.borrow_mut()).iter_mut().find(|e| e["id"] == id) {
             if let Some(o) = patch.as_object() { for (k, v) in o { e[k] = v.clone(); } }
         }
     });
@@ -1412,4 +1707,6 @@ pub fn patch_local(id: &str, patch: &Value) {
     ST.with(|s| {
         for o in s.borrow_mut().events.iter_mut().filter(|o| o.id == id) { o.start = start; o.end = end; }
     });
+    // the expansion that was dropped is replaced by one from the moved events
+    rebuild(u);
 }

@@ -784,7 +784,12 @@ fn start_push(w: slint::Weak<AppWindow>, c: Arc<jmap::Client>) {
                 return;
             }
             // a server that does not know the newer types may refuse or drop the stream: again without them
-            if livesync::retry_without_more(more, opened, res.as_ref().err().map(|e| e.as_str())) { more = false; continue; }
+            if livesync::retry_without_more(more, opened, res.as_ref().err().map(|e| e.as_str())) {
+                // the files view can no longer be kept fresh by push: the next visit loads it
+                livesync::unfollow(livesync::View::Files);
+                more = false;
+                continue;
+            }
             if started.elapsed() > std::time::Duration::from_secs(120) { backoff = 2; }
             let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.subsec_nanos() as u64).unwrap_or(0);
             let wait = backoff * 1000 + nanos % (backoff * 500);
@@ -1935,8 +1940,8 @@ fn main() -> Result<(), slint::PlatformError> {
         let Some(c) = st.lock().unwrap().clone() else { return };
         let u = w.unwrap();
         match app {
-            1 => { calendar::render(&u); calendar::load(w.clone(), c); }
-            2 => contacts::load(w.clone(), c),
+            1 => calendar::switch_to(&u, c),
+            2 => contacts::switch_to(&u, c),
             3 => files::open(&u, c, ""),
             4 => admin::load(&u, c, &u.get_admin_section()),
             _ => {}
@@ -2650,8 +2655,10 @@ fn finish_login(w: slint::Weak<AppWindow>, st: Shared, res: Result<jmap::Client,
                 *RESTORE_PENDING.lock().unwrap() = None;
                 *g = Some(c.clone());
                 admin::bind_session(Some(&c));
-                // live updates and notifications are this session's from now on
-                livesync::set_current(Some(c.clone()));
+                // live updates and notifications are this session's from now on; the views' cached
+                // data is the login that left's, so it is dropped here — only a switch that came
+                // up does that, a failed one never gets here and keeps the old session
+                livesync::start_session(c.clone());
             }
             // the new session starts now: a "Trust sender" click from here on is this account's
             trustbook::begin(&c);
@@ -2671,6 +2678,10 @@ fn finish_login(w: slint::Weak<AppWindow>, st: Shared, res: Result<jmap::Client,
             let w2 = w.clone();
             let _ = w.upgrade_in_event_loop(move |u| {
                 if !current() { return; }
+                // the previous login's birthdays must not stay on the calendar: cleared here, on
+                // the UI thread and before the first calendar load, since that is where they are
+                // read (the store is process-wide, but this is the view's own thread)
+                crate::cal_extra::forget_people();
                 u.invoke_chat_reload();
                 u.set_accounts(accounts_model());
                 u.set_busy(false);
@@ -2691,8 +2702,9 @@ fn finish_login(w: slint::Weak<AppWindow>, st: Shared, res: Result<jmap::Client,
             {
                 let (w3, c3) = (w2.clone(), c.clone());
                 std::thread::spawn(move || {
+                    let gen = livesync::begin_load(livesync::View::Identities);
                     let (ids, state) = livesync::load_identities(&c3).unwrap_or_default();
-                    let _ = w3.upgrade_in_event_loop(move |u| livesync::identities_loaded(&u, &c3, ids, state));
+                    let _ = w3.upgrade_in_event_loop(move |u| livesync::identities_loaded(&u, &c3, ids, state, gen));
                 });
             }
             // today's events and open tasks for the mail screen's summary tiles
@@ -2801,5 +2813,11 @@ pub fn apply_ui_prefs(ui: &AppWindow) {
     // the open message picks up reading and accessibility changes
     if ui.get_current_mail() != "" { render_current(ui); }
     calendar::render(ui);
+    // the birthday calendar's cards are read when the switch is turned on (a cached calendar visit
+    // does not read them every time), and only then: any other settings change leaves them alone
+    let bday = p.bool("showBirthdayCalendar", false);
+    if crate::cal_extra::birthday_calendar_switched(bday) {
+        if let Some(c) = crate::cal_extra::client() { crate::cal_extra::ensure_people(ui, c, true); }
+    }
     contacts::render(ui);
 }
