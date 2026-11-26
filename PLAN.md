@@ -59,6 +59,10 @@ The merged main has not had a full test run: the low-memory guard stopped it twi
   - `ai-logins.json` is never pruned;
   - two instances making an id at the same instant may differ until a restart.
 
+Paused 2026-11-26 by the owner, who also stopped DeepSeek delegation. M6 (v08-ai-m6) and U1 (v09-u1)
+were cancelled right after they started; their worktrees hold only whatever edits were uncommitted at
+that point. Ask the owner who implements next (the cc-* workers or this session) before resuming.
+
 ## Next
 
 1. Test and push main (U0 plus M5).
