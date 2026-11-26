@@ -361,26 +361,35 @@ pub fn wire(u: &AppWindow, st: Shared) {
 
 /// A message starts loading: drop the previous one's banners and views.
 pub fn clear(u: &AppWindow) {
-    ST.with(|s| *s.borrow_mut() = State::default());
+    detach();
     refresh(u);
+}
+
+/// Nothing may act on the message on screen from here on: its state (banners, source view, the
+/// reply target) goes now, before its replacement has arrived, so a late result for it finds
+/// nothing to act on. The window's rows are the caller's to drop (msgload.rs).
+pub fn detach() {
+    ST.with(|s| *s.borrow_mut() = State::default());
 }
 
 fn is_open(id: &str) -> bool { ST.with(|s| s.borrow().id == id) }
 
+/// The reader's state is that of `id` (it is the message on screen).
+pub fn is_showing(id: &str) -> bool { is_open(id) }
+
 /// The open message is shown: work out its banners and start what loads in the background.
-pub fn loaded(u: &AppWindow, c: Arc<Client>, m: &Value, id: &str) {
-    let prefs = crate::settings::Settings::load();
+pub fn loaded(u: &AppWindow, c: Arc<Client>, m: &Value, id: &str, prefs: &crate::settings::Snapshot) {
     let headers = m["headers"].as_array().cloned().unwrap_or_default();
     let roles: Vec<String> = m["mailboxIds"].as_object().map(|o| o.keys().map(|k| mail::mailbox_role(k)).collect()).unwrap_or_default();
     let shared = mail::shared_account(id).is_some();
-    let response = prefs.str("readReceiptResponse", "ask");
+    let response = crate::settings::get_str(prefs, "readReceiptResponse", "ask");
     let other_login = mail::owner(id).is_some_and(|o| o != crate::unified::active_user());
     let offer = !shared && crate::mdn::should_offer(m, &roles, &response) && !crate::mdn::sent_this_run(id);
     // "Always send" is the active login's setting; another login's message asks instead, and so
     // does a receipt asked for an address other than the Return-Path (RFC 8098 §2.1)
     let auto = offer && response == "always" && !other_login && crate::mdn::auto_send_ok(m);
     let unsub = header(&headers, "List-Unsubscribe").and_then(|h| parse_unsubscribe(&h, header(&headers, "List-Unsubscribe-Post").as_deref()));
-    let invite_part = (prefs.bool("calendarInvitationParsingEnabled", true) && c.has(invite::CAP)).then(|| invite::find_part(m)).flatten();
+    let invite_part = (crate::settings::get_bool(prefs, "calendarInvitationParsingEnabled", true) && c.has(invite::CAP)).then(|| invite::find_part(m)).flatten();
     ST.with(|s| {
         let mut s = s.borrow_mut();
         *s = State { id: id.to_string(), msg: m.clone(), client: Some(c.clone()), unsub, mdn: offer && !auto, trunc: displayed_truncated(m), phish: crate::phish::marked(m), ..Default::default() };
@@ -819,6 +828,8 @@ fn load_full_body(u: &AppWindow) {
                     let (c2, w2, id2) = (c.clone(), u.as_weak(), id.clone());
                     std::thread::spawn(move || {
                         crate::inline_cid_images(&c2, &mut m);
+                        // the whole body is prepared (joined once, sanitised) here, off the UI thread
+                        let prepared = crate::prepare_message_body(&m);
                         let _ = w2.upgrade_in_event_loop(move |u| {
                             if !is_open(&id2) { return; }
                             // the same sanitising and remote-content policy as any message: the body
@@ -827,14 +838,14 @@ fn load_full_body(u: &AppWindow) {
                             let allowed = crate::CUR.with(|c| c.borrow().as_ref().is_some_and(|c| c.allow));
                             // a message marked phishing keeps its links off (the refetched copy may lack $phishing)
                             let off = crate::CUR.with(|c| c.borrow().as_ref().is_some_and(|c| c.links_off)) || ST.with(|s| s.borrow().phish);
-                            show_message_body(&u, &m, off);
+                            show_message_body(&u, &m, off, prepared.clone());
                             if allowed {
                                 crate::CUR.with(|c| if let Some(c) = c.borrow_mut().as_mut() { c.allow = true; });
                                 crate::render_current(&u);
                             }
                             crate::CUR_MSG.with(|x| if let Some((cm, _)) = x.borrow_mut().as_mut() { Arc::make_mut(cm)["bodyValues"] = m["bodyValues"].clone(); });
-                            // a reopen from the cache gets the whole body too
-                            crate::bodycache::with(|b| b.set_bodies(&c2.state_key(), &id2, &m));
+                            // a reopen from the cache gets the whole body too, already prepared
+                            crate::bodycache::with(|b| { b.set_bodies(&c2.state_key(), &id2, &m); b.put_prepared(&c2.state_key(), &id2, std::sync::Arc::new(prepared)); });
                             set_step(&u, |s| { s.trunc = displayed_truncated(&m); s.trunc_step = Step::Idle; s.msg = m; });
                         });
                     });
@@ -846,13 +857,10 @@ fn load_full_body(u: &AppWindow) {
 }
 
 /// Show a message's body in the reader (as main.rs does when a message opens).
-fn show_message_body(u: &AppWindow, m: &Value, links_off: bool) {
-    let (html, text) = crate::body_text(m);
-    let is_html = m["htmlBody"].as_array().is_some_and(|a| a.iter().any(|p| p["type"] == "text/html"));
-    let html = (is_html && !html.is_empty()).then_some(html);
-    let remote = html.as_deref().is_some_and(crate::has_remote_images);
+fn show_message_body(u: &AppWindow, m: &Value, links_off: bool, prepared: crate::Prepared) {
+    let links_off = links_off || crate::phish::marked(m);
     let allow = crate::allow_remote(u, m);
-    crate::CUR.with(|c| *c.borrow_mut() = Some(crate::Current { html, text, remote, allow, links_off: links_off || crate::phish::marked(m) }));
+    crate::CUR.with(|c| *c.borrow_mut() = Some(crate::current_for(prepared, allow, links_off)));
     crate::render_current(u);
 }
 
@@ -880,7 +888,7 @@ fn view_source(u: &AppWindow) {
                         let stash = match std::mem::take(&mut s.view) { View::Source { stash: old, .. } => old, _ => stash };
                         s.view = View::Source { raw, full, cut, stash };
                     });
-                    crate::CUR.with(|c| *c.borrow_mut() = Some(crate::Current { html: Some(html), text: shown, remote: false, allow: false, links_off: ST.with(|s| crate::phish::marked(&s.borrow().msg)) }));
+                    crate::CUR.with(|c| *c.borrow_mut() = Some(crate::Current { html: Some(html), text: shown, remote: false, allow: false, links_off: ST.with(|s| crate::phish::marked(&s.borrow().msg)), sanitized: None }));
                     crate::render_current(&u);
                     refresh(&u);
                 }
@@ -894,7 +902,10 @@ fn close_view(u: &AppWindow) {
     let view = ST.with(|s| std::mem::take(&mut s.borrow_mut().view));
     match view {
         View::Source { stash, .. } => {
-            crate::CUR.with(|c| *c.borrow_mut() = stash);
+            // reported as phishing while its source was shown: the body comes back with its
+            // links off, not with the copy it was stashed as
+            let off = ST.with(|s| s.borrow().phish) || crate::CUR.with(|c| c.borrow().as_ref().is_some_and(|c| c.links_off));
+            crate::CUR.with(|c| *c.borrow_mut() = crate::restore_stashed(stash, off));
             crate::render_current(u);
             refresh(u);
         }
@@ -915,12 +926,16 @@ pub fn open_eml(u: &AppWindow, c: Arc<Client>, a: Value) {
     mail::show_toast(u, "Opening the attached message…", false);
     let w = u.as_weak();
     std::thread::spawn(move || {
-        let res = parse_eml(&c, &blob).map(|mut m| { crate::inline_cid_images(&c, &mut m); m });
+        let res = parse_eml(&c, &blob).map(|mut m| {
+            crate::inline_cid_images(&c, &mut m);
+            let prepared = crate::prepare_message_body(&m);
+            (m, prepared)
+        });
         let _ = w.upgrade_in_event_loop(move |u| {
             if u.get_current_mail().as_str() != id { return; }
             if u.get_toast().as_str() == "Opening the attached message…" { u.set_toast("".into()); }
             match res {
-                Ok(m) => show_parsed(&u, &m),
+                Ok((m, prepared)) => show_parsed(&u, &m, prepared),
                 Err(e) => mail::show_error(&u, &format!("Could not open the attached message: {e}")),
             }
         });
@@ -948,7 +963,7 @@ pub fn parse_eml_in(c: &Client, acc: &str, blob: &str) -> Result<Value, String> 
     Ok(m)
 }
 
-fn show_parsed(u: &AppWindow, m: &Value) {
+fn show_parsed(u: &AppWindow, m: &Value, prepared: crate::Prepared) {
     let f = &m["from"][0];
     let from = mail::sender(m);
     let email = f["email"].as_str().unwrap_or("").to_string();
@@ -982,7 +997,7 @@ fn show_parsed(u: &AppWindow, m: &Value) {
     mail::set_reader_avatar(u, Some(m), "");
     // an attached message inside a reported one keeps the links off
     let links_off = crate::CUR.with(|c| c.borrow().as_ref().is_some_and(|c| c.links_off));
-    show_message_body(u, m, links_off);
+    show_message_body(u, m, links_off, prepared);
     ST.with(|s| s.borrow_mut().view = View::Eml { subject });
     refresh(u);
 }
@@ -1430,6 +1445,34 @@ pub fn automation_destroy(ids: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_message_that_is_going_away_cannot_be_acted_on() {
+        // A is on screen with everything that can act on it; opening B (which must be fetched)
+        // takes that away at once, so a late "Load full body" or "View source" result for A —
+        // and its unsubscribe, receipt, invitation banners — find nothing to act on
+        ST.with(|s| *s.borrow_mut() = State {
+            id: "a".into(),
+            msg: json!({"subject": "A", "blobId": "b1"}),
+            unsub: Some(Unsub { http: Some("https://list.example/u".into()), mailto: None, one_click: false }),
+            mdn: true,
+            phish: true,
+            view: View::Source { raw: Arc::new(vec![1]), full: "raw".into(), cut: false, stash: None },
+            ..Default::default()
+        });
+        assert!(is_open("a"));
+        let shown = ST.with(|s| banners(&s.borrow()));
+        assert!(!shown.is_empty(), "A shows its banners");
+        detach();
+        assert!(!is_open("a"), "nothing is open: a late result for A is dropped");
+        ST.with(|s| {
+            let s = s.borrow();
+            assert!(s.msg.is_null() && s.client.is_none() && s.unsub.is_none() && !s.mdn && !s.phish);
+            assert!(matches!(&s.view, View::Message), "the source view goes with it");
+        });
+        let left = ST.with(|s| banners(&s.borrow()));
+        assert!(left.is_empty(), "no banner of A is left to click");
+    }
 
     #[test]
     fn headers_unfold() {
