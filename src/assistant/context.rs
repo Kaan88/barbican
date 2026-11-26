@@ -196,8 +196,8 @@ pub fn mailbox_path(mailboxes: &[Value], id: &str) -> Option<String> {
 /// One message as one login and one of its accounts knows it. An email id is unique only within
 /// its account, an account id only within its server (Stalwart's are short and sequential, and
 /// two servers both call them "d"), so a message is named by all three: the login's own id —
-/// Barbican's random, stored `aiLogin` (`oauth::login_id`), never an address — the server's account
-/// id and the email id. `load` and the tools take this.
+/// Barbican's random id for that login ([`super::logins::assistant_login_id`]), never an
+/// address — the server's account id and the email id. `load` and the tools take this.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MessageRef<'a> {
     pub login: &'a str,
@@ -582,15 +582,15 @@ mod tests {
     #[test]
     fn two_logins_never_share_a_message() {
         // two Stalwart servers call the account "d" and the message "b"; the same address on both
-        // (a work and a home server) must still be two messages. The ids come from the stored
-        // account records (oauth::new_login_id), never from the address.
-        let work = crate::oauth::new_login_id();
-        let home = crate::oauth::new_login_id();
+        // (a work and a home server) must still be two messages. The ids come from
+        // logins::assistant_login_id, never from the address.
+        let work = "4f3a1c0d9e8b7a651234567890abcdef";
+        let home = "b7c1e2d34a5968f0123456789abcdef0";
         assert_ne!(work, home);
         let mut sent = SentContext::default();
         let now = "Now: Wednesday 25 November 2026 at 14:05 (Europe/Istanbul).";
-        let at_work = OpenMessage { message: mref(&work, "d", "b"), subject: "Invoice" };
-        let at_home = OpenMessage { message: mref(&home, "d", "b"), subject: "Trip" };
+        let at_work = OpenMessage { message: mref(work, "d", "b"), subject: "Invoice" };
+        let at_home = OpenMessage { message: mref(home, "d", "b"), subject: "Trip" };
         let mut loaded: Vec<(String, String, String)> = Vec::new();
         let mut turn = |open, loaded: &mut Vec<(String, String, String)>| {
             build_user_turn(&mut sent, now, Some(open), "", "Reply", |r| {
@@ -604,7 +604,7 @@ mod tests {
         let second = turn(at_home, &mut loaded);
         assert_eq!(
             loaded,
-            [(work.clone(), "d".to_string(), "b".to_string()), (home.clone(), "d".to_string(), "b".to_string())]
+            [(work.to_string(), "d".to_string(), "b".to_string()), (home.to_string(), "d".to_string(), "b".to_string())]
         );
         assert!(first.contains(&format!("<email id=\"b\" account=\"d\" login=\"{work}\">full</email>")), "{first}");
         assert!(second.contains(&format!("<email id=\"b\" account=\"d\" login=\"{home}\">full</email>")), "{second}");
@@ -617,7 +617,7 @@ mod tests {
         );
         assert_eq!(loaded.len(), 2);
         // a second account on the same login is a different message as well
-        let other_account = OpenMessage { message: mref(&work, "e", "b"), subject: "Other" };
+        let other_account = OpenMessage { message: mref(work, "e", "b"), subject: "Other" };
         let fourth = turn(other_account, &mut loaded);
         assert!(fourth.contains("<email id=\"b\" account=\"e\""), "{fourth}");
         assert_eq!(loaded.len(), 3);

@@ -256,19 +256,20 @@ Barbican note: a JMAP email id is unique only within its account, and an account
 its server (Stalwart's are short and sequential, so two servers can both call an account "d" and a
 message "b"), so the tag the model sees names all three — `<email id="b" account="d" login="4f3a…">`
 — and `sentContext` is keyed on the triple. `login` is Barbican's own id for that login: 128 random
-bits in hex, made once per saved account under `aiLogin` in the saved-account list and given to an
-account saved by an older version the first time the list is read. It is random, never derived from
-the address, so no address reaches the provider and a guessed address cannot be checked against it;
-the three ids are reduced to `[A-Za-z0-9_-]` inside the tag. Barbican also closes off the tags: a
-`</email`, `</passage` or `</text` inside the text it inserts (body, subject, recipient and
-attachment names, folder, passage, quote, selection, own text) has a backslash put before its slash,
-`<\/email`, in any case and with any whitespace, so an email cannot end its block and pass for the
-user's own turn; `restoreTags` undoes that exactly, whitespace and case included, wherever the text
-is shown again. That is a deliberate departure from the extension, which inserts the text as it is,
-because with Actions set to Automatic it is a real prompt-injection path. Header values (subject,
-names, attachment names, folder) are collapsed to one line, so an encoded word carrying a line break
-cannot forge a line of the prompt. Barbican also lists at most 5 addresses or attachments per header
-line, followed by "and N more".
+bits in hex, kept in `ai-logins.json` beside the settings (a local file, written whole or not at
+all, keyed by the app's internal account key), made the first time the assistant needs an id for
+that login and kept from then on, so a login only appears in that file once the assistant has been
+used with it. It is random and never derived from the address, so no address reaches the provider
+and a guessed address cannot be checked against it; the three ids are reduced to `[A-Za-z0-9_-]`
+inside the tag. Barbican also closes off the tags: a `</email`, `</passage` or `</text` inside the
+text it inserts (body, subject, recipient and attachment names, folder, passage, quote, selection,
+own text) has a backslash put before its slash, `<\/email`, in any case and with any whitespace, so
+an email cannot end its block and pass for the user's own turn; `restoreTags` undoes that exactly,
+whitespace and case included, wherever the text is shown again. That is a deliberate departure from
+the extension, which inserts the text as it is, because with Actions set to Automatic it is a real
+prompt-injection path. Header values (subject, names, attachment names, folder) are collapsed to one
+line, so an encoded word carrying a line break cannot forge a line of the prompt. Barbican also
+lists at most 5 addresses or attachments per header line, followed by "and N more".
 
 **Message as text for the model** (`lib/mail.js:92`):
 
