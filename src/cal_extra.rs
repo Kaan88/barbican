@@ -57,6 +57,10 @@ pub fn set_people_at(rev: u64, p: Vec<Value>) -> bool {
     true
 }
 
+/// The cards are another login's now (sign-out, another account): cleared. Their revision moves
+/// on, so a read still in flight cannot put the previous login's cards back.
+pub fn forget_people() { let rev = people_read(); set_people_at(rev, vec![]); }
+
 /// Put cards that are newer than any read in flight (the contacts view's own, or a test).
 pub fn set_people(p: Vec<Value>) { let rev = people_read(); set_people_at(rev, p); }
 
@@ -1223,6 +1227,17 @@ mod tests {
         let leap = birthdays_in(&cards, d("2027-02-01"), d("2027-03-01"));
         assert_eq!(leap[0].start.date(), d("2027-02-28"));
         assert_eq!(birthday_parts(&json!({"@type": "Timestamp", "utc": "1985-03-04T00:00:00Z"})), Some((3, 4, Some(1985))));
+    }
+
+    #[test]
+    fn a_switch_or_sign_out_clears_the_cards() {
+        let stale = people_read();
+        set_people(vec![json!({"id": "a", "name": {"full": "Ann"}})]);
+        forget_people();
+        assert!(people().is_empty(), "the previous login's cards are gone");
+        // a read taken before the switch cannot put them back
+        assert!(!set_people_at(stale, vec![json!({"id": "b", "name": {"full": "Bob"}})]));
+        assert!(people().is_empty());
     }
 
     #[test]

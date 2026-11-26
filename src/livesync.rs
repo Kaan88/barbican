@@ -61,6 +61,10 @@ pub struct Ledger {
 #[derive(Debug, Default, PartialEq)]
 pub struct Settle { pub full: bool, pub apply: bool, pub rerun: bool }
 
+/// Whether a load's result may be drawn or must be dropped (see [`Ledger::landing`]).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Landing { Draw, Drop }
+
 impl Ledger {
     /// A full load of `view` starts: its number. A result is applied only while it is the newest
     /// load of its view, so a slow load that lands — or errors — after a newer one changes nothing.
@@ -68,6 +72,14 @@ impl Ledger {
         let n = self.loads.get(&view).copied().unwrap_or(0).wrapping_add(1);
         self.loads.insert(view, n);
         n
+    }
+
+    /// Whether load `gen` of `view` may install its data: only when its login is still the current
+    /// one (`current`) and no newer load of the view has started since. An overtaken load is
+    /// dropped whole — installing it would show data that the recorded newer states do not
+    /// describe, and deltas would then miss the difference for good.
+    pub fn landing(&self, view: View, gen: u64, current: bool) -> Landing {
+        if current && self.newest_load(view, gen) { Landing::Draw } else { Landing::Drop }
     }
 
     /// Whether load `gen` is still the newest one of `view`.
@@ -256,9 +268,16 @@ pub fn followed(view: View) -> bool {
     can_reuse(&book, Some(&key), health)
 }
 
-/// A full load of `view` for `owner` started: its number, to pass to [`loaded`] or
-/// [`load_failed`] so a result that arrives after a newer load started changes nothing.
+/// A full load of `view` for `owner` started: its number, to pass to [`loaded`],
+/// [`load_failed`] and [`landing`].
 pub fn begin_load(view: View) -> u64 { with(|l| l.begin_load(view)) }
+
+/// Whether the load numbered `gen` for `owner` may install what it read. Checked before anything
+/// is put on screen (`is_current` plus the newest load of the view), so a load that another login
+/// or a newer load has overtaken installs nothing and records nothing.
+pub fn landing(view: View, owner: &str, gen: u64) -> bool {
+    with(|l| l.landing(view, gen, is_current(owner))) == Landing::Draw
+}
 
 /// The newest load of `view` for `owner` failed (UI thread). What the view holds stays and pushes
 /// keep following it, but it is no longer reused: the next visit loads it in full. A failure for a
@@ -280,6 +299,9 @@ pub fn start_session(c: Arc<Client>) {
     let key = c.state_key();
     with(|l| { l.session_takeover(Some(&key)); });
     set_current(Some(c));
+    // the birthday cards are the login that left's: cleared (and their revision moved on, so a
+    // read still in flight cannot put them back)
+    crate::cal_extra::forget_people();
 }
 
 /// A full load of `view` for `owner` landed (UI thread): record its states and whether the read
@@ -351,6 +373,8 @@ pub fn pushed_types(change: &Value, account: &str) -> HashSet<String> {
 pub fn forget_all() {
     with(|l| l.clear());
     set_current(None);
+    // another login's birthdays must not stay on the calendar
+    crate::cal_extra::forget_people();
     *IDENTITIES.lock().unwrap_or_else(|e| e.into_inner()) = (String::new(), Vec::new());
     crate::notices::forget_session();
 }
@@ -695,6 +719,26 @@ mod tests {
         // another login's failure at the newest revision is not theirs to mark
         l.load_failed(View::Files, "bob", newer);
         assert!(l.health(View::Files, "ann").ok());
+    }
+
+    #[test]
+    fn an_overtaken_load_installs_nothing_and_keeps_the_newer_data() {
+        let mut l = Ledger::default();
+        let older = l.begin_load(View::Calendar);
+        let newer = l.begin_load(View::Calendar);
+        // the newer load lands and installs
+        assert_eq!(l.landing(View::Calendar, newer, true), Landing::Draw);
+        assert!(l.loaded(View::Calendar, "ann", &[st("CalendarEvent", "A", "e2")], true, newer));
+        // the older one arrives afterwards: dropped whole, before it could install anything
+        assert_eq!(l.landing(View::Calendar, older, true), Landing::Drop);
+        assert_eq!(l.since(View::Calendar, "ann", "CalendarEvent", "A").as_deref(), Some("e2"));
+        // and its error cannot mark the view either
+        l.load_failed(View::Calendar, "ann", older);
+        assert!(l.health(View::Calendar, "ann").ok());
+        // a load for a login that is no longer current is dropped, newest or not
+        let third = l.begin_load(View::Calendar);
+        assert_eq!(l.landing(View::Calendar, third, false), Landing::Drop);
+        assert_eq!(l.landing(View::Calendar, third, true), Landing::Draw);
     }
 
     #[test]

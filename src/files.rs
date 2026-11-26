@@ -332,20 +332,22 @@ fn fetch(u: &AppWindow, c: Arc<Client>) {
             }
             Ok(nodes)
         })();
-        let _ = w.upgrade_in_event_loop(move |u| match res {
-            // signed out or switched meanwhile: another login's data is not shown
-            Ok(_) if !crate::livesync::is_current(&owner) => {}
-            Ok(nodes) => {
-                let draft = draft_cap || nodes.iter().any(|n| n["@type"].is_string());
-                ST.with(|s| { let mut s = s.borrow_mut(); s.nodes = nodes; s.draft18 = draft; s.primary = primary; s.legacy = legacy; });
-                render(&u);
-                crate::livesync::loaded(&u, crate::livesync::View::Files, &owner, &states, complete, gen);
-            }
-            Err(e) => {
-                // nothing was read: the view is not reused again until a load lands (a newer load,
-                // or another login's, is left alone)
-                crate::livesync::load_failed(crate::livesync::View::Files, &owner, gen);
-                crate::mail::show_error(&u, &format!("Files: {e}"));
+        let _ = w.upgrade_in_event_loop(move |u| {
+            // signed out or switched meanwhile, or a newer load (a second quick reload) has
+            // started: this one's nodes are dropped whole, before they reach the view
+            if !crate::livesync::landing(crate::livesync::View::Files, &owner, gen) { return; }
+            match res {
+                Ok(nodes) => {
+                    let draft = draft_cap || nodes.iter().any(|n| n["@type"].is_string());
+                    ST.with(|s| { let mut s = s.borrow_mut(); s.nodes = nodes; s.draft18 = draft; s.primary = primary; s.legacy = legacy; });
+                    render(&u);
+                    crate::livesync::loaded(&u, crate::livesync::View::Files, &owner, &states, complete, gen);
+                }
+                Err(e) => {
+                    // nothing was read: the view is not reused again until a load lands
+                    crate::livesync::load_failed(crate::livesync::View::Files, &owner, gen);
+                    crate::mail::show_error(&u, &format!("Files: {e}"));
+                }
             }
         });
     });

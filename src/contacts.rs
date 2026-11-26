@@ -174,23 +174,25 @@ pub fn load(w: slint::Weak<AppWindow>, c: Arc<Client>) {
         })();
         // both states recorded: only then can push keep the view fresh
         let complete = states.len() == 2;
-        let _ = w.upgrade_in_event_loop(move |u| match res {
-            // signed out or switched meanwhile: another login's data is not shown, and the view
-            // stops pointing at the client of the login that was left
-            Ok(_) if !crate::livesync::is_current(&owner) => {
+        let _ = w.upgrade_in_event_loop(move |u| {
+            // signed out or switched meanwhile, or a newer load of this view has started: this
+            // one's cards are dropped whole, and the view stops pointing at a login that was left
+            if !crate::livesync::landing(crate::livesync::View::Contacts, &owner, gen) {
                 let stale = CLIENT.with(|x| x.borrow().as_ref().is_some_and(|k| Arc::ptr_eq(k, &c)));
                 if stale { CLIENT.with(|x| *x.borrow_mut() = None); }
+                return;
             }
-            Ok((books, cards)) => {
-                install(&u, books, cards);
-                crate::livesync::loaded(&u, crate::livesync::View::Contacts, &owner, &states, complete, gen);
-                for f in THEN.with(|t| std::mem::take(&mut *t.borrow_mut())) { f(&u); }
-            }
-            Err(e) => {
-                // nothing was read: the view is not reused again until a load lands (a newer load,
-                // or another login's, is left alone)
-                crate::livesync::load_failed(crate::livesync::View::Contacts, &owner, gen);
-                crate::mail::show_error(&u, &format!("Contacts: {e}"));
+            match res {
+                Ok((books, cards)) => {
+                    install(&u, books, cards);
+                    crate::livesync::loaded(&u, crate::livesync::View::Contacts, &owner, &states, complete, gen);
+                    for f in THEN.with(|t| std::mem::take(&mut *t.borrow_mut())) { f(&u); }
+                }
+                Err(e) => {
+                    // nothing was read: the view is not reused again until a load lands
+                    crate::livesync::load_failed(crate::livesync::View::Contacts, &owner, gen);
+                    crate::mail::show_error(&u, &format!("Contacts: {e}"));
+                }
             }
         });
     });

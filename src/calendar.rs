@@ -362,25 +362,27 @@ pub fn load(w: slint::Weak<AppWindow>, c: Arc<Client>) {
         })();
         let w2 = w.clone();
         let c2 = c.clone();
-        let _ = w.upgrade_in_event_loop(move |u| match res {
-            // signed out or switched meanwhile: another login's data is not shown
-            Ok(_) if !crate::livesync::is_current(&owner) => {}
-            Ok((cals, events)) => {
-                ST.with(|s| s.borrow_mut().calendars = cals);
-                RAW.with(|r| *r.borrow_mut() = Arc::new(events));
-                rebuild(&u);
-                render_tasks(&u);
-                // the birthday cards (when the calendar is on) are read through one place, so a
-                // slow read cannot overwrite newer cards set meanwhile
-                crate::cal_extra::ensure_people(&u, c2.clone(), false);
-                crate::cal_extra::after_load(&u, w2, c2);
-                crate::livesync::loaded(&u, crate::livesync::View::Calendar, &owner, &states, complete, gen);
-            }
-            Err(e) => {
-                // nothing could be read: the view is not reused again until a load lands (a newer
-                // load, or another login's, is left alone)
-                crate::livesync::load_failed(crate::livesync::View::Calendar, &owner, gen);
-                crate::mail::show_error(&u, &format!("Calendar: {e}"));
+        let _ = w.upgrade_in_event_loop(move |u| {
+            // signed out or switched meanwhile, or a newer load of this view has started: this
+            // one's data is dropped whole, before anything is put on screen or recorded
+            if !crate::livesync::landing(crate::livesync::View::Calendar, &owner, gen) { return; }
+            match res {
+                Ok((cals, events)) => {
+                    ST.with(|s| s.borrow_mut().calendars = cals);
+                    RAW.with(|r| *r.borrow_mut() = Arc::new(events));
+                    rebuild(&u);
+                    render_tasks(&u);
+                    // the birthday cards (when the calendar is on) are read through one place, so
+                    // a slow read cannot overwrite newer cards set meanwhile
+                    crate::cal_extra::ensure_people(&u, c2.clone(), false);
+                    crate::cal_extra::after_load(&u, w2, c2);
+                    crate::livesync::loaded(&u, crate::livesync::View::Calendar, &owner, &states, complete, gen);
+                }
+                Err(e) => {
+                    // nothing could be read: the view is not reused again until a load lands
+                    crate::livesync::load_failed(crate::livesync::View::Calendar, &owner, gen);
+                    crate::mail::show_error(&u, &format!("Calendar: {e}"));
+                }
             }
         });
     });
