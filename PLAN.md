@@ -7,6 +7,7 @@ record.
 
 ## How work is run
 
+- 2026-11-26 (owner): work goes to the GPT workers on the OpenCode bridge, at most two at once: gpt-6.2-astra only for major milestones or risky code, otherwise gpt-6.2-sol at low or medium effort. Reviews: gpt-6.2-astra at low effort for now. They get only the repo and generated test data, never real accounts, mail or secrets. Workers do no git; the coordinator commits after verifying.
 - Implementers are `deepseek-flash` workers, two at a time. Reviews are done by `cc-reviewer`. A
   milestone is merged only after the review approves it.
 - Each worker has its own worktree in `..\barbican-wt\<branch>` and its own
@@ -74,6 +75,9 @@ Paused 2026-11-26 by the owner, who also stopped DeepSeek delegation. M6 and U1 
    On 2026-11-26 the toolkit session reported that P8b (the handover, PR #29) is merged at ff4b484, that
    the toolkit main tip is 09b01c1 (the version to pin), and that BT1 comes next, starting with K5
    (the layout helper). K5 is merged (toolkit PR #34, main at ac4e4e5). K11, K7 and K14 are still to come for BT1.
+   2026-11-26: on the owner's word, the toolkit session was asked to fast-track T1 (K11, K7, K14) and T2 (K4) for U4, ahead of T3/T4, and to message barbican with the commit to pin as each lands.
+   Toolkit reply (2026-11-26): T1 is complete on toolkit main; pin 7fd559f. K11 scrollarea has no momentum, thumb drag or accessibility (caller's job); K14 picture decodes PNG/JPEG only (GIF/WebP/ICO/SVG via our own `Decoder`). K4 (T2) is on feat/k4-controls (ddeb034), needs re-review, PR, CI and the owner's look at the specimen sheet; toolkit will message the commit. Open for us: diff the toolkit CATALOGUE.md rows (layout, scrollarea, richtext, picture) against docs/UI-TOOLKIT-EVAL.md and send mismatches to the toolkit session (fold into the U2 brief).
+   2026-11-26: main (34a0e0e) passed the full `cargo test` (1218 passed) and the privacy check; not yet pushed. U1 (uncommitted fixes on 37c4b12, 1221 passed) and M6 (uncommitted, 1268 passed) are verified by tests, unreviewed.
 5. Small R3 fixes, not done yet:
    - the 1.5 s watchdog can be shorter than a slow page;
    - the wrong message's capture can show briefly in redraw_stale;
