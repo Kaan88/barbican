@@ -118,14 +118,22 @@ thread_local! {
     static HASHES: RefCell<HashMap<String, String>> = RefCell::new(HashMap::new());
 }
 
-/// [`gravatar_hash`], memoised by the normalised address for the session.
+/// The most addresses the memo keeps: one list rebuild hashes each of its senders once, so this is
+/// far more than one list needs. Past it the memo starts over rather than growing for the session.
+const HASH_CACHE_MAX: usize = 1024;
+
+/// [`gravatar_hash`], memoised by the normalised address for the session (bounded, see
+/// [`HASH_CACHE_MAX`]).
 pub fn gravatar_hash_cached(email: &str) -> String {
     let norm = email.trim().to_lowercase();
     HASHES.with(|h| {
         let mut h = h.borrow_mut();
-        match h.get(&norm) {
-            Some(v) => v.clone(),
+        // the borrow of `get` must end before the map is cleared (as in `look`)
+        let known = h.get(&norm).cloned();
+        match known {
+            Some(v) => v,
             None => {
+                if h.len() >= HASH_CACHE_MAX { h.clear(); }
                 let v = gravatar_hash(&norm);
                 h.insert(norm, v.clone());
                 v
@@ -133,6 +141,13 @@ pub fn gravatar_hash_cached(email: &str) -> String {
         }
     })
 }
+
+/// Forget the memoised hashes: they are the previous account's senders.
+fn forget_hashes() { HASHES.with(|h| h.borrow_mut().clear()); }
+
+/// Tests: how many addresses the memo holds.
+#[cfg(test)]
+pub(crate) fn hash_cache_len() -> usize { HASHES.with(|h| h.borrow().len()) }
 
 /// The cache keys to try for a sender, best first (Bulwark: BIMI logo > Gravatar >
 /// company favicon). `brand` is the From domain of a message that passed DMARC.
@@ -211,6 +226,7 @@ pub fn cancel_pending() {
     work().0.clear();
     // the pictures fetched for this account's senders are not the next account's to see
     SLOTS.with(|s| s.borrow_mut().clear());
+    forget_hashes();
 }
 
 /// "Refresh sender icons": forget every answer (memory and disk) so they are fetched again.
@@ -225,6 +241,7 @@ pub fn forget_memory() {
     GEN.fetch_add(1, Ordering::SeqCst);
     work().0.clear();
     SLOTS.with(|s| s.borrow_mut().clear());
+    forget_hashes();
 }
 
 /// The window to redraw when pictures arrive.
@@ -466,6 +483,31 @@ mod tests {
     fn gravatar_hash_is_sha256_of_the_normalised_address() {
         assert_eq!(gravatar_hash(" Test@Example.com "), gravatar_hash("test@example.com"));
         assert_eq!(gravatar_hash("test@example.com").len(), 64);
+    }
+
+    /// The hash memo keeps a session's senders: it must not grow with every address ever seen, and
+    /// signing out must not leave the previous account's senders in memory.
+    #[test]
+    fn hash_memo_is_bounded_and_forgotten_on_sign_out() {
+        forget_memory();
+        assert_eq!(hash_cache_len(), 0);
+        assert_eq!(gravatar_hash_cached(" Alice@Example.test "), gravatar_hash("alice@example.test"));
+        assert_eq!(hash_cache_len(), 1);
+        // the same address in other case is the same entry
+        assert_eq!(gravatar_hash_cached("alice@EXAMPLE.test"), gravatar_hash("alice@example.test"));
+        assert_eq!(hash_cache_len(), 1);
+        forget_memory();
+        assert_eq!(hash_cache_len(), 0);
+        // sign-out clears it too (cancel_pending is what main.rs calls)
+        gravatar_hash_cached("bob@example.test");
+        assert_eq!(hash_cache_len(), 1);
+        cancel_pending();
+        assert_eq!(hash_cache_len(), 0);
+        // past the cap the memo starts over instead of holding every sender of the session
+        for i in 0..HASH_CACHE_MAX { gravatar_hash_cached(&format!("s{i}@example.test")); }
+        assert_eq!(hash_cache_len(), HASH_CACHE_MAX);
+        assert_eq!(gravatar_hash_cached("one-more@example.test"), gravatar_hash("one-more@example.test"));
+        assert_eq!(hash_cache_len(), 1);
     }
 
     #[test]

@@ -822,20 +822,27 @@ fn refresh_marked_of(model: &VecModel<Mail>, st: &ListState, ids: &[String], p: 
     let index: HashMap<&str, usize> = st.emails.iter().enumerate().filter_map(|(i, m)| m["id"].as_str().map(|id| (id, i))).collect();
     for id in ids {
         let Some(&i) = index.get(id.as_str()) else { continue };
+        // the row at this position must be this message: after sign-out the model is emptied while
+        // `st` still holds the old list for a moment, and writing by position would put one
+        // message's data on another's row
+        let Some(old) = model.row_data(i) else { continue };
+        if old.id.as_str() != id.as_str() { continue; }
         let row = row_at(st, i, &ctx);
-        if let Some(old) = model.row_data(i) {
-            if !same_row(&old, &row) { model.set_row_data(i, row); }
-        }
+        if !same_row(&old, &row) { model.set_row_data(i, row); }
     }
 }
 
-/// Build the rows appended from index `start` and push them (a load-more page).
-fn append_rows_of(model: &VecModel<Mail>, st: &ListState, start: usize, p: &crate::settings::Settings) {
+/// Build the rows appended from index `start` and push them (a load-more page). Writes nothing and
+/// returns false when the model is not that long (it was replaced, e.g. at sign-out), so the page
+/// cannot land at the wrong offset; the caller rebuilds the list instead.
+fn append_rows_of(model: &VecModel<Mail>, st: &ListState, start: usize, p: &crate::settings::Settings) -> bool {
+    if model.row_count() != start { return false; }
     let ctx = RowCtx::new(p, st);
     let last = if start == 0 { String::new() } else {
         st.emails.get(start - 1).and_then(|m| parse_time(&m["receivedAt"])).as_ref().map(group_label).unwrap_or_default()
     };
     for row in build_rows_from(st, start, last, &ctx) { model.push(row); }
+    true
 }
 
 /// An image the body references by cid (not a real attachment).
@@ -903,12 +910,13 @@ pub fn refresh_rows(u: &AppWindow, ids: &[String]) {
     });
 }
 
-/// Append the rows for the emails from index `start` (the load-more page), not the whole list.
+/// Append the rows for the emails from index `start` (the load-more page), not the whole list. A
+/// model that no longer has `start` rows (the list was emptied meanwhile) gets a full rebuild.
 fn append_rows(u: &AppWindow, start: usize) {
     let p = crate::settings::Settings::load();
     let model = u.get_mails();
     let done = LIST.with(|l| match model.as_any().downcast_ref::<VecModel<Mail>>() {
-        Some(vm) => { append_rows_of(vm, &l.borrow(), start, &p); true }
+        Some(vm) => append_rows_of(vm, &l.borrow(), start, &p),
         None => false,
     });
     if !done { rebuild_list(u); }
@@ -988,13 +996,22 @@ pub fn folder_filter(folder: &str, text: Option<&str>) -> Value {
 /// Whether the shown list is the unified one.
 pub fn showing_unified() -> bool { LIST.with(|l| l.borrow().filter["unified"] == true) }
 
-/// Empty the list (the unified folder was turned off while it was open).
-pub fn clear_list(u: &AppWindow) {
+/// Forget the open list and invalidate every page still in flight: a new list, as at sign-out
+/// (which also empties the model itself) or when the unified folder is turned off. The generation
+/// bump is what a load-more, a sync or a reload started before now checks.
+pub fn forget_list() {
     LIST.with(|l| {
         let mut l = l.borrow_mut();
         let generation = l.generation + 1;
         *l = ListState { generation, ..Default::default() };
     });
+    // the cleaned previews are the previous account's mail
+    prune_previews(std::iter::empty::<&str>());
+}
+
+/// Empty the list (the unified folder was turned off while it was open).
+pub fn clear_list(u: &AppWindow) {
+    forget_list();
     rebuild_list(u);
 }
 
@@ -1747,8 +1764,77 @@ mod tests {
         let model = VecModel::from(build_rows(&st, &p));
         // the next page appends two messages in a later month (a new date group header)
         st.emails.extend([msg("c", "Carol", "2024-07-20T08:30:00Z"), msg("d", "Dan", "2024-07-20T09:00:00Z")]);
-        append_rows_of(&model, &st, 2, &p);
+        assert!(append_rows_of(&model, &st, 2, &p), "the page is refused");
         assert_rows(&model, &build_rows(&st, &p));
+    }
+
+    /// A load-more started before the list was emptied (sign-out swaps in an empty model) must not
+    /// write its rows at an offset of the list it was built for: it is refused instead, so the
+    /// caller rebuilds.
+    #[test]
+    fn append_after_the_model_was_replaced_is_refused() {
+        let mut st = list_state(three());
+        let p = prefs();
+        let model = VecModel::from(build_rows(&st, &p));
+        st.emails.extend([msg("d", "Dan", "2024-07-20T08:30:00Z"), msg("e", "Eve", "2024-07-20T09:00:00Z")]);
+        // the model the page was built for is gone: the one now shown is empty
+        let empty: VecModel<Mail> = VecModel::from(Vec::<Mail>::new());
+        assert!(!append_rows_of(&empty, &st, 3, &p));
+        assert_eq!(empty.row_count(), 0);
+        // a model of another length is not written either (the rows would sit at the wrong place)
+        assert!(!append_rows_of(&model, &st, 4, &p));
+        assert_eq!(model.row_count(), 3);
+    }
+
+    /// A row is only written where its own id sits: a mark for a message whose row is not at that
+    /// position (the model was replaced, or holds another list) leaves the row alone.
+    #[test]
+    fn refresh_marked_skips_a_row_of_another_message() {
+        let mut st = list_state(three());
+        let p = prefs();
+        // a model with other messages, at the same positions
+        let other = VecModel::from(build_rows(&list_state(vec![
+            msg("x", "Xena", "2024-06-15T12:00:00Z"),
+            msg("y", "Yuri", "2024-06-16T12:00:00Z"),
+            msg("z", "Zoe", "2024-06-17T12:00:00Z"),
+        ]), &p));
+        let before: Vec<Mail> = other.iter().collect();
+        st.emails[0]["keywords"]["$seen"] = json!(true);
+        st.emails[1]["keywords"]["$label:red"] = json!(true);
+        refresh_marked_of(&other, &st, &["a".to_string(), "b".to_string(), "missing".to_string()], &p);
+        assert_rows(&other, &before);
+        // when the model does hold those messages, a mark updates its row
+        let model = VecModel::from(build_rows(&st, &p));
+        st.emails[2]["keywords"]["$seen"] = json!(true);
+        refresh_marked_of(&model, &st, &["c".to_string()], &p);
+        assert_rows(&model, &build_rows(&st, &p));
+    }
+
+    /// Sign-out forgets the list's own state and bumps the generation, so a load-more, a sync or a
+    /// reload started before it is dropped when it lands (as `clear_list` does).
+    #[test]
+    fn sign_out_forgets_the_list_state() {
+        let gen = LIST.with(|l| {
+            let mut l = l.borrow_mut();
+            l.emails = three();
+            l.total = 99;
+            l.checked.insert("a".into());
+            l.checked.insert("b".into());
+            l.filter = json!({"inMailbox": "mb1"});
+            l.loading = true;
+            l.generation
+        });
+        forget_list();
+        LIST.with(|l| {
+            let l = l.borrow();
+            assert!(l.emails.is_empty(), "the messages are left");
+            assert_eq!(l.total, 0);
+            assert!(l.checked.is_empty());
+            assert!(l.filter.is_null());
+            assert!(!l.loading);
+            assert!(l.sync.is_none());
+            assert_eq!(l.generation, gen + 1, "the generation did not move");
+        });
     }
 
     #[test]
@@ -1916,7 +2002,7 @@ mod tests {
         let start = st.emails.len();
         st.emails.push(rich("x", "Xena", "2024-06-20T08:00:00Z", true, false, None));
         st.emails.push(rich("y", "Yuri", "2024-08-01T09:00:00Z", false, true, Some("blue")));
-        append_rows_of(&model, &st, start, p);
+        assert!(append_rows_of(&model, &st, start, p), "{label}: load-more refused");
         assert_rows_named(&model, &expect(&st), &format!("{label}: load-more"));
 
         let mut after = st;
@@ -1969,5 +2055,73 @@ mod tests {
         let mut unified = unified;
         unified.filter = json!({"unified": true});
         check_paths("unified-tint", unified, &settings(&[("tintListRowsByAccount", json!("tint"))]));
+    }
+
+    /// A few rows' fields pinned to hand-written values (not to another code path): the cleaned
+    /// preview, the search highlight, the one-time code, the tag tint and the date group header.
+    /// A change in `mail_row` has to be a deliberate change here too.
+    #[test]
+    fn rows_carry_the_expected_field_values() {
+        let p = settings(&[("tintListRowsByTag", json!(true))]);
+        let mut tagged = msg("a", "Alice", "2024-06-15T12:00:00Z");
+        tagged["preview"] = json!("Preview\u{200b}   a\u{00ad} with\tspace");
+        tagged["keywords"]["$label:red"] = json!(true);
+        let mut hit = msg("b", "Bob", "2024-06-16T12:00:00Z");
+        hit["keywords"]["$seen"] = json!(true);
+        let mut fresh = msg("c", "Carol", &Local::now().to_rfc3339());
+        fresh["subject"] = json!("Your verification code is 177945");
+        fresh["keywords"]["$seen"] = json!(true);
+        let st = list_state(vec![tagged, hit, fresh]);
+        // the server's snippet for "b": the search term marked in the subject and in the preview
+        crate::search_ui::clear_snippets();
+        crate::search_ui::seed_snippet("b",
+            vec![("Subject ".into(), false), ("b".into(), true)],
+            vec![("Preview ".into(), true), ("b".into(), false)]);
+        let rows = build_rows(&st, &p);
+        crate::search_ui::clear_snippets();
+
+        let no_colour = Color::from_argb_u8(255, 0, 0, 0);
+        // row 0: the preview has its invisible characters dropped, the tag tints the row, and the
+        // date group header names the month (the message is from another year)
+        let a = &rows[0];
+        assert_eq!(a.id.as_str(), "a");
+        assert_eq!(a.sender.as_str(), "Alice");
+        assert_eq!(a.initials.as_str(), "AL");
+        assert_eq!(a.subject.as_str(), "Subject a");
+        assert_eq!(a.preview.as_str(), "Preview a with space");
+        assert_eq!(a.header.as_str(), "June 2024");
+        assert_eq!(a.time.as_str(), "15 Jun");
+        assert!(a.unread);
+        assert!(!a.flagged && !a.answered && !a.draft && !a.checked && !a.attach);
+        assert!(!a.hl);
+        assert_eq!(a.hl_subject, slint::StyledText::default());
+        assert_eq!(a.hl_preview, slint::StyledText::default());
+        assert_eq!(a.code.as_str(), "");
+        assert_eq!(a.threads, 1);
+        assert_eq!(a.files.iter().count(), 0);
+        assert_eq!(a.account.as_str(), "");
+        assert_eq!(a.account_color, no_colour);
+        assert_eq!(a.tags.iter().collect::<Vec<_>>(), vec![Color::from_argb_u8(255, 0xef, 0x44, 0x44)]);
+        // the row tint is the tag's own red at 12% opacity (Bulwark tintListRowsByTag)
+        assert_eq!(a.row_tint, Color::from_argb_u8(31, 0xef, 0x44, 0x44));
+        assert_eq!(a.avatar_kind, 0);
+
+        // row 1: the same date group (no header of its own), a search hit with both parts marked
+        let b = &rows[1];
+        assert_eq!(b.header.as_str(), "");
+        assert_eq!(b.preview.as_str(), "Preview b");
+        assert!(!b.unread);
+        assert!(b.hl);
+        let marked = |md: &str| slint::StyledText::from_markdown(md).expect("markdown");
+        assert_eq!(b.hl_subject, marked("Subject <font color=\"#c8234a\">**b**</font>"));
+        assert_eq!(b.hl_preview, marked("<font color=\"#c8234a\">**Preview**</font> b"));
+
+        // row 2: todays mail, with its one-time code
+        let c = &rows[2];
+        assert_eq!(c.header.as_str(), "Today");
+        assert_eq!(c.subject.as_str(), "Your verification code is 177945");
+        assert_eq!(c.code.as_str(), "177945");
+        assert!(!c.unread);
+        assert!(!c.time.is_empty());
     }
 }

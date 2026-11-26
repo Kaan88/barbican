@@ -1004,6 +1004,9 @@ fn main() -> Result<(), slint::PlatformError> {
         u.set_accounts(accounts_model());
         u.set_current_mail("".into());
         u.set_folders(ModelRc::new(VecModel::from(Vec::<Folder>::new())));
+        // the list's own state goes too, and any page still loading is dropped by the new
+        // generation: it must not append (or mark) rows of the account that just signed out
+        mail::forget_list();
         u.set_mails(ModelRc::new(VecModel::from(Vec::<Mail>::new())));
         // a credential that stayed in the keychain is not "signed out"
         u.set_status(if forgot.cleared { "Signed out.".into() } else {

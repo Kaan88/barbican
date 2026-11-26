@@ -185,6 +185,12 @@ pub fn set_accent(c: slint::Color) { ACCENT.with(|a| *a.borrow_mut() = hex(c)); 
 /// A new list started: drop the old one's snippets.
 pub fn clear_snippets() { SNIP.with(|s| s.borrow_mut().clear()); }
 
+/// Tests: the server's snippet for a message, without asking for it.
+#[cfg(test)]
+pub(crate) fn seed_snippet(id: &str, subject: Vec<(String, bool)>, preview: Vec<(String, bool)>) {
+    SNIP.with(|s| { s.borrow_mut().insert(id.to_string(), (subject, preview)); });
+}
+
 /// The highlighted subject and preview of a row, as StyledText (empty when it has none).
 pub fn styled(id: &str, subject: &str, preview: &str) -> Option<(slint::StyledText, slint::StyledText)> {
     SNIP.with(|s| {
