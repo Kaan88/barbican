@@ -178,8 +178,10 @@ pub fn load(w: slint::Weak<AppWindow>, c: Arc<Client>) {
             // signed out or switched meanwhile, or a newer load of this view has started: this
             // one's cards are dropped whole, and the view stops pointing at a login that was left
             if !crate::livesync::landing(crate::livesync::View::Contacts, &owner, gen) {
-                let stale = CLIENT.with(|x| x.borrow().as_ref().is_some_and(|k| Arc::ptr_eq(k, &c)));
-                if stale { CLIENT.with(|x| *x.borrow_mut() = None); }
+                // the view stops pointing at a login that left; a newer load of the same login
+                // keeps its client
+                let same = CLIENT.with(|x| x.borrow().as_ref().is_some_and(|k| Arc::ptr_eq(k, &c)));
+                if drop_client(same, crate::livesync::is_current(&owner)) { CLIENT.with(|x| *x.borrow_mut() = None); }
                 return;
             }
             match res {
@@ -197,6 +199,12 @@ pub fn load(w: slint::Weak<AppWindow>, c: Arc<Client>) {
         });
     });
 }
+
+/// Whether a dropped load must also take the view's client back: only when the client it set is
+/// the dropped load's own **and** that login is no longer the current one. A load overtaken by a
+/// newer load of the same login keeps it, so the Directory, the contact panel and the notices keep
+/// working.
+fn drop_client(same_client: bool, login_is_current: bool) -> bool { same_client && !login_is_current }
 
 fn bare(k: &str) -> &str { k.strip_prefix("urn:uuid:").unwrap_or(k) }
 
@@ -618,5 +626,17 @@ mod live_tests {
         assert_eq!(books.iter().map(|b| b["id"].as_str().unwrap()).collect::<Vec<_>>(), ["b1", "b3"]);
         assert_eq!(all.iter().map(|c| full_name(c)).collect::<Vec<_>>(), ["Ann B", "Cy"]);
         assert!(all[0].get("emails").is_none(), "an updated card is replaced whole");
+    }
+
+    #[test]
+    fn a_dropped_load_takes_the_client_back_only_when_its_login_left() {
+        // a newer load of the same login overtook this one: the view keeps its client, so the
+        // Directory, the contact panel and the notices keep working
+        assert!(!drop_client(true, true));
+        // the login it was for is gone: the view must not keep pointing at it
+        assert!(drop_client(true, false));
+        // the client is already the newer load's: nothing of this load's to take back
+        assert!(!drop_client(false, true));
+        assert!(!drop_client(false, false));
     }
 }

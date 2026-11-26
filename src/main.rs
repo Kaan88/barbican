@@ -2485,6 +2485,10 @@ fn finish_login(w: slint::Weak<AppWindow>, st: Shared, res: Result<jmap::Client,
             let w2 = w.clone();
             let _ = w.upgrade_in_event_loop(move |u| {
                 if !current() { return; }
+                // the previous login's birthdays must not stay on the calendar: cleared here, on
+                // the UI thread and before the first calendar load, since that is where they are
+                // read (the store is process-wide, but this is the view's own thread)
+                crate::cal_extra::forget_people();
                 u.invoke_chat_reload();
                 u.set_accounts(accounts_model());
                 u.set_busy(false);

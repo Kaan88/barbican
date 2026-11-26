@@ -297,11 +297,11 @@ pub fn unfollow(view: View) { with(|l| l.unfollow_for_the_session(view)) }
 /// with its views, exactly as it was. The notifications and identities kept for the bell stay.
 pub fn start_session(c: Arc<Client>) {
     let key = c.state_key();
+    // the ledger and the session are process-wide (Mutexes), so this is right from the sign-in's
+    // worker thread; the birthday cards are cleared on the UI thread by the caller (finish_login),
+    // because that is where the calendar reads them
     with(|l| { l.session_takeover(Some(&key)); });
     set_current(Some(c));
-    // the birthday cards are the login that left's: cleared (and their revision moved on, so a
-    // read still in flight cannot put them back)
-    crate::cal_extra::forget_people();
 }
 
 /// A full load of `view` for `owner` landed (UI thread): record its states and whether the read
@@ -575,10 +575,10 @@ pub fn load_identities(c: &Client) -> Result<(Vec<Value>, Option<String>), Strin
 }
 
 /// Identities read for `c` landed (UI thread): kept, recorded and shown, unless the session is no
-/// longer `c`'s (or a newer load has overtaken it).
+/// longer `c`'s or a newer load has overtaken this one (checked first, before anything is shown).
 pub fn identities_loaded(u: &AppWindow, c: &Arc<Client>, list: Vec<Value>, state: Option<String>, gen: u64) {
     let owner = c.state_key();
-    if !is_current(&owner) { return; }
+    if !landing(View::Identities, &owner, gen) { return; }
     let acc = crate::identities::account(c);
     *IDENTITIES.lock().unwrap_or_else(|e| e.into_inner()) = (owner.clone(), list.clone());
     let states: Vec<Step> = state.into_iter().map(|s| ("Identity".to_string(), acc.clone(), s)).collect();
@@ -739,6 +739,11 @@ mod tests {
         let third = l.begin_load(View::Calendar);
         assert_eq!(l.landing(View::Calendar, third, false), Landing::Drop);
         assert_eq!(l.landing(View::Calendar, third, true), Landing::Draw);
+        // the identities view follows the same rule (its landing checks before it shows anything)
+        let i1 = l.begin_load(View::Identities);
+        let i2 = l.begin_load(View::Identities);
+        assert_eq!(l.landing(View::Identities, i1, true), Landing::Drop);
+        assert_eq!(l.landing(View::Identities, i2, true), Landing::Draw);
     }
 
     #[test]

@@ -16,20 +16,20 @@ use std::sync::Arc;
 
 thread_local! {
     static SHARED: RefCell<Option<crate::Shared>> = const { RefCell::new(None) };
-    /// contact cards (name, emails, birthdays, group members), shared so a rebuild of the
-    /// calendar hands them to its worker instead of copying every card
-    static PEOPLE: RefCell<Arc<Vec<Value>>> = RefCell::new(Arc::new(Vec::new()));
-    /// The cards' revisions: a read takes the next number before it starts and only a newer number
-    /// may replace the cards on show, so a slow read (the birthday calendar's) never overwrites
-    /// cards that arrived meanwhile (the contacts view's own). Every update takes one too.
-    static PEOPLE_NEXT: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
-    static PEOPLE_SHOWN: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
     /// The "show birthday calendar" switch as the view last saw it (see [`birthday_calendar_switched`]).
     static BDAY_ON: std::cell::Cell<Option<bool>> = const { std::cell::Cell::new(None) };
     static IMPORT: RefCell<Option<(String, Vec<Value>)>> = const { RefCell::new(None) };
     static TASK_LISTS: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
     static IMPORT_TARGETS: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
 }
+
+/// The birth anniversary cards (name, emails, birthdays, group members) and their revisions.
+/// Process-wide, not per thread: a session's start and its sign-out clear them from whichever
+/// thread the sign-in or the sign-out runs on, while the calendar reads them on the UI thread.
+struct Cards { list: Option<Arc<Vec<Value>>>, next: u64, shown: u64 }
+static CARDS: std::sync::Mutex<Cards> = std::sync::Mutex::new(Cards { list: None, next: 0, shown: 0 });
+
+fn cards() -> std::sync::MutexGuard<'static, Cards> { CARDS.lock().unwrap_or_else(|e| e.into_inner()) }
 
 /// The signed-in client (UI thread).
 pub fn client() -> Option<Arc<Client>> {
@@ -46,19 +46,20 @@ pub fn fetch_people(c: &Client) -> Result<Vec<Value>, String> {
 }
 
 /// The cards' next revision: take it before reading them (see [`set_people_at`]).
-pub fn people_read() -> u64 { PEOPLE_NEXT.with(|n| { let v = n.get().wrapping_add(1); n.set(v); v }) }
+pub fn people_read() -> u64 { let mut c = cards(); c.next = c.next.wrapping_add(1); c.next }
 
 /// Put the cards read at revision `rev`: `false` (and nothing changes) when cards at that revision
 /// or newer are already on show, so a slow read never overwrites newer cards.
 pub fn set_people_at(rev: u64, p: Vec<Value>) -> bool {
-    if rev <= PEOPLE_SHOWN.with(|s| s.get()) { return false; }
-    PEOPLE.with(|x| *x.borrow_mut() = Arc::new(p));
-    PEOPLE_SHOWN.with(|s| s.set(rev));
+    let mut c = cards();
+    if rev <= c.shown { return false; }
+    c.list = Some(Arc::new(p));
+    c.shown = rev;
     true
 }
 
-/// The cards are another login's now (sign-out, another account): cleared. Their revision moves
-/// on, so a read still in flight cannot put the previous login's cards back.
+/// The cards are another login's now (sign-out, another account): cleared from any thread. Their
+/// revision moves on, so a read still in flight cannot put the previous login's cards back.
 pub fn forget_people() { let rev = people_read(); set_people_at(rev, vec![]); }
 
 /// Put cards that are newer than any read in flight (the contacts view's own, or a test).
@@ -66,7 +67,7 @@ pub fn set_people(p: Vec<Value>) { let rev = people_read(); set_people_at(rev, p
 
 /// The loaded contact cards, shared with the caller (the birthday calendar's worker reads them:
 /// a rebuild must not copy every card on the UI thread).
-pub fn people() -> Arc<Vec<Value>> { PEOPLE.with(|p| Arc::clone(&p.borrow())) }
+pub fn people() -> Arc<Vec<Value>> { cards().list.clone().unwrap_or_default() }
 
 /// The "show birthday calendar" switch, as the view last saw it: `true` when it was just turned on
 /// (turn it on is the moment its cards may be out of date, since a cached calendar visit no longer
@@ -109,8 +110,9 @@ fn card_emails(c: &Value) -> Vec<String> {
 
 /// Contacts and groups whose name or address contains `q`, without the addresses in `have`.
 pub fn people_matching(q: &str, have: &[String], max: usize) -> Vec<(Person, Vec<Person>)> {
-    PEOPLE.with(|p| {
-        let p = p.borrow();
+    let cards = people();
+    let p: &[Value] = &cards;
+    {
         let mut out: Vec<(Person, Vec<Person>)> = vec![];
         for c in p.iter() {
             let name = card_name(c);
@@ -132,7 +134,7 @@ pub fn people_matching(q: &str, have: &[String], max: usize) -> Vec<(Person, Vec
         out.sort_by_key(|(p, _)| (!p.name.to_lowercase().starts_with(q) && !p.email.to_lowercase().starts_with(q), p.name.to_lowercase()));
         out.truncate(max);
         out
-    })
+    }
 }
 
 // ---------------- birthday calendar ----------------
@@ -180,7 +182,7 @@ pub fn birthdays_in(cards: &[Value], from: NaiveDate, to: NaiveDate) -> Vec<Occ>
     out
 }
 
-pub fn birthday_occurrences(from: NaiveDate, to: NaiveDate) -> Vec<Occ> { PEOPLE.with(|p| birthdays_in(p.borrow().as_slice(), from, to)) }
+pub fn birthday_occurrences(from: NaiveDate, to: NaiveDate) -> Vec<Occ> { birthdays_in(&people(), from, to) }
 
 /// One birthday by its key ("cardId:anniversaryKey:year").
 pub fn birthday(key: &str) -> Option<Occ> {
@@ -1080,6 +1082,12 @@ pub fn wire(ui: &AppWindow, st: crate::Shared) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The cards are process-wide (a session's start clears them from the sign-in's thread), so
+    /// the tests that set them take turns.
+    static CARDS_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    fn cards_lock() -> std::sync::MutexGuard<'static, ()> { CARDS_LOCK.lock().unwrap_or_else(|e| e.into_inner()) }
+
     #[test]
     fn agenda_titles_lose_marker_and_day_filter_toggles() {
         assert_eq!(agenda_task_title("\u{25CB} Pay rent"), "Pay rent");
@@ -1231,6 +1239,7 @@ mod tests {
 
     #[test]
     fn a_switch_or_sign_out_clears_the_cards() {
+        let _g = cards_lock();
         let stale = people_read();
         set_people(vec![json!({"id": "a", "name": {"full": "Ann"}})]);
         forget_people();
@@ -1241,7 +1250,18 @@ mod tests {
     }
 
     #[test]
+    fn the_cards_are_cleared_from_the_sign_ins_thread_too() {
+        // a sign-in runs on a worker thread: its clear must reach the cards the UI thread reads
+        // (the store is process-wide, not per thread)
+        let _g = cards_lock();
+        set_people(vec![json!({"id": "a", "name": {"full": "Ann"}})]);
+        std::thread::spawn(forget_people).join().unwrap();
+        assert!(people().is_empty(), "the previous login's birthdays are gone");
+    }
+
+    #[test]
     fn a_slow_read_of_the_cards_never_overwrites_newer_ones() {
+        let _g = cards_lock();
         // the birthday calendar's read was taken before the contacts view set its own cards
         let slow = people_read();
         set_people(vec![json!({"id": "new", "name": {"full": "New Card"}})]);
@@ -1264,6 +1284,7 @@ mod tests {
 
     #[test]
     fn the_birthday_cards_are_shared_not_copied() {
+        let _g = cards_lock();
         // a calendar rebuild hands the cards to its worker, so it takes an Arc, never a copy
         set_people(vec![
             json!({"id": "c1", "name": {"full": "Ann Lee"}, "anniversaries": {"b": {"kind": "birth", "date": {"@type": "PartialDate", "year": 1990, "month": 11, "day": 20}}}}),
@@ -1311,6 +1332,7 @@ mod tests {
 
     #[test]
     fn people_search() {
+        let _g = cards_lock();
         set_people(vec![
             json!({"id": "1", "uid": "u1", "name": {"full": "Ann Lee"}, "emails": {"e": {"address": "ann@x.org"}}}),
             json!({"id": "2", "uid": "u2", "name": {"full": "Bob Annex"}, "emails": {"e": {"address": "bob@x.org"}}}),
