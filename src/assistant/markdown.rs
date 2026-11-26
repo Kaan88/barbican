@@ -15,6 +15,9 @@
 //! * Only `http(s)` and `mailto:` links become [`Inline::Link`]s; any other target leaves the
 //!   label as text.
 //!
+//! Text and link targets are kept as they are, not HTML-escaped: the panel (M13) must escape them
+//! when it renders the tree.
+//!
 //! The markdown-shared-rs toolkit has no Markdown block parser to reuse (its crates highlight
 //! code and convert HTML; the editors parse elsewhere), so this one stays here; the tree is the
 //! interface the panel (M13) renders.
@@ -499,10 +502,16 @@ struct Level {
 // Indentation-based nested lists. Each open level keeps its own list and the lines of its current
 // item; an item's lines are rendered (inline when they are a single paragraph, as blocks
 // otherwise) when the item ends or a nested list starts inside it.
+//
+// `level` below is a level's index in `stack`, so its items' content sits `depth + level + 1`
+// deep. Nesting stops at `MAX_DEPTH` (the deepest container may sit one level past it, as a
+// quote's does): a line indented under a level past it stays text in that item instead of opening
+// another list (unbounded nesting overflows the stack while the tree is built or dropped, which
+// `catch_unwind` cannot stop).
 fn render_list(dom: &mut Dom, lines: &[String], mut i: usize, container: usize, depth: usize) -> usize {
     let mut stack: Vec<Level> = Vec::new();
 
-    let flush_item = |dom: &mut Dom, lvl: &mut Level| {
+    let flush_item = |dom: &mut Dom, lvl: &mut Level, level: usize| {
         let Some(li) = lvl.li else { return };
         if lvl.buf.is_empty() {
             return;
@@ -524,8 +533,8 @@ fn render_list(dom: &mut Dom, lines: &[String], mut i: usize, container: usize, 
                 push_all(&mut run, inl(l.trim()));
                 dom.inline_into(li, run);
             }
-        } else if depth < MAX_DEPTH {
-            render_blocks(dom, &buf, li, depth + 1);
+        } else if depth + level < MAX_DEPTH {
+            render_blocks(dom, &buf, li, depth + level + 1);
         } else {
             dom.inline_into(li, vec![Inline::Text(buf.join("\n"))]);
         }
@@ -580,22 +589,33 @@ fn render_list(dom: &mut Dom, lines: &[String], mut i: usize, container: usize, 
 
             // close deeper levels
             while stack.len() > 1 && ind + 1 < stack.last().unwrap().indent {
+                let level = stack.len() - 1;
                 let mut lvl = stack.pop().unwrap();
-                flush_item(dom, &mut lvl);
+                flush_item(dom, &mut lvl, level);
             }
             if stack.is_empty() {
                 let mut lvl = new_list(dom, container, ordered, number, ind, content);
                 lvl.marker = marker.clone();
                 stack.push(lvl);
             } else {
+                let level = stack.len() - 1;
+                let can_nest = depth + level + 1 < MAX_DEPTH;
                 let top = stack.last_mut().unwrap();
                 if ind >= top.indent + 2 && top.li.is_some() {
-                    flush_item(dom, top);
-                    let li = top.li.unwrap();
-                    let child = new_list(dom, li, ordered, number, ind, content);
-                    stack.push(child);
+                    flush_item(dom, top, level);
+                    if can_nest {
+                        let li = top.li.unwrap();
+                        let child = new_list(dom, li, ordered, number, ind, content);
+                        stack.push(child);
+                    } else {
+                        // past the nesting limit: the line stays text in the item
+                        let text = dedent(line, ind.min(top.content));
+                        top.buf.push(text);
+                        i += 1;
+                        continue;
+                    }
                 } else {
-                    flush_item(dom, top);
+                    flush_item(dom, top, level);
                     if top.marker != marker {
                         let parent = top.parent;
                         *top = new_list(dom, parent, ordered, number, ind, content);
@@ -625,8 +645,9 @@ fn render_list(dom: &mut Dom, lines: &[String], mut i: usize, container: usize, 
         // a continuation line belongs to the deepest level it is indented under
         if !stack.is_empty() && (ind >= 2 || in_fence) {
             while stack.len() > 1 && ind < stack.last().unwrap().indent + 2 && !in_fence {
+                let level = stack.len() - 1;
                 let mut lvl = stack.pop().unwrap();
-                flush_item(dom, &mut lvl);
+                flush_item(dom, &mut lvl, level);
             }
             let lvl = stack.last_mut().unwrap();
             lvl.buf.push(dedent(line, ind.min(lvl.content)));
@@ -642,8 +663,10 @@ fn render_list(dom: &mut Dom, lines: &[String], mut i: usize, container: usize, 
         }
         break;
     }
-    while let Some(mut lvl) = stack.pop() {
-        flush_item(dom, &mut lvl);
+    while !stack.is_empty() {
+        let level = stack.len() - 1;
+        let mut lvl = stack.pop().unwrap();
+        flush_item(dom, &mut lvl, level);
     }
     i
 }
@@ -880,7 +903,11 @@ fn inline(t: &[char], out: &mut Vec<Inline>, depth: usize) {
                 let href = safe_href(&if target.contains(':') { target.to_string() } else { format!("mailto:{target}") });
                 if let Some(href) = href {
                     flush(out, &mut buf);
-                    let label = if target.len() >= 7 && target[..7].eq_ignore_ascii_case("mailto:") { &target[7..] } else { target };
+                    // a label is never cut mid-character: `Şükrü@…` has no boundary at 7
+                    let label = match target.get(..7) {
+                        Some(head) if head.eq_ignore_ascii_case("mailto:") => &target[7..],
+                        _ => target,
+                    };
                     push(out, Inline::Link { href, content: vec![Inline::Text(label.to_string())] });
                     i += m[0].chars().count();
                     continue;
@@ -1128,6 +1155,35 @@ mod tests {
     }
 
     #[test]
+    fn deep_lists_stop_at_the_nesting_limit() {
+        // a tab-nested list one level deeper than MAX_DEPTH every line; unbounded nesting would
+        // overflow the stack while the tree is built or dropped
+        let mut md = String::new();
+        for k in 0..48 {
+            md.push_str(&"\t".repeat(k));
+            md.push_str(&format!("- line{k}\n"));
+        }
+        fn depth_of(b: &Block) -> usize {
+            let kids = |bs: &[Block]| bs.iter().map(depth_of).max().unwrap_or(0);
+            match b {
+                Block::List { items, .. } => 1 + items.iter().map(|i| kids(&i.content)).max().unwrap_or(0),
+                Block::Quote(inner) => 1 + kids(inner),
+                _ => 0,
+            }
+        }
+        let blocks = parse(&md);
+        let plain = format!("{blocks:?}");
+        assert!(!blocks.iter().any(|b| matches!(b, Block::Plain(_))), "the whole answer fell back to plain text");
+        // the lines past the limit are kept as text in the deepest item, not dropped
+        assert!(plain.contains("line0"), "{plain}");
+        assert!(plain.contains("line47"), "the deepest line was dropped: {plain}");
+        let depth = depth_of(&blocks[0]);
+        // the recursion stops at MAX_DEPTH, so the deepest container is one level past it, as a
+        // quote's is (quotes: 13 levels, then plain text)
+        assert_eq!(depth, MAX_DEPTH + 1, "nesting depth {depth}");
+    }
+
+    #[test]
     fn inline_spans() {
         let one = |s: &str| match parse(s).into_iter().next() {
             Some(Block::Paragraph(c)) => c,
@@ -1161,18 +1217,38 @@ mod tests {
         assert_eq!(one("xhttp://no.test"), [t("xhttp://no.test")]);
         // unfinished spans stay text while they stream
         assert_eq!(one("**bold and [link](http"), [t("**bold and [link](http")]);
-        // the nesting limit leaves the rest as text
+        // an autolink's label is never cut mid-character (a non-ASCII local part has no byte
+        // boundary at 7)
+        assert_eq!(one("<Şükrü@example.test> <山田太郎@example.jp>"), [
+            link("mailto:Şükrü@example.test", "Şükrü@example.test"),
+            t(" "),
+            link("mailto:山田太郎@example.jp", "山田太郎@example.jp"),
+        ]);
+        // the nesting limit leaves the rest as text: 13 links, then the brackets as they are
         let deep = "[".repeat(20) + "x" + &"](http://h.test)".repeat(20);
-        assert!(inline_text(&one(&deep)).contains('x'));
+        let content = one(&deep);
+        let mut levels = 0;
+        let mut cur: &[Inline] = &content;
+        while let [Inline::Link { content, .. }] = cur {
+            levels += 1;
+            cur = content.as_slice();
+        }
+        assert_eq!(levels, MAX_DEPTH + 1);
+        assert_eq!(inline_text(&content), "[".repeat(7) + "x" + &"](http://h.test)".repeat(7));
     }
 
     #[test]
     fn inline_text_and_odd_input_never_fails() {
         assert_eq!(inline_text(&[Inline::Strong(vec![t("a")]), Inline::Break, Inline::Image { alt: "i".into(), href: "h".into() }]), "a\ni");
+        // odd input is parsed rather than passed through as one plain block, which is what an
+        // internal panic would give; a panic here would pass unnoticed before
         for s in ["*", "**", "***", "~~", "[", "![", "](", "<", "`", "|", "|\n|-", "- [", "1.", "> ", "\t- x\n\t\t- y", "* * *x", "_ _ _"] {
-            let _ = parse(s);
+            let blocks = parse(s);
+            assert!(!blocks.iter().any(|b| matches!(b, Block::Plain(_))), "{s:?} fell back to plain text");
         }
         let mixed = "# T\n> - a\n>   ```\n>   x\n| a |\n|---|\n- [ ] t\n  1. n\n     > q";
-        assert!(!parse(mixed).is_empty());
+        assert_eq!(parse(mixed).first(), Some(&Block::Heading { level: 3, content: vec![t("T")] }));
+        assert!(!parse(mixed).iter().any(|b| matches!(b, Block::Plain(_))), "{:?}", parse(mixed));
+        assert_eq!(parse(mixed).len(), 4, "{:?}", parse(mixed));
     }
 }

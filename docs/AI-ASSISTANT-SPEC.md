@@ -252,6 +252,16 @@ async function buildUserTurn(text) {
 The full message is sent once per conversation per message id (`sentContext`). Later turns refer to
 it by id. After a message was sent and none is open now, it says so.
 
+Barbican note: a JMAP email id is unique only within its account (Stalwart's are short and
+sequential, so two accounts can hold the same one), so the tag the model sees names both —
+`<email id="b" account="d">` — and `sentContext` is keyed on the pair. Barbican also closes off the
+tags: a `</email`, `</passage` or `</text` inside the text it inserts (body, subject, recipient and
+attachment names, folder, passage, quote, selection, own text) has its slash escaped, `<\/email`, so
+an email cannot end its block and pass for the user's own turn. That is a deliberate departure from
+the extension, which inserts the text as it is, because with Actions set to Automatic it is a real
+prompt-injection path. Barbican also lists at most 5 addresses or attachments per header line,
+followed by "and N more".
+
 **Message as text for the model** (`lib/mail.js:92`):
 
 ```js
@@ -605,6 +615,10 @@ function cleanResult(text) {
 ```
 
 - **Output:** result view (2.19), title `Suggested text`.
+
+Barbican note: `buildPrompt` cuts the quote, the selection and the own text to 8000 characters
+(`MAX_QUOTE`) and lists at most 5 recipients in the To line, followed by "and N more"; closing tags
+inside those texts are neutralised as in 2.0.
 
 ### 2.14 Writing help: rewrite
 
